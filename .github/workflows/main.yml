@@ -1,0 +1,36 @@
+name: Generate Stock Data
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # 每天 UTC 9:00 執行一次，請根據需要調整時間
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas ta-lib jinja2
+      
+      - name: Run Python script
+        run: |
+          python generate_stock_data.py
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
