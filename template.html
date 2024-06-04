@@ -26,6 +26,19 @@
         .chart-container {
             margin-top: 20px;
         }
+        .debug-log {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+        }
+        .debug-log h2 {
+            margin-top: 0;
+        }
+        .debug-log pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
     </style>
     <script>
         function showChart(ticker) {
@@ -42,5 +55,10 @@
         {% endfor %}
     </ul>
     <div id="chart-container" class="chart-container"></div>
+
+    <div class="debug-log">
+        <h2>Debug Log</h2>
+        <pre>{{ debug_log | join('\n') }}</pre>
+    </div>
 </body>
 </html>
