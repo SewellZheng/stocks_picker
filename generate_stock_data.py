@@ -17,10 +17,11 @@ def get_all_taiwan_stocks():
         df = pd.DataFrame(data)
 
         # Debug: Print the columns of the DataFrame
+        # "DataFrame columns: ['Code', 'Name', 'TradeVolume', 'TradeValue', 'OpeningPrice', 'HighestPrice', 'LowestPrice', 'ClosingPrice', 'Change', 'Transaction']"]
         debug_log.append(f"DataFrame columns: {df.columns.tolist()}")
         
         # 提取股票代號
-        stock_list = df['證券代號'].tolist()
+        stock_list = df['Code'].tolist()
         
         # 只保留有效的股票代號
         stock_list = [ticker + '.TW' for ticker in stock_list if ticker.isdigit()]
