@@ -15,9 +15,12 @@ def get_all_taiwan_stocks():
         debug_log.append("Successfully fetched stock data from TWSE API.")
         data = response.json()
         df = pd.DataFrame(data)
+
+        # Debug: Print the columns of the DataFrame
+        debug_log.append(f"DataFrame columns: {df.columns.tolist()}")
         
         # 提取股票代號
-        stock_list = df['股票代號'].tolist()
+        stock_list = df['證券代號'].tolist()
         
         # 只保留有效的股票代號
         stock_list = [ticker + '.TW' for ticker in stock_list if ticker.isdigit()]
