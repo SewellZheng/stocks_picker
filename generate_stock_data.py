@@ -35,7 +35,7 @@ def get_all_taiwan_stocks():
 
 def get_stock_data(ticker):
     stock = yf.Ticker(ticker)
-    df = stock.history(period='1mo', interval='1d')
+    df = stock.history(period='5d', interval='1d')
     return df
 
 def calculate_indicators(df):
