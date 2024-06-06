@@ -224,8 +224,8 @@ def get_test_taiwan_stocks():
     return stock_list, stock_list
 
 def main():
-    stock_list, fetch_log = get_test_taiwan_stocks()
-    #stock_list, fetch_log = get_all_taiwan_stocks()
+    #stock_list, fetch_log = get_test_taiwan_stocks()
+    stock_list, fetch_log = get_all_taiwan_stocks()
     debug_log = fetch_log
 
     filtered_stocks, filter_log = filter_stocks(stock_list)
