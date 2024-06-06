@@ -2,7 +2,7 @@ name: Generate Stock Data
 
 on:
   schedule:
-    - cron: '0 9 * * *'  # 每天 UTC 9:00 执行一次
+    - cron: '30 6 * * *'  # 每天 UTC 6:30 執行一次, UTC+8 14:30
   push:
     branches:
       - main
