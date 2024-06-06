@@ -188,7 +188,8 @@ def filter_stocks(stock_list):
         #print(indicators['rsi_10t'].iloc[-1])
         if (indicators['psy_10t'].iloc[-1] > indicators['psy_20t'].iloc[-1]).item() and \
            (indicators['rsi_5t'].iloc[-1] > indicators['rsi_10t'].iloc[-1]).item() and \
-           (indicators['macd_hist'].iloc[-1] > -2.5).item():
+           (indicators['kd_9k'].iloc[-1] > indicators['kd_9d'].iloc[-1]).item() and \
+           (indicators['macd_hist'].iloc[-1] > -0.8).item():
             #debug_log.append(f"Stock {ticker} meets the conditions.")
             result.append(ticker)
         #else:
