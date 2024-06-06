@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S.I</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        .stock-list {
+            list-style-type: none;
+            padding: 0;
+        }
+        .stock-list li {
+            margin: 5px 0;
+        }
+        .stock-list a {
+            text-decoration: none;
+            color: blue;
+            cursor: pointer;
+        }
+        .stock-list a:hover {
+            text-decoration: underline;
+        }
+        .chart-container {
+            margin-top: 20px;
+        }
+        .debug-log {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+        }
+        .debug-log h2 {
+            margin-top: 0;
+        }
+        .debug-log pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+    <script>
+        function showChart(ticker) {
+            var chartContainer = document.getElementById('chart-container');
+            chartContainer.innerHTML = '<img src="charts/' + ticker + '.png" alt="Stock Chart">';
+        }
+    </script>
+</head>
+<body>
+    <h1>S.I</h1>
+    <ul class="stock-list">
+        {% for stock in stock_list %}
+        <li><a onclick="showChart('{{ stock }}')">{{ stock }}</a></li>
+        {% endfor %}
+    </ul>
+    <div id="chart-container" class="chart-container"></div>
+
+    <div class="debug-log">
+        <h2>Debug Log</h2>
+        <pre>{{ debug_log | join('\n') }}</pre>
+    </div>
+    <div class="stock-table">
+        <h1>DataFrame Table</h1>
+        {{ html_table | safe }}
+    </div>
+</body>
+</html>
