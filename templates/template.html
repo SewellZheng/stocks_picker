@@ -42,8 +42,9 @@
     </style>
     <script>
         function showChart(ticker) {
-            var chartContainer = document.getElementById('chart-container');
-            chartContainer.innerHTML = '<img src="charts/' + ticker + '.png" alt="Stock Chart">';
+            const cleanTicker = ticker.replace('.TW', '');
+            const url = `https://www.wantgoo.com/stock/${cleanTicker}/technical-chart`;
+            window.open(url, '_blank');
         }
     </script>
 </head>
