@@ -38,10 +38,11 @@ def get_stock_data(ticker):
     return df
 
 def calculate_indicators(df):
-    #print(df)
+    #print(f'{df}')
     # 收盤價
     close = df['Close']
-    
+    close_yday = df['Close'].shift(1)
+
     # MACD
     macd, macdsignal, macdhist = talib.MACD(close, fastperiod=10, slowperiod=20, signalperiod=9)
     
@@ -62,6 +63,8 @@ def calculate_indicators(df):
     ma_20 = talib.SMA(close, timeperiod=20)
     
     indicators = {
+        'close_yday': close_yday,
+        'close': close,
         'macd': macd,
         'macd_signal': macdsignal,
         'macd_hist': macdhist,
@@ -75,13 +78,11 @@ def calculate_indicators(df):
         'ma_10': ma_10,
         'ma_20': ma_20
     }
-    
     return indicators
 
 def filter_stocks(stock_list):
     result = []
     debug_log = []
-    
     for ticker in stock_list:
         #debug_log.append(f"Processing stock: {ticker}")
         df = get_stock_data(ticker)
@@ -89,112 +90,26 @@ def filter_stocks(stock_list):
             #debug_log.append(f"No data for stock: {ticker}")
             continue
         
-        indicators = calculate_indicators(df)
-
         # 確保沒有 NaN 值影響比較
-        #indicators = indicators.dropna()
+        #print(f'{df}')
+        #df = df.dropna()
+        #print(f'{df}')
+        indicators = calculate_indicators(df)
+        #print(f'{indicators}')
 
-        # Check conditions
-        # 取出 PSY 指標序列中的最後一個值，即最新的 PSY 值。 > 計算 PSY 指標在最近 10 天的滾動平均值，並取出平均值最後一個值，即最新的 10 日均值。
-        # 取出 RSI 指標序列中的最後一個值，即最新的 RSI 值。 > 計算 RSI 指標在最近 5 天的滾動平均值，並取出平均值最後一個值，即最新的 5 日均值。
-        '''
-        PSY (Psychological Line) 指標的詳細解釋
-        PSY 指標是一種技術分析工具，用來衡量一定時間段內價格上漲天數的百分比。它的計算方法如下：
-        psy = close.pct_change().rolling(window=10).apply(lambda x: (x > 0).sum() / 10 * 100)
-        價格變動百分比 (pct_change)
-        close.pct_change() 計算每日收盤價的變動百分比。
-        滾動窗口 (rolling)
-        .rolling(window=10) 創建一個 10 天的滾動窗口。
-        應用函數 (apply)
-        .apply(lambda x: (x > 0).sum() / 10 * 100)：對每個滾動窗口內的數據應用一個 lambda 函數。
-        x > 0 計算在這 10 天內價格上漲的天數。
-        (x > 0).sum() 計算價格上漲天數的總和。
-        (x > 0).sum() / 10 * 100 將價格上漲天數轉換為百分比，即 PSY 指標。
-
-        計算每個 10 天窗口內價格上漲的百分比，並生成 PSY 指標序列。
-        應用 PSY 指標的條件：
-        if (indicators['psy'].iloc[-1] > indicators['psy'].rolling(window=20).mean().iloc[-1])
-
-        這段代碼的意思是：
-        indicators['psy'].iloc[-1]
-
-        取出 PSY 指標序列的最後一個值，即最新的 PSY 值。
-        indicators['psy'].rolling(window=10).mean().iloc[-1]
-
-        計算 PSY 指標的 10 天滾動平均值，並取出這個平均值的最後一個值，即最新的 10 日均值。
-        檢查最新的 PSY 值是否大於其最近 20 天的平均值。
-        詳細解釋這個條件的意義：
-        PSY 指標的最新值大於其 20 天均值
-        表示市場近期內（10 天內）價格上漲的天數比例大於過去 20 天內的平均上漲天數比例。
-        這通常被解讀為市場短期內有上升動能，可能會繼續上漲。
-        總結
-        PSY 指標：衡量一定時間段內（如 10 天）價格上漲天數的百分比。
-        條件檢查：最新的 PSY 值是否大於其最近 20 天的平均值，以判斷市場的短期上升動能。
-        這個條件可以幫助交易者判斷市場是否有強烈的上升趨勢，並可能在這種情況下考慮買入。與 MACD 類似，這是一種用來識別市場趨勢的技術指標。
-        ---------------------------------------------
-        RSI (Relative Strength Index) 相對強弱指數的詳細解釋
-        RSI 指標是一種常用的技術分析工具，用來衡量價格變動的速度和變動的幅度，以判斷市場的超買或超賣情況。RSI 的計算公式如下：
-        rsi = talib.RSI(close, timeperiod=5)
-        RSI 的計算步驟：
-        收盤價格 (close)
-        使用收盤價序列進行計算。
-        時間周期 (timeperiod=5)
-        設定 RSI 的計算周期為 5 天。
-        talib.RSI 函數使用 5 天的價格數據來計算 RSI 值。
-        RSI 的意義：
-        RSI 值範圍：0 到 100
-        超買區域：RSI > 70，表示市場可能過度上漲，有回調的風險。
-        超賣區域：RSI < 30，表示市場可能過度下跌，有反彈的機會。
-        應用 RSI 指標的條件：
-        if (indicators['rsi'].iloc[-1] > indicators['rsi'].rolling(window=10).mean().iloc[-1])
-        這段代碼的意思是：
-        indicators['rsi'].iloc[-1]
-        取出 RSI 指標序列的最後一個值，即最新的 RSI 值。
-        indicators['rsi'].rolling(window=10).mean().iloc[-1]
-        計算 RSI 指標的 10 天滾動平均值，並取出這個平均值的最後一個值，即最新的 10 日均值。
-        檢查最新的 RSI 值是否大於其最近 10 天的平均值。
-        詳細解釋這個條件的意義：
-        RSI 指標的最新值大於其 10 天均值
-        表示市場近期內（5 天內）價格變動的相對強度大於過去 10 天內的平均強度。
-        這通常被解讀為市場短期內有上升動能，可能會繼續上漲。
-        總結
-        RSI 指標：衡量價格變動的速度和幅度，以判斷市場的超買或超賣情況。
-        條件檢查：最新的 RSI 值是否大於其最近 10 天的平均值，以判斷市場的短期上升動能。
-        這個條件可以幫助交易者判斷市場是否有強烈的上升趨勢，並可能在這種情況下考慮買入。與 PSY 類似，這是一種用來識別市場趨勢的技術指標。使用 RSI 指標可以更好地了解市場的相對強弱，從而做出更明智的交易決策。
-        -----------------------------------------------------------------------------------------
-        1. macd
-        這是 MACD 線，它是快速指數移動平均線 (EMA) 和慢速指數移動平均線之間的差異。具體來說，計算過程如下：
-
-        快速 EMA (12 日)
-        慢速 EMA (26 日)
-        MACD 線：MACD = 快速 EMA - 慢速 EMA
-        這條線反映了兩條不同周期的 EMA 之間的差距，並用來衡量短期價格變動的強度。
-
-        2. macdsignal
-        這是 MACD 信號線，也稱為觸發線，它是 MACD 線的 9 日指數移動平均線。具體計算如下：
-
-        信號線 (9 日 EMA)：計算 MACD 線的 9 日指數移動平均線。
-        這條線用來產生買賣信號，當 MACD 線與信號線交叉時，會產生交易信號。例如：
-
-        當 MACD 線由下向上穿越信號線時，通常被視為買入信號。
-        當 MACD 線由上向下穿越信號線時，通常被視為賣出信號。
-        3. macdhist
-        這是 MACD 柱狀圖 (Histogram)，它是 MACD 線和信號線之間的差異。具體計算如下：
-
-        柱狀圖：MACD 柱狀圖 = MACD 線 - 信號線
-        柱狀圖提供了 MACD 線與信號線之間距離的可視化表示。當柱狀圖為正且擴大時，表示上升動能增強；當柱狀圖為負且擴大時，表示下降動能增強。
-        '''
-        #print(indicators['rsi_5t'].iloc[-1])
-        #print(indicators['rsi_10t'].iloc[-1])
-        if (indicators['psy_10t'].iloc[-1] > indicators['psy_20t'].iloc[-1]).item() and \
-           (indicators['rsi_5t'].iloc[-1] > indicators['rsi_10t'].iloc[-1]).item() and \
-           (indicators['kd_9k'].iloc[-1] > indicators['kd_9d'].iloc[-1]).item() and \
-           (indicators['macd_hist'].iloc[-1] > -0.8).item():
+        #print(indicators['close'].iloc[-1])
+        #print(indicators['close_yday'].iloc[-1])
+        if (indicators['close'].iloc[-1] / indicators['close_yday'].iloc[-1] >= 0.5).item() and \
+        (indicators['macd_hist'].iloc[-1] >= 1.5).item() and \
+        (indicators['rsi_5t'].iloc[-1] > indicators['rsi_10t'].iloc[-1]).item() and \
+        (indicators['psy_10t'].iloc[-1] >= indicators['psy_20t'].iloc[-1]-10).item() and \
+        (indicators['kd_9k'].iloc[-1] >= indicators['kd_9d'].iloc[-1]).item() and \
+        (abs(indicators['ma_5'].iloc[-1]-indicators['ma_10'].iloc[-1]) > 10).item() and \
+        (abs(indicators['ma_5'].iloc[-1]-indicators['ma_20'].iloc[-1]) > 10).item():
             #debug_log.append(f"Stock {ticker} meets the conditions.")
             result.append(ticker)
         #else:
             #debug_log.append(f"Stock {ticker} does not meet the conditions.")
-    
     return result, debug_log
 
 def generate_html(stock_list, debug_log, html_table):
