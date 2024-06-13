@@ -104,8 +104,8 @@ def filter_stocks(stock_list):
         (indicators['rsi_5t'].iloc[-1] > indicators['rsi_10t'].iloc[-1]).item() and \
         (indicators['psy_10t'].iloc[-1] >= indicators['psy_20t'].iloc[-1]-10).item() and \
         (indicators['kd_9k'].iloc[-1] >= indicators['kd_9d'].iloc[-1]).item() and \
-        (abs(indicators['ma_5'].iloc[-1]-indicators['ma_10'].iloc[-1]) > 10).item() and \
-        (abs(indicators['ma_5'].iloc[-1]-indicators['ma_20'].iloc[-1]) > 10).item():
+        (abs(indicators['ma_5'].iloc[-1]-indicators['ma_10'].iloc[-1]) <= 10).item() and \
+        (abs(indicators['ma_5'].iloc[-1]-indicators['ma_20'].iloc[-1]) <= 10).item():
             #debug_log.append(f"Stock {ticker} meets the conditions.")
             result.append(ticker)
         #else:
