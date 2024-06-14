@@ -100,6 +100,8 @@ def filter_stocks(stock_list):
         #print(indicators['close'].iloc[-1])
         #print(indicators['close_yday'].iloc[-1])
         if (indicators['close'].iloc[-1] / indicators['close_yday'].iloc[-1] >= 0.5).item() and \
+        (abs(0 - indicators['macd'].iloc[-1]) < 12).item() and \
+        (abs(0 - indicators['macd_signal'].iloc[-1]) < 12).item() and \
         (indicators['macd_hist'].iloc[-1] >= 0.5).item() and \
         (indicators['rsi_5t'].iloc[-1] > indicators['rsi_10t'].iloc[-1]).item() and \
         (indicators['psy_10t'].iloc[-1] >= indicators['psy_20t'].iloc[-1]-10).item() and \
