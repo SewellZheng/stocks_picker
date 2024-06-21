@@ -43,6 +43,7 @@
     <script>
         function showChart(ticker) {
             const cleanTicker = ticker.replace('.TW', '');
+            console.log('Clean Ticker:', cleanTicker);
             const url = `https://www.wantgoo.com/stock/${cleanTicker}/technical-chart`;
             window.open(url, '_blank');
         }
@@ -52,7 +53,7 @@
     <h1>S.I</h1>
     <ul class="stock-list">
         {% for stock in stock_list %}
-        <li><a onclick="showChart('{{ stock }}')">{{ stock }}</a></li>
+        <li><a onclick="showChart('{{ stock.Code }}')">{{ stock }}</a></li>
         {% endfor %}
     </ul>
     <div id="chart-container" class="chart-container"></div>
