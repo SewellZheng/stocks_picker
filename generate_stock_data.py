@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import talib
 from jinja2 import Environment, FileSystemLoader
+import math
 
 def get_all_taiwan_stocks():
     url = 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'
@@ -19,11 +20,12 @@ def get_all_taiwan_stocks():
         # "df columnss: ['Code', 'Name', 'TradeVolume', 'TradeValue', 'OpeningPrice', 'HighestPrice', 'LowestPrice', 'ClosingPrice', 'Change', 'Transaction']"]
         debug_log.append(f"TWSE columns: {df.columns.tolist()}")
         
-        # 提取股票代號
-        stock_list = df['Code'].tolist()
+        # 提取股票代號和名稱
+        stock_list = [{'Code': row['Code'], 'Name': row['Name']} for index, row in df.iterrows() if row['Code'].isdigit()]
         
-        # 只保留有效的股票代號
-        stock_list = [ticker + '.TW' for ticker in stock_list if ticker.isdigit()]
+        # 為每個股票代號加上 '.TW'
+        for stock in stock_list:
+            stock['Code'] += '.TW'
         
         debug_log.append(f"Fetched {len(stock_list)} stocks.")
         return stock_list, debug_log
@@ -80,25 +82,52 @@ def calculate_indicators(df):
     }
     return indicators
 
+#所有數值去掉小數部分後的差距都在 1 以內
+def ma_crossover(values, ma_delta = 1):
+    # 檢查 values 是否包含 None 或 NaN 值
+    if not values or any(v is None or math.isnan(v) for v in values):
+        return False
+
+    int_values = [int(v) for v in values]
+    return all(abs(x - y) <= ma_delta for x in int_values for y in int_values)
+
 def filter_stocks(stock_list):
     result = []
     debug_log = []
     for ticker in stock_list:
         #debug_log.append(f"Processing stock: {ticker}")
-        df = get_stock_data(ticker)
+        df = get_stock_data(ticker['Code'])
         if df.empty:
             #debug_log.append(f"No data for stock: {ticker}")
             continue
         
         # 確保沒有 NaN 值影響比較
         #print(f'{df}')
-        #df = df.dropna()
+        df = df.dropna()
         #print(f'{df}')
         indicators = calculate_indicators(df)
         #print(f'{indicators}')
 
         #print(indicators['close'].iloc[-1])
         #print(indicators['close_yday'].iloc[-1])
+
+        ma_values = [indicators['ma_5'].iloc[-1], indicators['ma_10'].iloc[-1], indicators['ma_20'].iloc[-1]]
+        if ma_crossover(ma_values, 2) and \
+        (indicators['close'].iloc[-1] / indicators['close_yday'].iloc[-1] >= 0.5).item() and \
+        (indicators['macd_hist'].iloc[-1] >= 0.5).item() and \
+        (abs(0 - indicators['macd'].iloc[-1]) < 12).item() and \
+        (abs(0 - indicators['macd_signal'].iloc[-1]) < 12).item() and \
+        (indicators['rsi_5t'].iloc[-1] > indicators['rsi_10t'].iloc[-1]).item() and \
+        (indicators['psy_10t'].iloc[-1] >= indicators['psy_20t'].iloc[-1]-10).item() and \
+        (indicators['kd_9k'].iloc[-1] >= indicators['kd_9d'].iloc[-1]).item() and \
+        (abs(indicators['ma_5'].iloc[-1]-indicators['ma_10'].iloc[-1]) <= 10).item() and \
+        (abs(indicators['ma_5'].iloc[-1]-indicators['ma_20'].iloc[-1]) <= 10).item() :
+            #debug_log.append(f"Stock {ticker} meets the conditions.")
+            result.append(ticker)
+         #else:
+            #debug_log.append(f"Stock {ticker} does not meet the conditions.")
+        
+        '''
         if (indicators['close'].iloc[-1] / indicators['close_yday'].iloc[-1] >= 0.5).item() and \
         (abs(0 - indicators['macd'].iloc[-1]) < 12).item() and \
         (abs(0 - indicators['macd_signal'].iloc[-1]) < 12).item() and \
@@ -112,6 +141,8 @@ def filter_stocks(stock_list):
             result.append(ticker)
         #else:
             #debug_log.append(f"Stock {ticker} does not meet the conditions.")
+        '''
+
     return result, debug_log
 
 def generate_html(stock_list, debug_log, html_table):
@@ -134,9 +165,9 @@ def get_tech_table(ticker):
 
 def get_test_taiwan_stocks():
     stock_list = [
-        "2308.TW",
-        "3035.TW",
-        "6719.TW"
+        {'Code': '2379.TW', 'Name': '瑞昱'},
+        {'Code': '6719.TW', 'Name': '力智'},
+        {'Code': '2357.TW', 'Name': '華碩'}
         ]
     return stock_list, stock_list
 
@@ -146,6 +177,7 @@ def main():
     debug_log = fetch_log
 
     filtered_stocks, filter_log = filter_stocks(stock_list)
+    #print(filtered_stocks)
     debug_log.append(filter_log)
 
     #generate_html(filtered_stocks, debug_log, '')
