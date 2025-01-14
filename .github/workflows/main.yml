@@ -36,7 +36,13 @@ jobs:
           ./configure --prefix=/usr
           make
           sudo make install
-      
+          echo "/usr/lib" | sudo tee -a /etc/ld.so.conf.d/ta-lib.conf
+          sudo ldconfig  # 更新共享庫緩存
+
+      - name: Verify TA-Lib installation
+        run: |
+          ls /usr/lib | grep ta_lib
+          
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
