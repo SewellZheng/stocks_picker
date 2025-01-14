@@ -23,18 +23,10 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc
+          #sudo apt-get install -y build-essential
           sudo apt-get install -y python3-dev
           sudo apt-get install -y libxml2-dev libxslt1-dev zlib1g-dev
           sudo apt-get install -y wget tar
-          
-      - name: Clone and build latest ta-lib
-        run: |
-          git clone https://github.com/TA-Lib/ta-lib.git
-          cd ta-lib/c/
-          ./configure --prefix=/usr
-          make
-          sudo make install
           
       - name: Install Python dependencies
         run: |
