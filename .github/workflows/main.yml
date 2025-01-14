@@ -46,6 +46,8 @@ jobs:
           echo "/usr/lib" | sudo tee -a /etc/ld.so.conf.d/ta-lib.conf
           sudo ldconfig  # 更新動態鏈接器的緩存
           export LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
+          export CFLAGS="-I/usr/include"
+          export LDFLAGS="-L/usr/lib"
           
       - name: Install Python dependencies
         run: |
