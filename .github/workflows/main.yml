@@ -26,12 +26,12 @@ jobs:
           #sudo apt-get install -y build-essential
           sudo apt-get install -y python3-dev
           sudo apt-get install -y libxml2-dev libxslt1-dev zlib1g-dev
-          sudo apt-get install -y wget tar
+          sudo apt-get install -y wget tar unzip
        
       - name: Download and build ta-lib
         run: |
           wget https://github.com/TA-Lib/ta-lib/archive/refs/heads/main.zip
-          tar -xzf main.zip
+          unzip main.zip
           cd ta-lib-main
           ./configure --prefix=/usr
           make
