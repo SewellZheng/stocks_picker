@@ -27,12 +27,21 @@ jobs:
           sudo apt-get install -y python3-dev
           sudo apt-get install -y libxml2-dev libxslt1-dev zlib1g-dev
           sudo apt-get install -y wget tar
+       
+      - name: Download and build ta-lib
+        run: |
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib
+          ./configure --prefix=/usr
+          make
+          sudo make install
           
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install yfinance pandas jinja2
-          pip install ta-lib
+          pip install ta-lib==0.5.2
 
       - name: Verify TA-Lib installation
         run: |
