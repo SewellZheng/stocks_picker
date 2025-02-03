@@ -36,7 +36,7 @@ def get_all_taiwan_stocks():
 
 def get_stock_data(ticker):
     stock = yf.Ticker(ticker)
-    df = stock.history(period='3mo', interval='1d')
+    df = stock.history(period='1mo', interval='1d')
     return df
 
 def calculate_indicators(df):
@@ -182,7 +182,7 @@ def main():
 
     #generate_html(filtered_stocks, debug_log, '')
 
-    html_table, tech_log = get_tech_table('3035.TW')
+    html_table, tech_log = get_tech_table('2379.TW')
     debug_log.append(f'table is {tech_log}')
     generate_html(filtered_stocks, debug_log, html_table)
 
