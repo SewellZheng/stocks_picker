@@ -1,6 +1,7 @@
 import requests
 import yfinance as yf
 import pandas as pd
+import time
 import talib
 from jinja2 import Environment, FileSystemLoader
 import math
@@ -36,7 +37,7 @@ def get_all_taiwan_stocks():
 
 def get_stock_data(ticker):
     stock = yf.Ticker(ticker)
-    df = stock.history(period='3mo', interval='1d')
+    df = stock.history(period='1mo', interval='1d')
     return df
 
 def calculate_indicators(df):
@@ -96,6 +97,7 @@ def filter_stocks(stock_list):
     debug_log = []
     for ticker in stock_list:
         #debug_log.append(f"Processing stock: {ticker}")
+        time.sleep(2) # yfinance.exceptions.YFRateLimitError: Too Many Requests. Rate limited. Try after a while.  
         df = get_stock_data(ticker['Code'])
         if df.empty:
             #debug_log.append(f"No data for stock: {ticker}")
@@ -182,7 +184,7 @@ def main():
 
     #generate_html(filtered_stocks, debug_log, '')
 
-    html_table, tech_log = get_tech_table('3035.TW')
+    html_table, tech_log = get_tech_table('2379.TW')
     debug_log.append(f'table is {tech_log}')
     generate_html(filtered_stocks, debug_log, html_table)
 
