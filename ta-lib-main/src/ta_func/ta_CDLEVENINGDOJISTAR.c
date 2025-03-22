@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2024, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -63,6 +63,7 @@
 /* Generated */ #elif defined( _RUST )
 /* Generated */    #include "ta_defs.h"
 /* Generated */    #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)
+/* Generated */    impl core {
 /* Generated */ #else
 /* Generated */    #include <string.h>
 /* Generated */    #include <math.h>
@@ -86,6 +87,8 @@
 /* Generated */ #elif defined( _JAVA )
 /* Generated */ public int cdlEveningDojiStarLookback( double        optInPenetration )  /* From 0 to TA_REAL_MAX */
 /* Generated */ 
+/* Generated */ #elif defined( _RUST )
+/* Generated */ fn cdleveningdojistar_lookback( /* Generated */ 
 /* Generated */ #else
 /* Generated */ TA_LIB_API int TA_CDLEVENINGDOJISTAR_Lookback( double        optInPenetration )  /* From 0 to TA_REAL_MAX */
 /* Generated */ 
@@ -160,6 +163,16 @@
 /* Generated */                                    MInteger     outBegIdx,
 /* Generated */                                    MInteger     outNBElement,
 /* Generated */                                    int           outInteger[] )
+/* Generated */ #elif defined( _RUST )
+/* Generated */ fn cdleveningdojistar( int    startIdx,
+/* Generated */ 
+/* Generated */                                         int    endIdx,
+ inPriceOHLC[],
+double optInPenetration[],
+mut outBegIdx,
+mut outNBElement,
+ outInteger[],
+)
 /* Generated */ #else
 /* Generated */ TA_LIB_API TA_RetCode TA_CDLEVENINGDOJISTAR( int    startIdx,
 /* Generated */                                              int    endIdx,
@@ -188,6 +201,9 @@
 /* Generated */    if( (endIdx < 0) || (endIdx < startIdx))
 /* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
 /* Generated */ 
+/* Generated */ #if defined( _RUST )
+/* Generated */ 
+/* Generated */ #else
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    /* Verify required price component. */
 /* Generated */    if(!inOpen||!inHigh||!inLow||!inClose)
@@ -204,6 +220,7 @@
 /* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */ 
 /* Generated */    #endif /* !defined(_JAVA) */
+/* Generated */ #endif
 /* Generated */ #endif /* TA_FUNC_NO_RANGE_CHECK */
 /* Generated */ 
 /**** END GENCODE SECTION 4 - DO NOT DELETE THIS LINE ****/
@@ -343,6 +360,10 @@
 /* Generated */                                    MInteger     outBegIdx,
 /* Generated */                                    MInteger     outNBElement,
 /* Generated */                                    int           outInteger[] )
+/* Generated */ #elif defined( _RUST )
+/* Generated */ fn cdleveningdojistar_s( int    startIdx,
+/* Generated */ 
+/* Generated */                                           int    endIdx,
 /* Generated */ #else
 /* Generated */ TA_RetCode TA_S_CDLEVENINGDOJISTAR( int    startIdx,
 /* Generated */                                     int    endIdx,
@@ -363,6 +384,8 @@
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
 /* Generated */     if( (endIdx < 0) || (endIdx < startIdx))
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */  #if defined( _RUST )
+/* Generated */  #else
 /* Generated */     #if !defined(_JAVA)
 /* Generated */     if(!inOpen||!inHigh||!inLow||!inClose)
 /* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
@@ -375,6 +398,7 @@
 /* Generated */     if( !outInteger )
 /* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */     #endif 
+/* Generated */  #endif
 /* Generated */  #endif 
 /* Generated */    lookbackTotal = LOOKBACK_CALL(CDLEVENINGDOJISTAR)(optInPenetration);
 /* Generated */    if( startIdx < lookbackTotal )
@@ -436,6 +460,8 @@
 /* Generated */ 
 /* Generated */ #if defined( _MANAGED )
 /* Generated */ }}} // Close namespace TicTacTec.TA.Lib
+/* Generated */ #elif defined( _RUST )
+/* Generated */ } // Close impl core
 /* Generated */ #endif
 /**** END GENCODE SECTION 5 - DO NOT DELETE THIS LINE ****/
 

@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2024, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -131,6 +131,8 @@ const char *gmcpp_exec = "..\\src\\tools\\gen_code\\mcpp.exe";
 #define PATH_SEPARATOR "/"
 const char *gmcpp_exec = "/usr/bin/mcpp";
 #endif
+
+int hello(FILE *out);
 
 int gmcpp_installed = 0; // 0 = mcpp not installed, 1 = verified installed
 
@@ -330,15 +332,17 @@ typedef struct {
 	FILE *out;
 	const char *prefix;
 	const TA_FuncInfo *funcInfo;
-	unsigned int lookbackSignature;
-	unsigned int validationCode;
-	unsigned int lookbackValidationCode;
 } PrintFuncParamStruct;
 
-static void printRustFunc(const PrintFuncParamStruct *printFuncParamStruct);
-static void printRustLookbackFunction(const PrintFuncParamStruct *printFuncParamStruct);
-static void printRustDoublePrecisionFunction(const PrintFuncParamStruct *printFuncParamStruct);
-static void printRustSinglePrecisionFunction(const PrintFuncParamStruct *printFuncParamStruct);
+static void printRustLookbackFunctionSignature(FILE *out,
+                      const char *prefix, /* Can be NULL */
+                      const TA_FuncInfo *funcInfo);
+static void printRustDoublePrecisionFunctionSignature(FILE *out,
+                      const char *prefix, /* Can be NULL */
+                      const TA_FuncInfo *funcInfo);
+static void printRustSinglePrecisionFunctionSignature(FILE *out,
+                      const char *prefix, /* Can be NULL */
+                      const TA_FuncInfo *funcInfo);
 
 static void printFunc(FILE *out,
                       const char *prefix, /* Can be NULL */
@@ -2029,18 +2033,6 @@ static void printFunc(FILE *out,
 
    if (!out) return;
 
-   if (outputForRust) {
-	   PrintFuncParamStruct printFuncParamStruct = {
-		   out,
-		   prefix,
-		   funcInfo,
-		   lookbackSignature,
-		   validationCode,
-		   lookbackValidationCode
-	   };
-	   printRustFunc(&printFuncParamStruct);
-   }
-
    if( arrayToSubArrayCnvt )
    {
       inputIntArrayType     = "int";
@@ -3125,6 +3117,8 @@ static void doFuncFile( const TA_FuncInfo *funcInfo )
    printFunc( gOutFunc_C->file, NULL, funcInfo, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0);
    print( gOutFunc_C->file, "#elif defined( _JAVA )\n" );
    printFunc( gOutFunc_C->file, NULL, funcInfo, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0);
+   print( gOutFunc_C->file, "#elif defined( _RUST )\n" );
+   printRustSinglePrecisionFunctionSignature(gOutFunc_C->file, NULL, funcInfo);
    print( gOutFunc_C->file, "#else\n" );
    printFunc( gOutFunc_C->file, NULL, funcInfo, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0);
    print( gOutFunc_C->file, "#endif\n" );
@@ -3146,6 +3140,8 @@ static void doFuncFile( const TA_FuncInfo *funcInfo )
    /* Add the suffix at the end of the file. */
    print( gOutFunc_C->file, "#if defined( _MANAGED )\n" );
    print( gOutFunc_C->file, "}}} // Close namespace TicTacTec.TA.Lib\n" );
+   print( gOutFunc_C->file, "#elif defined( _RUST )\n" );
+   print( gOutFunc_C->file, "} // Close impl core\n" );
    print( gOutFunc_C->file, "#endif\n" );
 
    fileClose( gOutFunc_C );
@@ -3387,6 +3383,7 @@ static void writeFuncFile( const TA_FuncInfo *funcInfo )
    print( out, "#elif defined( _RUST )\n" );
    print( out, "   #include \"ta_defs.h\"\n" );
    print( out, "   #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)\n" );
+   print( out, "   impl core {\n" );
    print( out, "#else\n" );
    print( out, "   #include <string.h>\n" );
    print( out, "   #include <math.h>\n" );
@@ -3408,6 +3405,8 @@ static void writeFuncFile( const TA_FuncInfo *funcInfo )
    printFunc( out, NULL, funcInfo, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0);
    print( out, "#elif defined( _JAVA )\n" );
    printFunc( out, NULL, funcInfo, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0);
+   print( out, "#elif defined( _RUST )\n" );
+   printRustLookbackFunctionSignature(out, NULL, funcInfo);
    print( out, "#else\n" );
    printFunc( out, "TA_LIB_API ", funcInfo, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0);
    print( out, "#endif\n" );
@@ -3446,6 +3445,8 @@ static void writeFuncFile( const TA_FuncInfo *funcInfo )
    }
 
    printFunc( out, NULL, funcInfo, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0);
+   print( out, "#elif defined( _RUST )\n" );
+   printRustDoublePrecisionFunctionSignature(out, NULL, funcInfo);
    print( out, "#else\n" );
    printFunc( out, "TA_LIB_API ", funcInfo, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
    print( out, "#endif\n" );
@@ -3467,7 +3468,12 @@ static void writeFuncFile( const TA_FuncInfo *funcInfo )
     * Also generates the code for setting up the
     * default values.
     */
+   print( out, "#if defined( _RUST )\n" );
+   // printRustRangeCheckValidationCode();
+   print( out, "\n" );
+   print( out, "#else\n" );
    printFunc( out, NULL, funcInfo, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+   print( out, "#endif\n" );
 
    print( out, "#endif /* TA_FUNC_NO_RANGE_CHECK */\n" );
    print( out, "\n" );
@@ -3967,41 +3973,36 @@ const char *doubleToStr( double value )
    return gTempDoubleToStr;
 }
 
-static void printRustFunc(const PrintFuncParamStruct *printFuncParamStruct) {
-	// three functions: single-precision, double-precision, lookback
-	printRustSinglePrecisionFunction(printFuncParamStruct);
-	printRustDoublePrecisionFunction(printFuncParamStruct);
-	printRustLookbackFunction(printFuncParamStruct);
-}
 
-static void printRustLookbackFunction(const PrintFuncParamStruct *printFuncParamStruct) {
-	// TODO: open function
-	// TODO: print input params
-	// TODO: print optional input params
-	// TODO: close function
-	// TODO: print return type
-	// TODO: handle validation logic
-	// TODO: handle abstract frame logic
-}
+static char* toLowerSnakeCase(const char* input, char* output)
+{
+	if (!input || !output)
+	{
+		return NULL;
+	}
 
-static void printRustDoublePrecisionFunction(const PrintFuncParamStruct *printFuncParamStruct) {
-	// TODO: open function
-	// TODO: print input params
-	// TODO: print optional input params
-	// TODO: close function
-	// TODO: print return type
-	// TODO: handle validation logic
-	// TODO: handle abstract frame logic
-}
+	const char* inPtr = input;
+	char* outPtr = output;
 
-static void printRustSinglePrecisionFunction(const PrintFuncParamStruct *printFuncParamStruct) {
-	// TODO: open function
-	// TODO: print input params
-	// TODO: print optional input params
-	// TODO: close function
-	// TODO: print return type
-	// TODO: handle validation logic
-	// TODO: handle abstract frame logic
+	while (*inPtr != '\0')
+	{
+		if (isspace(*inPtr) || *inPtr == '-' || *inPtr == '.')
+		{
+			*outPtr++ = '_'; // Replace spaces, hyphens, and dots with underscores
+		}
+		else if (isupper(*inPtr))
+		{
+			*outPtr++ = (char)tolower(*inPtr); // Convert uppercase to lowercase
+		}
+		else
+		{
+			*outPtr++ = *inPtr; // Copy other characters as-is
+		}
+		inPtr++;
+	}
+
+	*outPtr = '\0'; // Null-terminate the output string
+	return output;
 }
 
 
@@ -4875,131 +4876,5 @@ struct WriteRustModLinesParams {
    int writePubUse; // 0 to write "pub mod", 1 to write "pub use"
 };
 
-void writeRustModLines(const TA_FuncInfo *funcInfo, void *opaque) {
-   struct WriteRustModLinesParams *params = (struct WriteRustModLinesParams *)opaque;
-   FileHandle *out = params->out;
-   char buffer[500];
 
-   #if defined(RUST_SINGLE_FUNC)
-      if (strcmp(funcInfo->name,RUST_SINGLE_FUNC) != 0)
-         return;
-   #endif
-
-   // Convert filename to lowercase into buffer.
-   int i = 0;
-   while (funcInfo->name[i]) {
-      buffer[i] = tolower(funcInfo->name[i]);
-      i++;
-   }
-   buffer[i] = '\0';
-
-   if (params->writePubUse == 1)
-      fprintf(out->file, "pub use self::%s::*\n",  buffer);
-   else
-      fprintf(out->file, "pub mod %s;\n",  buffer);
-}
-
-void writeRustMod( void )
-{
-   // Update the rust/src/ta_func/mod.rs file.
-   struct WriteRustModLinesParams params;
-   char buffer[500];
-   FileHandle *out;
-
-   if (!gmcpp_installed)
-      return;
-
-   // Add rs file to ta_func/mod.rs
-   // A common header/footer is provided by the template file.
-   #define FILE_RUST_MOD ".." PATH_SEPARATOR "rust" PATH_SEPARATOR "src" PATH_SEPARATOR "ta_func" PATH_SEPARATOR "mod.rs"
-   #define FILE_RUST_MOD_TEMPLATE ".." PATH_SEPARATOR "src" PATH_SEPARATOR "ta_abstract" PATH_SEPARATOR "templates" PATH_SEPARATOR "ta_func_mod.rs.template"
-
-   out = fileOpen( FILE_RUST_MOD,
-                   FILE_RUST_MOD_TEMPLATE,
-                   FILE_WRITE|WRITE_ON_CHANGE_ONLY );
-
-
-   params.out = out;
-   params.writePubUse = 1;
-   TA_ForEachFunc(writeRustModLines, &params);
-   params.writePubUse = 0;
-   TA_ForEachFunc(writeRustModLines, &params);
-
-   fileClose(out);
-}
-
-void genRustCodePhase2( const TA_FuncInfo *funcInfo )
-{
-   // Each TA function get its own .rs file generated.
-   // A common header/footer is provided by the template file.
-   FILE *logicTmp;
-   char buffer[500];
-   int idx, again;
-   static int firstTime = 1;
-   int ret;
-
-   #if defined(RUST_SINGLE_FUNC)
-      if (strcmp(funcInfo->name,RUST_SINGLE_FUNC) != 0)
-         return;
-   #endif
-
-   if (!gmcpp_installed)
-      return;
-
-   // Convert filename to lowercase into buffer.
-   int i = 0;
-   while (funcInfo->name[i]) {
-      buffer[i] = tolower(funcInfo->name[i]);
-      i++;
-   }
-   buffer[i] = '\0';
-   strcat(buffer, ".rs");
-   #define FILE_RUST_FUNC_TEMPLATE ".." PATH_SEPARATOR "src" PATH_SEPARATOR "ta_abstract" PATH_SEPARATOR "templates" PATH_SEPARATOR "ta_x.rs.template"
-
-   FileHandle *out = fileOpen( ta_fs_path(5, "..", "rust", "src", "ta_func", buffer),
-                               FILE_RUST_FUNC_TEMPLATE,
-                               FILE_WRITE|WRITE_ON_CHANGE_ONLY );
-
-
-   /* Clean-up just in case. */
-   fileDelete( ta_fs_path(3, "..", "temp", "rust_logic.tmp") );
-
-   #ifdef _MSC_VER
-     sprintf( buffer, "%s -c -+ -z -P -I.." PATH_SEPARATOR "src" PATH_SEPARATOR "ta_common -I.." PATH_SEPARATOR "src" PATH_SEPARATOR "ta_abstract -I.." PATH_SEPARATOR "include -D _RUST .." PATH_SEPARATOR "src" PATH_SEPARATOR "ta_func" PATH_SEPARATOR "TA_%s.c >>.." PATH_SEPARATOR "temp" PATH_SEPARATOR "rust_logic.tmp ", gmcpp_exec, funcInfo->name);
-     ret = system( buffer );
-   #else
-     sprintf( buffer, "%s -@compat -+ -z -P -I.." PATH_SEPARATOR "src" PATH_SEPARATOR "ta_common -I.." PATH_SEPARATOR "src" PATH_SEPARATOR "ta_abstract -I.." PATH_SEPARATOR "include -D _RUST .." PATH_SEPARATOR "src" PATH_SEPARATOR "ta_func" PATH_SEPARATOR "ta_%s.c | sed '/^#include/d' >> .." PATH_SEPARATOR "temp" PATH_SEPARATOR "rust_logic.tmp ", gmcpp_exec, funcInfo->name);
-     ret = system( buffer );
-   #endif
-
-   /* Write the output of the C pre-processor to the rust file. */
-   init_gToOpen( ta_fs_path(3, "..", "temp", "rust_logic.tmp"), NULL );
-   logicTmp = fopen( gToOpen, "r" );
-   if( !logicTmp )
-   {
-      printf( "Cannot open temp/rust_logic.tmp\n" );
-      return;
-   }
-   while( fgets(gTempBuf,BUFFER_SIZE,logicTmp) )
-   {
-      /* Remove empty lines and lines with only a ';' */
-      idx = 0;
-      again = 1;
-      while( again && gTempBuf[idx] != '\0' )
-      {
-         if( !isspace(gTempBuf[idx]) && !(gTempBuf[idx] == ';') )
-            again = 0;
-         idx++;
-      }
-      if( (again == 0) && (idx > 0) )
-         fputs( gTempBuf, out->file );
-   }
-
-   /* Clean-up */
-   fclose(logicTmp);
-   print( out->file, "\n" );
-   fileDelete( ta_fs_path(3, "..", "temp", "rust_logic.tmp") );
-
-   // Upon closing, will touch the target file only if there was a change...
-   fileClose(out);
-}
+#include "gen_rust.c"

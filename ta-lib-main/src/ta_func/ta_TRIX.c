@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2024, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -64,6 +64,7 @@
 /* Generated */ #elif defined( _RUST )
 /* Generated */    #include "ta_defs.h"
 /* Generated */    #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)
+/* Generated */    impl core {
 /* Generated */ #else
 /* Generated */    #include <string.h>
 /* Generated */    #include <math.h>
@@ -87,6 +88,8 @@
 /* Generated */ #elif defined( _JAVA )
 /* Generated */ public int trixLookback( int           optInTimePeriod )  /* From 1 to 100000 */
 /* Generated */ 
+/* Generated */ #elif defined( _RUST )
+/* Generated */ fn trix_lookback( /* Generated */ 
 /* Generated */ #else
 /* Generated */ TA_LIB_API int TA_TRIX_Lookback( int           optInTimePeriod )  /* From 1 to 100000 */
 /* Generated */ 
@@ -150,6 +153,16 @@
 /* Generated */                      MInteger     outBegIdx,
 /* Generated */                      MInteger     outNBElement,
 /* Generated */                      double        outReal[] )
+/* Generated */ #elif defined( _RUST )
+/* Generated */ fn trix( int    startIdx,
+/* Generated */ 
+/* Generated */                           int    endIdx,
+double inReal[],
+ optInTimePeriod[],
+mut outBegIdx,
+mut outNBElement,
+double outReal[],
+)
 /* Generated */ #else
 /* Generated */ TA_LIB_API TA_RetCode TA_TRIX( int    startIdx,
 /* Generated */                                int    endIdx,
@@ -181,6 +194,9 @@
 /* Generated */    if( (endIdx < 0) || (endIdx < startIdx))
 /* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
 /* Generated */ 
+/* Generated */ #if defined( _RUST )
+/* Generated */ 
+/* Generated */ #else
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    if( !inReal ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */    #endif /* !defined(_JAVA)*/
@@ -195,6 +211,7 @@
 /* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */ 
 /* Generated */    #endif /* !defined(_JAVA) */
+/* Generated */ #endif
 /* Generated */ #endif /* TA_FUNC_NO_RANGE_CHECK */
 /* Generated */ 
 /**** END GENCODE SECTION 4 - DO NOT DELETE THIS LINE ****/
@@ -345,6 +362,10 @@
 /* Generated */                      MInteger     outBegIdx,
 /* Generated */                      MInteger     outNBElement,
 /* Generated */                      double        outReal[] )
+/* Generated */ #elif defined( _RUST )
+/* Generated */ fn trix_s( int    startIdx,
+/* Generated */ 
+/* Generated */                             int    endIdx,
 /* Generated */ #else
 /* Generated */ TA_RetCode TA_S_TRIX( int    startIdx,
 /* Generated */                       int    endIdx,
@@ -368,6 +389,8 @@
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
 /* Generated */     if( (endIdx < 0) || (endIdx < startIdx))
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */  #if defined( _RUST )
+/* Generated */  #else
 /* Generated */     #if !defined(_JAVA)
 /* Generated */     if( !inReal ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */     #endif 
@@ -379,6 +402,7 @@
 /* Generated */     if( !outReal )
 /* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */     #endif 
+/* Generated */  #endif
 /* Generated */  #endif 
 /* Generated */    emaLookback   = LOOKBACK_CALL(EMA)( optInTimePeriod );
 /* Generated */    rocLookback   = LOOKBACK_CALL(ROCR)( 1 );
@@ -456,6 +480,8 @@
 /* Generated */ 
 /* Generated */ #if defined( _MANAGED )
 /* Generated */ }}} // Close namespace TicTacTec.TA.Lib
+/* Generated */ #elif defined( _RUST )
+/* Generated */ } // Close impl core
 /* Generated */ #endif
 /**** END GENCODE SECTION 5 - DO NOT DELETE THIS LINE ****/
 
