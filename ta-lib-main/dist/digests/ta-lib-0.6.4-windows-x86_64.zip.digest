@@ -6,5 +6,5 @@
     "package_md5": "aab1dc0ec9fec64c1674a1709a4c4d37",
     "gen_code_pass": "Disabled",
     "ta_regtest_pass": "Disabled",
-    "dist_test_pass": "True"
+    "dist_test_pass": "Unknown"
 }
