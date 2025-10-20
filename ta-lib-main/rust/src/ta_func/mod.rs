@@ -36,7 +36,20 @@
  *   Any modification will be lost on next execution of gen_code.
  */
 
-pub use self::mult::*
+// Rust-specific types and enumerations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetCode {
+    Success,
+    BadParam,
+    OutOfRangeStartIndex,
+    OutOfRangeEndIndex,
+    AllocErr,
+    InternalError,
+}
+
+// Core struct definition
+pub struct Core {}
+
 pub mod mult;
 
 /***************/

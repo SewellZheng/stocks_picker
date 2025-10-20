@@ -66,7 +66,7 @@
 /* Generated */ #elif defined( _RUST )
 /* Generated */    #include "ta_defs.h"
 /* Generated */    #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)
-/* Generated */    impl core {
+/* Generated */    impl Core {
 /* Generated */ #else
 /* Generated */    #include <string.h>
 /* Generated */    #include <math.h>
@@ -95,7 +95,11 @@
 /* Generated */                            int           optInFastD_Period, /* From 1 to 100000 */
 /* Generated */                            MAType        optInFastD_MAType ) /* Generated */ 
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn stochrsi_lookback( /* Generated */ 
+/* Generated */ pub fn stochrsi_lookback(
+optInTimePeriod: i32,
+/* Generated */                           optInFastK_Period: i32,
+/* Generated */                           optInFastD_Period: i32,
+/* Generated */                           optInFastD_MAType: i32) -> i32
 /* Generated */ #else
 /* Generated */ TA_LIB_API int TA_STOCHRSI_Lookback( int           optInTimePeriod, /* From 2 to 100000 */
 /* Generated */                                               int           optInFastK_Period, /* From 1 to 100000 */
@@ -110,29 +114,29 @@
 /**** START GENCODE SECTION 2 - DO NOT DELETE THIS LINE ****/
 /* Generated */ #ifndef TA_FUNC_NO_RANGE_CHECK
 /* Generated */    /* min/max are checked for optInTimePeriod. */
-/* Generated */    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-/* Generated */       optInTimePeriod = 14;
-/* Generated */    else if( ((int)optInTimePeriod < 2) || ((int)optInTimePeriod > 100000) )
-/* Generated */       return -1;
-/* Generated */ 
+/* Generated */    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInTimePeriod = 14;
+/* Generated */    } else if( ((int)optInTimePeriod < 2) || ((int)optInTimePeriod > 100000) ) {
+/* Generated */ 	  return -1;
+/* Generated */ }
 /* Generated */    /* min/max are checked for optInFastK_Period. */
-/* Generated */    if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
-/* Generated */       optInFastK_Period = 5;
-/* Generated */    else if( ((int)optInFastK_Period < 1) || ((int)optInFastK_Period > 100000) )
-/* Generated */       return -1;
-/* Generated */ 
+/* Generated */    if( (int)optInFastK_Period == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInFastK_Period = 5;
+/* Generated */    } else if( ((int)optInFastK_Period < 1) || ((int)optInFastK_Period > 100000) ) {
+/* Generated */ 	  return -1;
+/* Generated */ }
 /* Generated */    /* min/max are checked for optInFastD_Period. */
-/* Generated */    if( (int)optInFastD_Period == TA_INTEGER_DEFAULT )
-/* Generated */       optInFastD_Period = 3;
-/* Generated */    else if( ((int)optInFastD_Period < 1) || ((int)optInFastD_Period > 100000) )
-/* Generated */       return -1;
-/* Generated */ 
+/* Generated */    if( (int)optInFastD_Period == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInFastD_Period = 3;
+/* Generated */    } else if( ((int)optInFastD_Period < 1) || ((int)optInFastD_Period > 100000) ) {
+/* Generated */ 	  return -1;
+/* Generated */ }
 /* Generated */    #if !defined(_MANAGED) && !defined(_JAVA)
-/* Generated */    if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT )
-/* Generated */       optInFastD_MAType = (TA_MAType)0;
-/* Generated */    else if( ((int)optInFastD_MAType < 0) || ((int)optInFastD_MAType > 8) )
-/* Generated */       return -1;
-/* Generated */ 
+/* Generated */    if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInFastD_MAType = (TA_MAType)0;
+/* Generated */    } else if( ((int)optInFastD_MAType < 0) || ((int)optInFastD_MAType > 8) ) {
+/* Generated */ 	  return -1;
+/* Generated */ }
 /* Generated */    #endif /* !defined(_MANAGED) && !defined(_JAVA)*/
 /* Generated */ #endif /* TA_FUNC_NO_RANGE_CHECK */
 /**** END GENCODE SECTION 2 - DO NOT DELETE THIS LINE ****/
@@ -204,19 +208,17 @@
 /* Generated */                          double        outFastK[],
 /* Generated */                          double        outFastD[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn stochrsi( int    startIdx,
-/* Generated */ 
-/* Generated */                               int    endIdx,
-double inReal[],
- optInTimePeriod[],
- optInFastK_Period[],
- optInFastD_Period[],
- optInFastD_MAType[],
-mut outBegIdx,
-mut outNBElement,
-double outFastK[],
-double outFastD[],
-)
+/* Generated */ pub fn stochrsi(startIdx: usize,
+/* Generated */                 endIdx: usize,
+/* Generated */                 inReal: &[f64],
+/* Generated */                 optInTimePeriod: i32,
+/* Generated */                 optInFastK_Period: i32,
+/* Generated */                 optInFastD_Period: i32,
+/* Generated */                 optInFastD_MAType: i32,
+/* Generated */                 outBegIdx: &mut usize,
+/* Generated */                 outNBElement: &mut usize,
+/* Generated */                 outFastK: &mut [f64],
+/* Generated */                 outFastD: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_LIB_API TA_RetCode TA_STOCHRSI( int    startIdx,
 /* Generated */                                    int    endIdx,
@@ -246,41 +248,50 @@ double outFastD[],
 /* Generated */ #ifndef TA_FUNC_NO_RANGE_CHECK
 /* Generated */ 
 /* Generated */    /* Validate the requested output range. */
-/* Generated */    if( startIdx < 0 )
-/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */    if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */ #if defined( _RUST )
+/* Generated */    /* Skip negative checks for Rust since startIdx/endIdx are usize (unsigned) */
+/* Generated */    if( endIdx < startIdx ) {
 /* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #else
+/* Generated */    if( startIdx < 0 ) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */    }
+/* Generated */    if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #endif
 /* Generated */ 
 /* Generated */ #if defined( _RUST )
 /* Generated */ 
 /* Generated */ #else
 /* Generated */    #if !defined(_JAVA)
-/* Generated */    if( !inReal ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */    if( !inReal ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
 /* Generated */    #endif /* !defined(_JAVA)*/
 /* Generated */    /* min/max are checked for optInTimePeriod. */
-/* Generated */    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-/* Generated */       optInTimePeriod = 14;
-/* Generated */    else if( ((int)optInTimePeriod < 2) || ((int)optInTimePeriod > 100000) )
-/* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInTimePeriod = 14;
+/* Generated */    } else if( ((int)optInTimePeriod < 2) || ((int)optInTimePeriod > 100000) ) {
+/* Generated */ 	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */ }
 /* Generated */    /* min/max are checked for optInFastK_Period. */
-/* Generated */    if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
-/* Generated */       optInFastK_Period = 5;
-/* Generated */    else if( ((int)optInFastK_Period < 1) || ((int)optInFastK_Period > 100000) )
-/* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */    if( (int)optInFastK_Period == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInFastK_Period = 5;
+/* Generated */    } else if( ((int)optInFastK_Period < 1) || ((int)optInFastK_Period > 100000) ) {
+/* Generated */ 	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */ }
 /* Generated */    /* min/max are checked for optInFastD_Period. */
-/* Generated */    if( (int)optInFastD_Period == TA_INTEGER_DEFAULT )
-/* Generated */       optInFastD_Period = 3;
-/* Generated */    else if( ((int)optInFastD_Period < 1) || ((int)optInFastD_Period > 100000) )
-/* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */    if( (int)optInFastD_Period == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInFastD_Period = 3;
+/* Generated */    } else if( ((int)optInFastD_Period < 1) || ((int)optInFastD_Period > 100000) ) {
+/* Generated */ 	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */ }
 /* Generated */    #if !defined(_MANAGED) && !defined(_JAVA)
-/* Generated */    if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT )
-/* Generated */       optInFastD_MAType = (TA_MAType)0;
-/* Generated */    else if( ((int)optInFastD_MAType < 0) || ((int)optInFastD_MAType > 8) )
-/* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */    if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInFastD_MAType = (TA_MAType)0;
+/* Generated */    } else if( ((int)optInFastD_MAType < 0) || ((int)optInFastD_MAType > 8) ) {
+/* Generated */ 	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */ }
 /* Generated */    #endif /* !defined(_MANAGED) && !defined(_JAVA)*/
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    if( !outFastK )
@@ -433,9 +444,17 @@ double outFastD[],
 /* Generated */                          double        outFastK[],
 /* Generated */                          double        outFastD[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn stochrsi_s( int    startIdx,
-/* Generated */ 
-/* Generated */                                 int    endIdx,
+/* Generated */ pub fn stochrsi_s(startIdx: usize,
+/* Generated */                   endIdx: usize,
+/* Generated */                   inReal: &[f32],
+/* Generated */                   optInTimePeriod: i32,
+/* Generated */                   optInFastK_Period: i32,
+/* Generated */                   optInFastD_Period: i32,
+/* Generated */                   optInFastD_MAType: i32,
+/* Generated */                   outBegIdx: &mut usize,
+/* Generated */                   outNBElement: &mut usize,
+/* Generated */                   outFastK: &mut [f64],
+/* Generated */                   outFastD: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_RetCode TA_S_STOCHRSI( int    startIdx,
 /* Generated */                           int    endIdx,
@@ -457,32 +476,44 @@ double outFastD[],
 /* Generated */    VALUE_HANDLE_INT(outBegIdx2);
 /* Generated */    VALUE_HANDLE_INT(outNbElement1);
 /* Generated */  #ifndef TA_FUNC_NO_RANGE_CHECK
-/* Generated */     if( startIdx < 0 )
-/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */     if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */  #if defined( _RUST )
+/* Generated */     if( endIdx < startIdx ) {
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #else
+/* Generated */     if( startIdx < 0 ) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */     }
+/* Generated */     if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #endif
 /* Generated */  #if defined( _RUST )
 /* Generated */  #else
 /* Generated */     #if !defined(_JAVA)
-/* Generated */     if( !inReal ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */     if( !inReal ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
 /* Generated */     #endif 
-/* Generated */     if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-/* Generated */        optInTimePeriod = 14;
-/* Generated */     else if( ((int)optInTimePeriod < 2) || ((int)optInTimePeriod > 100000) )
-/* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */     if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
-/* Generated */        optInFastK_Period = 5;
-/* Generated */     else if( ((int)optInFastK_Period < 1) || ((int)optInFastK_Period > 100000) )
-/* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */     if( (int)optInFastD_Period == TA_INTEGER_DEFAULT )
-/* Generated */        optInFastD_Period = 3;
-/* Generated */     else if( ((int)optInFastD_Period < 1) || ((int)optInFastD_Period > 100000) )
-/* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */     if( (int)optInTimePeriod == TA_INTEGER_DEFAULT ) {
+/* Generated */  	  optInTimePeriod = 14;
+/* Generated */     } else if( ((int)optInTimePeriod < 2) || ((int)optInTimePeriod > 100000) ) {
+/* Generated */  	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
+/* Generated */     if( (int)optInFastK_Period == TA_INTEGER_DEFAULT ) {
+/* Generated */  	  optInFastK_Period = 5;
+/* Generated */     } else if( ((int)optInFastK_Period < 1) || ((int)optInFastK_Period > 100000) ) {
+/* Generated */  	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
+/* Generated */     if( (int)optInFastD_Period == TA_INTEGER_DEFAULT ) {
+/* Generated */  	  optInFastD_Period = 3;
+/* Generated */     } else if( ((int)optInFastD_Period < 1) || ((int)optInFastD_Period > 100000) ) {
+/* Generated */  	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
 /* Generated */     #if !defined(_MANAGED) && !defined(_JAVA)
-/* Generated */     if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT )
-/* Generated */        optInFastD_MAType = (TA_MAType)0;
-/* Generated */     else if( ((int)optInFastD_MAType < 0) || ((int)optInFastD_MAType > 8) )
-/* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */     if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT ) {
+/* Generated */  	  optInFastD_MAType = (TA_MAType)0;
+/* Generated */     } else if( ((int)optInFastD_MAType < 0) || ((int)optInFastD_MAType > 8) ) {
+/* Generated */  	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
 /* Generated */     #endif 
 /* Generated */     #if !defined(_JAVA)
 /* Generated */     if( !outFastK )
@@ -546,7 +577,7 @@ double outFastD[],
 /* Generated */ #if defined( _MANAGED )
 /* Generated */ }}} // Close namespace TicTacTec.TA.Lib
 /* Generated */ #elif defined( _RUST )
-/* Generated */ } // Close impl core
+/* Generated */ } // Close impl Core
 /* Generated */ #endif
 /**** END GENCODE SECTION 5 - DO NOT DELETE THIS LINE ****/
 

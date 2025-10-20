@@ -63,7 +63,7 @@
 /* Generated */ #elif defined( _RUST )
 /* Generated */    #include "ta_defs.h"
 /* Generated */    #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)
-/* Generated */    impl core {
+/* Generated */    impl Core {
 /* Generated */ #else
 /* Generated */    #include <string.h>
 /* Generated */    #include <math.h>
@@ -92,7 +92,10 @@
 /* Generated */                          int           optInTimePeriod3 )  /* From 1 to 100000 */
 /* Generated */ 
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn ultosc_lookback( /* Generated */ 
+/* Generated */ pub fn ultosc_lookback(
+optInTimePeriod1: i32,
+/* Generated */                         optInTimePeriod2: i32,
+/* Generated */                         optInTimePeriod3: i32) -> i32
 /* Generated */ #else
 /* Generated */ TA_LIB_API int TA_ULTOSC_Lookback( int           optInTimePeriod1, /* From 1 to 100000 */
 /* Generated */                                             int           optInTimePeriod2, /* From 1 to 100000 */
@@ -106,23 +109,23 @@
 /**** START GENCODE SECTION 2 - DO NOT DELETE THIS LINE ****/
 /* Generated */ #ifndef TA_FUNC_NO_RANGE_CHECK
 /* Generated */    /* min/max are checked for optInTimePeriod1. */
-/* Generated */    if( (int)optInTimePeriod1 == TA_INTEGER_DEFAULT )
-/* Generated */       optInTimePeriod1 = 7;
-/* Generated */    else if( ((int)optInTimePeriod1 < 1) || ((int)optInTimePeriod1 > 100000) )
-/* Generated */       return -1;
-/* Generated */ 
+/* Generated */    if( (int)optInTimePeriod1 == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInTimePeriod1 = 7;
+/* Generated */    } else if( ((int)optInTimePeriod1 < 1) || ((int)optInTimePeriod1 > 100000) ) {
+/* Generated */ 	  return -1;
+/* Generated */ }
 /* Generated */    /* min/max are checked for optInTimePeriod2. */
-/* Generated */    if( (int)optInTimePeriod2 == TA_INTEGER_DEFAULT )
-/* Generated */       optInTimePeriod2 = 14;
-/* Generated */    else if( ((int)optInTimePeriod2 < 1) || ((int)optInTimePeriod2 > 100000) )
-/* Generated */       return -1;
-/* Generated */ 
+/* Generated */    if( (int)optInTimePeriod2 == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInTimePeriod2 = 14;
+/* Generated */    } else if( ((int)optInTimePeriod2 < 1) || ((int)optInTimePeriod2 > 100000) ) {
+/* Generated */ 	  return -1;
+/* Generated */ }
 /* Generated */    /* min/max are checked for optInTimePeriod3. */
-/* Generated */    if( (int)optInTimePeriod3 == TA_INTEGER_DEFAULT )
-/* Generated */       optInTimePeriod3 = 28;
-/* Generated */    else if( ((int)optInTimePeriod3 < 1) || ((int)optInTimePeriod3 > 100000) )
-/* Generated */       return -1;
-/* Generated */ 
+/* Generated */    if( (int)optInTimePeriod3 == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInTimePeriod3 = 28;
+/* Generated */    } else if( ((int)optInTimePeriod3 < 1) || ((int)optInTimePeriod3 > 100000) ) {
+/* Generated */ 	  return -1;
+/* Generated */ }
 /* Generated */ #endif /* TA_FUNC_NO_RANGE_CHECK */
 /**** END GENCODE SECTION 2 - DO NOT DELETE THIS LINE ****/
 
@@ -191,17 +194,14 @@
 /* Generated */                        MInteger     outNBElement,
 /* Generated */                        double        outReal[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn ultosc( int    startIdx,
-/* Generated */ 
-/* Generated */                             int    endIdx,
- inPriceHLC[],
- optInTimePeriod1[],
- optInTimePeriod2[],
- optInTimePeriod3[],
-mut outBegIdx,
-mut outNBElement,
-double outReal[],
-)
+/* Generated */ pub fn ultosc(startIdx: usize,
+/* Generated */               endIdx: usize,
+/* Generated */               /* Generated */               optInTimePeriod1: i32,
+/* Generated */               optInTimePeriod2: i32,
+/* Generated */               optInTimePeriod3: i32,
+/* Generated */               outBegIdx: &mut usize,
+/* Generated */               outNBElement: &mut usize,
+/* Generated */               outReal: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_LIB_API TA_RetCode TA_ULTOSC( int    startIdx,
 /* Generated */                                  int    endIdx,
@@ -236,38 +236,47 @@ double outReal[],
 /* Generated */ #ifndef TA_FUNC_NO_RANGE_CHECK
 /* Generated */ 
 /* Generated */    /* Validate the requested output range. */
-/* Generated */    if( startIdx < 0 )
-/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */    if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */ #if defined( _RUST )
+/* Generated */    /* Skip negative checks for Rust since startIdx/endIdx are usize (unsigned) */
+/* Generated */    if( endIdx < startIdx ) {
 /* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #else
+/* Generated */    if( startIdx < 0 ) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */    }
+/* Generated */    if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #endif
 /* Generated */ 
 /* Generated */ #if defined( _RUST )
 /* Generated */ 
 /* Generated */ #else
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    /* Verify required price component. */
-/* Generated */    if(!inHigh||!inLow||!inClose)
+/* Generated */    if(!inHigh||!inLow||!inClose){
 /* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */ }
 /* Generated */    #endif /* !defined(_JAVA)*/
 /* Generated */    /* min/max are checked for optInTimePeriod1. */
-/* Generated */    if( (int)optInTimePeriod1 == TA_INTEGER_DEFAULT )
-/* Generated */       optInTimePeriod1 = 7;
-/* Generated */    else if( ((int)optInTimePeriod1 < 1) || ((int)optInTimePeriod1 > 100000) )
-/* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */    if( (int)optInTimePeriod1 == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInTimePeriod1 = 7;
+/* Generated */    } else if( ((int)optInTimePeriod1 < 1) || ((int)optInTimePeriod1 > 100000) ) {
+/* Generated */ 	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */ }
 /* Generated */    /* min/max are checked for optInTimePeriod2. */
-/* Generated */    if( (int)optInTimePeriod2 == TA_INTEGER_DEFAULT )
-/* Generated */       optInTimePeriod2 = 14;
-/* Generated */    else if( ((int)optInTimePeriod2 < 1) || ((int)optInTimePeriod2 > 100000) )
-/* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */    if( (int)optInTimePeriod2 == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInTimePeriod2 = 14;
+/* Generated */    } else if( ((int)optInTimePeriod2 < 1) || ((int)optInTimePeriod2 > 100000) ) {
+/* Generated */ 	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */ }
 /* Generated */    /* min/max are checked for optInTimePeriod3. */
-/* Generated */    if( (int)optInTimePeriod3 == TA_INTEGER_DEFAULT )
-/* Generated */       optInTimePeriod3 = 28;
-/* Generated */    else if( ((int)optInTimePeriod3 < 1) || ((int)optInTimePeriod3 > 100000) )
-/* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */    if( (int)optInTimePeriod3 == TA_INTEGER_DEFAULT ) {
+/* Generated */ 	  optInTimePeriod3 = 28;
+/* Generated */    } else if( ((int)optInTimePeriod3 < 1) || ((int)optInTimePeriod3 > 100000) ) {
+/* Generated */ 	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */ }
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    if( !outReal )
 /* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
@@ -457,9 +466,14 @@ double outReal[],
 /* Generated */                        MInteger     outNBElement,
 /* Generated */                        double        outReal[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn ultosc_s( int    startIdx,
-/* Generated */ 
-/* Generated */                               int    endIdx,
+/* Generated */ pub fn ultosc_s(startIdx: usize,
+/* Generated */                 endIdx: usize,
+/* Generated */                 /* Generated */                 optInTimePeriod1: i32,
+/* Generated */                 optInTimePeriod2: i32,
+/* Generated */                 optInTimePeriod3: i32,
+/* Generated */                 outBegIdx: &mut usize,
+/* Generated */                 outNBElement: &mut usize,
+/* Generated */                 outReal: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_RetCode TA_S_ULTOSC( int    startIdx,
 /* Generated */                         int    endIdx,
@@ -486,28 +500,40 @@ double outReal[],
 /* Generated */    ARRAY_INT_LOCAL(periods,3);
 /* Generated */    ARRAY_INT_LOCAL(sortedPeriods,3);
 /* Generated */  #ifndef TA_FUNC_NO_RANGE_CHECK
-/* Generated */     if( startIdx < 0 )
-/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */     if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */  #if defined( _RUST )
+/* Generated */     if( endIdx < startIdx ) {
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #else
+/* Generated */     if( startIdx < 0 ) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */     }
+/* Generated */     if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #endif
 /* Generated */  #if defined( _RUST )
 /* Generated */  #else
 /* Generated */     #if !defined(_JAVA)
-/* Generated */     if(!inHigh||!inLow||!inClose)
+/* Generated */     if(!inHigh||!inLow||!inClose){
 /* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
 /* Generated */     #endif 
-/* Generated */     if( (int)optInTimePeriod1 == TA_INTEGER_DEFAULT )
-/* Generated */        optInTimePeriod1 = 7;
-/* Generated */     else if( ((int)optInTimePeriod1 < 1) || ((int)optInTimePeriod1 > 100000) )
-/* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */     if( (int)optInTimePeriod2 == TA_INTEGER_DEFAULT )
-/* Generated */        optInTimePeriod2 = 14;
-/* Generated */     else if( ((int)optInTimePeriod2 < 1) || ((int)optInTimePeriod2 > 100000) )
-/* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */     if( (int)optInTimePeriod3 == TA_INTEGER_DEFAULT )
-/* Generated */        optInTimePeriod3 = 28;
-/* Generated */     else if( ((int)optInTimePeriod3 < 1) || ((int)optInTimePeriod3 > 100000) )
-/* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */     if( (int)optInTimePeriod1 == TA_INTEGER_DEFAULT ) {
+/* Generated */  	  optInTimePeriod1 = 7;
+/* Generated */     } else if( ((int)optInTimePeriod1 < 1) || ((int)optInTimePeriod1 > 100000) ) {
+/* Generated */  	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
+/* Generated */     if( (int)optInTimePeriod2 == TA_INTEGER_DEFAULT ) {
+/* Generated */  	  optInTimePeriod2 = 14;
+/* Generated */     } else if( ((int)optInTimePeriod2 < 1) || ((int)optInTimePeriod2 > 100000) ) {
+/* Generated */  	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
+/* Generated */     if( (int)optInTimePeriod3 == TA_INTEGER_DEFAULT ) {
+/* Generated */  	  optInTimePeriod3 = 28;
+/* Generated */     } else if( ((int)optInTimePeriod3 < 1) || ((int)optInTimePeriod3 > 100000) ) {
+/* Generated */  	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
 /* Generated */     #if !defined(_JAVA)
 /* Generated */     if( !outReal )
 /* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
@@ -616,7 +642,7 @@ double outReal[],
 /* Generated */ #if defined( _MANAGED )
 /* Generated */ }}} // Close namespace TicTacTec.TA.Lib
 /* Generated */ #elif defined( _RUST )
-/* Generated */ } // Close impl core
+/* Generated */ } // Close impl Core
 /* Generated */ #endif
 /**** END GENCODE SECTION 5 - DO NOT DELETE THIS LINE ****/
 

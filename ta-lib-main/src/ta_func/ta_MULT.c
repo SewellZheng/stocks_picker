@@ -61,7 +61,7 @@
 /* Generated */ #elif defined( _RUST )
 /* Generated */    #include "ta_defs.h"
 /* Generated */    #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)
-/* Generated */    impl core {
+/* Generated */    impl Core {
 /* Generated */ #else
 /* Generated */    #include <string.h>
 /* Generated */    #include <math.h>
@@ -86,7 +86,8 @@
 /* Generated */ public int multLookback(  )
 /* Generated */ 
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn mult_lookback( /* Generated */ 
+/* Generated */ pub fn mult_lookback(
+) -> i32
 /* Generated */ #else
 /* Generated */ TA_LIB_API int TA_MULT_Lookback( void )
 /* Generated */ 
@@ -138,15 +139,13 @@
 /* Generated */                      MInteger     outNBElement,
 /* Generated */                      double        outReal[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn mult( int    startIdx,
-/* Generated */ 
-/* Generated */                           int    endIdx,
-double inReal0[],
-double inReal1[],
-mut outBegIdx,
-mut outNBElement,
-double outReal[],
-)
+/* Generated */ pub fn mult(startIdx: usize,
+/* Generated */             endIdx: usize,
+/* Generated */             inReal0: &[f64],
+/* Generated */             inReal1: &[f64],
+/* Generated */             outBegIdx: &mut usize,
+/* Generated */             outNBElement: &mut usize,
+/* Generated */             outReal: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_LIB_API TA_RetCode TA_MULT( int    startIdx,
 /* Generated */                                int    endIdx,
@@ -159,25 +158,34 @@ double outReal[],
 /**** END GENCODE SECTION 3 - DO NOT DELETE THIS LINE ****/
 {
    /* insert local variable here */
-   int outIdx;
-   int i;
+   DECLARE_INDEX_VAR(outIdx)
+   DECLARE_LOOP_VAR(i)
 
 /**** START GENCODE SECTION 4 - DO NOT DELETE THIS LINE ****/
 /* Generated */ 
 /* Generated */ #ifndef TA_FUNC_NO_RANGE_CHECK
 /* Generated */ 
 /* Generated */    /* Validate the requested output range. */
-/* Generated */    if( startIdx < 0 )
-/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */    if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */ #if defined( _RUST )
+/* Generated */    /* Skip negative checks for Rust since startIdx/endIdx are usize (unsigned) */
+/* Generated */    if( endIdx < startIdx ) {
 /* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #else
+/* Generated */    if( startIdx < 0 ) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */    }
+/* Generated */    if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #endif
 /* Generated */ 
 /* Generated */ #if defined( _RUST )
 /* Generated */ 
 /* Generated */ #else
 /* Generated */    #if !defined(_JAVA)
-/* Generated */    if( !inReal0 ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */    if( !inReal1 ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */    if( !inReal0 ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
+/* Generated */    if( !inReal1 ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
 /* Generated */    #endif /* !defined(_JAVA)*/
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    if( !outReal )
@@ -191,12 +199,11 @@ double outReal[],
 
    /* Insert TA function code here. */
 
-   for( i=startIdx, outIdx=0; i <= endIdx; i++, outIdx++ )
-   {
-      outReal[outIdx] = inReal0[i]*inReal1[i];
-   }
+   FOR_EACH_OUTPUT(startIdx, endIdx, i, outIdx)
+      outReal[outIdx] = OUTPUT_F64(inReal0[i]*inReal1[i]);
+   FOR_EACH_OUTPUT_END(outIdx)
 
-   VALUE_HANDLE_DEREF(outNBElement) = outIdx;
+   VALUE_HANDLE_DEREF_INDEX(outNBElement, outIdx);
    VALUE_HANDLE_DEREF(outBegIdx)    = startIdx;
 
    return ENUM_VALUE(RetCode,TA_SUCCESS,Success);
@@ -236,9 +243,13 @@ double outReal[],
 /* Generated */                      MInteger     outNBElement,
 /* Generated */                      double        outReal[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn mult_s( int    startIdx,
-/* Generated */ 
-/* Generated */                             int    endIdx,
+/* Generated */ pub fn mult_s(startIdx: usize,
+/* Generated */               endIdx: usize,
+/* Generated */               inReal0: &[f32],
+/* Generated */               inReal1: &[f32],
+/* Generated */               outBegIdx: &mut usize,
+/* Generated */               outNBElement: &mut usize,
+/* Generated */               outReal: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_RetCode TA_S_MULT( int    startIdx,
 /* Generated */                       int    endIdx,
@@ -249,18 +260,26 @@ double outReal[],
 /* Generated */                       double        outReal[] )
 /* Generated */ #endif
 /* Generated */ {
-/* Generated */    int outIdx;
-/* Generated */    int i;
+/* Generated */    DECLARE_INDEX_VAR(outIdx)
+/* Generated */    DECLARE_LOOP_VAR(i)
 /* Generated */  #ifndef TA_FUNC_NO_RANGE_CHECK
-/* Generated */     if( startIdx < 0 )
-/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */     if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */  #if defined( _RUST )
+/* Generated */     if( endIdx < startIdx ) {
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #else
+/* Generated */     if( startIdx < 0 ) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */     }
+/* Generated */     if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #endif
 /* Generated */  #if defined( _RUST )
 /* Generated */  #else
 /* Generated */     #if !defined(_JAVA)
-/* Generated */     if( !inReal0 ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */     if( !inReal1 ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */     if( !inReal0 ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
+/* Generated */     if( !inReal1 ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
 /* Generated */     #endif 
 /* Generated */     #if !defined(_JAVA)
 /* Generated */     if( !outReal )
@@ -268,11 +287,10 @@ double outReal[],
 /* Generated */     #endif 
 /* Generated */  #endif
 /* Generated */  #endif 
-/* Generated */    for( i=startIdx, outIdx=0; i <= endIdx; i++, outIdx++ )
-/* Generated */    {
-/* Generated */       outReal[outIdx] = inReal0[i]*inReal1[i];
-/* Generated */    }
-/* Generated */    VALUE_HANDLE_DEREF(outNBElement) = outIdx;
+/* Generated */    FOR_EACH_OUTPUT(startIdx, endIdx, i, outIdx)
+/* Generated */       outReal[outIdx] = OUTPUT_F64(inReal0[i]*inReal1[i]);
+/* Generated */    FOR_EACH_OUTPUT_END(outIdx)
+/* Generated */    VALUE_HANDLE_DEREF_INDEX(outNBElement, outIdx);
 /* Generated */    VALUE_HANDLE_DEREF(outBegIdx)    = startIdx;
 /* Generated */    return ENUM_VALUE(RetCode,TA_SUCCESS,Success);
 /* Generated */ }
@@ -280,7 +298,7 @@ double outReal[],
 /* Generated */ #if defined( _MANAGED )
 /* Generated */ }}} // Close namespace TicTacTec.TA.Lib
 /* Generated */ #elif defined( _RUST )
-/* Generated */ } // Close impl core
+/* Generated */ } // Close impl Core
 /* Generated */ #endif
 /**** END GENCODE SECTION 5 - DO NOT DELETE THIS LINE ****/
 

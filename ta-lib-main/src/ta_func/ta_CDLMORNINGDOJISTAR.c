@@ -63,7 +63,7 @@
 /* Generated */ #elif defined( _RUST )
 /* Generated */    #include "ta_defs.h"
 /* Generated */    #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)
-/* Generated */    impl core {
+/* Generated */    impl Core {
 /* Generated */ #else
 /* Generated */    #include <string.h>
 /* Generated */    #include <math.h>
@@ -88,7 +88,8 @@
 /* Generated */ public int cdlMorningDojiStarLookback( double        optInPenetration )  /* From 0 to TA_REAL_MAX */
 /* Generated */ 
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn cdlmorningdojistar_lookback( /* Generated */ 
+/* Generated */ pub fn cdlmorningdojistar_lookback(
+optInPenetration: f64) -> i32
 /* Generated */ #else
 /* Generated */ TA_LIB_API int TA_CDLMORNINGDOJISTAR_Lookback( double        optInPenetration )  /* From 0 to TA_REAL_MAX */
 /* Generated */ 
@@ -99,11 +100,11 @@
 
 /**** START GENCODE SECTION 2 - DO NOT DELETE THIS LINE ****/
 /* Generated */ #ifndef TA_FUNC_NO_RANGE_CHECK
-/* Generated */    if( optInPenetration == TA_REAL_DEFAULT )
-/* Generated */       optInPenetration = 3.000000e-1;
-/* Generated */    else if( (optInPenetration < 0.000000e+0) ||/* Generated */  (optInPenetration > 3.000000e+37) )
-/* Generated */       return -1;
-/* Generated */ 
+/* Generated */    if( optInPenetration == TA_REAL_DEFAULT ) {
+/* Generated */ 	  optInPenetration = 3.000000e-1;
+/* Generated */    } else if( (optInPenetration < 0.000000e+0) ||/* Generated */  (optInPenetration > 3.000000e+37) ) {
+/* Generated */ 	  return -1;
+/* Generated */ }
 /* Generated */ #endif /* TA_FUNC_NO_RANGE_CHECK */
 /**** END GENCODE SECTION 2 - DO NOT DELETE THIS LINE ****/
 
@@ -163,15 +164,12 @@
 /* Generated */                                    MInteger     outNBElement,
 /* Generated */                                    int           outInteger[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn cdlmorningdojistar( int    startIdx,
-/* Generated */ 
-/* Generated */                                         int    endIdx,
- inPriceOHLC[],
-double optInPenetration[],
-mut outBegIdx,
-mut outNBElement,
- outInteger[],
-)
+/* Generated */ pub fn cdlmorningdojistar(startIdx: usize,
+/* Generated */                           endIdx: usize,
+/* Generated */                           /* Generated */                           optInPenetration: f64,
+/* Generated */                           outBegIdx: &mut usize,
+/* Generated */                           outNBElement: &mut usize,
+/* Generated */                           outInteger: &mut [i32]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_LIB_API TA_RetCode TA_CDLMORNINGDOJISTAR( int    startIdx,
 /* Generated */                                              int    endIdx,
@@ -195,25 +193,34 @@ mut outNBElement,
 /* Generated */ #ifndef TA_FUNC_NO_RANGE_CHECK
 /* Generated */ 
 /* Generated */    /* Validate the requested output range. */
-/* Generated */    if( startIdx < 0 )
-/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */    if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */ #if defined( _RUST )
+/* Generated */    /* Skip negative checks for Rust since startIdx/endIdx are usize (unsigned) */
+/* Generated */    if( endIdx < startIdx ) {
 /* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #else
+/* Generated */    if( startIdx < 0 ) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */    }
+/* Generated */    if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #endif
 /* Generated */ 
 /* Generated */ #if defined( _RUST )
 /* Generated */ 
 /* Generated */ #else
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    /* Verify required price component. */
-/* Generated */    if(!inOpen||!inHigh||!inLow||!inClose)
+/* Generated */    if(!inOpen||!inHigh||!inLow||!inClose){
 /* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */ }
 /* Generated */    #endif /* !defined(_JAVA)*/
-/* Generated */    if( optInPenetration == TA_REAL_DEFAULT )
-/* Generated */       optInPenetration = 3.000000e-1;
-/* Generated */    else if( (optInPenetration < 0.000000e+0) ||/* Generated */  (optInPenetration > 3.000000e+37) )
-/* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
-/* Generated */ 
+/* Generated */    if( optInPenetration == TA_REAL_DEFAULT ) {
+/* Generated */ 	  optInPenetration = 3.000000e-1;
+/* Generated */    } else if( (optInPenetration < 0.000000e+0) ||/* Generated */  (optInPenetration > 3.000000e+37) ) {
+/* Generated */ 	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */ }
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    if( !outInteger )
 /* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
@@ -359,9 +366,12 @@ mut outNBElement,
 /* Generated */                                    MInteger     outNBElement,
 /* Generated */                                    int           outInteger[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn cdlmorningdojistar_s( int    startIdx,
-/* Generated */ 
-/* Generated */                                           int    endIdx,
+/* Generated */ pub fn cdlmorningdojistar_s(startIdx: usize,
+/* Generated */                             endIdx: usize,
+/* Generated */                             /* Generated */                             optInPenetration: f32,
+/* Generated */                             outBegIdx: &mut usize,
+/* Generated */                             outNBElement: &mut usize,
+/* Generated */                             outInteger: &mut [i32]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_RetCode TA_S_CDLMORNINGDOJISTAR( int    startIdx,
 /* Generated */                                     int    endIdx,
@@ -378,20 +388,30 @@ mut outNBElement,
 /* Generated */     double BodyDojiPeriodTotal, BodyLongPeriodTotal, BodyShortPeriodTotal;
 /* Generated */     int i, outIdx, BodyDojiTrailingIdx, BodyLongTrailingIdx, BodyShortTrailingIdx, lookbackTotal;
 /* Generated */  #ifndef TA_FUNC_NO_RANGE_CHECK
-/* Generated */     if( startIdx < 0 )
-/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */     if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */  #if defined( _RUST )
+/* Generated */     if( endIdx < startIdx ) {
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #else
+/* Generated */     if( startIdx < 0 ) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */     }
+/* Generated */     if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #endif
 /* Generated */  #if defined( _RUST )
 /* Generated */  #else
 /* Generated */     #if !defined(_JAVA)
-/* Generated */     if(!inOpen||!inHigh||!inLow||!inClose)
+/* Generated */     if(!inOpen||!inHigh||!inLow||!inClose){
 /* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
 /* Generated */     #endif 
-/* Generated */     if( optInPenetration == TA_REAL_DEFAULT )
-/* Generated */        optInPenetration = 3.000000e-1;
-/* Generated */     else if( (optInPenetration < 0.000000e+0) ||  (optInPenetration > 3.000000e+37) )
-/* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */     if( optInPenetration == TA_REAL_DEFAULT ) {
+/* Generated */  	  optInPenetration = 3.000000e-1;
+/* Generated */     } else if( (optInPenetration < 0.000000e+0) ||  (optInPenetration > 3.000000e+37) ) {
+/* Generated */  	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */  }
 /* Generated */     #if !defined(_JAVA)
 /* Generated */     if( !outInteger )
 /* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
@@ -459,7 +479,7 @@ mut outNBElement,
 /* Generated */ #if defined( _MANAGED )
 /* Generated */ }}} // Close namespace TicTacTec.TA.Lib
 /* Generated */ #elif defined( _RUST )
-/* Generated */ } // Close impl core
+/* Generated */ } // Close impl Core
 /* Generated */ #endif
 /**** END GENCODE SECTION 5 - DO NOT DELETE THIS LINE ****/
 

@@ -64,7 +64,7 @@
 /* Generated */ #elif defined( _RUST )
 /* Generated */    #include "ta_defs.h"
 /* Generated */    #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)
-/* Generated */    impl core {
+/* Generated */    impl Core {
 /* Generated */ #else
 /* Generated */    #include <string.h>
 /* Generated */    #include <math.h>
@@ -89,7 +89,8 @@
 /* Generated */ public int htPhasorLookback(  )
 /* Generated */ 
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn ht_phasor_lookback( /* Generated */ 
+/* Generated */ pub fn ht_phasor_lookback(
+) -> i32
 /* Generated */ #else
 /* Generated */ TA_LIB_API int TA_HT_PHASOR_Lookback( void )
 /* Generated */ 
@@ -142,15 +143,13 @@
 /* Generated */                          double        outInPhase[],
 /* Generated */                          double        outQuadrature[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn ht_phasor( int    startIdx,
-/* Generated */ 
-/* Generated */                                int    endIdx,
-double inReal[],
-mut outBegIdx,
-mut outNBElement,
-double outInPhase[],
-double outQuadrature[],
-)
+/* Generated */ pub fn ht_phasor(startIdx: usize,
+/* Generated */                  endIdx: usize,
+/* Generated */                  inReal: &[f64],
+/* Generated */                  outBegIdx: &mut usize,
+/* Generated */                  outNBElement: &mut usize,
+/* Generated */                  outInPhase: &mut [f64],
+/* Generated */                  outQuadrature: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_LIB_API TA_RetCode TA_HT_PHASOR( int    startIdx,
 /* Generated */                                     int    endIdx,
@@ -200,16 +199,25 @@ double outQuadrature[],
 /* Generated */ #ifndef TA_FUNC_NO_RANGE_CHECK
 /* Generated */ 
 /* Generated */    /* Validate the requested output range. */
-/* Generated */    if( startIdx < 0 )
-/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */    if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */ #if defined( _RUST )
+/* Generated */    /* Skip negative checks for Rust since startIdx/endIdx are usize (unsigned) */
+/* Generated */    if( endIdx < startIdx ) {
 /* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #else
+/* Generated */    if( startIdx < 0 ) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */    }
+/* Generated */    if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */    }
+/* Generated */ #endif
 /* Generated */ 
 /* Generated */ #if defined( _RUST )
 /* Generated */ 
 /* Generated */ #else
 /* Generated */    #if !defined(_JAVA)
-/* Generated */    if( !inReal ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */    if( !inReal ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
 /* Generated */    #endif /* !defined(_JAVA)*/
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    if( !outInPhase )
@@ -447,9 +455,13 @@ double outQuadrature[],
 /* Generated */                          double        outInPhase[],
 /* Generated */                          double        outQuadrature[] )
 /* Generated */ #elif defined( _RUST )
-/* Generated */ fn ht_phasor_s( int    startIdx,
-/* Generated */ 
-/* Generated */                                  int    endIdx,
+/* Generated */ pub fn ht_phasor_s(startIdx: usize,
+/* Generated */                    endIdx: usize,
+/* Generated */                    inReal: &[f32],
+/* Generated */                    outBegIdx: &mut usize,
+/* Generated */                    outNBElement: &mut usize,
+/* Generated */                    outInPhase: &mut [f64],
+/* Generated */                    outQuadrature: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_RetCode TA_S_HT_PHASOR( int    startIdx,
 /* Generated */                            int    endIdx,
@@ -481,14 +493,22 @@ double outQuadrature[],
 /* Generated */    double rad2Deg;
 /* Generated */    double todayValue;
 /* Generated */  #ifndef TA_FUNC_NO_RANGE_CHECK
-/* Generated */     if( startIdx < 0 )
-/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */     if( (endIdx < 0) || (endIdx < startIdx))
+/* Generated */  #if defined( _RUST )
+/* Generated */     if( endIdx < startIdx ) {
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #else
+/* Generated */     if( startIdx < 0 ) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
+/* Generated */     }
+/* Generated */     if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
+/* Generated */     }
+/* Generated */  #endif
 /* Generated */  #if defined( _RUST )
 /* Generated */  #else
 /* Generated */     #if !defined(_JAVA)
-/* Generated */     if( !inReal ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
+/* Generated */     if( !inReal ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
 /* Generated */     #endif 
 /* Generated */     #if !defined(_JAVA)
 /* Generated */     if( !outInPhase )
@@ -612,7 +632,7 @@ double outQuadrature[],
 /* Generated */ #if defined( _MANAGED )
 /* Generated */ }}} // Close namespace TicTacTec.TA.Lib
 /* Generated */ #elif defined( _RUST )
-/* Generated */ } // Close impl core
+/* Generated */ } // Close impl Core
 /* Generated */ #endif
 /**** END GENCODE SECTION 5 - DO NOT DELETE THIS LINE ****/
 

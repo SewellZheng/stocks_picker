@@ -293,6 +293,8 @@ static void create_dir_recursively( const char *dir );
 
 static void writeRustMod( void );
 static void genRustCodePhase2( const TA_FuncInfo *funcInfo );
+void rustCargoFix( void );
+void rustCargoFormat( void );
 
 static void genJavaCodePhase1( const TA_FuncInfo *funcInfo );
 static void genJavaCodePhase2( const TA_FuncInfo *funcInfo );
@@ -2351,10 +2353,10 @@ static void printFunc(FILE *out,
                   fprintf( out, "!inOpenInterest%s", k != j? "||":")");
                }
 
-               fprintf( out, "\n" );
+               fprintf( out, "{\n" );
                printIndent( out, indent );
                fprintf( out, "   return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);\n" );
-               print( out, "\n" );
+               print( out, "}\n" );
             }
             else
             {
@@ -2510,7 +2512,7 @@ static void printFunc(FILE *out,
          {
             printIndent( out, indent );
             if( validationCode )
-               fprintf( out, "if( !%s ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);\n", inputParamInfo->paramName );
+               fprintf( out, "if( !%s ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }\n", inputParamInfo->paramName );
             else
             {
 
@@ -3141,7 +3143,7 @@ static void doFuncFile( const TA_FuncInfo *funcInfo )
    print( gOutFunc_C->file, "#if defined( _MANAGED )\n" );
    print( gOutFunc_C->file, "}}} // Close namespace TicTacTec.TA.Lib\n" );
    print( gOutFunc_C->file, "#elif defined( _RUST )\n" );
-   print( gOutFunc_C->file, "} // Close impl core\n" );
+   print( gOutFunc_C->file, "} // Close impl Core\n" );
    print( gOutFunc_C->file, "#endif\n" );
 
    fileClose( gOutFunc_C );
@@ -3383,7 +3385,7 @@ static void writeFuncFile( const TA_FuncInfo *funcInfo )
    print( out, "#elif defined( _RUST )\n" );
    print( out, "   #include \"ta_defs.h\"\n" );
    print( out, "   #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)\n" );
-   print( out, "   impl core {\n" );
+   print( out, "   impl Core {\n" );
    print( out, "#else\n" );
    print( out, "   #include <string.h>\n" );
    print( out, "   #include <math.h>\n" );
@@ -3459,10 +3461,19 @@ static void writeFuncFile( const TA_FuncInfo *funcInfo )
    print( out, "#ifndef TA_FUNC_NO_RANGE_CHECK\n" );
    print( out, "\n" );
    print( out, "   /* Validate the requested output range. */\n" );
-   print( out, "   if( startIdx < 0 )\n" );
-   print( out, "      return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);\n" );
-   print( out, "   if( (endIdx < 0) || (endIdx < startIdx))\n" );
+   print( out, "#if defined( _RUST )\n" );
+   print( out, "   /* Skip negative checks for Rust since startIdx/endIdx are usize (unsigned) */\n" );
+   print( out, "   if( endIdx < startIdx ) {\n" );
    print( out, "      return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);\n" );
+   print( out, "   }\n");
+   print( out, "#else\n" );
+   print( out, "   if( startIdx < 0 ) {\n" );
+   print( out, "      return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);\n" );
+   print( out, "   }\n");
+   print( out, "   if( (endIdx < 0) || (endIdx < startIdx)) {\n" );
+   print( out, "      return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);\n" );
+   print( out, "   }\n");
+   print( out, "#endif\n");
    print( out, "\n" );
    /* Generate the code for checking the parameters.
     * Also generates the code for setting up the
@@ -3544,33 +3555,37 @@ static void printOptInputValidation( FILE *out,
   else
      isMAType = 0;
 
-   switch( optInputParamInfo->type )
+   switch (optInputParamInfo->type)
    {
    case TA_OptInput_RealList:
-      print( out, "   /* min/max are checked for %s. */\n", name );
+		print(out, "   /* min/max are checked for %s. */\n", name);
    case TA_OptInput_RealRange:
-      print( out, "   if( %s == TA_REAL_DEFAULT )\n", name  );
-      print( out, "      %s = %s;\n", name, doubleToStr(optInputParamInfo->defaultValue) );
-      print( out, "   else if( (%s < %s) ||", name, doubleToStr(minReal) );
-      print( out, " (%s > %s) )\n", name, doubleToStr(maxReal) );
-      break;
+	   print(out, "   if( %s == TA_REAL_DEFAULT ) {\n", name);
+	   print(out, "	  %s = %s;\n", name, doubleToStr(optInputParamInfo->defaultValue));
+	   print(out, "   } else if( (%s < %s) ||", name, doubleToStr(minReal));
+	   print(out, " (%s > %s) ) {\n", name, doubleToStr(maxReal));
+	   break;
    case TA_OptInput_IntegerRange:
-      print( out, "   /* min/max are checked for %s. */\n", name );
+	   print(out, "   /* min/max are checked for %s. */\n", name);
    case TA_OptInput_IntegerList:
-      print( out, "   if( (int)%s == TA_INTEGER_DEFAULT )\n", name );
-	  print( out, "      %s = %s%d;\n", name, isMAType?"(TA_MAType)":"", (int)optInputParamInfo->defaultValue );
-      print( out, "   else if( ((int)%s < %d) || ((int)%s > %d) )\n",
-              name, minInt,
-              name, maxInt );
-      break;
+	   print(out, "   if( (int)%s == TA_INTEGER_DEFAULT ) {\n", name);
+	   print(out, "	  %s = %s%d;\n", name, isMAType ? "(TA_MAType)" : "", (int)optInputParamInfo->defaultValue);
+	   print(out, "   } else if( ((int)%s < %d) || ((int)%s > %d) ) {\n",
+	         name, minInt,
+	         name, maxInt);
+	   break;
    }
 
-   if( lookbackValidationCode )
-      print( out, "      return -1;\n" );
-   else
-      print( out, "      return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);\n" );
+	if (lookbackValidationCode)
+	{
+		print(out, "	  return -1;\n");
+	}
+	else
+	{
+		print(out, "	  return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);\n");
+	}
 
-   print( out, "\n" );
+	print(out, "}\n");
 }
 
 

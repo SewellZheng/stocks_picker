@@ -123,7 +123,7 @@ typedef struct TA_StringTable
  *        }
  *
  * Would display:
- *        "Error 1(TA_LIB_NOT_INITIALIZE): TA_Initialize was not sucessfully called"
+ *        "Error 1(TA_LIB_NOT_INITIALIZE): TA_Initialize was not successfully called"
  */
 typedef struct TA_RetCodeInfo
 {
@@ -151,7 +151,7 @@ TA_LIB_API TA_RetCode TA_Shutdown( void );
  * This value is updated whenever a make, cmake or any source files
  * modification should trig a repackaging of TA-Lib.
  */
-#define TA_LIB_SOURCES_DIGEST 3a82100e1cb0aa2f6e831a163097c815
+#define TA_LIB_SOURCES_DIGEST 88d3c1dc9a2155583937711acc44db2e
 
 #ifdef __cplusplus
 }
