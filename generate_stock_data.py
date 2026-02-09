@@ -184,7 +184,7 @@ def main():
 
     #generate_html(filtered_stocks, debug_log, '')
 
-    html_table, tech_log = get_tech_table('2379.TW')
+    html_table, tech_log = get_tech_table('8069.TW')
     debug_log.append(f'table is {tech_log}')
     generate_html(filtered_stocks, debug_log, html_table)
 
