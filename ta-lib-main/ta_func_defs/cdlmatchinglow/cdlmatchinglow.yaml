@@ -1,0 +1,13 @@
+name: CDLMATCHINGLOW
+camel_case: CdlMatchingLow
+group: Pattern Recognition
+hint: Matching Low
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

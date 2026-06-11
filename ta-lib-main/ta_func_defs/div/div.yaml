@@ -1,0 +1,14 @@
+name: DIV
+camel_case: Div
+group: Math Operators
+hint: Vector Arithmetic Div
+flags: []
+inputs:
+  - name: inReal0
+    type: real
+  - name: inReal1
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

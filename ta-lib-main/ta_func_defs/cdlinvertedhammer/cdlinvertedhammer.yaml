@@ -1,0 +1,13 @@
+name: CDLINVERTEDHAMMER
+camel_case: CdlInvertedHammer
+group: Pattern Recognition
+hint: Inverted Hammer
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

@@ -25,6 +25,12 @@ typedef struct
 ErrorNumber test_internals( void );
 ErrorNumber test_abstract( void );
 
+/* Set optional codegen server for abstract verification.
+ * Pass NULL to disable. When set, test_abstract() also verifies
+ * every TA_CallFunc against the server's abstract_call endpoint. */
+#include "codegen_pipe.h"
+void test_abstract_set_server(CodegenPipe *cp);
+
 ErrorNumber freeLib( void );
 ErrorNumber allocLib( void );
 

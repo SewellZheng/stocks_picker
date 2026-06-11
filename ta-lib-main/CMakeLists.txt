@@ -202,175 +202,177 @@ include_directories(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func"
 )
 
+# [ta_codegen begin LIB_SOURCES]
 set(LIB_SOURCES
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAX.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHAMMER.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLDRAGONFLYDOJI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLGRAVESTONEDOJI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_utility.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ACCBANDS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ACOS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AD.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADD.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADOSC.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADX.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADXR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_APO.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AROON.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AROONOSC.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ASIN.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ATAN.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ATR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AVGDEV.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AVGPRICE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BBANDS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BETA.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BOP.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CCI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL2CROWS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3BLACKCROWS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3INSIDE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3LINESTRIKE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3OUTSIDE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3STARSINSOUTH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3WHITESOLDIERS.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLABANDONEDBABY.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAVP.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLADVANCEBLOCK.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLBELTHOLD.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLBREAKAWAY.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLCLOSINGMARUBOZU.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLCONCEALBABYSWALL.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLCOUNTERATTACK.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLDARKCLOUDCOVER.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLDOJI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLDOJISTAR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLDRAGONFLYDOJI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLENGULFING.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLEVENINGDOJISTAR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLEVENINGSTAR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLGAPSIDESIDEWHITE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLGRAVESTONEDOJI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHAMMER.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHANGINGMAN.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHARAMI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHARAMICROSS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHIGHWAVE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHIKKAKE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHIKKAKEMOD.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHOMINGPIGEON.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLIDENTICAL3CROWS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLINNECK.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLINVERTEDHAMMER.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLKICKING.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLKICKINGBYLENGTH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLLADDERBOTTOM.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLLONGLEGGEDDOJI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLLONGLINE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMARUBOZU.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMATCHINGLOW.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMATHOLD.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMORNINGDOJISTAR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMORNINGSTAR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLONNECK.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLPIERCING.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLRICKSHAWMAN.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLRISEFALL3METHODS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSEPARATINGLINES.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSHOOTINGSTAR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSHORTLINE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSPINNINGTOP.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSTALLEDPATTERN.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSTICKSANDWICH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLTAKURI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLTASUKIGAP.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLTHRUSTING.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLTRISTAR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLUNIQUE3RIVER.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLUPSIDEGAP2CROWS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLXSIDEGAP3METHODS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CEIL.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CMO.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CORREL.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_COS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_COSH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_DEMA.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_DIV.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_DX.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_EMA.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_EXP.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_FLOOR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_DCPERIOD.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_DCPHASE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_PHASOR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_SINE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_TRENDLINE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_TRENDMODE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_IMI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLADVANCEBLOCK.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AROONOSC.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLLONGLINE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MIDPOINT.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PPO.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_WMA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_DCPHASE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSPINNINGTOP.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ACCBANDS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLIDENTICAL3CROWS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_ANGLE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADOSC.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3OUTSIDE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CORREL.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SMA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ULTOSC.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AD.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLUPSIDEGAP2CROWS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLUNIQUE3RIVER.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLRISEFALL3METHODS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLLADDERBOTTOM.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PLUS_DM.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADD.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCHRSI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHANGINGMAN.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_NVI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_T3.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_PHASOR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLTASUKIGAP.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_DEMA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_RSI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MIN.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSTICKSANDWICH.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MINMAX.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLENGULFING.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLDOJI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ACOS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SAR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLINNECK.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCH.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLPIERCING.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ASIN.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MACD.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KAMA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ATR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADXR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLCLOSINGMARUBOZU.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLDARKCLOUDCOVER.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TRIX.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_TRENDLINE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ROCP.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMORNINGSTAR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MIDPRICE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LOG10.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLGAPSIDESIDEWHITE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SIN.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TSF.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCHF.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CMO.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3STARSINSOUTH.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AROON.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TAN.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SINH.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_utility.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TYPPRICE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_NATR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3BLACKCROWS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_DCPERIOD.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLBREAKAWAY.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PLUS_DI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STDDEV.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL2CROWS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MOM.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TRIMA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TRANGE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHIKKAKE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLEVENINGDOJISTAR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAXINDEX.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_FLOOR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ROCR100.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSEPARATINGLINES.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHARAMICROSS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_WCLPRICE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BBANDS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLLONGLEGGEDDOJI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CEIL.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AVGDEV.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLCOUNTERATTACK.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_EXP.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLONNECK.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLINVERTEDHAMMER.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLXSIDEGAP3METHODS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMARUBOZU.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CCI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MACDEXT.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLTHRUSTING.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMATHOLD.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHIKKAKEMOD.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLKICKINGBYLENGTH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_ANGLE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_INTERCEPT.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLKICKING.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SUB.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_SLOPE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_SINE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_COSH.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLDOJISTAR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHOMINGPIGEON.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_EMA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_COS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SAREXT.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LN.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TANH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LOG10.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MA.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MACD.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MACDEXT.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MACDFIX.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_OBV.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SUM.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_DX.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TEMA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MININDEX.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MULT.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_APO.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_DIV.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_WILLR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSHORTLINE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLRICKSHAWMAN.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MEDPRICE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMATCHINGLOW.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ROCR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLBELTHOLD.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLTAKURI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLTRISTAR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHARAMI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PVI.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ATAN.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLHIGHWAVE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSTALLEDPATTERN.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_VAR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLEVENINGSTAR.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAMA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3LINESTRIKE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3WHITESOLDIERS.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLSHOOTINGSTAR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BOP.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MINUS_DM.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ROC.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLMORNINGDOJISTAR.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AVGPRICE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAVP.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAX.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAXINDEX.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MEDPRICE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MFI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MIDPOINT.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MIDPRICE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MIN.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MININDEX.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MINMAX.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MINMAXINDEX.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MINUS_DI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MINUS_DM.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MOM.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MULT.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_NATR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_NVI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_OBV.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PLUS_DI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PLUS_DM.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PPO.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PVI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ROC.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ROCP.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ROCR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ROCR100.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_RSI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SAR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SAREXT.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SIN.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SINH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SQRT.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BETA.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDL3INSIDE.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADX.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STDDEV.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCHF.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCHRSI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SUB.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SUM.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_T3.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TAN.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TANH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TEMA.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TRANGE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TRIMA.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TRIX.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TSF.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TYPPRICE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ULTOSC.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_VAR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_WCLPRICE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_WILLR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_WMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_abstract/frames/ta_frame.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_abstract/ta_func_api.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_abstract/ta_group_idx.c"
 )
+# [ta_codegen end LIB_SOURCES]
 
 list(APPEND LIB_SOURCES ${COMMON_SOURCES})
 list(APPEND LIB_SOURCES ${IDL_SOURCES})
@@ -520,9 +522,12 @@ if(BUILD_DEV_TOOLS)
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_stoch.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_trange.c"
 
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/codegen_pipe.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/test_codegen.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/test_util.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/test_data.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/test_abstract.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/server_verify.c"
 	)
 
 	add_executable(ta_regtest ${TA_REGTEST_SOURCES})
@@ -553,6 +558,54 @@ if(BUILD_DEV_TOOLS)
 		RUNTIME DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/bin"
 	)
 
+	############
+	# ta_bench #
+	############
+	add_executable(ta_bench
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_bench/ta_bench.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/codegen_pipe.c"
+	)
+	target_include_directories(ta_bench PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/include"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_common"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest"
+	)
+	if(WIN32)
+		target_link_libraries(ta_bench PRIVATE ta-lib-static)
+	else()
+		target_link_libraries(ta_bench PRIVATE ta-lib-static m)
+	endif()
+	set_target_properties(ta_bench PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin"
+	)
+	if(NOT MSVC)
+		# MSVC: Release config already uses /O2; forcing it here would
+		# conflict with /RTC1 in Debug builds.
+		target_compile_options(ta_bench PRIVATE -O3)
+	endif()
+
+	#####################
+	# ta_bench_direct #
+	#####################
+	add_executable(ta_bench_direct
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_bench/ta_bench_direct.c"
+	)
+	target_include_directories(ta_bench_direct PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/include"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_common"
+	)
+	if(WIN32)
+		target_link_libraries(ta_bench_direct PRIVATE ta-lib-static)
+	else()
+		target_link_libraries(ta_bench_direct PRIVATE ta-lib-static m)
+	endif()
+	set_target_properties(ta_bench_direct PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin"
+	)
+	if(NOT MSVC)
+		target_compile_options(ta_bench_direct PRIVATE -O3)
+	endif()
+
 	# Add a custom target to ensure ta_regtest is copied to ta-lib/bin directory
 	add_custom_target(ensure_ta_regtest_in_bin ALL
 		COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/bin"
@@ -560,6 +613,78 @@ if(BUILD_DEV_TOOLS)
 		"$<TARGET_FILE:ta_regtest>"
 		"${CMAKE_CURRENT_SOURCE_DIR}/bin/$<TARGET_FILE_NAME:ta_regtest>"
 		DEPENDS ta_regtest
+	)
+endif()
+
+# --- ta_codegen build target ---
+# Build the Rust ta_codegen binary and copy to bin/
+set(TA_CODEGEN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/ta_codegen")
+set(TA_CODEGEN_BIN "${TA_CODEGEN_DIR}/target/release/ta_codegen")
+
+add_custom_command(
+    OUTPUT ${TA_CODEGEN_BIN}
+    COMMAND cargo build --release --manifest-path ${TA_CODEGEN_DIR}/Cargo.toml
+    WORKING_DIRECTORY ${TA_CODEGEN_DIR}
+    COMMENT "Building ta_codegen"
+)
+add_custom_target(ta_codegen_bin DEPENDS ${TA_CODEGEN_BIN})
+
+# Copy ta_codegen to bin/ directory
+add_custom_command(TARGET ta_codegen_bin POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${TA_CODEGEN_BIN}
+        "${CMAKE_CURRENT_SOURCE_DIR}/bin/ta_codegen"
+)
+
+# Generate per-function source files for all backends
+add_custom_target(ta_codegen_generate
+    COMMAND ${CMAKE_COMMAND} -E chdir ${TA_CODEGEN_DIR}
+            cargo run --release -- generate
+    DEPENDS ta_codegen_bin
+    COMMENT "Generating per-function source files for all backends"
+)
+
+# Generate and build multi-language JSON-RPC servers
+# Depends on ta_codegen_generate because servers #include per-function source files
+add_custom_target(ta_codegen_servers
+    COMMAND ${CMAKE_COMMAND} -E chdir ${TA_CODEGEN_DIR}
+            cargo run --release -- generate-servers
+    COMMAND ${CMAKE_COMMAND} -E chdir ${TA_CODEGEN_DIR}
+            cargo run --release -- build
+    DEPENDS ta_codegen_generate
+    COMMENT "Generating and building codegen language servers"
+)
+
+# --- Convenience test targets ---
+# make test           - C reference tests only
+# make regtest        - Full pipeline: servers + C tests + codegen verification
+# make regtest-only   - Servers + codegen verification (skip C tests)
+#
+# Pass extra args: cmake --build . --target regtest -- REGTEST_ARGS="--function=SMA"
+
+if(BUILD_DEV_TOOLS)
+	# C reference tests only
+	add_custom_target(test
+		COMMAND ${CMAKE_COMMAND} -E chdir "${CMAKE_CURRENT_SOURCE_DIR}/bin"
+			./ta_regtest
+		DEPENDS ensure_ta_regtest_in_bin
+		COMMENT "Running C reference regression tests"
+	)
+
+	# Full pipeline: generate servers + build + C tests + codegen verification
+	add_custom_target(regtest
+		COMMAND ${CMAKE_COMMAND} -E chdir "${CMAKE_CURRENT_SOURCE_DIR}/bin"
+			./ta_regtest --codegen --language=c,java,dotnet,rust
+		DEPENDS ensure_ta_regtest_in_bin ta_codegen_servers
+		COMMENT "Running cross-language regression tests (C, Java, .NET, Rust)"
+	)
+
+	# Codegen-only: skip C reference tests
+	add_custom_target(regtest-only
+		COMMAND ${CMAKE_COMMAND} -E chdir "${CMAKE_CURRENT_SOURCE_DIR}/bin"
+			./ta_regtest --codegen-only --language=c,java,dotnet,rust
+		DEPENDS ensure_ta_regtest_in_bin ta_codegen_servers
+		COMMENT "Running codegen-only regression tests (skip C reference)"
 	)
 endif()
 

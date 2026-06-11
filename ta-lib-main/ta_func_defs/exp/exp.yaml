@@ -1,0 +1,12 @@
+name: EXP
+camel_case: Exp
+group: Math Transform
+hint: Vector Arithmetic Exp
+flags: []
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

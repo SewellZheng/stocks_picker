@@ -1,0 +1,13 @@
+name: CDLSTALLEDPATTERN
+camel_case: CdlStalledPattern
+group: Pattern Recognition
+hint: Stalled Pattern
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

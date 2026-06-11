@@ -1,0 +1,15 @@
+name: HT_SINE
+camel_case: HtSine
+group: Cycle Indicators
+hint: Hilbert Transform - SineWave
+flags: [unstable_period]
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outSine
+    type: real
+    flags: [line]
+  - name: outLeadSine
+    type: real
+    flags: [dash_line]

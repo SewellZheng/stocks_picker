@@ -1,0 +1,13 @@
+name: CDLHOMINGPIGEON
+camel_case: CdlHomingPigeon
+group: Pattern Recognition
+hint: Homing Pigeon
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

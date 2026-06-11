@@ -1,0 +1,78 @@
+name: SAREXT
+camel_case: SarExt
+group: Overlap Studies
+hint: Parabolic SAR - Extended
+flags: [overlap]
+inputs:
+  - name: inPriceHL
+    type: price
+    price_components: [high, low]
+optional_inputs:
+  - name: optInStartValue
+    type: real
+    display_name: Start Value
+    hint: "Start value and direction. 0 for Auto, >0 for Long, <0 for Short"
+    range: [TA_REAL_MIN, TA_REAL_MAX]
+    default: 0
+    precision: 4
+    suggested: [0, 0, 0]
+  - name: optInOffsetOnReverse
+    type: real
+    display_name: Offset on Reverse
+    hint: Percent offset added/removed to initial stop on short/long reversal
+    range: [0, TA_REAL_MAX]
+    default: 0
+    precision: 4
+    suggested: [0.01, 0.15, 0.01]
+  - name: optInAccelerationInitLong
+    type: real
+    display_name: AF Init Long
+    hint: Acceleration Factor initial value for the Long direction
+    range: [0, TA_REAL_MAX]
+    default: 0.02
+    precision: 4
+    suggested: [0.01, 0.19, 0.01]
+  - name: optInAccelerationLong
+    type: real
+    display_name: AF Long
+    hint: Acceleration Factor for the Long direction
+    range: [0, TA_REAL_MAX]
+    default: 0.02
+    precision: 4
+    suggested: [0.01, 0.2, 0.01]
+  - name: optInAccelerationMaxLong
+    type: real
+    display_name: AF Max Long
+    hint: Acceleration Factor maximum value for the Long direction
+    range: [0, TA_REAL_MAX]
+    default: 0.2
+    precision: 4
+    suggested: [0.2, 0.4, 0.01]
+  - name: optInAccelerationInitShort
+    type: real
+    display_name: AF Init Short
+    hint: Acceleration Factor initial value for the Short direction
+    range: [0, TA_REAL_MAX]
+    default: 0.02
+    precision: 4
+    suggested: [0.01, 0.19, 0.01]
+  - name: optInAccelerationShort
+    type: real
+    display_name: AF Short
+    hint: Acceleration Factor for the Short direction
+    range: [0, TA_REAL_MAX]
+    default: 0.02
+    precision: 4
+    suggested: [0.01, 0.2, 0.01]
+  - name: optInAccelerationMaxShort
+    type: real
+    display_name: AF Max Short
+    hint: Acceleration Factor maximum value for the Short direction
+    range: [0, TA_REAL_MAX]
+    default: 0.2
+    precision: 4
+    suggested: [0.2, 0.4, 0.01]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

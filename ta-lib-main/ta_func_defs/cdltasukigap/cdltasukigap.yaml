@@ -1,0 +1,13 @@
+name: CDLTASUKIGAP
+camel_case: CdlTasukiGap
+group: Pattern Recognition
+hint: Tasuki Gap
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

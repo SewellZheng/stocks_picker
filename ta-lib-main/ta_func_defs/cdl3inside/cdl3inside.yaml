@@ -1,0 +1,13 @@
+name: CDL3INSIDE
+camel_case: Cdl3Inside
+group: Pattern Recognition
+hint: Three Inside Up/Down
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

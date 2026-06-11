@@ -1,0 +1,256 @@
+/* ta_bench_direct — Zero-overhead direct-call benchmark.
+ *
+ * Reference: TA_CallFunc via libta-lib.a (separate TU, extern globals)
+ * Codegen:   ta_bench_cg binary (#include single TU, static globals)
+ *
+ * No JSON-RPC, no pipes on the hot path.
+ *
+ * Usage:
+ *   ./ta_bench_direct [--points=N] [--iters=N] [--function=RSI,SMA]
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <time.h>
+
+#ifdef __APPLE__
+#include <mach/mach_time.h>
+#endif
+#if defined(WIN32) || defined(_WIN32)
+#include <windows.h>
+#endif
+
+#include "ta_libc.h"
+
+/* ---- Configuration ---- */
+
+#define MAX_POINTS     200000
+#define DEFAULT_POINTS 100000
+#define DEFAULT_ITERS  200
+#define MAX_FUNCTIONS  200
+#define BENCH_PASSES   3
+
+/* ---- Timing ---- */
+
+static long long get_nanotime(void) {
+#ifdef __APPLE__
+    static mach_timebase_info_data_t info = {0, 0};
+    if( info.denom == 0 ) mach_timebase_info(&info);
+    uint64_t t = mach_absolute_time();
+    return (long long)(t * info.numer / info.denom);
+#elif defined(WIN32) || defined(_WIN32)
+    static LARGE_INTEGER freq = {0};
+    LARGE_INTEGER t;
+    if( freq.QuadPart == 0 ) QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t);
+    return (t.QuadPart / freq.QuadPart) * 1000000000LL
+         + (t.QuadPart % freq.QuadPart) * 1000000000LL / freq.QuadPart;
+#else
+    struct timespec ts;
+    if( clock_gettime(CLOCK_MONOTONIC, &ts) == 0 )
+        return (long long)ts.tv_sec * 1000000000LL + (long long)ts.tv_nsec;
+    return 0;
+#endif
+}
+
+/* ---- Test data (same seed=42 as ta_bench / ta_bench_cg) ---- */
+
+static TA_Real *g_open, *g_high, *g_low, *g_close, *g_volume, *g_oi;
+static int g_nPoints;
+
+static void generate_price_data(int n) {
+    g_nPoints = n;
+    g_open   = calloc(n, sizeof(TA_Real));
+    g_high   = calloc(n, sizeof(TA_Real));
+    g_low    = calloc(n, sizeof(TA_Real));
+    g_close  = calloc(n, sizeof(TA_Real));
+    g_volume = calloc(n, sizeof(TA_Real));
+    g_oi     = calloc(n, sizeof(TA_Real));
+    unsigned int seed = 42;
+    double price = 100.0;
+    for( int i = 0; i < n; i++ ) {
+        seed = seed * 1103515245 + 12345;
+        double r = ((double)(seed >> 16) / 32768.0) - 1.0;
+        double o = price, c = price + r * 2.0;
+        double h = fmax(o, c) + fabs(r) * 0.5;
+        double l = fmin(o, c) - fabs(r) * 0.5;
+        if( l < 1.0 ) l = 1.0;
+        g_open[i] = o; g_high[i] = h; g_low[i] = l; g_close[i] = c;
+        g_volume[i] = 1000000.0 + r * 500000.0;
+        price = c; if( price < 1.0 ) price = 1.0;
+    }
+}
+
+/* ---- Output buffers ---- */
+
+static TA_Real g_outReal0[MAX_POINTS];
+static TA_Real g_outReal1[MAX_POINTS];
+static TA_Real g_outReal2[MAX_POINTS];
+static TA_Integer g_outInt0[MAX_POINTS];
+static TA_Integer g_outInt1[MAX_POINTS];
+
+/* ---- Function filter ---- */
+
+static int func_matches(const char *filter, const char *name) {
+    if( !filter ) return 1;
+    char buf[512]; strncpy(buf, filter, sizeof(buf)-1); buf[sizeof(buf)-1]='\0';
+    for( char *tok = strtok(buf, ","); tok; tok = strtok(NULL, ",") )
+        if( strcasestr(name, tok) ) return 1;
+    return 0;
+}
+
+/* ---- Reference timing storage ---- */
+
+typedef struct {
+    char name[64];
+    long long ref_ns;
+    long long cg_ns;
+} BenchResult;
+
+static BenchResult g_results[MAX_FUNCTIONS];
+static int g_nResults = 0;
+
+/* ---- Callback context ---- */
+
+typedef struct {
+    const char *filter;
+    int iters;
+} BenchCallbackCtx;
+
+/* ---- Bench one reference function via TA_CallFunc ---- */
+
+static void bench_ref_func(const TA_FuncInfo *fi, void *opaque) {
+    BenchCallbackCtx *ctx = (BenchCallbackCtx *)opaque;
+    if( !func_matches(ctx->filter, fi->name) ) return;
+    if( g_nResults >= MAX_FUNCTIONS ) return;
+
+    TA_ParamHolder *params = NULL;
+    TA_ParamHolderAlloc(fi->handle, &params);
+
+    /* Set inputs */
+    for( unsigned int i = 0; i < fi->nbInput; i++ ) {
+        const TA_InputParameterInfo *info;
+        TA_GetInputParameterInfo(fi->handle, i, &info);
+        if( info->type == TA_Input_Price ) {
+            TA_SetInputParamPricePtr(params, i, g_open, g_high, g_low, g_close, g_volume, g_oi);
+        } else {
+            /* TA_Input_Real — use close for first, high for second */
+            TA_SetInputParamRealPtr(params, i, (i == 0) ? g_close : g_high);
+        }
+    }
+
+    /* Set outputs */
+    unsigned int realIdx = 0, intIdx = 0;
+    for( unsigned int i = 0; i < fi->nbOutput; i++ ) {
+        const TA_OutputParameterInfo *info;
+        TA_GetOutputParameterInfo(fi->handle, i, &info);
+        if( info->type == TA_Output_Integer ) {
+            TA_SetOutputParamIntegerPtr(params, i, intIdx == 0 ? g_outInt0 : g_outInt1);
+            intIdx++;
+        } else {
+            TA_Real *buf = realIdx == 0 ? g_outReal0 : (realIdx == 1 ? g_outReal1 : g_outReal2);
+            TA_SetOutputParamRealPtr(params, i, buf);
+            realIdx++;
+        }
+    }
+
+    /* Benchmark: 3 passes, keep minimum */
+    TA_Integer outBegIdx, outNbElement;
+    long long best = 0;
+    for( int pass = 0; pass < BENCH_PASSES; pass++ ) {
+        long long t0 = get_nanotime();
+        for( int it = 0; it < ctx->iters; it++ ) {
+            TA_CallFunc(params, 0, g_nPoints - 1, &outBegIdx, &outNbElement);
+        }
+        long long elapsed = get_nanotime() - t0;
+        if( !best || elapsed < best ) best = elapsed;
+    }
+
+    TA_ParamHolderFree(params);
+
+    strncpy(g_results[g_nResults].name, fi->name, 63);
+    g_results[g_nResults].name[63] = '\0';
+    g_results[g_nResults].ref_ns = best / ctx->iters;
+    g_results[g_nResults].cg_ns = 0;
+    g_nResults++;
+}
+
+/* ---- Main ---- */
+
+int main(int argc, char *argv[]) {
+    int n_points = DEFAULT_POINTS;
+    int n_iters  = DEFAULT_ITERS;
+    const char *func_filter = NULL;
+
+    for( int i = 1; i < argc; i++ ) {
+        if( strncmp(argv[i], "--points=", 9) == 0 )       n_points = atoi(argv[i]+9);
+        else if( strncmp(argv[i], "--iters=", 8) == 0 )    n_iters = atoi(argv[i]+8);
+        else if( strncmp(argv[i], "--function=", 11) == 0 ) func_filter = argv[i]+11;
+    }
+    if( n_points > MAX_POINTS ) n_points = MAX_POINTS;
+
+    TA_Initialize();
+    generate_price_data(n_points);
+
+    printf("ta_bench_direct: %d points, %d iters (direct calls)\n\n", n_points, n_iters);
+
+    /* Phase 1: Reference timing via TA_CallFunc */
+    printf("  Running reference (libta-lib.a)...\n");
+
+    BenchCallbackCtx cb = { .filter = func_filter, .iters = n_iters };
+    TA_ForEachFunc(bench_ref_func, &cb);
+    printf("  %d functions timed\n", g_nResults);
+
+    /* Phase 2: Codegen timing via ta_bench_cg subprocess */
+    printf("  Running codegen (ta_bench_cg)...\n");
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "./ta_bench_cg --points=%d --iters=%d", n_points, n_iters);
+    if( func_filter )
+        snprintf(cmd + strlen(cmd), sizeof(cmd) - strlen(cmd), " --function=%s", func_filter);
+
+    FILE *fp = popen(cmd, "r");
+    if( !fp ) {
+        fprintf(stderr, "Failed to start ta_bench_cg\n");
+    } else {
+        char line[256];
+        while( fgets(line, sizeof(line), fp) ) {
+            char fname[64];
+            long long ns;
+            if( sscanf(line, "%63s %lld", fname, &ns) == 2 ) {
+                /* Find matching result */
+                for( int i = 0; i < g_nResults; i++ ) {
+                    if( strcmp(g_results[i].name, fname) == 0 ) {
+                        g_results[i].cg_ns = ns;
+                        break;
+                    }
+                }
+            }
+        }
+        pclose(fp);
+    }
+
+    /* Phase 3: Print comparison table */
+    printf("\n%-20s %10s %10s %8s\n", "Function", "C-ref", "C", "Ratio");
+    printf("%-20s %10s %10s %8s\n", "--------", "------", "------", "-----");
+
+    for( int i = 0; i < g_nResults; i++ ) {
+        double ratio = (g_results[i].ref_ns > 0 && g_results[i].cg_ns > 0)
+            ? (double)g_results[i].cg_ns / (double)g_results[i].ref_ns
+            : 0.0;
+        const char *clr = (ratio > 1.10) ? "\033[31m" : (ratio < 0.90) ? "\033[32m" : "";
+        const char *rst = (*clr) ? "\033[0m" : "";
+        printf("%-20s %10lld %s%10lld%s %7.2fx\n",
+               g_results[i].name, g_results[i].ref_ns,
+               clr, g_results[i].cg_ns, rst, ratio);
+    }
+
+    printf("\n%d indicators benchmarked (%d points, %d iters, direct calls)\n",
+           g_nResults, n_points, n_iters);
+    printf("(red >10%% slower, green >10%% faster than C-ref)\n");
+
+    free(g_open); free(g_high); free(g_low); free(g_close); free(g_volume); free(g_oi);
+    TA_Shutdown();
+    return 0;
+}

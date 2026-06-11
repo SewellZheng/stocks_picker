@@ -1,0 +1,13 @@
+name: CDLTHRUSTING
+camel_case: CdlThrusting
+group: Pattern Recognition
+hint: Thrusting Pattern
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

@@ -1,0 +1,13 @@
+name: TRANGE
+camel_case: TrueRange
+group: Volatility Indicators
+hint: True Range
+flags: []
+inputs:
+  - name: inPriceHLC
+    type: price
+    price_components: [high, low, close]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

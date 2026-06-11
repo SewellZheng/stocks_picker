@@ -1,0 +1,13 @@
+name: CDLCLOSINGMARUBOZU
+camel_case: CdlClosingMarubozu
+group: Pattern Recognition
+hint: Closing Marubozu
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

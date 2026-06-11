@@ -1,0 +1,13 @@
+name: CDLLONGLINE
+camel_case: CdlLongLine
+group: Pattern Recognition
+hint: Long Line Candle
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

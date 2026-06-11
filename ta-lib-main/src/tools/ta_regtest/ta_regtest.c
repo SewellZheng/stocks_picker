@@ -68,6 +68,9 @@
 
 #include "ta_test_priv.h"
 #include "ta_test_func.h"
+#include "test_codegen.h"
+#include "codegen_pipe.h"
+#include "server_verify.h"
 #include "ta_utility.h"
 
 /**** External functions declarations. ****/
@@ -83,6 +86,12 @@ double worstProfiledCall;
 int insufficientClockPrecision;
 int doExtensiveProfiling;
 
+/* CSV list of function names to test (NULL = test all) */
+static const char *functionFilter = NULL;
+static int doCodegenTest = 0;
+static int codegenOnly = 0;
+static const char *codegenLanguageFilter = NULL;
+
 /**** Local declarations.              ****/
 /* None */
 
@@ -90,6 +99,7 @@ int doExtensiveProfiling;
 static ErrorNumber testTAFunction_ALL( void );
 static ErrorNumber test_with_simulator( void );
 static void printUsage(void);
+static ErrorNumber test_codegen_with_simulator( void );
 
 /**** Local variables definitions.     ****/
 /* None */
@@ -104,8 +114,6 @@ int main( int argc, char **argv )
 
    ErrorNumber retValue;
 
-   (void)argv;
-
    insufficientClockPrecision = 0;
    timeInProfiledCall = 0.0;
    worstProfiledCall = 0.0;
@@ -116,24 +124,52 @@ int main( int argc, char **argv )
    printf( "ta_regtest V%s - Regression Tests of TA-Lib code\n", TA_GetVersionString() );
    printf( "\n" );
 
-   if( argc == 2 )
    {
-	   /* Detect option to perform extended profiling. */
-	   if( (argv[1][0] == '-') && (argv[1][1] == 'p') && (argv[1][2] == '\0'))
-	   {
-		   doExtensiveProfiling = 1;
-	   }
-	   else
-	   {
-		   printUsage();
-		   return TA_REGTEST_BAD_USER_PARAM;
-	   }
-   }
-
-   if( argc > 2 )
-   {
-      printUsage();
-      return TA_REGTEST_BAD_USER_PARAM;
+      int i;
+      for( i = 1; i < argc; i++ )
+      {
+         if( (argv[i][0] == '-') && (argv[i][1] == 'p') && (argv[i][2] == '\0') )
+         {
+            doExtensiveProfiling = 1;
+         }
+         else if( strncmp(argv[i], "--function=", 11) == 0 )
+         {
+            functionFilter = argv[i] + 11;
+         }
+         else if( strcmp(argv[i], "--codegen") == 0 )
+         {
+            doCodegenTest = 1;
+         }
+         else if( strncmp(argv[i], "--codegen=", 10) == 0 )
+         {
+            doCodegenTest = 1;
+            codegenLanguageFilter = argv[i] + 10;
+         }
+         else if( strcmp(argv[i], "--codegen-only") == 0 )
+         {
+            doCodegenTest = 1;
+            codegenOnly = 1;
+         }
+         else if( strncmp(argv[i], "--language=", 11) == 0 )
+         {
+            codegenLanguageFilter = argv[i] + 11;
+         }
+         else if( strcmp(argv[i], "--no-guarded") == 0 )
+         {
+            extern int g_hideGuarded;
+            g_hideGuarded = 1;
+         }
+         else if( strcmp(argv[i], "--no-unguarded") == 0 )
+         {
+            extern int g_hideUnguarded;
+            g_hideUnguarded = 1;
+         }
+         else
+         {
+            printUsage();
+            return TA_REGTEST_BAD_USER_PARAM;
+         }
+      }
    }
 
    /* Some tests are using randomness. */
@@ -147,8 +183,45 @@ int main( int argc, char **argv )
       return retValue;
    }
 
-   /* Test abstract interface. */
-   retValue = test_abstract();
+   /* Test abstract interface.
+    * When codegen mode is active, also verify each call against the server.
+    */
+   {
+      CodegenPipe abstractPipe;
+      int abstractPipeOpen = 0;
+      if( doCodegenTest )
+      {
+         /* Build server path relative to the ta_regtest executable,
+          * so it works regardless of the current working directory. */
+         char serverPath[1024];
+         {
+            const char *self = argv[0];
+            const char *lastSlash = strrchr(self, '/');
+            if( lastSlash ) {
+               int dirLen = (int)(lastSlash - self + 1);
+               snprintf(serverPath, sizeof(serverPath), "%.*sta_codegen_serve_c",
+                        dirLen, self);
+            } else {
+               snprintf(serverPath, sizeof(serverPath), "./ta_codegen_serve_c");
+            }
+         }
+         const char *const serverArgv[] = {serverPath, NULL};
+         if( codegen_pipe_open(&abstractPipe, serverArgv) == TA_TEST_PASS )
+         {
+            test_abstract_set_server(&abstractPipe);
+            abstractPipeOpen = 1;
+            printf( "  (with server verification)\n" );
+         }
+         else
+         {
+            printf( "  (server not available, c-ref only)\n" );
+         }
+      }
+      retValue = test_abstract();
+      test_abstract_set_server(NULL);
+      if( abstractPipeOpen )
+         codegen_pipe_close(&abstractPipe);
+   }
    if( retValue != TA_TEST_PASS )
    {
       printf( "Failed: Abstract interface Tests (error number = %d)\n", retValue );
@@ -158,9 +231,52 @@ int main( int argc, char **argv )
    /* Perform all regresstions tests (except when ta_regtest is executed for profiling only). */
    if( !doExtensiveProfiling )
    {
-      retValue = test_with_simulator();
-      if( retValue != TA_TEST_PASS )
-         return retValue;
+      if( !codegenOnly )
+      {
+         /* When codegen mode is active, also verify hand-written tests against server. */
+         CodegenPipe svPipe;
+         int svPipeOpen = 0;
+         if( doCodegenTest )
+         {
+            char svPath[1024];
+            {
+               const char *self = argv[0];
+               const char *lastSlash = strrchr(self, '/');
+               if( lastSlash ) {
+                  int dirLen = (int)(lastSlash - self + 1);
+                  snprintf(svPath, sizeof(svPath), "%.*sta_codegen_serve_c",
+                           dirLen, self);
+               } else {
+                  snprintf(svPath, sizeof(svPath), "./ta_codegen_serve_c");
+               }
+            }
+            const char *const svArgv[] = {svPath, NULL};
+            if( codegen_pipe_open(&svPipe, svArgv) == TA_TEST_PASS )
+            {
+               CodegenPipe *pipes[] = { &svPipe };
+               server_verify_init(pipes, 1);
+               svPipeOpen = 1;
+            }
+         }
+
+         retValue = test_with_simulator();
+
+         if( svPipeOpen )
+         {
+            server_verify_shutdown();
+            codegen_pipe_close(&svPipe);
+         }
+
+         if( retValue != TA_TEST_PASS )
+            return retValue;
+      }
+
+      if( doCodegenTest )
+      {
+         retValue = test_codegen_with_simulator();
+         if( retValue != TA_TEST_PASS )
+            return retValue;
+      }
 
       if( insufficientClockPrecision != 0 )
       {
@@ -222,6 +338,57 @@ extern TA_Real      TA_SREF_low_daily_ref_0_PRIV[];
 extern TA_Real      TA_SREF_close_daily_ref_0_PRIV[];
 extern TA_Real      TA_SREF_volume_daily_ref_0_PRIV[];
 
+static ErrorNumber test_codegen_with_simulator( void )
+{
+   ErrorNumber retValue;
+   TA_History history;
+
+   retValue = allocLib();
+   if( retValue != TA_TEST_PASS )
+      return retValue;
+
+   history.nbBars = 252;
+   history.open   = TA_SREF_open_daily_ref_0_PRIV;
+   history.high   = TA_SREF_high_daily_ref_0_PRIV;
+   history.low    = TA_SREF_low_daily_ref_0_PRIV;
+   history.close  = TA_SREF_close_daily_ref_0_PRIV;
+   history.volume = TA_SREF_volume_daily_ref_0_PRIV;
+
+   retValue = test_codegen(&history, codegenLanguageFilter, functionFilter);
+   if( retValue != TA_TEST_PASS )
+      return retValue;
+
+   retValue = freeLib();
+   if( retValue != TA_TEST_PASS )
+      return retValue;
+
+   return TA_TEST_PASS;
+}
+
+/* Check if any CSV token in 'filter' appears as a substring in 'tags'.
+ * Returns 1 if match found (or filter is NULL), 0 otherwise.
+ */
+static int matchesFilter(const char *filter, const char *tags)
+{
+   char filterCopy[1024];
+   char *token;
+
+   if( filter == NULL )
+      return 1; /* No filter = run everything */
+
+   strncpy(filterCopy, filter, sizeof(filterCopy) - 1);
+   filterCopy[sizeof(filterCopy) - 1] = '\0';
+
+   token = strtok(filterCopy, ",");
+   while( token != NULL )
+   {
+      if( strstr(tags, token) != NULL )
+         return 1;
+      token = strtok(NULL, ",");
+   }
+   return 0;
+}
+
 static ErrorNumber testTAFunction_ALL( void )
 {
    ErrorNumber retValue;
@@ -241,16 +408,19 @@ static ErrorNumber testTAFunction_ALL( void )
    /* Make tests for each TA functions. */
    #define DO_TEST(func,str) \
       { \
-      printf( "%50s: Testing....", str ); \
-      fflush(stdout); \
-      showFeedback(); \
-      TA_SetCompatibility( TA_COMPATIBILITY_DEFAULT ); \
-      retValue = func( &history ); \
-      if( retValue != TA_TEST_PASS ) \
-         return retValue; \
-      hideFeedback(); \
-      printf( "done.\n" ); \
-      fflush(stdout); \
+      if( matchesFilter(functionFilter, str) ) \
+      { \
+         printf( "%50s: Testing....", str ); \
+         fflush(stdout); \
+         showFeedback(); \
+         TA_SetCompatibility( TA_COMPATIBILITY_DEFAULT ); \
+         retValue = func( &history ); \
+         if( retValue != TA_TEST_PASS ) \
+            return retValue; \
+         hideFeedback(); \
+         printf( "done.\n" ); \
+         fflush(stdout); \
+      } \
       }
    DO_TEST( test_func_1in_1out, "MATH,VECTOR,DCPERIOD/PHASE,TRENDLINE/MODE" );
    DO_TEST( test_func_ma,       "All Moving Averages" );
@@ -280,20 +450,43 @@ static ErrorNumber testTAFunction_ALL( void )
 
 static void printUsage(void)
 {
-      printf( "Usage: ta_regtest [-p]\n" );
+      printf( "Usage: ta_regtest [-p] [--function=NAME[,NAME,...]]\n" );
       printf( "\n" );
       printf( "   No parameter needed for regression testing.\n" );
       printf( "\n" );
       printf( "   This tool will execute a series of tests to\n" );
       printf( "   make sure that the library is behaving as\n" );
       printf( "   expected.\n");
-	  printf( "\n" );
+      printf( "\n" );
       printf( "   ** Must be run from the 'bin' directory.\n" );
       printf( "\n" );
-	  printf( "   OPTION:\n" );
+      printf( "   OPTIONS:\n" );
       printf( "    -p Only generate profiling data on stdout. This is\n" );
       printf( "       intended only for the TA-Lib developers. It is\n" );
       printf( "       not further documented for general use.\n" );
+      printf( "\n" );
+      printf( "    --function=NAME[,NAME,...]\n" );
+      printf( "       Only run test groups whose tags contain at least\n" );
+      printf( "       one of the given names (substring match).\n" );
+      printf( "       Example: --function=RSI,BBANDS\n" );
+      printf( "\n" );
+      printf( "    --codegen[=LANG[,LANG,...]]\n" );
+      printf( "       After normal tests, verify ta_codegen output against C reference.\n" );
+      printf( "       Languages: rust, c, java, dotnet (default: all)\n" );
+      printf( "       Example: --codegen=rust,java\n" );
+      printf( "\n" );
+      printf( "    --codegen-only\n" );
+      printf( "       Run ONLY codegen verification; skip the normal C test suite.\n" );
+      printf( "       Combine with --language and --function to narrow the run.\n" );
+      printf( "       Example: --codegen-only --language=rust --function=SMA\n" );
+      printf( "\n" );
+      printf( "    --language=LANG[,LANG,...]\n" );
+      printf( "       Filter which language servers to test with --codegen / --codegen-only.\n" );
+      printf( "       Valid values: rust, c, java, dotnet (default: all)\n" );
+      printf( "       Example: --language=c,rust\n" );
+      printf( "\n" );
+      printf( "       Requires language server binaries in the bin directory.\n" );
+      printf( "       Build with: ta_codegen build\n" );
       printf( "\n" );
       printf( "   On success, the exit code is 0.\n" );
       printf( "   On failure, the exit code is a number that can be\n" );

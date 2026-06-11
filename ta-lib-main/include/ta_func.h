@@ -330,7 +330,7 @@ TA_LIB_API TA_RetCode TA_S_APO( int    startIdx,
 
 TA_LIB_API int TA_APO_Lookback( int           optInFastPeriod, /* From 2 to 100000 */
                                          int           optInSlowPeriod, /* From 2 to 100000 */
-                                         TA_MAType     optInMAType ); 
+                                         TA_MAType     optInMAType );
 
 /*
  * TA_AROON - Aroon
@@ -487,36 +487,6 @@ TA_LIB_API int TA_ATR_Lookback( int           optInTimePeriod );  /* From 1 to 1
 
 
 /*
- * TA_AVGPRICE - Average Price
- * 
- * Input  = Open, High, Low, Close
- * Output = double
- * 
- */
-TA_LIB_API TA_RetCode TA_AVGPRICE( int    startIdx,
-                                   int    endIdx,
-                                              const double inOpen[],
-                                              const double inHigh[],
-                                              const double inLow[],
-                                              const double inClose[],
-                                              int          *outBegIdx,
-                                              int          *outNBElement,
-                                              double        outReal[] );
-
-TA_LIB_API TA_RetCode TA_S_AVGPRICE( int    startIdx,
-                                     int    endIdx,
-                                                const float  inOpen[],
-                                                const float  inHigh[],
-                                                const float  inLow[],
-                                                const float  inClose[],
-                                                int          *outBegIdx,
-                                                int          *outNBElement,
-                                                double        outReal[] );
-
-TA_LIB_API int TA_AVGPRICE_Lookback( void );
-
-
-/*
  * TA_AVGDEV - Average Deviation
  * 
  * Input  = double
@@ -546,6 +516,36 @@ TA_LIB_API TA_RetCode TA_S_AVGDEV( int    startIdx,
                                               double        outReal[] );
 
 TA_LIB_API int TA_AVGDEV_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
+
+
+/*
+ * TA_AVGPRICE - Average Price
+ * 
+ * Input  = Open, High, Low, Close
+ * Output = double
+ * 
+ */
+TA_LIB_API TA_RetCode TA_AVGPRICE( int    startIdx,
+                                   int    endIdx,
+                                              const double inOpen[],
+                                              const double inHigh[],
+                                              const double inLow[],
+                                              const double inClose[],
+                                              int          *outBegIdx,
+                                              int          *outNBElement,
+                                              double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_AVGPRICE( int    startIdx,
+                                     int    endIdx,
+                                                const float  inOpen[],
+                                                const float  inHigh[],
+                                                const float  inLow[],
+                                                const float  inClose[],
+                                                int          *outBegIdx,
+                                                int          *outNBElement,
+                                                double        outReal[] );
+
+TA_LIB_API int TA_AVGPRICE_Lookback( void );
 
 
 /*
@@ -599,7 +599,7 @@ TA_LIB_API TA_RetCode TA_S_BBANDS( int    startIdx,
 TA_LIB_API int TA_BBANDS_Lookback( int           optInTimePeriod, /* From 2 to 100000 */
                                             double        optInNbDevUp, /* From TA_REAL_MIN to TA_REAL_MAX */
                                             double        optInNbDevDn, /* From TA_REAL_MIN to TA_REAL_MAX */
-                                            TA_MAType     optInMAType ); 
+                                            TA_MAType     optInMAType );
 
 /*
  * TA_BETA - Beta
@@ -3324,7 +3324,7 @@ TA_LIB_API TA_RetCode TA_S_MA( int    startIdx,
                                           double        outReal[] );
 
 TA_LIB_API int TA_MA_Lookback( int           optInTimePeriod, /* From 1 to 100000 */
-                                        TA_MAType     optInMAType ); 
+                                        TA_MAType     optInMAType );
 
 /*
  * TA_MACD - Moving Average Convergence/Divergence
@@ -3437,7 +3437,7 @@ TA_LIB_API int TA_MACDEXT_Lookback( int           optInFastPeriod, /* From 2 to 
                                              int           optInSlowPeriod, /* From 2 to 100000 */
                                              TA_MAType     optInSlowMAType,
                                              int           optInSignalPeriod, /* From 1 to 100000 */
-                                             TA_MAType     optInSignalMAType ); 
+                                             TA_MAType     optInSignalMAType );
 
 /*
  * TA_MACDFIX - Moving Average Convergence/Divergence Fix 12/26
@@ -3558,7 +3558,7 @@ TA_LIB_API TA_RetCode TA_S_MAVP( int    startIdx,
 
 TA_LIB_API int TA_MAVP_Lookback( int           optInMinPeriod, /* From 2 to 100000 */
                                           int           optInMaxPeriod, /* From 2 to 100000 */
-                                          TA_MAType     optInMAType ); 
+                                          TA_MAType     optInMAType );
 
 /*
  * TA_MAX - Highest value over a specified period
@@ -4187,7 +4187,7 @@ TA_LIB_API TA_RetCode TA_S_PPO( int    startIdx,
 
 TA_LIB_API int TA_PPO_Lookback( int           optInFastPeriod, /* From 2 to 100000 */
                                          int           optInSlowPeriod, /* From 2 to 100000 */
-                                         TA_MAType     optInMAType ); 
+                                         TA_MAType     optInMAType );
 
 /*
  * TA_ROC - Rate of change : ((price/prevPrice)-1)*100
@@ -4666,7 +4666,7 @@ TA_LIB_API int TA_STOCH_Lookback( int           optInFastK_Period, /* From 1 to 
                                            int           optInSlowK_Period, /* From 1 to 100000 */
                                            TA_MAType     optInSlowK_MAType,
                                            int           optInSlowD_Period, /* From 1 to 100000 */
-                                           TA_MAType     optInSlowD_MAType ); 
+                                           TA_MAType     optInSlowD_MAType );
 
 /*
  * TA_STOCHF - Stochastic Fast
@@ -4715,7 +4715,7 @@ TA_LIB_API TA_RetCode TA_S_STOCHF( int    startIdx,
 
 TA_LIB_API int TA_STOCHF_Lookback( int           optInFastK_Period, /* From 1 to 100000 */
                                             int           optInFastD_Period, /* From 1 to 100000 */
-                                            TA_MAType     optInFastD_MAType ); 
+                                            TA_MAType     optInFastD_MAType );
 
 /*
  * TA_STOCHRSI - Stochastic Relative Strength Index
@@ -4766,7 +4766,7 @@ TA_LIB_API TA_RetCode TA_S_STOCHRSI( int    startIdx,
 TA_LIB_API int TA_STOCHRSI_Lookback( int           optInTimePeriod, /* From 2 to 100000 */
                                               int           optInFastK_Period, /* From 1 to 100000 */
                                               int           optInFastD_Period, /* From 1 to 100000 */
-                                              TA_MAType     optInFastD_MAType ); 
+                                              TA_MAType     optInFastD_MAType );
 
 /*
  * TA_SUB - Vector Arithmetic Subtraction

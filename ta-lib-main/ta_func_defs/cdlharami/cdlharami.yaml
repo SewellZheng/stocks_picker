@@ -1,0 +1,13 @@
+name: CDLHARAMI
+camel_case: CdlHarami
+group: Pattern Recognition
+hint: Harami Pattern
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

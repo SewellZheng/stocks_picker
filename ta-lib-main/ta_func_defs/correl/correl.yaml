@@ -1,0 +1,22 @@
+name: CORREL
+camel_case: Correl
+group: Statistic Functions
+hint: Pearson's Correlation Coefficient (r)
+flags: []
+inputs:
+  - name: inReal0
+    type: real
+  - name: inReal1
+    type: real
+optional_inputs:
+  - name: optInTimePeriod
+    type: integer
+    display_name: Time Period
+    hint: Number of period
+    range: [1, 100000]
+    default: 30
+    suggested: [1, 200, 1]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

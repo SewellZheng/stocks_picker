@@ -1,0 +1,13 @@
+name: CDLSHOOTINGSTAR
+camel_case: CdlShootingStar
+group: Pattern Recognition
+hint: Shooting Star
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

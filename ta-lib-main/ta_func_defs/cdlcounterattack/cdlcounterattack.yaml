@@ -1,0 +1,13 @@
+name: CDLCOUNTERATTACK
+camel_case: CdlCounterAttack
+group: Pattern Recognition
+hint: Counterattack
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

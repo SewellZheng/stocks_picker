@@ -1,0 +1,12 @@
+name: HT_TRENDLINE
+camel_case: HtTrendline
+group: Overlap Studies
+hint: Hilbert Transform - Instantaneous Trendline
+flags: [unstable_period, overlap]
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

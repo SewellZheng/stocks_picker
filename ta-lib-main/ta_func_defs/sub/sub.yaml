@@ -1,0 +1,14 @@
+name: SUB
+camel_case: Sub
+group: Math Operators
+hint: Vector Arithmetic Subtraction
+flags: []
+inputs:
+  - name: inReal0
+    type: real
+  - name: inReal1
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

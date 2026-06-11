@@ -1,0 +1,13 @@
+name: CDLIDENTICAL3CROWS
+camel_case: CdlIdentical3Crows
+group: Pattern Recognition
+hint: Identical Three Crows
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

@@ -1,0 +1,15 @@
+name: OBV
+camel_case: Obv
+group: Volume Indicators
+hint: On Balance Volume
+flags: []
+inputs:
+  - name: inReal
+    type: real
+  - name: inPriceV
+    type: price
+    price_components: [volume]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

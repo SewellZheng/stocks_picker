@@ -57,6 +57,7 @@
 #include "ta_test_priv.h"
 #include "ta_test_func.h"
 #include "ta_utility.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -214,6 +215,17 @@ static ErrorNumber do_test( const TA_History *history,
       return errNb;
 
    CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
+
+   if( server_verify_active() )
+   {
+      errNb = server_verify("STDDEV", test->startIdx, test->endIdx, history->nbBars,
+                            retCode, outBegIdx, outNbElement,
+                            (const TA_Real*[]){ gBuffer[0].in, NULL },
+                            (double[]){ (double)test->optInTimePeriod,
+                                        test->optInNbDeviation_1 }, 2,
+                            (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+      if( errNb != TA_TEST_PASS ) return errNb;
+   }
 
    outBegIdx = outNbElement = 0;
 

@@ -59,6 +59,7 @@
 #include "ta_test_func.h"
 #include "ta_utility.h"
 #include "ta_memory.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -444,6 +445,8 @@ static ErrorNumber do_test( const TA_History *history,
    TA_Integer outBegIdx;
    TA_Integer outNbElement;
    TA_RangeTestParam testParam;
+   TA_Integer outInt0[MAX_NB_TEST_ELEMENT];
+   TA_Integer outInt1[MAX_NB_TEST_ELEMENT];
 
    /* Set to NAN all the elements of the gBuffers.  */
    clearAllBuffers();
@@ -471,8 +474,9 @@ static ErrorNumber do_test( const TA_History *history,
 
 
    /* Make a simple first call. */
-   if( test->theFunction == TA_MIN_TEST )
+   switch( test->theFunction )
    {
+   case TA_MIN_TEST:
       retCode = TA_MIN( test->startIdx,
                         test->endIdx,
                         gBuffer[0].in,
@@ -480,9 +484,8 @@ static ErrorNumber do_test( const TA_History *history,
                         &outBegIdx,
                         &outNbElement,
                         gBuffer[0].out0 );
-   }
-   else if( test->theFunction == TA_MAX_TEST )
-   {
+      break;
+   case TA_MAX_TEST:
       retCode = TA_MAX( test->startIdx,
                         test->endIdx,
                         gBuffer[0].in,
@@ -490,10 +493,46 @@ static ErrorNumber do_test( const TA_History *history,
                         &outBegIdx,
                         &outNbElement,
                         gBuffer[0].out0 );
-   }
-   else
-   {
-      /* For now, tests only MIN and MAX. Only range check tests implemented. */
+      break;
+   case TA_MINMAX_TEST:
+      retCode = TA_MINMAX( test->startIdx,
+                           test->endIdx,
+                           gBuffer[0].in,
+                           test->optInTimePeriod,
+                           &outBegIdx,
+                           &outNbElement,
+                           gBuffer[0].out0,
+                           gBuffer[0].out1 );
+      break;
+   case TA_MININDEX_TEST:
+      retCode = TA_MININDEX( test->startIdx,
+                             test->endIdx,
+                             gBuffer[0].in,
+                             test->optInTimePeriod,
+                             &outBegIdx,
+                             &outNbElement,
+                             outInt0 );
+      break;
+   case TA_MAXINDEX_TEST:
+      retCode = TA_MAXINDEX( test->startIdx,
+                             test->endIdx,
+                             gBuffer[0].in,
+                             test->optInTimePeriod,
+                             &outBegIdx,
+                             &outNbElement,
+                             outInt0 );
+      break;
+   case TA_MINMAXINDEX_TEST:
+      retCode = TA_MINMAXINDEX( test->startIdx,
+                                test->endIdx,
+                                gBuffer[0].in,
+                                test->optInTimePeriod,
+                                &outBegIdx,
+                                &outNbElement,
+                                outInt0,
+                                outInt1 );
+      break;
+   default:
       return TA_TEST_PASS;
    }
 
@@ -501,49 +540,110 @@ static ErrorNumber do_test( const TA_History *history,
    if( errNb != TA_TEST_PASS )
       return errNb;
 
-   CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
+   /* CHECK_EXPECTED_VALUE only applies to functions with real outputs. */
+   if( test->theFunction == TA_MIN_TEST ||
+       test->theFunction == TA_MAX_TEST ||
+       test->theFunction == TA_MINMAX_TEST )
+   {
+      CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
+   }
+
+   if( server_verify_active() )
+   {
+      switch( test->theFunction )
+      {
+      case TA_MIN_TEST:
+         errNb = server_verify("MIN", test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_MAX_TEST:
+         errNb = server_verify("MAX", test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_MINMAX_TEST:
+         errNb = server_verify("MINMAX", test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, gBuffer[0].out1, NULL }, NULL);
+         break;
+      case TA_MININDEX_TEST:
+         errNb = server_verify("MININDEX", test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               NULL, (const TA_Integer*[]){ outInt0, NULL });
+         break;
+      case TA_MAXINDEX_TEST:
+         errNb = server_verify("MAXINDEX", test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               NULL, (const TA_Integer*[]){ outInt0, NULL });
+         break;
+      case TA_MINMAXINDEX_TEST:
+         errNb = server_verify("MINMAXINDEX", test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               NULL, (const TA_Integer*[]){ outInt0, outInt1, NULL });
+         break;
+      default:
+         errNb = TA_TEST_PASS;
+         break;
+      }
+      if( errNb != TA_TEST_PASS ) return errNb;
+   }
 
    outBegIdx = outNbElement = 0;
 
    /* Make another call where the input and the output are the
-    * same buffer.
+    * same buffer. (Only for MIN/MAX which have real outputs.)
     */
-   CLEAR_EXPECTED_VALUE(0);
-   if( test->theFunction == TA_MIN_TEST )
+   if( test->theFunction == TA_MIN_TEST || test->theFunction == TA_MAX_TEST )
    {
-      retCode = TA_MIN( test->startIdx,
-                        test->endIdx,
-                        gBuffer[1].in,
-                        test->optInTimePeriod,
-                        &outBegIdx,
-                        &outNbElement,
-                        gBuffer[1].in );
+      CLEAR_EXPECTED_VALUE(0);
+      if( test->theFunction == TA_MIN_TEST )
+      {
+         retCode = TA_MIN( test->startIdx,
+                           test->endIdx,
+                           gBuffer[1].in,
+                           test->optInTimePeriod,
+                           &outBegIdx,
+                           &outNbElement,
+                           gBuffer[1].in );
+      }
+      else
+      {
+         retCode = TA_MAX( test->startIdx,
+                           test->endIdx,
+                           gBuffer[1].in,
+                           test->optInTimePeriod,
+                           &outBegIdx,
+                           &outNbElement,
+                           gBuffer[1].in );
+      }
+
+      /* The previous call should have the same output as this call.
+       *
+       * checkSameContent verify that all value different than NAN in
+       * the first parameter is identical in the second parameter.
+       */
+      errNb = checkSameContent( gBuffer[0].out0, gBuffer[1].in );
+      if( errNb != TA_TEST_PASS )
+         return errNb;
+
+      CHECK_EXPECTED_VALUE( gBuffer[1].in, 0 );
+
+      if( errNb != TA_TEST_PASS )
+         return errNb;
    }
-   else if( test->theFunction == TA_MAX_TEST )
-   {
-      retCode = TA_MAX( test->startIdx,
-                        test->endIdx,
-                        gBuffer[1].in,
-                        test->optInTimePeriod,
-                        &outBegIdx,
-                        &outNbElement,
-                        gBuffer[1].in );
-   }
-
-   /* The previous call should have the same output as this call.
-    *
-    * checkSameContent verify that all value different than NAN in
-    * the first parameter is identical in the second parameter.
-    */
-   errNb = checkSameContent( gBuffer[0].out0, gBuffer[1].in );
-   if( errNb != TA_TEST_PASS )
-      return errNb;
-
-   CHECK_EXPECTED_VALUE( gBuffer[1].in, 0 );
-
-   if( errNb != TA_TEST_PASS )
-      return errNb;
-
 
    return TA_TEST_PASS;
 }

@@ -1,0 +1,12 @@
+name: FLOOR
+camel_case: Floor
+group: Math Transform
+hint: Vector Floor
+flags: []
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

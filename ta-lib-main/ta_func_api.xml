@@ -565,45 +565,6 @@
 	</FinancialFunction>
 
 
-	<!-- AVGPRICE -->
-	<FinancialFunction>
-		<Abbreviation>AVGPRICE</Abbreviation>
-		<CamelCaseName>AvgPrice</CamelCaseName>
-		<ShortDescription>Average Price</ShortDescription>
-		<GroupId>Price Transform</GroupId>
-		<Flags>
-			<Flag>Overlap</Flag>
-		</Flags>
-		<RequiredInputArguments>
-			<RequiredInputArgument>
-				<Type>Open</Type>
-				<Name>Open</Name>
-			</RequiredInputArgument>
-			<RequiredInputArgument>
-				<Type>High</Type>
-				<Name>High</Name>
-			</RequiredInputArgument>
-			<RequiredInputArgument>
-				<Type>Low</Type>
-				<Name>Low</Name>
-			</RequiredInputArgument>
-			<RequiredInputArgument>
-				<Type>Close</Type>
-				<Name>Close</Name>
-			</RequiredInputArgument>
-		</RequiredInputArguments>
-		<OutputArguments>
-			<OutputArgument>
-				<Type>Double Array</Type>
-				<Name>outReal</Name>
-				<Flags>
-					<Flag>Line</Flag>
-				</Flags>
-			</OutputArgument>
-		</OutputArguments>
-	</FinancialFunction>
-
-
 	<!-- AVGDEV -->
 	<FinancialFunction>
 		<Abbreviation>AVGDEV</Abbreviation>
@@ -634,6 +595,45 @@
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
 		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- AVGPRICE -->
+	<FinancialFunction>
+		<Abbreviation>AVGPRICE</Abbreviation>
+		<CamelCaseName>AvgPrice</CamelCaseName>
+		<ShortDescription>Average Price</ShortDescription>
+		<GroupId>Price Transform</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Open</Type>
+				<Name>Open</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
 		<OutputArguments>
 			<OutputArgument>
 				<Type>Double Array</Type>

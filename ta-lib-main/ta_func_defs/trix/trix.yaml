@@ -1,0 +1,20 @@
+name: TRIX
+camel_case: Trix
+group: Momentum Indicators
+hint: 1-day Rate-Of-Change (ROC) of a Triple Smooth EMA
+flags: []
+inputs:
+  - name: inReal
+    type: real
+optional_inputs:
+  - name: optInTimePeriod
+    type: integer
+    display_name: Time Period
+    hint: Number of period
+    range: [1, 100000]
+    default: 30
+    suggested: [1, 200, 1]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

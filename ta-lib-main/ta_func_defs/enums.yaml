@@ -1,0 +1,20 @@
+# Enum type definitions for ta_codegen.
+#
+# Each enum has a name and a list of variants. The variant fields are:
+#   c_name:      C constant (e.g. TA_MAType_SMA)
+#   pascal_name: PascalCase for Java/.NET (e.g. Sma)
+#   value:       Integer value
+#
+# The short_name (used in source case labels like MAType_SMA) is derived
+# automatically from the c_name by stripping the TA_{EnumName}_ prefix.
+
+MAType:
+  - { c_name: TA_MAType_SMA,   pascal_name: Sma,   value: 0 }
+  - { c_name: TA_MAType_EMA,   pascal_name: Ema,   value: 1 }
+  - { c_name: TA_MAType_WMA,   pascal_name: Wma,   value: 2 }
+  - { c_name: TA_MAType_DEMA,  pascal_name: Dema,  value: 3 }
+  - { c_name: TA_MAType_TEMA,  pascal_name: Tema,  value: 4 }
+  - { c_name: TA_MAType_TRIMA, pascal_name: Trima, value: 5 }
+  - { c_name: TA_MAType_KAMA,  pascal_name: Kama,  value: 6 }
+  - { c_name: TA_MAType_MAMA,  pascal_name: Mama,  value: 7 }
+  - { c_name: TA_MAType_T3,    pascal_name: T3,    value: 8 }

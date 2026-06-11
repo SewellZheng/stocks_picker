@@ -1,0 +1,13 @@
+name: CDLKICKINGBYLENGTH
+camel_case: CdlKickingByLength
+group: Pattern Recognition
+hint: Kicking - bull/bear determined by the longer marubozu
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

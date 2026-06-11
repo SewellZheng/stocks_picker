@@ -1,0 +1,13 @@
+name: WCLPRICE
+camel_case: WclPrice
+group: Price Transform
+hint: Weighted Close Price
+flags: [overlap]
+inputs:
+  - name: inPriceHLC
+    type: price
+    price_components: [high, low, close]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

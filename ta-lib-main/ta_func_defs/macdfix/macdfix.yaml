@@ -1,0 +1,26 @@
+name: MACDFIX
+camel_case: MacdFix
+group: Momentum Indicators
+hint: Moving Average Convergence/Divergence Fix 12/26
+flags: []
+inputs:
+  - name: inReal
+    type: real
+optional_inputs:
+  - name: optInSignalPeriod
+    type: integer
+    display_name: Signal Period
+    hint: Smoothing for the signal line (nb of period)
+    range: [1, 100000]
+    default: 9
+    suggested: [1, 200, 1]
+outputs:
+  - name: outMACD
+    type: real
+    flags: [line]
+  - name: outMACDSignal
+    type: real
+    flags: [dash_line]
+  - name: outMACDHist
+    type: real
+    flags: [histogram]

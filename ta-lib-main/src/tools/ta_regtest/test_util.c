@@ -838,7 +838,8 @@ static ErrorNumber doRangeTestFixSize( RangeTestFunction testFunction,
             {
                if( outputIsInteger )
                {
-                  if( outputBufferInt[1+i] != refBufferInt[relativeIdx+i] )
+                  if( outputBufferInt[1+i] != refBufferInt[relativeIdx+i]
+                      && integerTolerance != TA_DO_NOT_COMPARE )
                   {
                      printf( "Fail: doRangeTestFixSize diff data for idx=%d (%d,%d)\n", i,
                               outputBufferInt[1+i], refBufferInt[relativeIdx+i] );

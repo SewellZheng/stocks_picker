@@ -1,0 +1,21 @@
+name: CDLABANDONEDBABY
+camel_case: CdlAbandonedBaby
+group: Pattern Recognition
+hint: Abandoned Baby
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+optional_inputs:
+  - name: optInPenetration
+    type: real
+    display_name: Penetration
+    hint: Percentage of penetration of a candle within another candle
+    range: [0, TA_REAL_MAX]
+    default: 0.3
+    suggested: [0, 0, 0]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

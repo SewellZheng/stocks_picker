@@ -7,6 +7,9 @@ ta_regtest_SOURCES = ta_regtest.c \
 	test_data.c \
 	test_util.c \
 	test_abstract.c \
+	codegen_pipe.c \
+	test_codegen.c \
+	server_verify.c \
 	ta_test_func/test_adx.c \
 	ta_test_func/test_mom.c \
 	ta_test_func/test_sar.c \

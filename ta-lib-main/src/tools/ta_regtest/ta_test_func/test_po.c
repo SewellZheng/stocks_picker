@@ -59,6 +59,7 @@
 #include "ta_test_priv.h"
 #include "ta_test_func.h"
 #include "ta_utility.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -358,6 +359,19 @@ static ErrorNumber do_test( const TA_History *history,
                                test->oneOfTheExpectedOutRealIndex );
    if( errNb != TA_TEST_PASS )
       return errNb;
+
+   if( server_verify_active() )
+   {
+      const char *funcName = test->doPercentage ? "PPO" : "APO";
+      errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                            retCode, outBegIdx, outNbElement,
+                            (const TA_Real*[]){ gBuffer[0].in, NULL },
+                            (double[]){ (double)test->optInFastPeriod,
+                                        (double)test->optInSlowPeriod,
+                                        (double)test->optInMethod_2 }, 3,
+                            (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+      if( errNb != TA_TEST_PASS ) return errNb;
+   }
 
    outBegIdx = outNbElement = 0;
 

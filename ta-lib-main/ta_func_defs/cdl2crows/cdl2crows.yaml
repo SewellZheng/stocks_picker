@@ -1,0 +1,13 @@
+name: CDL2CROWS
+camel_case: Cdl2Crows
+group: Pattern Recognition
+hint: Two Crows
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

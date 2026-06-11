@@ -1,0 +1,12 @@
+name: HT_TRENDMODE
+camel_case: HtTrendMode
+group: Cycle Indicators
+hint: Hilbert Transform - Trend vs Cycle Mode
+flags: [unstable_period]
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

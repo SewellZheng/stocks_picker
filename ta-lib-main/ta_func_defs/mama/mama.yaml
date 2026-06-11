@@ -1,0 +1,32 @@
+name: MAMA
+camel_case: Mama
+group: Overlap Studies
+hint: MESA Adaptive Moving Average
+flags: [unstable_period, overlap]
+inputs:
+  - name: inReal
+    type: real
+optional_inputs:
+  - name: optInFastLimit
+    type: real
+    display_name: Fast Limit
+    hint: Upper limit use in the adaptive algorithm
+    range: [0.01, 0.99]
+    default: 0.5
+    precision: 2
+    suggested: [0.21, 0.8, 0.01]
+  - name: optInSlowLimit
+    type: real
+    display_name: Slow Limit
+    hint: Lower limit use in the adaptive algorithm
+    range: [0.01, 0.99]
+    default: 0.05
+    precision: 2
+    suggested: [0.01, 0.6, 0.01]
+outputs:
+  - name: outMAMA
+    type: real
+    flags: [line]
+  - name: outFAMA
+    type: real
+    flags: [dash_line]

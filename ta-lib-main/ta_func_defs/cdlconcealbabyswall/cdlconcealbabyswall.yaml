@@ -1,0 +1,13 @@
+name: CDLCONCEALBABYSWALL
+camel_case: CdlConcealBabysWall
+group: Pattern Recognition
+hint: Concealing Baby Swallow
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

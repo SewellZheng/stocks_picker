@@ -1,0 +1,15 @@
+name: HT_PHASOR
+camel_case: HtPhasor
+group: Cycle Indicators
+hint: Hilbert Transform - Phasor Components
+flags: [unstable_period]
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outInPhase
+    type: real
+    flags: [line]
+  - name: outQuadrature
+    type: real
+    flags: [dash_line]

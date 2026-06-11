@@ -63,6 +63,7 @@
 #include "ta_test_priv.h"
 #include "ta_test_func.h"
 #include "ta_utility.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -285,6 +286,33 @@ static ErrorNumber do_test( const TA_History *history,
       return errNb;
 
    CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
+
+   if( server_verify_active() )
+   {
+      const char *funcName;
+      switch( test->theFunction )
+      {
+      case TA_BOP_TEST:
+         funcName = "BOP";
+         break;
+      case TA_AVGPRICE_TEST:
+         funcName = "AVGPRICE";
+         break;
+      default:
+         funcName = NULL;
+         break;
+      }
+      if( funcName )
+      {
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in,
+                                                   gBuffer[2].in, gBuffer[3].in, NULL },
+                               NULL, 0,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         if( errNb != TA_TEST_PASS ) return errNb;
+      }
+   }
 
    outBegIdx = outNbElement = 0;
 

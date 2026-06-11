@@ -1,0 +1,13 @@
+name: CDLSEPARATINGLINES
+camel_case: CdlSeperatingLines
+group: Pattern Recognition
+hint: Separating Lines
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

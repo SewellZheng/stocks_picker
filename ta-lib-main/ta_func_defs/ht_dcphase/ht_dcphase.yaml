@@ -1,0 +1,12 @@
+name: HT_DCPHASE
+camel_case: HtDcPhase
+group: Cycle Indicators
+hint: Hilbert Transform - Dominant Cycle Phase
+flags: [unstable_period]
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

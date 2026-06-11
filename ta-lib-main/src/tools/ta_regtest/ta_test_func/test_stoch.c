@@ -58,6 +58,7 @@
 #include "ta_test_func.h"
 #include "ta_utility.h"
 #include "ta_memory.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -466,6 +467,59 @@ static ErrorNumber do_test( const TA_History *history,
 
    CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
    CHECK_EXPECTED_VALUE( gBuffer[0].out1, 1 );
+
+   if( server_verify_active() )
+   {
+      const char *funcName;
+      double optBuf[5];
+      int nbOpt;
+
+      switch( test->testId )
+      {
+      case TEST_STOCH:
+         funcName = "STOCH";
+         optBuf[0] = (double)test->optInPeriod_0;
+         optBuf[1] = (double)test->optInPeriod_1;
+         optBuf[2] = (double)test->optInMAType_1;
+         optBuf[3] = (double)test->optInPeriod_2;
+         optBuf[4] = (double)test->optInMAType_2;
+         nbOpt = 5;
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in,
+                                                   gBuffer[2].in, NULL },
+                               optBuf, nbOpt,
+                               (const TA_Real*[]){ gBuffer[0].out0, gBuffer[0].out1, NULL }, NULL);
+         break;
+      case TEST_STOCHF:
+         funcName = "STOCHF";
+         optBuf[0] = (double)test->optInPeriod_0;
+         optBuf[1] = (double)test->optInPeriod_1;
+         optBuf[2] = (double)test->optInMAType_1;
+         nbOpt = 3;
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in,
+                                                   gBuffer[2].in, NULL },
+                               optBuf, nbOpt,
+                               (const TA_Real*[]){ gBuffer[0].out0, gBuffer[0].out1, NULL }, NULL);
+         break;
+      case TEST_STOCHRSI:
+         funcName = "STOCHRSI";
+         optBuf[0] = (double)test->optInPeriod_0;
+         optBuf[1] = (double)test->optInPeriod_1;
+         optBuf[2] = (double)test->optInPeriod_2;
+         optBuf[3] = (double)test->optInMAType_2;
+         nbOpt = 4;
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[2].in, NULL },
+                               optBuf, nbOpt,
+                               (const TA_Real*[]){ gBuffer[0].out0, gBuffer[0].out1, NULL }, NULL);
+         break;
+      }
+      if( errNb != TA_TEST_PASS ) return errNb;
+   }
 
    outBegIdx = outNbElement = 0;
 

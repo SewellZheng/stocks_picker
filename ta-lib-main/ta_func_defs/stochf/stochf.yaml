@@ -1,0 +1,36 @@
+name: STOCHF
+camel_case: StochF
+group: Momentum Indicators
+hint: Stochastic Fast
+flags: []
+inputs:
+  - name: inPriceHLC
+    type: price
+    price_components: [high, low, close]
+optional_inputs:
+  - name: optInFastK_Period
+    type: integer
+    display_name: Fast-K Period
+    hint: Time period for building the Fast-K line
+    range: [1, 100000]
+    default: 5
+    suggested: [1, 200, 1]
+  - name: optInFastD_Period
+    type: integer
+    display_name: Fast-D Period
+    hint: Smoothing for making the Fast-D line. Usually set to 3
+    range: [1, 100000]
+    default: 3
+    suggested: [1, 200, 1]
+  - name: optInFastD_MAType
+    type: enum:MAType
+    display_name: Fast-D MA
+    hint: Type of Moving Average for Fast-D
+    default: 0
+outputs:
+  - name: outFastK
+    type: real
+    flags: [line]
+  - name: outFastD
+    type: real
+    flags: [line]

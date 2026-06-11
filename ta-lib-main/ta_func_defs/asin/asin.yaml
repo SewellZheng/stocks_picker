@@ -1,0 +1,12 @@
+name: ASIN
+camel_case: Asin
+group: Math Transform
+hint: Vector Trigonometric ASin
+flags: []
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

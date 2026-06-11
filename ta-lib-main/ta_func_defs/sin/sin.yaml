@@ -1,0 +1,12 @@
+name: SIN
+camel_case: Sin
+group: Math Transform
+hint: Vector Trigonometric Sin
+flags: []
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

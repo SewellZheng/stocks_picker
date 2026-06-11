@@ -1,52 +1,221 @@
-# CLAUDE.md - TA-Lib Rust Integration Guide
+# CLAUDE.md - TA-Lib Code Generation Guide
 
-## Build & Test
-- Build: `bin/gen_code` → `cargo check && cargo fmt` → `bin/ta_regtest`
-- Workflow: Modify generator → Rebuild gen_code → Run gen_code → Test Rust
+## Architecture Overview
 
-## Rust Architecture  
-- Generated from C sources via `src/tools/gen_code/gen_rust.c`
-- Functions wrapped in `impl Core { pub fn mult(...) -> RetCode }`
-- Parameter types: `usize` for indices, `&[f64]`/`&mut [f64]` for arrays
-- Maintains TA-Lib API compatibility (camelCase parameters)
+All indicator code is **generated**. Two generators exist:
 
-## Code Generation
-- Multi-language: C, .NET, Java, Rust from single source
-- GENCODE sections in `.c` files contain language-specific implementations
-- Cross-language macros in `include/ta_defs.h` handle syntax differences
-- Key files: `gen_code.c` (validation), `gen_rust.c` (signatures), `ta_defs.h` (macros)
+| Tool | Language | Role |
+|------|----------|------|
+| `ta_codegen` (`tools/ta_codegen/`, Rust) | The current generator. Parses `ta_func_defs/` → IR → renders per-backend (C, Java, .NET, Rust) into `ta_codegen_output/`. Also generates the JSON-RPC test servers, the bench binary, `include/ta_func_unguarded.h`, and owns build-system source lists (CMake `LIB_SOURCES`, `Makefile.am`, `ta_func_list.txt`). |
+| `gen_code` (`src/tools/gen_code/`, C) | The legacy generator, restored to its v0.6.4 role: regenerates the reference C library's GENCODE sections, Java bindings, and .NET wrappers (`ENABLE_JAVA`, `ENABLE_DOTNET`). It does **no** Rust generation. |
 
-## Critical Fixes Implemented
+The reference C library (`src/ta_func/`) is the correctness baseline that all
+`ta_codegen` backends are verified against by `ta_regtest`.
 
-### 1. Loop Variable Declaration (FIXED)
-**Problem**: `DECLARE_INDEX_VAR(i)` creates unused `let mut i: usize;` since `FOR_EACH_OUTPUT` creates own binding
-**Solution**: `DECLARE_LOOP_VAR(i)` - no-op for Rust, normal declaration for C
+See `tools/ta_codegen/CLAUDE.md` for ta_codegen internals and
+`src/tools/ta_regtest/CLAUDE.md` for the test-runner spec.
 
-### 2. Index Validation (FIXED)
-**Problem**: `startIdx < 0` meaningless for `usize` types  
-**Solution**: Modified `gen_code.c:3464-3476` - Rust skips negative checks, only validates `endIdx < startIdx`
+### Source of Truth: ta_func_defs/
 
-### 3. Type Conversion (FIXED)
-**Problem**: f32 inputs → f64 outputs in single precision functions
-**Solution**: `OUTPUT_F64(val)` macro casts to f64 in Rust, no-op in C
+`ta_func_defs/` is the single source of truth for ALL generated code
+(~164 indicator definitions).
 
-## Macro System
-```c
-// FOR_EACH_OUTPUT: C vs Rust syntax conversion
-FOR_EACH_OUTPUT(startIdx, endIdx, i, outIdx)
-   outReal[outIdx] = OUTPUT_F64(inReal0[i] * inReal1[i]);
-FOR_EACH_OUTPUT_END(outIdx)
+- **YAML** = data, config, enums, IDL. Pure definitions with no logic.
+  - RetCode values, FuncUnstId mappings, MAType enum, CandleSetting defaults, Compatibility enum (in `ta_func_defs/types/`)
+  - Function metadata (inputs, outputs, optional params, groups)
+- **C source files** = logic. Anything with computation.
+  - Indicator implementations (`ta_func_defs/<name>/<name>.c`)
+  - Helper functions (`ta_func_defs/helpers/`)
+  - **No logic in YAML, ever.**
+
+No hand-coded string literals for type definitions or scaffolding in the codegen.
+Do not hand-edit anything under `ta_codegen_output/` — it is overwritten on the
+next `generate`.
+
+## Quick Reference Commands
+
+```bash
+# Build (from any directory in the repo; binaries land in bin/)
+scripts/build.py                # Library + all tools
+scripts/build.py ta_regtest     # Just the test runner
+scripts/build.py gen_code       # Legacy C generator
+scripts/build.py ta_codegen     # Rust codegen tool
+scripts/build.py servers        # Generate + compile JSON-RPC language servers
+
+# Test
+scripts/build.py test           # C reference tests only (quick)
+scripts/build.py regtest        # Full pipeline: servers + C tests + cross-language verification
+scripts/build.py regtest-only   # Codegen verification only (skip C reference tests)
+
+# Run gen_code (must run from bin directory)
+cd bin && ../cmake-build/bin/gen_code
+
+# ta_codegen (run from tools/ta_codegen/)
+cargo run -- generate                            # Generate indicator code for all backends
+cargo run -- generate --func=SMA --backend=rust  # Specific function + backend
+cargo run -- generate-servers                    # Generate JSON-RPC servers
+cargo run -- build                               # Compile servers into bin/
+cargo run -- extract                             # Extract indicators from C source → YAML
+cargo test                                       # ta_codegen's own test suite
+
+# ta_regtest directly (from bin/)
+./ta_regtest                                     # C reference tests only
+./ta_regtest --codegen                           # C tests + all-language codegen verification
+./ta_regtest --codegen-only                      # Codegen verification only
+./ta_regtest --codegen --language=c,rust --function=RSI,SMA
 ```
 
-## Current Status
-- ✅ MULT function compiles clean with `cargo check`
-- ✅ Cross-language generation working for all targets
-- ✅ Template system with proper lint allowances
-- 🔄 Phase 2: Index validation fixes applied, pending regeneration
-- 📋 Phase 3: Documentation generation (conditional based on function metadata)
+## Cross-Language Regression Testing
 
-## Key Technical Insights
-- **Generator Pattern**: Modify generators, not generated code
-- **Build Order**: gen_rust.c changes → rebuild gen_code → run gen_code → test
-- **Macro Strategy**: 65% automated via macros, 25% specialized patterns, 15% manual
-- **Type Safety**: Rust `usize` requires different validation than C `int`
+`ta_regtest` is the **universal test runner** for all languages. Instead of
+linking against each language's compiled code, it drives **JSON-RPC servers**
+generated by `ta_codegen`:
+
+```
+ta_regtest (C)
+    ↓ JSON-RPC over stdin/stdout
+    ├── ta_codegen_serve_c      (C server)
+    ├── ta_codegen_serve_rust   (Rust server)
+    ├── TaCodegenServe.class    (Java server)
+    └── TaCodegenServe          (.NET server)
+```
+
+Each server exposes its language's generated indicator code, reports available
+functions via `list_functions`, returns `timing_ns` with each call, and supports
+`set_unstable_period` / `set_compatibility` for global state.
+
+`codegen_pipe.c/h` handles subprocess management and JSON-RPC communication.
+`test_codegen.c` has a generic callback driven by `TA_ForEachFunc` enumeration —
+it covers all 161 indicators automatically using ta_abstract function metadata,
+including price inputs (OHLCV), multi-output functions (BBANDS=3, MACD=3,
+STOCH=2), integer outputs (CDL* patterns), real optional params, and all 24
+unstable-period functions. It produces a timing summary, cross-language
+comparison table, and JSONL report.
+
+`server_verify.c` additionally lets the hand-written ta_regtest test functions
+verify each call against the language servers. Note: it must be registered in
+BOTH `CMakeLists.txt` and the autotools `Makefile.am` (the dist-verification CI
+path builds with autotools — a missing entry there breaks the nightly).
+
+### `--function=CSV` Filter
+
+The `--function` flag accepts a comma-separated list of names, substring-matched
+against test group descriptions:
+
+| Filter Value | Test Group(s) Matched |
+|-------------|----------------------|
+| `MATH` | MATH,VECTOR,DCPERIOD/PHASE,TRENDLINE/MODE (includes MULT) |
+| `Moving Averages` | All Moving Averages (includes SMA) |
+| `RSI` | RSI,CMO + STOCH,STOCHF,STOCHRSI (substring match) |
+| `BBANDS` | BBANDS |
+| `ADX` | ADX,ADXR,DI,DM,DX |
+
+Without `--function`, all test groups run.
+
+## Rust Backend
+
+Generated Rust lives in `ta_codegen_output/rust/` (a standalone crate).
+
+- TA-Lib exports a `Core` struct (`src/ta_func/types.rs`, with `RetCode`);
+  indicators are methods on `Core`, one file per indicator extending it via
+  `impl Core` blocks.
+- The public API uses `f64` slices (`&[f64]` / `&mut [f64]`), `usize` indices,
+  and `i32` optional params.
+- Each indicator generates a `xxx_lookback`, a guarded `xxx` (validates params,
+  pre-computes optimization values), and an `xxx_unguarded` variant (no range
+  checks, `get_unchecked` indexing inside an `unsafe` block).
+- **Cross-indicator calls always use `_unguarded`** to avoid double-validation.
+- Functions with extra internal params (e.g., EMA's k factor) expose them on the
+  unguarded variant only; the guarded variant pre-computes them and delegates.
+  If the C source defines only the guarded function, the codegen auto-generates
+  the unguarded variant by stripping range checks.
+
+## Adding or Modifying an Indicator
+
+1. Edit the definition in `ta_func_defs/<name>/` (C logic) and/or its YAML metadata
+2. `cd tools/ta_codegen && cargo run -- generate` (optionally `--func=<NAME>`)
+3. `scripts/build.py servers` to rebuild the language servers
+4. `cd bin && ./ta_regtest --codegen --function=<NAME>` to verify all backends
+   against the C reference
+5. **Verify other languages' output is unchanged** when fixing one backend
+   (`git diff` the generated files)
+
+The `/convert-indicator` skill automates picking up and resuming this work.
+
+## Build Configuration
+
+### Dependencies
+- CMake 3.18+
+- C compiler (clang/gcc)
+- Rust toolchain (`rustup`)
+- `mcpp` preprocessor (`brew install mcpp` or `apt install mcpp`)
+- For server testing: JDK (`javac` + `java`) and .NET SDK (`dotnet`)
+
+`scripts/build.py` checks the prerequisites per target and configures CMake
+automatically on first run.
+
+## Changelog Format (RUST_CHANGELOG.md)
+
+One entry per day. If multiple commits happen on the same day, consolidate into a single entry. Each bullet links to the specific commit that introduced it:
+
+```markdown
+## 2026-03-01 -- Short title summarizing the day's work
+
+`git diff abc1234^..fed9876` | [view on GitHub](https://github.com/TA-Lib/ta-lib/compare/def5678...fed9876)
+
+* [abc1234](https://github.com/TA-Lib/ta-lib/commit/abc1234) Description of change from this commit
+* [abc1234](https://github.com/TA-Lib/ta-lib/commit/abc1234) Another change from the same commit
+* [fed9876](https://github.com/TA-Lib/ta-lib/commit/fed9876) Change from a different commit
+* All tests passing (summary bullet)
+```
+
+**Range inclusivity — critical:**
+- **Local diff**: `git diff first^..last` — the `^` after `first` makes it inclusive (without `^`, `first`'s changes are excluded)
+- **GitHub URL**: `compare/<PARENT-of-first>...last` — GitHub `compare/A...B` excludes A, so use `git rev-parse first^` to get the parent hash and use that in the URL
+- **Verify**: run `git log first^..last --oneline | wc -l` and confirm the count matches the number of bulleted commits (excluding the summary bullet)
+
+Rules:
+- **One entry per day** — amend the existing entry if pushing more commits on the same day
+- **Every commit = at least one bullet** — no exceptions, even for tracking updates, formatting fixes, or regeneration commits. If it's in the range, it gets a bullet.
+- **Per-bullet commit links** — every bullet gets `[short-hash](commit-url)`, even if multiple bullets share the same commit
+- **Summary bullet at the end** — total test count to show nothing regressed
+- **Amend the changelog commit** when updating the same day's entry
+
+## Performance Testing
+
+```bash
+# Full pipeline (builds everything, regens, tests, benchmarks)
+scripts/regtest.py
+
+# Benchmark specific indicators (trustworthy — isolated, high iterations)
+cd bin && ./ta_bench --language=cref,c --function=RSI,SMA --points=100000 --iters=500
+
+# Full benchmark (noisy — use for overview, verify outliers in isolation)
+cd bin && ./ta_bench --language=cref,c --points=100000 --iters=200
+```
+
+**Gotcha:** `ta_ref_serve` is statically linked — rebuild when `libta-lib.a`
+changes or benchmarks are invalid. `regtest.py` handles this automatically.
+Full 161-indicator benchmark runs have 10–20% variance from icache pressure;
+use `--function=NAME --iters=500` for ground truth.
+
+## Project Structure
+
+```
+ta-lib/
+├── bin/                      # Built executables (gen_code, ta_regtest, ta_bench, servers)
+├── cmake-build/              # CMake build directory
+├── ta_func_defs/             # SOURCE OF TRUTH: per-indicator C logic + YAML metadata
+│   ├── <name>/<name>.c       # Indicator logic
+│   ├── helpers/              # Shared helper functions
+│   └── types/                # Enums, RetCode, CandleSettings, etc. (YAML)
+├── ta_codegen_output/        # Generated code per language (c, java, dotnet, rust)
+│   └── rust/                 # Standalone Rust crate
+├── tools/ta_codegen/         # The Rust code generator (see its CLAUDE.md)
+├── src/
+│   ├── ta_func/              # Reference C library (GENCODE sections via gen_code)
+│   └── tools/
+│       ├── gen_code/         # Legacy generator (Java/.NET/reference C)
+│       └── ta_regtest/       # Universal test runner (see its CLAUDE.md)
+└── scripts/                  # build.py, regtest.py, sync.py, package.py, ...
+```

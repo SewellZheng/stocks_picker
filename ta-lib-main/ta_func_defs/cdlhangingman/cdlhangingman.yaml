@@ -1,0 +1,13 @@
+name: CDLHANGINGMAN
+camel_case: CdlHangingMan
+group: Pattern Recognition
+hint: Hanging Man
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

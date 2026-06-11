@@ -58,6 +58,7 @@
 #include "ta_test_func.h"
 #include "ta_utility.h"
 #include "ta_memory.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -412,6 +413,18 @@ static ErrorNumber do_test( const TA_History *history,
    CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
    CHECK_EXPECTED_VALUE( gBuffer[0].out1, 1 );
    CHECK_EXPECTED_VALUE( gBuffer[0].out2, 2 );
+
+   if( server_verify_active() )
+   {
+      errNb = server_verify("BBANDS", test->startIdx, test->endIdx, history->nbBars,
+                            retCode, outBegIdx, outNbElement,
+                            (const TA_Real*[]){ gBuffer[0].in, NULL },
+                            (double[]){ (double)test->optInTimePeriod, test->optInNbDevUp,
+                                        test->optInNbDevDn, (double)test->optInMethod_3 }, 4,
+                            (const TA_Real*[]){ gBuffer[0].out0, gBuffer[0].out1,
+                                               gBuffer[0].out2, NULL }, NULL);
+      if( errNb != TA_TEST_PASS ) return errNb;
+   }
 
    outBegIdx = outNbElement = 0;
 

@@ -1,0 +1,12 @@
+name: SQRT
+camel_case: Sqrt
+group: Math Transform
+hint: Vector Square Root
+flags: []
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

@@ -1,0 +1,13 @@
+name: CDLDOJI
+camel_case: CdlDoji
+group: Pattern Recognition
+hint: Doji
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

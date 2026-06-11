@@ -58,6 +58,7 @@
 #include "ta_test_priv.h"
 #include "ta_test_func.h"
 #include "ta_utility.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -250,6 +251,16 @@ static ErrorNumber do_test_per_ema( const TA_History *history,
                                test->oneOfTheExpectedOutRealIndex );
    if( errNb != TA_TEST_PASS )
       return errNb;
+
+   if( server_verify_active() )
+   {
+      errNb = server_verify("TRIX", test->startIdx, test->endIdx, history->nbBars,
+                            retCode, outBegIdx, outNbElement,
+                            (const TA_Real*[]){ gBuffer[0].in, NULL },
+                            (double[]){ (double)test->optInTimePeriod }, 1,
+                            (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+      if( errNb != TA_TEST_PASS ) return errNb;
+   }
 
    outBegIdx = outNbElement = 0;
 

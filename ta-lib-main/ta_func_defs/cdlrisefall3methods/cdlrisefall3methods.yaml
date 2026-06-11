@@ -1,0 +1,13 @@
+name: CDLRISEFALL3METHODS
+camel_case: CdlRiseFall3Methods
+group: Pattern Recognition
+hint: Rising/Falling Three Methods
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

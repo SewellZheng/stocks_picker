@@ -1,0 +1,30 @@
+name: SAR
+camel_case: Sar
+group: Overlap Studies
+hint: Parabolic SAR
+flags: [overlap]
+inputs:
+  - name: inPriceHL
+    type: price
+    price_components: [high, low]
+optional_inputs:
+  - name: optInAcceleration
+    type: real
+    display_name: Acceleration Factor
+    hint: Acceleration Factor used up to the Maximum value
+    range: [0, TA_REAL_MAX]
+    default: 0.02
+    precision: 4
+    suggested: [0.01, 0.2, 0.01]
+  - name: optInMaximum
+    type: real
+    display_name: AF Maximum
+    hint: Acceleration Factor Maximum value
+    range: [0, TA_REAL_MAX]
+    default: 0.2
+    precision: 4
+    suggested: [0.2, 0.4, 0.01]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

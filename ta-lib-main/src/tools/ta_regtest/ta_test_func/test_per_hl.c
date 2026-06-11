@@ -61,6 +61,7 @@
 #include "ta_test_func.h"
 #include "ta_utility.h"
 #include "ta_memory.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -438,6 +439,54 @@ static ErrorNumber do_test( const TA_History *history,
       return errNb;
 
    CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
+
+   if( server_verify_active() )
+   {
+      const char *funcName;
+      switch( test->theFunction )
+      {
+      case TA_AROON_UP_TEST:
+      case TA_AROON_DOWN_TEST:
+         funcName = "AROON";
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               (test->theFunction == TA_AROON_UP_TEST)
+                                  ? (const TA_Real*[]){ gBuffer[1].out0, gBuffer[0].out0, NULL }
+                                  : (const TA_Real*[]){ gBuffer[0].out0, gBuffer[1].out0, NULL },
+                               NULL);
+         break;
+      case TA_AROONOSC_TEST:
+         funcName = "AROONOSC";
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_CORREL_TEST:
+         funcName = "CORREL";
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_BETA_TEST:
+         funcName = "BETA";
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      default:
+         errNb = TA_TEST_PASS;
+         break;
+      }
+      if( errNb != TA_TEST_PASS ) return errNb;
+   }
 
    outBegIdx = outNbElement = 0;
 

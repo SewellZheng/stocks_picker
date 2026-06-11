@@ -1,0 +1,13 @@
+name: CDLXSIDEGAP3METHODS
+camel_case: CdlXSideGap3Methods
+group: Pattern Recognition
+hint: Upside/Downside Gap Three Methods
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

@@ -1,0 +1,13 @@
+name: CDLSTICKSANDWICH
+camel_case: CdlStickSandwich
+group: Pattern Recognition
+hint: Stick Sandwich
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

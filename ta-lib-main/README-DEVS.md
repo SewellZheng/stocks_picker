@@ -18,6 +18,53 @@ This will do all the needed autotools steps:
 
 Repeat whenever you need to refresh the makefiles.
 
+## How to build and test with scripts/build.py
+
+Prerequisites: CMake 3.18+, a C compiler (clang or gcc), the Rust toolchain (`rustup`), and `mcpp`.
+
+For cross-language server testing (`servers`, `regtest`, `regtest-only` targets), also: JDK (`javac` + `java`) and .NET SDK (`dotnet`).
+
+```
+scripts/build.py                # Build library + all tools
+scripts/build.py ta_regtest     # Build just the test runner
+scripts/build.py gen_code       # Build the legacy C code generator
+scripts/build.py ta_codegen     # Build the Rust codegen tool
+scripts/build.py servers        # Generate + compile JSON-RPC language servers
+```
+
+Built binaries go to `bin/`. CMake is configured automatically on first run.
+
+To run tests:
+```
+scripts/build.py test           # C reference tests only (quick)
+scripts/build.py regtest        # Full pipeline: servers + C tests + cross-language verification
+scripts/build.py regtest-only   # Codegen verification only (skip C reference tests)
+```
+
+For more control, run `ta_regtest` directly from `bin/`:
+```
+./ta_regtest                                               # C reference tests only
+./ta_regtest --codegen                                     # C tests + all-language codegen
+./ta_regtest --codegen-only                                # Codegen only (all languages)
+./ta_regtest --codegen --language=c,rust                   # Filter to specific languages
+./ta_regtest --codegen --function=RSI,SMA                  # Filter to specific functions
+```
+
+## How to run ta_codegen
+
+In addition to gen_code (see below), a Rust tool `ta_codegen` generates the Rust indicator implementations and the JSON-RPC test servers:
+
+```
+cd tools/ta_codegen
+cargo run -- generate                            # Generate indicator code for all backends
+cargo run -- generate --func=SMA --backend=rust  # Specific function + backend
+cargo run -- generate-servers                    # Generate JSON-RPC servers
+cargo run -- build                               # Compile servers
+cargo run -- extract                             # Extract indicators from C source → YAML
+```
+
+Generated output goes to `ta_codegen_output/` organized by language.
+
 ## How to build with CMakeLists.txt
 ```
 $ cd ta-lib
@@ -61,14 +108,17 @@ Any dev with permission to merge to main branch can do a release.
 
 (7) Manually trig the "Release (step-1)" Github action on main branch. This will tag, generate a draft release and attach all assets from the dist/ directory.
 
-(8) Optionally edit the draft "Release notes" on the Github website and verify that everything looks fine.
+(8) Optionally edit the draft "Release notes" on the Github website. A good time to add thank you to contributors. You can still edit after the official release.
 
-(9) Manually trig "Release (step 2)" Github action. This will make the release public, update the website and create a PR on homebrew-core.
+(9) Manually trig "Release (step 2)" Github action. This will make the release official/public and update the website.
 
 (10) Verify that https://ta-lib.org/install reflects the new version.
 
-(11) Monitor that the PR on homebrew-core is working as expected. The following formula will eventually be updated (may take an hour):
+(11) Run "./scripts/post-release-vcpkg.py" and follow the instructions to submit a PR to microsoft/vcpkg. Monitor the PR is eventually merged by vcpkg maintainers. This may take a few days.
+
+(12) Monitor homebrew-core. The following formula will eventually be updated (may take an hour):
 https://github.com/Homebrew/homebrew-core/blob/30106807361198c58a395de65547694427adf229/Formula/t/ta-lib.rb
+
 
 ## I want to modify the code... should I care to rebuild the packages?
 No.

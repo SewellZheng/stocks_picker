@@ -1,0 +1,23 @@
+name: MINMAXINDEX
+camel_case: MinMaxIndex
+group: Math Operators
+hint: Indexes of lowest and highest values over a specified period
+flags: []
+inputs:
+  - name: inReal
+    type: real
+optional_inputs:
+  - name: optInTimePeriod
+    type: integer
+    display_name: Time Period
+    hint: Number of period
+    range: [2, 100000]
+    default: 30
+    suggested: [4, 200, 1]
+outputs:
+  - name: outMinIdx
+    type: integer
+    flags: [line]
+  - name: outMaxIdx
+    type: integer
+    flags: [line]

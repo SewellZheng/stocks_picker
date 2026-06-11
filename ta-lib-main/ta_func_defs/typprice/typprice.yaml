@@ -1,0 +1,13 @@
+name: TYPPRICE
+camel_case: TypPrice
+group: Price Transform
+hint: Typical Price
+flags: [overlap]
+inputs:
+  - name: inPriceHLC
+    type: price
+    price_components: [high, low, close]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

@@ -57,6 +57,7 @@
 #include "ta_test_priv.h"
 #include "ta_test_func.h"
 #include "ta_utility.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -504,6 +505,39 @@ static ErrorNumber do_test( const TA_History *history,
       return errNb;
 
    CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
+
+   if( server_verify_active() )
+   {
+      const char *funcName = NULL;
+      int hlcInputs = 1; /* 1 = HLC (3 inputs), 0 = HL (2 inputs) */
+      switch( test->id )
+      {
+      case TST_MINUS_DM: funcName = "MINUS_DM"; hlcInputs = 0; break;
+      case TST_PLUS_DM:  funcName = "PLUS_DM";  hlcInputs = 0; break;
+      case TST_MINUS_DI: funcName = "MINUS_DI"; break;
+      case TST_PLUS_DI:  funcName = "PLUS_DI";  break;
+      case TST_DX:       funcName = "DX";       break;
+      case TST_ADX:      funcName = "ADX";      break;
+      case TST_ADXR:     funcName = "ADXR";     break;
+      default: break;
+      }
+      if( funcName )
+      {
+         if( hlcInputs )
+            errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                                  retCode, outBegIdx, outNbElement,
+                                  (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in, gBuffer[2].in, NULL },
+                                  (double[]){ (double)test->optInTimePeriod }, 1,
+                                  (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         else
+            errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                                  retCode, outBegIdx, outNbElement,
+                                  (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in, NULL },
+                                  (double[]){ (double)test->optInTimePeriod }, 1,
+                                  (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         if( errNb != TA_TEST_PASS ) return errNb;
+      }
+   }
 
    outBegIdx = outNbElement = 0;
 

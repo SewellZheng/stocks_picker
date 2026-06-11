@@ -1,0 +1,34 @@
+name: MAVP
+camel_case: MovingAverageVariablePeriod
+group: Overlap Studies
+hint: Moving average with variable period
+flags: [overlap]
+inputs:
+  - name: inReal
+    type: real
+  - name: inPeriods
+    type: real
+optional_inputs:
+  - name: optInMinPeriod
+    type: integer
+    display_name: Minimum Period
+    hint: Value less than minimum will be changed to Minimum period
+    range: [2, 100000]
+    default: 2
+    suggested: [4, 200, 1]
+  - name: optInMaxPeriod
+    type: integer
+    display_name: Maximum Period
+    hint: Value higher than maximum will be changed to Maximum period
+    range: [2, 100000]
+    default: 30
+    suggested: [4, 200, 1]
+  - name: optInMAType
+    type: enum:MAType
+    display_name: MA Type
+    hint: Type of Moving Average
+    default: 0
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

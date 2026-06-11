@@ -1,0 +1,40 @@
+name: MACD
+camel_case: Macd
+group: Momentum Indicators
+hint: Moving Average Convergence/Divergence
+flags: []
+inputs:
+  - name: inReal
+    type: real
+optional_inputs:
+  - name: optInFastPeriod
+    type: integer
+    display_name: Fast Period
+    hint: Number of period for the fast MA
+    range: [2, 100000]
+    default: 12
+    suggested: [4, 200, 1]
+  - name: optInSlowPeriod
+    type: integer
+    display_name: Slow Period
+    hint: Number of period for the slow MA
+    range: [2, 100000]
+    default: 26
+    suggested: [4, 200, 1]
+  - name: optInSignalPeriod
+    type: integer
+    display_name: Signal Period
+    hint: Smoothing for the signal line (nb of period)
+    range: [1, 100000]
+    default: 9
+    suggested: [1, 200, 1]
+outputs:
+  - name: outMACD
+    type: real
+    flags: [line]
+  - name: outMACDSignal
+    type: real
+    flags: [dash_line]
+  - name: outMACDHist
+    type: real
+    flags: [histogram]

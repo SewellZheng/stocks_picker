@@ -1,0 +1,13 @@
+name: CDLUPSIDEGAP2CROWS
+camel_case: CdlUpsideGap2Crows
+group: Pattern Recognition
+hint: Upside Gap Two Crows
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

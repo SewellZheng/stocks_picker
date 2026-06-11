@@ -1,0 +1,13 @@
+name: CDLGAPSIDESIDEWHITE
+camel_case: CdlGapSideSideWhite
+group: Pattern Recognition
+hint: Up/Down-gap side-by-side white lines
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

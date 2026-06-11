@@ -1,0 +1,13 @@
+name: AVGPRICE
+camel_case: AvgPrice
+group: Price Transform
+hint: Average Price
+flags: [overlap]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

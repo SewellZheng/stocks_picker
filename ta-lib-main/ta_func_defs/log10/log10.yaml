@@ -1,0 +1,12 @@
+name: LOG10
+camel_case: Log10
+group: Math Transform
+hint: Vector Log10
+flags: []
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

@@ -1,0 +1,12 @@
+name: ATAN
+camel_case: Atan
+group: Math Transform
+hint: Vector Trigonometric ATan
+flags: []
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

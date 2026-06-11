@@ -58,6 +58,7 @@
 #include "ta_test_func.h"
 #include "ta_utility.h"
 #include "ta_memory.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -637,6 +638,47 @@ static ErrorNumber do_test_ma( const TA_History *history,
                                test->oneOfTheExpectedOutRealIndex );
    if( errNb != TA_TEST_PASS )
       return errNb;
+
+   if( server_verify_active() )
+   {
+      switch( test->id )
+      {
+      case TA_ANY_MA_TEST:
+         if( testMAVP )
+         {
+            errNb = server_verify("MAVP", test->startIdx, test->endIdx, history->nbBars,
+                                  retCode, outBegIdx, outNbElement,
+                                  (const TA_Real*[]){ gBuffer[0].in, gBuffer[2].in, NULL },
+                                  (double[]){ 2, (double)test->optInTimePeriod, (double)test->optInMAType_1 }, 3,
+                                  (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         }
+         else
+         {
+            errNb = server_verify("MA", test->startIdx, test->endIdx, history->nbBars,
+                                  retCode, outBegIdx, outNbElement,
+                                  (const TA_Real*[]){ gBuffer[0].in, NULL },
+                                  (double[]){ (double)test->optInTimePeriod, (double)test->optInMAType_1 }, 2,
+                                  (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         }
+         break;
+      case TA_MAMA_TEST:
+         errNb = server_verify("MAMA", test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, NULL },
+                               (double[]){ 0.5, 0.05 }, 2,
+                               (const TA_Real*[]){ gBuffer[0].out0, gBuffer[0].out2, NULL }, NULL);
+         break;
+      case TA_FAMA_TEST:
+         /* FAMA test swaps output order: out2=MAMA, out0=FAMA */
+         errNb = server_verify("MAMA", test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, NULL },
+                               (double[]){ 0.5, 0.05 }, 2,
+                               (const TA_Real*[]){ gBuffer[0].out2, gBuffer[0].out0, NULL }, NULL);
+         break;
+      }
+      if( errNb != TA_TEST_PASS ) return errNb;
+   }
 
    outBegIdx = outNbElement = 0;
 

@@ -61,10 +61,6 @@
 /* Generated */    #include "ta_defs.h"
 /* Generated */    #include "ta_java_defs.h"
 /* Generated */    #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)
-/* Generated */ #elif defined( _RUST )
-/* Generated */    #include "ta_defs.h"
-/* Generated */    #define TA_INTERNAL_ERROR(Id) (RetCode.InternalError)
-/* Generated */    impl Core {
 /* Generated */ #else
 /* Generated */    #include <string.h>
 /* Generated */    #include <math.h>
@@ -88,9 +84,6 @@
 /* Generated */ #elif defined( _JAVA )
 /* Generated */ public int htSineLookback(  )
 /* Generated */ 
-/* Generated */ #elif defined( _RUST )
-/* Generated */ pub fn ht_sine_lookback(
-) -> i32
 /* Generated */ #else
 /* Generated */ TA_LIB_API int TA_HT_SINE_Lookback( void )
 /* Generated */ 
@@ -149,14 +142,6 @@
 /* Generated */                        MInteger     outNBElement,
 /* Generated */                        double        outSine[],
 /* Generated */                        double        outLeadSine[] )
-/* Generated */ #elif defined( _RUST )
-/* Generated */ pub fn ht_sine(startIdx: usize,
-/* Generated */                endIdx: usize,
-/* Generated */                inReal: &[f64],
-/* Generated */                outBegIdx: &mut usize,
-/* Generated */                outNBElement: &mut usize,
-/* Generated */                outSine: &mut [f64],
-/* Generated */                outLeadSine: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_LIB_API TA_RetCode TA_HT_SINE( int    startIdx,
 /* Generated */                                   int    endIdx,
@@ -217,25 +202,13 @@
 /* Generated */ #ifndef TA_FUNC_NO_RANGE_CHECK
 /* Generated */ 
 /* Generated */    /* Validate the requested output range. */
-/* Generated */ #if defined( _RUST )
-/* Generated */    /* Skip negative checks for Rust since startIdx/endIdx are usize (unsigned) */
-/* Generated */    if( endIdx < startIdx ) {
-/* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
-/* Generated */    }
-/* Generated */ #else
-/* Generated */    if( startIdx < 0 ) {
+/* Generated */    if( startIdx < 0 )
 /* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */    }
-/* Generated */    if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */    if( (endIdx < 0) || (endIdx < startIdx))
 /* Generated */       return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
-/* Generated */    }
-/* Generated */ #endif
 /* Generated */ 
-/* Generated */ #if defined( _RUST )
-/* Generated */ 
-/* Generated */ #else
 /* Generated */    #if !defined(_JAVA)
-/* Generated */    if( !inReal ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
+/* Generated */    if( !inReal ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */    #endif /* !defined(_JAVA)*/
 /* Generated */    #if !defined(_JAVA)
 /* Generated */    if( !outSine )
@@ -245,7 +218,6 @@
 /* Generated */       return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */ 
 /* Generated */    #endif /* !defined(_JAVA) */
-/* Generated */ #endif
 /* Generated */ #endif /* TA_FUNC_NO_RANGE_CHECK */
 /* Generated */ 
 /**** END GENCODE SECTION 4 - DO NOT DELETE THIS LINE ****/
@@ -525,14 +497,6 @@
 /* Generated */                        MInteger     outNBElement,
 /* Generated */                        double        outSine[],
 /* Generated */                        double        outLeadSine[] )
-/* Generated */ #elif defined( _RUST )
-/* Generated */ pub fn ht_sine_s(startIdx: usize,
-/* Generated */                  endIdx: usize,
-/* Generated */                  inReal: &[f32],
-/* Generated */                  outBegIdx: &mut usize,
-/* Generated */                  outNBElement: &mut usize,
-/* Generated */                  outSine: &mut [f64],
-/* Generated */                  outLeadSine: &mut [f64]) -> RetCode
 /* Generated */ #else
 /* Generated */ TA_RetCode TA_S_HT_SINE( int    startIdx,
 /* Generated */                          int    endIdx,
@@ -569,22 +533,12 @@
 /* Generated */    int DCPeriodInt;
 /* Generated */    double DCPhase, DCPeriod, imagPart, realPart;
 /* Generated */  #ifndef TA_FUNC_NO_RANGE_CHECK
-/* Generated */  #if defined( _RUST )
-/* Generated */     if( endIdx < startIdx ) {
-/* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
-/* Generated */     }
-/* Generated */  #else
-/* Generated */     if( startIdx < 0 ) {
+/* Generated */     if( startIdx < 0 )
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_START_INDEX,OutOfRangeStartIndex);
-/* Generated */     }
-/* Generated */     if( (endIdx < 0) || (endIdx < startIdx)) {
+/* Generated */     if( (endIdx < 0) || (endIdx < startIdx))
 /* Generated */        return ENUM_VALUE(RetCode,TA_OUT_OF_RANGE_END_INDEX,OutOfRangeEndIndex);
-/* Generated */     }
-/* Generated */  #endif
-/* Generated */  #if defined( _RUST )
-/* Generated */  #else
 /* Generated */     #if !defined(_JAVA)
-/* Generated */     if( !inReal ) { return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam); }
+/* Generated */     if( !inReal ) return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */     #endif 
 /* Generated */     #if !defined(_JAVA)
 /* Generated */     if( !outSine )
@@ -592,7 +546,6 @@
 /* Generated */     if( !outLeadSine )
 /* Generated */        return ENUM_VALUE(RetCode,TA_BAD_PARAM,BadParam);
 /* Generated */     #endif 
-/* Generated */  #endif
 /* Generated */  #endif 
 /* Generated */    CIRCBUF_INIT_LOCAL_ONLY(smoothPrice,double);
 /* Generated */    tempReal = std_atan(1);
@@ -745,8 +698,6 @@
 /* Generated */ 
 /* Generated */ #if defined( _MANAGED )
 /* Generated */ }}} // Close namespace TicTacTec.TA.Lib
-/* Generated */ #elif defined( _RUST )
-/* Generated */ } // Close impl Core
 /* Generated */ #endif
 /**** END GENCODE SECTION 5 - DO NOT DELETE THIS LINE ****/
 

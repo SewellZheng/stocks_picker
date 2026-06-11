@@ -1,0 +1,13 @@
+name: CDLHIKKAKEMOD
+camel_case: CdlHikkakeMod
+group: Pattern Recognition
+hint: Modified Hikkake Pattern
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

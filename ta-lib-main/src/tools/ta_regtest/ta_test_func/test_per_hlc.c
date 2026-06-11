@@ -67,6 +67,7 @@
 #include "ta_test_func.h"
 #include "ta_utility.h"
 #include "ta_memory.h"
+#include "server_verify.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -513,6 +514,76 @@ static ErrorNumber do_test( const TA_History *history,
       return errNb;
 
    CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
+
+   if( server_verify_active() )
+   {
+      const char *funcName;
+      switch( test->theFunction )
+      {
+      case TA_CCI_TEST:
+         funcName = "CCI";
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in,
+                                                   gBuffer[2].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod1 }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_WILLR_TEST:
+         funcName = "WILLR";
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in,
+                                                   gBuffer[2].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod1 }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_ULTOSC_TEST:
+         funcName = "ULTOSC";
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in,
+                                                   gBuffer[2].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod1,
+                                           (double)test->optInTimePeriod2,
+                                           (double)test->optInTimePeriod3 }, 3,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_NATR_TEST:
+         funcName = "NATR";
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in,
+                                                   gBuffer[2].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod1 }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_ACCBANDS_TEST:
+         {
+            /* ACCBANDS has 3 outputs; do_call only captured the middle band.
+             * Make a separate call to get all 3 outputs for server verification. */
+            TA_Integer svBeg, svNb;
+            funcName = "ACCBANDS";
+            retCode = TA_ACCBANDS( test->startIdx, test->endIdx,
+                                   gBuffer[0].in, gBuffer[1].in, gBuffer[2].in,
+                                   test->optInTimePeriod1,
+                                   &svBeg, &svNb,
+                                   gBuffer[0].out1, gBuffer[0].out0, gBuffer[0].out2 );
+            errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                                  retCode, svBeg, svNb,
+                                  (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in,
+                                                      gBuffer[2].in, NULL },
+                                  (double[]){ (double)test->optInTimePeriod1 }, 1,
+                                  (const TA_Real*[]){ gBuffer[0].out1, gBuffer[0].out0,
+                                                      gBuffer[0].out2, NULL }, NULL);
+         }
+         break;
+      default:
+         errNb = TA_TEST_PASS;
+         break;
+      }
+      if( errNb != TA_TEST_PASS ) return errNb;
+   }
 
    outBegIdx = outNbElement = 0;
 

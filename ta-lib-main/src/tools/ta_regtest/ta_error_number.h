@@ -292,6 +292,31 @@ typedef enum
   TA_TEST_FAIL_BUG1359452_4  = 2004,
   TA_TEST_FAIL_BUG1359452_5  = 2005,
 
+  /* Error code related to codegen verification tests. */
+  TA_CODEGEN_PIPE_OPEN_FAILED        = 1100,
+  TA_CODEGEN_PIPE_FORK_FAILED        = 1101,
+  TA_CODEGEN_PIPE_WRITE_FAILED       = 1102,
+  TA_CODEGEN_PIPE_READ_FAILED        = 1103,
+  TA_CODEGEN_PIPE_READ_TIMEOUT       = 1104,
+  TA_CODEGEN_RETCODE_MISMATCH        = 1105,
+  TA_CODEGEN_BEGIDX_MISMATCH         = 1106,
+  TA_CODEGEN_NBELEMENT_MISMATCH      = 1107,
+  TA_CODEGEN_OUTPUT_MISMATCH         = 1108,
+  TA_CODEGEN_JSON_PARSE_FAILED       = 1109,
+  TA_CODEGEN_ALLOC_FAILED            = 1110,
+
+  /* Abstract codegen test errors */
+  TA_ABSTRACT_LOOKBACK_MISMATCH      = 1200,
+  TA_ABSTRACT_FOR_EACH_MISMATCH      = 1201,
+  TA_ABSTRACT_CALL_MISMATCH          = 1202,
+  TA_ABSTRACT_SERVER_ERROR           = 1203,
+
+  /* Server verify errors (server_verify.c) */
+  TA_SV_RETCODE_MISMATCH             = 1300,
+  TA_SV_BEGIDX_MISMATCH              = 1301,
+  TA_SV_NBELEMENT_MISMATCH           = 1302,
+  TA_SV_OUTPUT_MISMATCH              = 1303,
+
   TA_LAST_VALID_ERROR = 0xFFFF
 } ErrorNumber;
 #endif

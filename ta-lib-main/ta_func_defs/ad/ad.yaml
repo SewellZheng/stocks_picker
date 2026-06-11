@@ -1,0 +1,13 @@
+name: AD
+camel_case: Ad
+group: Volume Indicators
+hint: Chaikin A/D Line
+flags: []
+inputs:
+  - name: inPriceHLCV
+    type: price
+    price_components: [high, low, close, volume]
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

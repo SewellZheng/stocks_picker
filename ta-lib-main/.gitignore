@@ -27,9 +27,7 @@ ar-lib
 # TA-Lib tools (must be built by devs on its own platform)
 src/tools/gen_code/gen_code
 src/tools/ta_regtest/ta_regtest
-bin/*.class
-bin/gen_code*
-bin/ta_*
+bin/*
 !bin/HOLDER
 
 ## TA-Lib misc. build and packaging artifacts
@@ -88,5 +86,16 @@ out/
 # Never ignore .gitkeep files
 !**/.gitkeep
 
-cmake-build-debug/
+cmake-build*/
 rust/target
+
+# Build artifacts (platform-specific, rebuilt locally)
+ta_codegen_output/c/ta_func/ta_codegen_funcs.c
+ta_codegen_output/dotnet/bin/
+ta_codegen_output/dotnet/obj/
+ta_codegen_output/java/*.class
+
+# Git worktrees
+.worktrees/
+ta_codegen_output/rust/target/
+.claude/worktrees

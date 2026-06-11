@@ -1,0 +1,13 @@
+name: CDLLADDERBOTTOM
+camel_case: CdlLadderBottom
+group: Pattern Recognition
+hint: Ladder Bottom
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

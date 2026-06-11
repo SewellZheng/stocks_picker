@@ -1,0 +1,114 @@
+int aroon_lookback(int           optInTimePeriod)
+{
+    return optInTimePeriod;
+}
+
+TA_RetCode aroon(int startIdx, int endIdx, const double inHigh[], const double inLow[], int optInTimePeriod, int *outBegIdx, int *outNBElement, double outAroonDown[], double outAroonUp[])
+{
+    double lowest, highest, tmp, factor;
+    int outIdx;
+    int trailingIdx, lowestIdx, highestIdx, today, i;
+
+
+
+    /* This function is using a speed optimized algorithm
+    * for the min/max logic.
+    *
+    * You might want to first look at how TA_MIN/TA_MAX works
+    * and this function will become easier to understand.
+    */
+
+    /* Move up the start index if there is not
+    * enough initial data.
+    */
+    if( startIdx < optInTimePeriod )
+    startIdx = optInTimePeriod;
+
+    /* Make sure there is still something to evaluate. */
+    if( startIdx > endIdx )
+    {
+    *outBegIdx = 0;
+    *outNBElement = 0;
+    return TA_SUCCESS;
+    }
+
+    /* Proceed with the calculation for the requested range.
+    * Note that this algorithm allows the input and
+    * output to be the same buffer.
+    */
+    outIdx = 0;
+    today       = startIdx;
+    trailingIdx = startIdx-optInTimePeriod;
+    lowestIdx   = -1;
+    highestIdx  = -1;
+    lowest      = 0.0;
+    highest     = 0.0;
+    factor      = (double)100.0/(double)optInTimePeriod;
+
+    while( today <= endIdx )
+    {
+    /* Keep track of the lowestIdx */
+    tmp = inLow[today];
+    if( lowestIdx < trailingIdx )
+    {
+    lowestIdx = trailingIdx;
+    lowest = inLow[lowestIdx];
+    i = lowestIdx;
+    while( ++i<=today )
+    {
+    tmp = inLow[i];
+    if( tmp <= lowest )
+    {
+    lowestIdx = i;
+    lowest = tmp;
+    }
+    }
+    }
+    else if( tmp <= lowest )
+    {
+    lowestIdx = today;
+    lowest    = tmp;
+    }
+
+    /* Keep track of the highestIdx */
+    tmp = inHigh[today];
+    if( highestIdx < trailingIdx )
+    {
+    highestIdx = trailingIdx;
+    highest = inHigh[highestIdx];
+    i = highestIdx;
+    while( ++i<=today )
+    {
+    tmp = inHigh[i];
+    if( tmp >= highest )
+    {
+    highestIdx = i;
+    highest = tmp;
+    }
+    }
+    }
+    else if( tmp >= highest )
+    {
+    highestIdx = today;
+    highest = tmp;
+    }
+
+    /* Note: Do not forget that input and output buffer can be the same,
+    *       so writing to the output is the last thing being done here.
+    */
+    outAroonUp[outIdx] = factor*(optInTimePeriod-(today-highestIdx));
+    outAroonDown[outIdx] = factor*(optInTimePeriod-(today-lowestIdx));
+
+    outIdx++;
+    trailingIdx++;
+    today++;
+    }
+
+    /* Keep the outBegIdx relative to the
+    * caller input before returning.
+    */
+    *outBegIdx    = startIdx;
+    *outNBElement = outIdx;
+
+    return TA_SUCCESS;
+}

@@ -1,0 +1,42 @@
+name: STOCHRSI
+camel_case: StochRsi
+group: Momentum Indicators
+hint: Stochastic Relative Strength Index
+flags: [unstable_period]
+inputs:
+  - name: inReal
+    type: real
+optional_inputs:
+  - name: optInTimePeriod
+    type: integer
+    display_name: Time Period
+    hint: Number of period
+    range: [2, 100000]
+    default: 14
+    suggested: [4, 200, 1]
+  - name: optInFastK_Period
+    type: integer
+    display_name: Fast-K Period
+    hint: Time period for building the Fast-K line
+    range: [1, 100000]
+    default: 5
+    suggested: [1, 200, 1]
+  - name: optInFastD_Period
+    type: integer
+    display_name: Fast-D Period
+    hint: Smoothing for making the Fast-D line. Usually set to 3
+    range: [1, 100000]
+    default: 3
+    suggested: [1, 200, 1]
+  - name: optInFastD_MAType
+    type: enum:MAType
+    display_name: Fast-D MA
+    hint: Type of Moving Average for Fast-D
+    default: 0
+outputs:
+  - name: outFastK
+    type: real
+    flags: [line]
+  - name: outFastD
+    type: real
+    flags: [line]

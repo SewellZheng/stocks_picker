@@ -1,0 +1,12 @@
+name: COS
+camel_case: Cos
+group: Math Transform
+hint: Vector Trigonometric Cos
+flags: []
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

@@ -1,0 +1,13 @@
+name: CDLINNECK
+camel_case: CdlInNeck
+group: Pattern Recognition
+hint: In-Neck Pattern
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

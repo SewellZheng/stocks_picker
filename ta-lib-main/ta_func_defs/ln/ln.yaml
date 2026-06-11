@@ -1,0 +1,12 @@
+name: LN
+camel_case: Ln
+group: Math Transform
+hint: Vector Log Natural
+flags: []
+inputs:
+  - name: inReal
+    type: real
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

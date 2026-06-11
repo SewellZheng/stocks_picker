@@ -1,0 +1,13 @@
+name: CDLSPINNINGTOP
+camel_case: CdlSpinningTop
+group: Pattern Recognition
+hint: Spinning Top
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

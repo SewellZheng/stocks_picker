@@ -1,0 +1,13 @@
+name: CDLSHORTLINE
+camel_case: CdlShortLine
+group: Pattern Recognition
+hint: Short Line Candle
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]

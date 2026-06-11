@@ -1,0 +1,13 @@
+name: CDLBREAKAWAY
+camel_case: CdlBreakaway
+group: Pattern Recognition
+hint: Breakaway
+flags: [candlestick]
+inputs:
+  - name: inPriceOHLC
+    type: price
+    price_components: [open, high, low, close]
+outputs:
+  - name: outInteger
+    type: integer
+    flags: [line]
