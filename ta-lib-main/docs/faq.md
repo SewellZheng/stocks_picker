@@ -22,7 +22,7 @@ Releases went stale between 2014 and 2024, one "excuse" is the packaging process
 
 In 2024, work started to automate packaging with Github actions. Goal is to have new maintainers be able to trig a release at the "push of a button".
 
-There is also work-in-progress to add a native Rust version.
+There is also a native Rust version, generated and verified against the C reference (a public crate release is still pending).
 
 Most importantly, there is intent to make the ta-lib-python installation easier.
 

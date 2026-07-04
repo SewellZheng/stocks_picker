@@ -20,19 +20,21 @@ Repeat whenever you need to refresh the makefiles.
 
 ## How to build and test with scripts/build.py
 
-Prerequisites: CMake 3.18+, a C compiler (clang or gcc), the Rust toolchain (`rustup`), and `mcpp`.
+Prerequisites: CMake 3.18+, a C compiler (clang or gcc), and the Rust toolchain (`rustup`).
 
 For cross-language server testing (`servers`, `regtest`, `regtest-only` targets), also: JDK (`javac` + `java`) and .NET SDK (`dotnet`).
 
 ```
-scripts/build.py                # Build library + all tools
-scripts/build.py ta_regtest     # Build just the test runner
-scripts/build.py gen_code       # Build the legacy C code generator
-scripts/build.py ta_codegen     # Build the Rust codegen tool
-scripts/build.py servers        # Generate + compile JSON-RPC language servers
+scripts/build.py                # Build the C library + all C tools (CMake)
+scripts/build.py ta_regtest     # Build just the C test runner (CMake)
+scripts/build.py ta_codegen     # Build the Rust codegen tool (cargo)
+scripts/build.py generate       # Regenerate per-function source for all backends (cargo)
+scripts/build.py servers        # Generate + compile JSON-RPC language servers (cargo)
 ```
 
-Built binaries go to `bin/`. CMake is configured automatically on first run.
+Built binaries go to `bin/`. CMake is configured automatically on first run. The C
+library + C tools build with CMake (no Rust needed); `ta_codegen` builds with cargo via
+the targets above — CMake never invokes cargo.
 
 To run tests:
 ```
@@ -52,10 +54,10 @@ For more control, run `ta_regtest` directly from `bin/`:
 
 ## How to run ta_codegen
 
-In addition to gen_code (see below), a Rust tool `ta_codegen` generates the Rust indicator implementations and the JSON-RPC test servers:
+`ta_codegen` is the single code generator: it generates the C library (in place under `src/`), the Rust/Java/.NET bindings, and the JSON-RPC test servers:
 
 ```
-cd tools/ta_codegen
+cd ta_codegen/generator
 cargo run -- generate                            # Generate indicator code for all backends
 cargo run -- generate --func=SMA --backend=rust  # Specific function + backend
 cargo run -- generate-servers                    # Generate JSON-RPC servers
@@ -63,7 +65,7 @@ cargo run -- build                               # Compile servers
 cargo run -- extract                             # Extract indicators from C source → YAML
 ```
 
-Generated output goes to `ta_codegen_output/` organized by language.
+Generated output goes to `ta_codegen/output/` organized by language.
 
 ## How to build with CMakeLists.txt
 ```
@@ -75,17 +77,9 @@ $ make
 ```
 Libraries will be in ```ta-lib/build``` and executable in ```ta-lib/bin```
 
-## How to run gen_code
-After ```make```, call ```gen_code``` located in ta-lib/bin
-
-Do this to refresh many files and code variant (Rust, Java etc...)
-
-You should call ```make`` again after gen_code to verify if the
-potentially updated C code is still compiling.
-
 
 ## How to run ta_regtest
-After ```make```, call ```ta_regtest``` located in ta-lib/src/tools
+After ```make```, run ```ta_regtest``` from ```ta-lib/bin``` (CMake build) or ```ta-lib/src/tools/ta_regtest``` (autotools build)
 
 Exit code is 0 on success
 

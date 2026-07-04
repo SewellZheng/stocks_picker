@@ -20,6 +20,7 @@ import tempfile
 from utilities.versions import get_version_string, get_version_string_cmake
 from utilities.common import verify_git_repo,create_temp_dir
 from install_tests.python import test_python_windows, test_python_linux
+from install_tests.msi import test_msi_windows
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test release candidate assets in 'dist'")
@@ -63,6 +64,16 @@ if __name__ == "__main__":
         test_python_linux(package_file_path, temp_dir, version, sudo_pwd)
     elif host_platform == "win32":
         test_python_windows(package_file_path, temp_dir, version, sudo_pwd)
+
+        # MSI end-user simulation: silent install, layout check, python
+        # wrapper build against the installed location, silent uninstall.
+        msi_file_path = package_file_path[:-len(".zip")] + ".msi"
+        if not os.path.isfile(msi_file_path):
+            print(f"MSI not found: {msi_file_path}. Do './scripts/package.py'")
+            sys.exit(1)
+        msi_temp_dir = os.path.join(temp_dir, "msi")
+        os.makedirs(msi_temp_dir, exist_ok=True)
+        test_msi_windows(msi_file_path, msi_temp_dir, version)
     else:
         print(f"Unsupported platform [{host_platform}]")
         sys.exit(1)

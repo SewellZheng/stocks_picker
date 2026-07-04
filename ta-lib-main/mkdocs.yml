@@ -76,8 +76,15 @@ nav:
   - Home: index.md
   - Install: install.md
   - Docs:
-      - Functions List: functions.md
+      - Functions: functions/index.md
       - C/C++ API: api.md
       - Wrappers: wrappers.md
       - FAQ: faq.md
   - About Us: about.md
+
+# Per-function pages under docs/functions/ are intentionally NOT in the nav sidebar
+# (reachable via the Functions index + direct URL). Silence mkdocs' "not in nav" warnings
+# for them, while keeping the index page (which IS in the nav).
+not_in_nav: |
+  /functions/*
+  !/functions/index.md

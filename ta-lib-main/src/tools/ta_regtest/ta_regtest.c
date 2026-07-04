@@ -100,9 +100,29 @@ static ErrorNumber testTAFunction_ALL( void );
 static ErrorNumber test_with_simulator( void );
 static void printUsage(void);
 static ErrorNumber test_codegen_with_simulator( void );
+static int svLanguageEnabled( const char *filter, const char *name );
 
 /**** Local variables definitions.     ****/
 /* None */
+
+/* Exact-token match against the --language=CSV filter (NULL = all).
+ * Same semantics as language_matches_filter in test_codegen.c.
+ */
+static int svLanguageEnabled( const char *filter, const char *name )
+{
+   char filterCopy[1024];
+   char *token;
+   if( filter == NULL ) return 1;
+   strncpy(filterCopy, filter, sizeof(filterCopy) - 1);
+   filterCopy[sizeof(filterCopy) - 1] = '\0';
+   token = strtok(filterCopy, ",");
+   while( token != NULL )
+   {
+      if( strcmp(name, token) == 0 ) return 1;
+      token = strtok(NULL, ",");
+   }
+   return 0;
+}
 
 /**** Global functions definitions.   ****/
 int main( int argc, char **argv )
@@ -222,6 +242,60 @@ int main( int argc, char **argv )
       if( abstractPipeOpen )
          codegen_pipe_close(&abstractPipe);
    }
+
+   /* Cross-language abstract parity (dev / merge-loop gate via --codegen):
+    * run the full ta_abstract path against the Rust server, comparing to the C
+    * reference. Two complementary passes:
+    *   1. test_abstract_server_metadata — the metadata RPCs (TA_GetFuncInfo + the
+    *      param-info getters), which the dynamic path below does NOT exercise.
+    *   2. test_abstract — the dynamic-dispatch path (abstract_call /
+    *      abstract_get_lookback / TA_FunctionDescriptionXML), comparing output
+    *      VALUES (not just metadata) for every function.
+    * NOTE: the autotools dist nightly runs ta_regtest with no args, so this block
+    * only runs under --codegen/--codegen-only (build.py regtest / regtest.py),
+    * not the dist verification path. */
+   if( retValue == TA_TEST_PASS && doCodegenTest &&
+       ( codegenLanguageFilter == NULL || strstr(codegenLanguageFilter, "rust") != NULL ) )
+   {
+      CodegenPipe rustAbstractPipe;
+      char rustServerPath[1024];
+      const char *self = argv[0];
+      const char *lastSlash = strrchr(self, '/');
+      if( lastSlash ) {
+         int dirLen = (int)(lastSlash - self + 1);
+         snprintf(rustServerPath, sizeof(rustServerPath), "%.*sta_codegen_serve_rust",
+                  dirLen, self);
+      } else {
+         snprintf(rustServerPath, sizeof(rustServerPath), "./ta_codegen_serve_rust");
+      }
+      {
+         const char *const rustArgv[] = {rustServerPath, NULL};
+         if( codegen_pipe_open(&rustAbstractPipe, rustArgv) == TA_TEST_PASS )
+         {
+            ErrorNumber e;
+            printf( "Testing Abstract metadata parity (Rust server vs c-ref)\n" );
+            test_abstract_set_server(&rustAbstractPipe);
+            e = test_abstract_server_metadata(functionFilter);
+            /* Full dynamic-dispatch path (abstract_call / abstract_get_lookback /
+             * TA_FunctionDescriptionXML) against the Rust server, comparing output
+             * VALUES to the c-ref for every function. */
+            if( e == TA_TEST_PASS )
+            {
+               printf( "Testing Abstract dynamic dispatch (Rust server vs c-ref)\n" );
+               e = test_abstract();
+            }
+            test_abstract_set_server(NULL);
+            codegen_pipe_close(&rustAbstractPipe);
+            if( retValue == TA_TEST_PASS && e != TA_TEST_PASS )
+               retValue = e;
+         }
+         else
+         {
+            printf( "  (Rust server not available, skipping Rust abstract parity)\n" );
+         }
+      }
+   }
+
    if( retValue != TA_TEST_PASS )
    {
       printf( "Failed: Abstract interface Tests (error number = %d)\n", retValue );
@@ -233,38 +307,72 @@ int main( int argc, char **argv )
    {
       if( !codegenOnly )
       {
-         /* When codegen mode is active, also verify hand-written tests against server. */
-         CodegenPipe svPipe;
-         int svPipeOpen = 0;
+         /* When codegen mode is active, also verify hand-written tests
+          * against every available language server (C, Rust, Java, .NET),
+          * honoring --language=CSV. The Java/.NET launch commands are
+          * relative to the bin directory (same as test_codegen.c).
+          */
+         CodegenPipe svPipes[SV_MAX_PIPES];
+         int nbSvPipes = 0;
          if( doCodegenTest )
          {
-            char svPath[1024];
-            {
-               const char *self = argv[0];
-               const char *lastSlash = strrchr(self, '/');
-               if( lastSlash ) {
-                  int dirLen = (int)(lastSlash - self + 1);
-                  snprintf(svPath, sizeof(svPath), "%.*sta_codegen_serve_c",
-                           dirLen, self);
-               } else {
-                  snprintf(svPath, sizeof(svPath), "./ta_codegen_serve_c");
-               }
+            char svPathC[1024];
+            char svPathRust[1024];
+            const char *self = argv[0];
+            const char *lastSlash = strrchr(self, '/');
+            if( lastSlash ) {
+               int dirLen = (int)(lastSlash - self + 1);
+               snprintf(svPathC, sizeof(svPathC), "%.*sta_codegen_serve_c",
+                        dirLen, self);
+               snprintf(svPathRust, sizeof(svPathRust), "%.*sta_codegen_serve_rust",
+                        dirLen, self);
+            } else {
+               snprintf(svPathC, sizeof(svPathC), "./ta_codegen_serve_c");
+               snprintf(svPathRust, sizeof(svPathRust), "./ta_codegen_serve_rust");
             }
-            const char *const svArgv[] = {svPath, NULL};
-            if( codegen_pipe_open(&svPipe, svArgv) == TA_TEST_PASS )
+            const char *const svArgvC[]      = {svPathC, NULL};
+            const char *const svArgvRust[]   = {svPathRust, NULL};
+            const char *const svArgvJava[]   = {"java", "-cp", "ta_codegen_java",
+                                                "TaCodegenServe", NULL};
+            const char *const svArgvDotnet[] = {"dotnet",
+                                                "ta_codegen_dotnet/TaCodegenServe.dll", NULL};
+            const struct { const char *lang; const char *const *argvSv; } svServers[] = {
+               { "c",      svArgvC },
+               { "rust",   svArgvRust },
+               { "java",   svArgvJava },
+               { "dotnet", svArgvDotnet },
+            };
+            unsigned int svIdx;
+            for( svIdx = 0; svIdx < sizeof(svServers)/sizeof(svServers[0]); svIdx++ )
             {
-               CodegenPipe *pipes[] = { &svPipe };
-               server_verify_init(pipes, 1);
-               svPipeOpen = 1;
+               if( !svLanguageEnabled(codegenLanguageFilter, svServers[svIdx].lang) )
+                  continue;
+               if( codegen_pipe_open(&svPipes[nbSvPipes], svServers[svIdx].argvSv) == TA_TEST_PASS )
+                  nbSvPipes++;
+               else
+                  printf( "  (%s server not available for hand-written test verification)\n",
+                          svServers[svIdx].lang );
+            }
+            if( nbSvPipes > 0 )
+            {
+               CodegenPipe *pipes[SV_MAX_PIPES];
+               int p;
+               for( p = 0; p < nbSvPipes; p++ )
+                  pipes[p] = &svPipes[p];
+               server_verify_init(pipes, nbSvPipes);
+               printf( "  (hand-written tests verified against %d language server(s))\n",
+                       nbSvPipes );
             }
          }
 
          retValue = test_with_simulator();
 
-         if( svPipeOpen )
+         if( nbSvPipes > 0 )
          {
+            int p;
             server_verify_shutdown();
-            codegen_pipe_close(&svPipe);
+            for( p = 0; p < nbSvPipes; p++ )
+               codegen_pipe_close(&svPipes[p]);
          }
 
          if( retValue != TA_TEST_PASS )
@@ -424,12 +532,12 @@ static ErrorNumber testTAFunction_ALL( void )
       }
    DO_TEST( test_func_1in_1out, "MATH,VECTOR,DCPERIOD/PHASE,TRENDLINE/MODE" );
    DO_TEST( test_func_ma,       "All Moving Averages" );
-   DO_TEST( test_func_per_hl,   "AROON,CORREL,BETA" );
+   DO_TEST( test_func_per_hl,   "AROON,CORREL,BETA,MIDPRICE" );
    DO_TEST( test_func_per_hlc,  "CCI,WILLR,ULTOSC,NATR" );
    DO_TEST( test_func_per_ohlc, "BOP,AVGPRICE" );
    DO_TEST( test_func_rsi,      "RSI,CMO" );
    DO_TEST( test_func_imi, "IMI" );
-   DO_TEST( test_func_minmax,   "MIN,MAX,MININDEX,MAXINDEX,MINMAX,MINMAXINDEX" );
+   DO_TEST( test_func_minmax,   "MIN,MAX,MININDEX,MAXINDEX,MINMAX,MINMAXINDEX,MIDPOINT" );
    DO_TEST( test_func_po,       "PO,APO" );
    DO_TEST( test_func_adx,      "ADX,ADXR,DI,DM,DX" );
    DO_TEST( test_func_sar,      "SAR,SAREXT" );
@@ -443,6 +551,7 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_stddev,   "STDDEV,VAR" );
    DO_TEST( test_func_avgdev,   "AVGDEV" );
    DO_TEST( test_func_bbands,   "BBANDS" );
+   DO_TEST( test_func_period_boundary, "PERIOD1/BOUNDARY" );
    DO_TEST( test_candlestick,   "All Candlesticks" );
 
    return TA_TEST_PASS; /* All tests succeeded. */

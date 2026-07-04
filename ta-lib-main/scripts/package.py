@@ -139,7 +139,7 @@ def find_asset_with_ext(target_dir, version: str, extension: str) -> str:
 
     return os.path.basename(filepath)
 
-def package_windows_zip(root_dir: str, asset_file_name: str, version: str, sources_digest: str, builder_id: str) -> dict:
+def package_windows_zip(root_dir: str, asset_file_name: str, version: str, sources_digest: str, builder_id: str, force_build: bool = False) -> dict:
     result: dict = {"build_valid": False}
     result["asset_file_name"] = asset_file_name
 
@@ -171,21 +171,36 @@ def package_windows_zip(root_dir: str, asset_file_name: str, version: str, sourc
     digests_dir = os.path.join(dist_dir, 'digests')
     delete_other_versions(digests_dir, "*.digest", version)
 
-    if is_build_skipping_allowed(root_dir, asset_file_name, version, sources_digest, builder_id):
+    if not force_build and is_build_skipping_allowed(root_dir, asset_file_name, version, sources_digest, builder_id):
         result["build_valid"] = True
         result["existed"] = True
         result["copied"] = False
         return result
 
-    # Build the libraries
-    build_dir = do_cmake_reconfigure(root_dir, '-G Ninja -DBUILD_DEV_TOOLS=OFF -DCMAKE_BUILD_TYPE=Release')
+    # Build the libraries + the regression test runner. BUILD_DEV_TOOLS=ON is
+    # safe here: the zip content below is assembled by hand (lib/bin/include
+    # copies), so dev tools never leak into the package. The MSI path keeps
+    # dev tools OFF because its content is install-rule driven.
+    build_dir = do_cmake_reconfigure(root_dir, '-G Ninja -DBUILD_DEV_TOOLS=ON -DCMAKE_BUILD_TYPE=Release')
     do_cmake_build(build_dir)
+
+    # Run the C regression suite against the exact binaries being packaged.
+    # Plain mode only: the C reference tests run in-process. --codegen (the
+    # cross-language server verification) is POSIX-only — codegen_pipe.c has
+    # Windows stubs precisely so plain ta_regtest builds and runs here.
+    ta_regtest_exe = path_join(build_dir, 'bin',
+                               'ta_regtest.exe' if sys.platform == 'win32' else 'ta_regtest')
+    print(f"Running C regression tests: {ta_regtest_exe}")
+    run_command_term([ta_regtest_exe])
 
     # Create a temporary zip package to test before copying to dist.
     package_temp_dir = path_join(temp_dir, file_name_prefix)
     temp_lib_dir = path_join(package_temp_dir, 'lib')
     temp_bin_dir = path_join(package_temp_dir, 'bin')
-    temp_include_dir = path_join(package_temp_dir, 'include')
+    # Headers go under include/ta-lib/ — the documented 0.6.1 convention
+    # (#include <ta-lib/ta_libc.h>), already used on Linux; required by
+    # ta-lib-python source builds. Windows was still shipping them flat.
+    temp_include_dir = path_join(package_temp_dir, 'include', 'ta-lib')
 
     os.makedirs(temp_dir, exist_ok=True)
     os.makedirs(package_temp_dir, exist_ok=True)
@@ -569,7 +584,7 @@ def test_autotool_src(configure_dir: str, sudo_pwd: str) -> bool:
     # - './configure'
     # - 'make' (verify returning zero)
     # - Run './src/tools/ta_regtest/ta_regtest' (verify returning zero)
-    # - Run './src/tools/gen_code/gen_code' (verify no unexpected changes)
+    # - Verify the build did not modify any generated/committed files
     # - 'sudo make install' (verify returning zero)
 
     original_dir = os.getcwd()
@@ -591,24 +606,19 @@ def test_autotool_src(configure_dir: str, sudo_pwd: str) -> bool:
         # Run its src/tools/ta_regtest/ta_regtest
         subprocess.run(['src/tools/ta_regtest/ta_regtest'], check=True)
 
-        if not os.path.isfile('src/tools/gen_code/gen_code'):
-            print("Error: src/tools/gen_code/gen_code does not exist.")
-            return False
-
-        # Re-running gen_code should not cause changes to the root directory.
-        # (but do nothing if there was already git changes prior to gen_code).
-        # This is just a sanity check that the script is not breaking something
-        # unexpected outside of the "end-user simulated" directory.
+        # Building the package must not modify any generated/committed files in the
+        # root repository — a sanity check that configure/make/install do not
+        # accidentally regenerate or touch anything outside the "end-user simulated"
+        # directory. gen_code is no longer run (or required) here: the generated C is
+        # owned by ta_codegen, and its regeneration is verified separately (the
+        # ta_codegen regen oracle), not from inside the released source package.
         if not git_changed and are_generated_files_git_changed(root_dir):
-            print("Error: Unexpected changes from gen_code to root_dir. Do 'git diff'")
+            print("Error: the package build unexpectedly changed generated files in root_dir. Do 'git diff'")
             return False
 
-        # Now verify if gen_code did change files unexpectably within
-        # the "end-user simulated" directory.
-        #
-        # It should not, because we are at the point of testing the src
-        # package, which should have the latest generated files version
-        # and re-running gen_code should have no effect.
+        # Likewise, building within the "end-user simulated" directory must not
+        # modify its generated files (the src package already ships the latest
+        # generated versions, so the build must have no effect on them).
         copy_file_list(configure_dir,
                        generated_files_temp_copy_2,
                        get_src_generated_files())
@@ -638,7 +648,6 @@ def update_package_digest(root_dir: str, results: dict, sources_digest: str, bui
     #      "sources_digest": "some_digest_value",
     #      "package_md5": "some_md5_value",
     #      "built_success": "True".
-    #      "gen_code_pass": "Disabled",
     #      "ta_regtest_pass": "True",
     #      "dist_test_pass": "False"
     #    }
@@ -668,10 +677,6 @@ def update_package_digest(root_dir: str, results: dict, sources_digest: str, bui
     # A results[] key exist for a test only if the test was executed.
     # When a test is not executed, then the corresponding digest field should not be touched here.
     # (logic in other places will force "Uknown" state when, say, the build was not successful)
-    if pdigest.gen_code_pass != "Disabled":
-        if "gen_code_pass" in results:
-            pdigest.gen_code_pass = "True" if results["gen_code_pass"] else "False"
-
     if pdigest.ta_regtest_pass != "Disabled":
         if "ta_regtest_pass" in results:
             pdigest.ta_regtest_pass = "True" if results["ta_regtest_pass"] else "False"
@@ -727,10 +732,6 @@ def update_package_digest(root_dir: str, results: dict, sources_digest: str, bui
             print(f"Warning: {asset_file_name} digest says dist test pass, but build was not successful.")
             pdigest.dist_test_pass = "Unknown"
 
-        if pdigest.gen_code_pass == "True":
-            print(f"Warning: {asset_file_name} digest says gen code pass, but build was not successful.")
-            pdigest.gen_code_pass = "Unknown"
-
         if pdigest.ta_regtest_pass == "True":
             print(f"Warning: {asset_file_name} digest says ta regtest pass, but build was not successful.")
             pdigest.ta_regtest_pass = "Unknown"
@@ -777,7 +778,7 @@ def display_package_results(results: dict):
     else:
         print(f"Skipped {asset_file_name} build (not supported on this platform)")
 
-def package_all_linux(root_dir: str, version: str, sources_digest: str, builder_id: str, sudo_pwd: str):
+def package_all_linux(root_dir: str, version: str, sources_digest: str, builder_id: str, sudo_pwd: str, force_build: bool = False):
     os.chdir(root_dir)
 
     # For consistency, the dist/ta-lib-*-src.tar.gz are created only on Ubuntu,
@@ -788,7 +789,6 @@ def package_all_linux(root_dir: str, version: str, sources_digest: str, builder_
         "asset_file_name": f"ta-lib-{version}-src.tar.gz"
     }
 
-    force_build = False
     if is_ubuntu():
         asset_file_name = src_tar_gz_results["asset_file_name"]
         results = package_src_tar_gz(root_dir, asset_file_name, version, sources_digest, builder_id, sudo_pwd)
@@ -890,7 +890,7 @@ def package_all_linux(root_dir: str, version: str, sources_digest: str, builder_
 
     print(f"\nPackaging completed successfully.")
 
-def package_windows_platform(root_dir: str, version: str, sources_digest: str, builder_id: str, platform: str) -> dict:
+def package_windows_platform(root_dir: str, version: str, sources_digest: str, builder_id: str, platform: str, force_build: bool = False) -> dict:
 
     vcvarsall_args = []
     if platform == "x86_64":
@@ -918,7 +918,7 @@ def package_windows_platform(root_dir: str, version: str, sources_digest: str, b
             "asset_file_name": msi_asset_file_name,
         }
     }
-    zip_results = package_windows_zip(root_dir, zip_asset_file_name, version, sources_digest, builder_id)
+    zip_results = package_windows_zip(root_dir, zip_asset_file_name, version, sources_digest, builder_id, force_build)
     results["zip_results"].update(zip_results)
     results["zip_results"]["processed"] = True
     if not results["zip_results"]["build_valid"]:
@@ -928,7 +928,6 @@ def package_windows_platform(root_dir: str, version: str, sources_digest: str, b
     # The zip file is better at detecting if the *content* is different.
     # If any changes are detected, it will force the build
     # of the .msi file in dist.
-    force_build = False
     if results["zip_results"]["processed"] and results["zip_results"]["copied"]:
         force_build = True
 
@@ -947,9 +946,9 @@ def package_windows_platform(root_dir: str, version: str, sources_digest: str, b
 
     return results
 
-def package_all_windows(root_dir: str, version: str, sources_digest: str, builder_id: str):
-    results_x86_64 = package_windows_platform(root_dir, version, sources_digest, builder_id, "x86_64")
-    results_x86_32 = package_windows_platform(root_dir, version, sources_digest, builder_id, "x86_32")
+def package_all_windows(root_dir: str, version: str, sources_digest: str, builder_id: str, force_build: bool = False):
+    results_x86_64 = package_windows_platform(root_dir, version, sources_digest, builder_id, "x86_64", force_build)
+    results_x86_32 = package_windows_platform(root_dir, version, sources_digest, builder_id, "x86_32", force_build)
 
     # TODO: More testing needed for ARM platforms.
     #results_arm_64 = package_windows_platform(root_dir, version, "arm_64")
@@ -977,9 +976,13 @@ def package_all_windows(root_dir: str, version: str, sources_digest: str, builde
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test release candidate assets in 'dist'")
     parser.add_argument('-p', '--pwd', type=str, default="", help="Optional password for sudo commands")
+    parser.add_argument('--force-build', action='store_true',
+                        help="Rebuild and re-test all packages even when the dist digests match "
+                             "(also enabled by PACKAGE_FORCE_BUILD=1, e.g. from a CI dispatch input)")
     args = parser.parse_args()
 
     sudo_pwd = args.pwd
+    force_build = args.force_build or os.environ.get("PACKAGE_FORCE_BUILD") == "1"
     root_dir = verify_git_repo()
     is_updated, version = sync_versions(root_dir)
     is_updated, sources_digest = sync_sources_digest(root_dir)
@@ -989,11 +992,11 @@ if __name__ == "__main__":
     builder_id = get_git_user_name()
 
     if host_platform == "linux":
-        package_all_linux(root_dir, version, sources_digest, builder_id, sudo_pwd)
+        package_all_linux(root_dir, version, sources_digest, builder_id, sudo_pwd, force_build)
     elif host_platform == "win32":
         arch = platform.architecture()[0]
         if arch == '64bit':
-            package_all_windows(root_dir, version, sources_digest, builder_id)
+            package_all_windows(root_dir, version, sources_digest, builder_id, force_build)
         else:
             print( f"Unsupported [{arch}]. Only 64-bits windows supported for TA-Lib development.")
     else:

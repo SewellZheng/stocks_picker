@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replace cross-language macros in ta_func_defs extracted .c files with plain C."""
+"""Replace cross-language macros in ta_codegen/input extracted .c files with plain C."""
 
 import re
 from pathlib import Path
@@ -250,12 +250,12 @@ def process_file(filepath: Path, dry_run: bool = False) -> list[str]:
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Replace macros in ta_func_defs .c files")
+    parser = argparse.ArgumentParser(description="Replace macros in ta_codegen/input .c files")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--file", type=str)
     args = parser.parse_args()
 
-    base = Path(__file__).parent.parent / "ta_func_defs"
+    base = Path(__file__).parent.parent / "ta_codegen/input"
     if args.file:
         files = [Path(args.file)]
     else:

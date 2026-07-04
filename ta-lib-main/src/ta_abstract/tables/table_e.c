@@ -38,16 +38,6 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* EMA BEGIN */
 static const TA_InputParameterInfo    *TA_EMA_Inputs[]    =
 {
@@ -62,20 +52,40 @@ static const TA_OutputParameterInfo   *TA_EMA_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_EMA_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_30_MINIMUM2,
+{ &TA_DEF_UI_TimePeriod_30,
   NULL
 };
 
-DEF_FUNCTION( EMA,                        /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "Exponential Moving Average", /* hint */
-              "Ema",                       /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP|TA_FUNC_FLG_UNST_PER /* flags */
+DEF_FUNCTION( EMA,
+              TA_GroupId_OverlapStudies,
+              "Exponential Moving Average",
+              "Ema",
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_UNST_PER
              );
 /* EMA END */
 
 /* EXP BEGIN */
-DEF_MATH_UNARY_OPERATOR( EXP, "Vector Arithmetic Exp", "Exp" )
+static const TA_InputParameterInfo    *TA_EXP_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_EXP_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_EXP_OptInputs[] =
+{ NULL };
+
+DEF_FUNCTION( EXP,
+              TA_GroupId_MathTransform,
+              "Vector Arithmetic Exp",
+              "Exp",
+              0
+             );
 /* EXP END */
 
 /****************************************************************************
@@ -94,9 +104,3 @@ const TA_FuncDef *TA_DEF_TableE[] =
 const unsigned int TA_DEF_TableESize =
               ((sizeof(TA_DEF_TableE)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

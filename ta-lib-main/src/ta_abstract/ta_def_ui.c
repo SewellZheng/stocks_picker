@@ -31,40 +31,20 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* List of contributors:
- *
- *  Initial  Name/description
- *  -------------------------------------------------------------------
- *  MF       Mario Fortier
- *
- *
- * Change history:
- *
- *  MMDDYY BY   Description
- *  -------------------------------------------------------------------
- *  130101 MF   First version.
- *  111503 MF   Add TA_DEF_UI_Input_Price_CV
- */
-
-/* Description:
- *    Defines const structures representing how data can be
- *    input/output from the TA functions.
- *    These structure are mainly used to build the tables\table<a..z>.c files.
- */
 #include <stdlib.h>
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-const char TA_GroupId_MathOperatorsString[]        = "Math Operators";
-const char TA_GroupId_MathTransformString[]        = "Math Transform";
-const char TA_GroupId_OverlapStudiesString[]       = "Overlap Studies";
+const char TA_GroupId_MathOperatorsString[] = "Math Operators";
+const char TA_GroupId_MathTransformString[] = "Math Transform";
+const char TA_GroupId_OverlapStudiesString[] = "Overlap Studies";
 const char TA_GroupId_VolatilityIndicatorsString[] = "Volatility Indicators";
-const char TA_GroupId_MomentumIndicatorsString[]   = "Momentum Indicators";
-const char TA_GroupId_CycleIndicatorsString[]      = "Cycle Indicators";
-const char TA_GroupId_VolumeIndicatorsString[]     = "Volume Indicators";
-const char TA_GroupId_PatternRecognitionString[]   = "Pattern Recognition";
-const char TA_GroupId_StatisticString[]            = "Statistic Functions";
-const char TA_GroupId_PriceTransformString[]       = "Price Transform";
+const char TA_GroupId_MomentumIndicatorsString[] = "Momentum Indicators";
+const char TA_GroupId_CycleIndicatorsString[] = "Cycle Indicators";
+const char TA_GroupId_VolumeIndicatorsString[] = "Volume Indicators";
+const char TA_GroupId_PatternRecognitionString[] = "Pattern Recognition";
+const char TA_GroupId_StatisticString[] = "Statistic Functions";
+const char TA_GroupId_PriceTransformString[] = "Price Transform";
 
 const char *TA_GroupString[TA_NB_GROUP_ID] =
 {
@@ -80,51 +60,47 @@ const char *TA_GroupString[TA_NB_GROUP_ID] =
    &TA_GroupId_PriceTransformString[0]
 };
 
-/*************************************************************
- * Define from here the TA_InputParameterInfo
- * These shall be sufficient for all possible TA functions.
- *************************************************************/
 const TA_InputParameterInfo TA_DEF_UI_Input_Price_OHLCV =
                                   { TA_Input_Price, "inPriceOHLCV",
-                                    TA_IN_PRICE_OPEN   |
-                                    TA_IN_PRICE_HIGH   |
-                                    TA_IN_PRICE_LOW    |
-                                    TA_IN_PRICE_CLOSE  |
+                                    TA_IN_PRICE_OPEN |
+                                    TA_IN_PRICE_HIGH |
+                                    TA_IN_PRICE_LOW |
+                                    TA_IN_PRICE_CLOSE |
                                     TA_IN_PRICE_VOLUME };
 
 const TA_InputParameterInfo TA_DEF_UI_Input_Price_HLCV =
                                   { TA_Input_Price, "inPriceHLCV",
-                                    TA_IN_PRICE_HIGH   |
-                                    TA_IN_PRICE_LOW    |
-                                    TA_IN_PRICE_CLOSE  |
+                                    TA_IN_PRICE_HIGH |
+                                    TA_IN_PRICE_LOW |
+                                    TA_IN_PRICE_CLOSE |
                                     TA_IN_PRICE_VOLUME };
 
 const TA_InputParameterInfo TA_DEF_UI_Input_Price_OHLC =
                                   { TA_Input_Price, "inPriceOHLC",
-                                    TA_IN_PRICE_OPEN   |
-                                    TA_IN_PRICE_HIGH   |
-                                    TA_IN_PRICE_LOW    |
-                                    TA_IN_PRICE_CLOSE  };
+                                    TA_IN_PRICE_OPEN |
+                                    TA_IN_PRICE_HIGH |
+                                    TA_IN_PRICE_LOW |
+                                    TA_IN_PRICE_CLOSE };
 
 const TA_InputParameterInfo TA_DEF_UI_Input_Price_HLC =
                                   { TA_Input_Price, "inPriceHLC",
-                                    TA_IN_PRICE_HIGH   |
-                                    TA_IN_PRICE_LOW    |
-                                    TA_IN_PRICE_CLOSE  };
+                                    TA_IN_PRICE_HIGH |
+                                    TA_IN_PRICE_LOW |
+                                    TA_IN_PRICE_CLOSE };
 
 const TA_InputParameterInfo TA_DEF_UI_Input_Price_HL =
                                   { TA_Input_Price, "inPriceHL",
-                                    TA_IN_PRICE_HIGH   |
-                                    TA_IN_PRICE_LOW    };
+                                    TA_IN_PRICE_HIGH |
+                                    TA_IN_PRICE_LOW };
 
 const TA_InputParameterInfo TA_DEF_UI_Input_Price_OC =
                                   { TA_Input_Price, "inPriceOC",
-                                    TA_IN_PRICE_OPEN  |
+                                    TA_IN_PRICE_OPEN |
                                     TA_IN_PRICE_CLOSE };
 
 const TA_InputParameterInfo TA_DEF_UI_Input_Price_CV =
                                   { TA_Input_Price, "inPriceCV",
-                                    TA_IN_PRICE_CLOSE  |
+                                    TA_IN_PRICE_CLOSE |
                                     TA_IN_PRICE_VOLUME };
 
 const TA_InputParameterInfo TA_DEF_UI_Input_Price_V =
@@ -146,378 +122,351 @@ const TA_InputParameterInfo TA_DEF_UI_Input_Real1 =
 const TA_InputParameterInfo TA_DEF_UI_Input_Integer =
                                   { TA_Input_Integer, "inInteger", 0 };
 
-
-/*************************************************************
- * Define from here the TA_OutputParameterInfo
- * These shall be sufficient for most of the TA functions.
- *************************************************************/
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real =
                                   { TA_Output_Real, "outReal", TA_OUT_LINE };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Integer =
                                   { TA_Output_Integer, "outInteger", TA_OUT_LINE };
 
-/*****************************************************
- * Define from here the TA_Integer ranges
- ****************************************************/
-
 const TA_IntegerRange TA_DEF_TimePeriod_Positive =
 {
-   1,             /* min */
-   100000,        /* max */
-   1,             /* suggested start */
-   200,           /* suggested end   */
-   1              /* suggested increment */
+   1,
+   100000,
+   1,
+   200,
+   1
 };
 
 const TA_IntegerRange TA_DEF_TimePeriod_Positive_Minimum5 =
 {
-   5,             /* min */
-   100000,        /* max */
-   5,             /* suggested start */
-   200,           /* suggested end   */
-   1              /* suggested increment */
+   5,
+   100000,
+   5,
+   200,
+   1
 };
 
 const TA_IntegerRange TA_DEF_TimePeriod_Positive_Minimum2 =
 {
-   2,             /* min */
-   100000,        /* max */
-   4,             /* suggested start */
-   200,           /* suggested end   */
-   1              /* suggested increment */
+   2,
+   100000,
+   4,
+   200,
+   1
 };
 
 const TA_IntegerRange TA_DEF_HorizontalShiftPeriod =
 {
-   -200,               /* min */
-    200,               /* max   */
-   0,                  /* suggested start */
-   8,                  /* suggested end   */
-   1                   /* suggested increment */
+   -200,
+   200,
+   0,
+   8,
+   1
 };
 
-
-/*****************************************************
- * Define from here the TA_Real ranges
- ****************************************************/
 const TA_RealRange TA_DEF_VerticalShiftPercent =
 {
-   -99.0,            /* min */
-   99.0,             /* max   */
-   1,                /* precision */
-   -10.0,            /* suggested start */
-   10.0,             /* suggested end   */
-   0.5               /* suggested increment */
+   -99.0,
+   99.0,
+   1,
+   -10.0,
+   10.0,
+   0.5
 };
 
 const TA_RealRange TA_DEF_NbDeviation =
 {
-   TA_REAL_MIN,    /* min */
-   TA_REAL_MAX,    /* max */
-   2,              /* precision */
-   -2.0,           /* suggested start */
-   2.0,            /* suggested end   */
-   0.2             /* suggested increment */
+   TA_REAL_MIN,
+   TA_REAL_MAX,
+   2,
+   -2.0,
+   2.0,
+   0.2
 };
 
 const TA_RealRange TA_DEF_ZeroToOne =
 {
-   0.00,  /* min */
-   1.00,  /* max */
-   2,     /* precision */
-   0.01,  /* suggested start */
-   1.00,  /* suggested end   */
-   0.05   /* suggested increment */
+   0.00,
+   1.00,
+   2,
+   0.01,
+   1.00,
+   0.05
 };
 
 const TA_RealRange TA_DEF_RealPositive =
 {
-   0.00,  /* min */
-   TA_REAL_MAX,  /* max */
-   0,    /* precision */
-   0.0,  /* suggested start */
-   0.0,  /* suggested end   */
-   0.0   /* suggested increment */
+   0.00,
+   TA_REAL_MAX,
+   0,
+   0.0,
+   0.0,
+   0.0
 };
-
-/*****************************************************
- * Define from here the TA_OptInputParameterInfo.
- ****************************************************/
 
 const TA_OptInputParameterInfo TA_DEF_UI_MinPeriod =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInMinPeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInMinPeriod",
+   0,
 
-   "Minimum Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   2, /* defaultValue */
-   "Value less than minimum will be changed to Minimum period", /* hint */
+   "Minimum Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   2,
+   "Value less than minimum will be changed to Minimum period",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_MaxPeriod =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInMaxPeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInMaxPeriod",
+   0,
 
-   "Maximum Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   30, /* defaultValue */
-   "Value higher than maximum will be changed to Maximum period", /* hint */
+   "Maximum Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   30,
+   "Value higher than maximum will be changed to Maximum period",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_30_MINIMUM2 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   30, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   30,
+   "Number of period",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_20_MINIMUM2 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   20, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   20,
+   "Number of period",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_21_MINIMUM2 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   21, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   21,
+   "Number of period",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_14_MINIMUM2 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   14, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   14,
+   "Number of period",
 
-   NULL /* helpFile */
-};
-
-const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_14_MINIMUM5 =
-{
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
-
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum5, /* dataSet */
-   14, /* defaultValue */
-   "Number of period", /* hint */
-
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_10_MINIMUM2 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   10, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   10,
+   "Number of period",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_5_MINIMUM2 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   5, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   5,
+   "Number of period",
 
-   NULL /* helpFile */
+   NULL
+};
+
+const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_14_MINIMUM5 =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum5,
+   14,
+   "Number of period",
+
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_30 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive, /* dataSet */
-   30, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   30,
+   "Number of period",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_14 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive, /* dataSet */
-   14, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   14,
+   "Number of period",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_10 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive, /* dataSet */
-   10, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   10,
+   "Number of period",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_5 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
 
-   "Time Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive, /* dataSet */
-   5, /* defaultValue */
-   "Number of period", /* hint */
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   5,
+   "Number of period",
 
-   NULL /* helpFile */
+   NULL
 };
 
-
-/* Use for the multiplier of standard deviations. */
 const TA_OptInputParameterInfo TA_DEF_UI_NbDeviation =
 {
-   TA_OptInput_RealRange, /* type */
-   "optInNbDev",          /* paramName */
-   0,                     /* flags */
+   TA_OptInput_RealRange,
+   "optInNbDev",
+   0,
 
-   "Deviations",          /* displayName */
-   (const void *)&TA_DEF_NbDeviation, /* dataSet */
-   1.0, /* defaultValue */
-   "Nb of deviations", /* hint */
+   "Deviations",
+   (const void *)&TA_DEF_NbDeviation,
+   1.0,
+   "Nb of deviations",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_Penetration_30 =
 {
-   TA_OptInput_RealRange,     /* type */
-   "optInPenetration",        /* paramName */
-   0,                         /* flags */
+   TA_OptInput_RealRange,
+   "optInPenetration",
+   0,
 
-   "Penetration",             /* displayName */
-   (const void *)&TA_DEF_RealPositive, /* dataSet */
-   0.3, /* defaultValue */
-   "Percentage of penetration of a candle within another candle", /* hint */
+   "Penetration",
+   (const void *)&TA_DEF_RealPositive,
+   0.3,
+   "Percentage of penetration of a candle within another candle",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_Penetration_50 =
 {
-   TA_OptInput_RealRange,     /* type */
-   "optInPenetration",        /* paramName */
-   0,                         /* flags */
+   TA_OptInput_RealRange,
+   "optInPenetration",
+   0,
 
-   "Penetration",             /* displayName */
-   (const void *)&TA_DEF_RealPositive, /* dataSet */
-   0.5, /* defaultValue */
-   "Percentage of penetration of a candle within another candle", /* hint */
+   "Penetration",
+   (const void *)&TA_DEF_RealPositive,
+   0.5,
+   "Percentage of penetration of a candle within another candle",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_VerticalShift =
 {
-   TA_OptInput_RealRange,  /* type */
-   "optInVertShift",       /* paramName */
-   TA_OPTIN_IS_PERCENT,       /* flags */
+   TA_OptInput_RealRange,
+   "optInVertShift",
+   TA_OPTIN_IS_PERCENT,
 
-   "Vertical Shift",       /* displayName */
-   (const void *)&TA_DEF_VerticalShiftPercent, /* dataSet */
-   0, /* defaultValue */
-   "Positive number shift upwards, negative downwards", /* hint */
+   "Vertical Shift",
+   (const void *)&TA_DEF_VerticalShiftPercent,
+   0,
+   "Positive number shift upwards, negative downwards",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_HorizontalShift =
 {
-   TA_OptInput_IntegerRange,  /* type */
-   "optInHorizShift",         /* paramName */
-   0,                         /* flags */
+   TA_OptInput_IntegerRange,
+   "optInHorizShift",
+   0,
 
-   "Horizontal Shift",        /* displayName */
-   (const void *)&TA_DEF_HorizontalShiftPeriod, /* dataSet */
-   0, /* defaultValue */
-   "Positive number shift 'n' period to the right, negative shift to the left", /* hint */
+   "Horizontal Shift",
+   (const void *)&TA_DEF_HorizontalShiftPeriod,
+   0,
+   "Positive number shift 'n' period to the right, negative shift to the left",
 
-   NULL /* helpFile */
+   NULL
 };
 
-/* Define the values available for the MA function.
- *
- * Many TA function using the MA internally may wish to
- * re-use this parameter as one of their own. That way a
- * new MA will provide automatically a new way of calculating
- * to a multitude of other TA functions.
- */
 static const TA_IntegerDataPair TA_MA_TypeDataPair[] =
 {
    {0,"SMA"},
    {1,"EMA"},
    {2,"WMA"},
-   {3,"DEMA" },
-   {4,"TEMA" },
+   {3,"DEMA"},
+   {4,"TEMA"},
    {5,"TRIMA"},
-   {6,"KAMA" },
-   {7,"MAMA" },
+   {6,"KAMA"},
+   {7,"MAMA"},
    {8,"T3"}
-   /*{...,"Linear Regression"}*/
 };
 
 const TA_IntegerList TA_MA_TypeList =
@@ -528,46 +477,43 @@ const TA_IntegerList TA_MA_TypeList =
 
 const TA_OptInputParameterInfo TA_DEF_UI_MA_Method =
 {
-   TA_OptInput_IntegerList, /* type */
-   "optInMAType",           /* paramName */
-   0,                       /* flags */
+   TA_OptInput_IntegerList,
+   "optInMAType",
+   0,
 
-   "MA Type",                /* displayName */
-   (const void *)&TA_MA_TypeList, /* dataSet */
-   0, /* defaultValue = simple average */
-   "Type of Moving Average", /* hint */
+   "MA Type",
+   (const void *)&TA_MA_TypeList,
+   0,
+   "Type of Moving Average",
 
-   NULL /* helpFile */
+   NULL
 };
 
-/* When a TA function needs two period (often called
- * a fast and slow period).
- */
 const TA_OptInputParameterInfo TA_DEF_UI_Fast_Period =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInFastPeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInFastPeriod",
+   0,
 
-   "Fast Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   12, /* defaultValue */
-   "Number of period for the fast MA", /* hint */
+   "Fast Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   12,
+   "Number of period for the fast MA",
 
-   NULL /* helpFile */
+   NULL
 };
 
 const TA_OptInputParameterInfo TA_DEF_UI_Slow_Period =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInSlowPeriod",        /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInSlowPeriod",
+   0,
 
-   "Slow Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2, /* dataSet */
-   26, /* defaultValue */
-   "Number of period for the slow MA", /* hint */
+   "Slow Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   26,
+   "Number of period for the slow MA",
 
-   NULL /* helpFile */
+   NULL
 };
 

@@ -38,16 +38,6 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* NATR BEGIN */
 static const TA_InputParameterInfo    *TA_NATR_Inputs[]    =
 {
@@ -66,43 +56,13 @@ static const TA_OptInputParameterInfo *TA_NATR_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( NATR,                        /* name */
-              TA_GroupId_VolatilityIndicators, /* groupId */
-              "Normalized Average True Range", /* hint */
-              "Natr",                     /* CamelCase name */
-              TA_FUNC_FLG_UNST_PER        /* flags */
+DEF_FUNCTION( NATR,
+              TA_GroupId_VolatilityIndicators,
+              "Normalized Average True Range",
+              "Natr",
+              TA_FUNC_FLG_UNST_PER
              );
 /* NATR END */
-
-#if 0
-Will be implemented later
-/* NVI BEGIN */
-static const TA_InputParameterInfo    *TA_NVI_Inputs[]    =
-{
-  &TA_DEF_UI_Input_Price_CV,
-  NULL
-};
-
-static const TA_OutputParameterInfo   *TA_NVI_Outputs[]   =
-{
-  &TA_DEF_UI_Output_Real,
-  NULL
-};
-
-static const TA_OptInputParameterInfo *TA_NVI_OptInputs[] =
-{
-  NULL
-};
-
-DEF_FUNCTION( NVI,                     /* name */
-              TA_GroupId_VolumeIndicators,   /* groupId */
-              "Negative Volume Index", /* hint */
-              "Nvi",      /* CamelCase name */
-              0          /* flags */
-             );
-
-/* NVI END */
-#endif
 
 /****************************************************************************
  * Step 2 - Add your TA function to the table.
@@ -119,9 +79,3 @@ const TA_FuncDef *TA_DEF_TableN[] =
 const unsigned int TA_DEF_TableNSize =
               ((sizeof(TA_DEF_TableN)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

@@ -38,17 +38,7 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
-/* WCL BEGIN */
+/* WCLPRICE BEGIN */
 static const TA_InputParameterInfo    *TA_WCLPRICE_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HLC,
@@ -61,15 +51,16 @@ static const TA_OutputParameterInfo   *TA_WCLPRICE_Outputs[]   =
   NULL
 };
 
-static const TA_OptInputParameterInfo *TA_WCLPRICE_OptInputs[] = { NULL };
+static const TA_OptInputParameterInfo *TA_WCLPRICE_OptInputs[] =
+{ NULL };
 
-DEF_FUNCTION( WCLPRICE,                   /* name */
-              TA_GroupId_PriceTransform,  /* groupId */
-              "Weighted Close Price",     /* hint */
-              "WclPrice",                 /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP         /* flags */
+DEF_FUNCTION( WCLPRICE,
+              TA_GroupId_PriceTransform,
+              "Weighted Close Price",
+              "WclPrice",
+              TA_FUNC_FLG_OVERLAP
              );
-/* WCL END */
+/* WCLPRICE END */
 
 /* WILLR BEGIN */
 static const TA_InputParameterInfo    *TA_WILLR_Inputs[]    =
@@ -89,11 +80,11 @@ static const TA_OptInputParameterInfo *TA_WILLR_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( WILLR,          /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "Williams' %R", /* hint */
-              "WillR",        /* CamelCase name */
-              0               /* flags */
+DEF_FUNCTION( WILLR,
+              TA_GroupId_MomentumIndicators,
+              "Williams' %R",
+              "WillR",
+              0
              );
 /* WILLR END */
 
@@ -111,17 +102,16 @@ static const TA_OutputParameterInfo   *TA_WMA_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_WMA_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_30_MINIMUM2,
+{ &TA_DEF_UI_TimePeriod_30,
   NULL
 };
 
-DEF_FUNCTION( WMA,                        /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "Weighted Moving Average",  /* hint */
-              "Wma",                      /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP         /* flags */
+DEF_FUNCTION( WMA,
+              TA_GroupId_OverlapStudies,
+              "Weighted Moving Average",
+              "Wma",
+              TA_FUNC_FLG_OVERLAP
              );
-
 /* WMA END */
 
 /****************************************************************************
@@ -141,9 +131,3 @@ const TA_FuncDef *TA_DEF_TableW[] =
 const unsigned int TA_DEF_TableWSize =
               ((sizeof(TA_DEF_TableW)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

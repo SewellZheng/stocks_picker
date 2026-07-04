@@ -24,7 +24,8 @@ static CodegenPipe *g_pipes[SV_MAX_PIPES];
 static int          g_nbPipes = 0;
 static char        *g_reqBuf  = NULL;
 static char        *g_respBuf = NULL;
-static int          g_lastCompatibility = -1; /* cached per-server (simplified: single cache) */
+static int          g_lastCompatibility[SV_MAX_PIPES]; /* cached per pipe */
+static int          g_curPipe = -1; /* pipe being verified (for diagnostics) */
 
 /* Unstable period lookup table (same as test_codegen.c) */
 typedef struct { const char *name; TA_FuncUnstId id; } UnstableLookup;
@@ -184,9 +185,12 @@ static const PriceComponent PRICE_COMPONENTS[] = {
 };
 #define NUM_PRICE_COMPONENTS 6
 
-/* Cached unstable periods (simplified: single cache for all pipes) */
-static unsigned int g_lastUnstPeriods[TA_FUNC_UNST_ALL];
-static int          g_unstInitialized = 0;
+/* Cached unstable periods, per pipe: every server must receive its own
+ * state syncs — a shared cache would let the first pipe consume the
+ * "changed" delta and leave the other servers stale.
+ */
+static unsigned int g_lastUnstPeriods[SV_MAX_PIPES][TA_FUNC_UNST_ALL];
+static int          g_unstInitialized[SV_MAX_PIPES];
 
 /* ---- Init / shutdown ---- */
 
@@ -202,8 +206,11 @@ void server_verify_init(CodegenPipe *pipes[], int nbPipes)
     {
         g_reqBuf  = malloc(SV_BUF_SIZE);
         g_respBuf = malloc(SV_BUF_SIZE);
-        g_lastCompatibility = -1;
-        g_unstInitialized = 0;
+        for( int p = 0; p < SV_MAX_PIPES; p++ )
+        {
+            g_lastCompatibility[p] = -1;
+            g_unstInitialized[p] = 0;
+        }
     }
 }
 
@@ -212,7 +219,11 @@ void server_verify_shutdown(void)
     free(g_reqBuf);  g_reqBuf  = NULL;
     free(g_respBuf); g_respBuf = NULL;
     g_nbPipes = 0;
-    g_lastCompatibility = -1;
+    for( int p = 0; p < SV_MAX_PIPES; p++ )
+    {
+        g_lastCompatibility[p] = -1;
+        g_unstInitialized[p] = 0;
+    }
 }
 
 int server_verify_active(void)
@@ -222,12 +233,13 @@ int server_verify_active(void)
 
 /* ---- Sync global state to server ---- */
 
-static ErrorNumber sync_unstable_periods(CodegenPipe *pipe)
+static ErrorNumber sync_unstable_periods(int pipeIdx)
 {
+    CodegenPipe *pipe = g_pipes[pipeIdx];
     char syncReq[128];
     char syncResp[256];
 
-    if( !g_unstInitialized )
+    if( !g_unstInitialized[pipeIdx] )
     {
         /* First call: reset server to all zeros (matches fresh TA_Initialize). */
         snprintf(syncReq, sizeof(syncReq),
@@ -236,15 +248,20 @@ static ErrorNumber sync_unstable_periods(CodegenPipe *pipe)
         ErrorNumber err = codegen_pipe_call(pipe, syncReq, syncResp, sizeof(syncResp));
         if( err != TA_TEST_PASS )
             return err;
-        memset(g_lastUnstPeriods, 0, sizeof(g_lastUnstPeriods));
-        g_unstInitialized = 1;
+        if( sv_json_is_error(syncResp) )
+        {
+            printf("  SV WARN: set_unstable_period rejected by server: %s\n", syncResp);
+            return TA_SV_RETCODE_MISMATCH;
+        }
+        memset(g_lastUnstPeriods[pipeIdx], 0, sizeof(g_lastUnstPeriods[pipeIdx]));
+        g_unstInitialized[pipeIdx] = 1;
     }
 
     /* Only sync IDs that have changed. */
     for( int id = 0; id < (int)TA_FUNC_UNST_ALL; id++ )
     {
         unsigned int curPeriod = TA_GetUnstablePeriod((TA_FuncUnstId)id);
-        if( curPeriod != g_lastUnstPeriods[id] )
+        if( curPeriod != g_lastUnstPeriods[pipeIdx][id] )
         {
             snprintf(syncReq, sizeof(syncReq),
                      "{\"method\":\"set_unstable_period\",\"params\":{\"id\":%d,\"period\":%u}}",
@@ -252,16 +269,21 @@ static ErrorNumber sync_unstable_periods(CodegenPipe *pipe)
             ErrorNumber err = codegen_pipe_call(pipe, syncReq, syncResp, sizeof(syncResp));
             if( err != TA_TEST_PASS )
                 return err;
-            g_lastUnstPeriods[id] = curPeriod;
+            if( sv_json_is_error(syncResp) )
+            {
+                printf("  SV WARN: set_unstable_period rejected by server: %s\n", syncResp);
+                return TA_SV_RETCODE_MISMATCH;
+            }
+            g_lastUnstPeriods[pipeIdx][id] = curPeriod;
         }
     }
     return TA_TEST_PASS;
 }
 
-static ErrorNumber sync_compatibility(CodegenPipe *pipe)
+static ErrorNumber sync_compatibility(int pipeIdx)
 {
     int compat = (int)TA_GetCompatibility();
-    if( compat == g_lastCompatibility )
+    if( compat == g_lastCompatibility[pipeIdx] )
         return TA_TEST_PASS;
 
     /* Use local buffers to avoid overwriting g_reqBuf/g_respBuf
@@ -270,10 +292,15 @@ static ErrorNumber sync_compatibility(CodegenPipe *pipe)
     char syncResp[256];
     snprintf(syncReq, sizeof(syncReq),
              "{\"method\":\"set_compatibility\",\"params\":{\"mode\":%d}}", compat);
-    ErrorNumber err = codegen_pipe_call(pipe, syncReq, syncResp, sizeof(syncResp));
+    ErrorNumber err = codegen_pipe_call(g_pipes[pipeIdx], syncReq, syncResp, sizeof(syncResp));
     if( err != TA_TEST_PASS )
         return err;
-    g_lastCompatibility = compat;
+    if( sv_json_is_error(syncResp) )
+    {
+        printf("  SV WARN: set_compatibility rejected by server: %s\n", syncResp);
+        return TA_SV_RETCODE_MISMATCH;
+    }
+    g_lastCompatibility[pipeIdx] = compat;
     return TA_TEST_PASS;
 }
 
@@ -420,8 +447,8 @@ static ErrorNumber compare_output(const char *funcName,
     int srvRetCode = sv_json_get_int(resp, "retCode");
     if( srvRetCode != (int)crefRetCode )
     {
-        printf("  SV FAIL [%s]: retCode c-ref=%d server=%d\n",
-               funcName, (int)crefRetCode, srvRetCode);
+        printf("  SV FAIL [%s] (pipe %d): retCode c-ref=%d server=%d\n",
+               funcName, g_curPipe, (int)crefRetCode, srvRetCode);
         return TA_SV_RETCODE_MISMATCH;
     }
 
@@ -434,15 +461,15 @@ static ErrorNumber compare_output(const char *funcName,
 
     if( srvBegIdx != (int)crefOutBegIdx )
     {
-        printf("  SV FAIL [%s]: outBegIdx c-ref=%d server=%d\n",
-               funcName, (int)crefOutBegIdx, srvBegIdx);
+        printf("  SV FAIL [%s] (pipe %d): outBegIdx c-ref=%d server=%d\n",
+               funcName, g_curPipe, (int)crefOutBegIdx, srvBegIdx);
         return TA_SV_BEGIDX_MISMATCH;
     }
 
     if( srvNbElement != (int)crefOutNbElement )
     {
-        printf("  SV FAIL [%s]: outNbElement c-ref=%d server=%d\n",
-               funcName, (int)crefOutNbElement, srvNbElement);
+        printf("  SV FAIL [%s] (pipe %d): outNbElement c-ref=%d server=%d\n",
+               funcName, g_curPipe, (int)crefOutNbElement, srvNbElement);
         return TA_SV_NBELEMENT_MISMATCH;
     }
 
@@ -456,7 +483,7 @@ static ErrorNumber compare_output(const char *funcName,
         for( int outIdx = 0; outReal[outIdx] != NULL; outIdx++ )
         {
             const char *key;
-            char keyBuf[16];
+            char keyBuf[32];
             if( outIdx == 0 )
                 key = "outReal";
             else
@@ -495,7 +522,7 @@ static ErrorNumber compare_output(const char *funcName,
         for( int outIdx = 0; outInteger[outIdx] != NULL; outIdx++ )
         {
             const char *key;
-            char keyBuf[16];
+            char keyBuf[32];
             if( outIdx == 0 )
                 key = "outInteger";
             else
@@ -564,14 +591,15 @@ ErrorNumber server_verify(
     /* Send to each active server and compare */
     for( int p = 0; p < g_nbPipes; p++ )
     {
+        g_curPipe = p;
         /* Sync global state (unstable periods + compatibility) */
-        ErrorNumber err = sync_unstable_periods(g_pipes[p]);
+        ErrorNumber err = sync_unstable_periods(p);
         if( err != TA_TEST_PASS )
         {
             printf("  SV WARN [%s]: failed to sync unstable periods\n", funcName);
             continue;
         }
-        err = sync_compatibility(g_pipes[p]);
+        err = sync_compatibility(p);
         if( err != TA_TEST_PASS )
         {
             printf("  SV WARN [%s]: failed to sync compatibility\n", funcName);

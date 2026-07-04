@@ -23,32 +23,24 @@ int g_hideUnguarded = 0;
 #endif
 #if defined(WIN32) || defined(_WIN32)
 #include <windows.h>
+/* Portability shims for the report-writing paths (MSVC has the same
+ * functionality under different names; PATH_MAX is POSIX-only). */
+#define popen  _popen
+#define pclose _pclose
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
+/* realpath(rel, abs) and _fullpath(abs, rel, size) swap their arguments. */
+#define realpath(rel, abs) _fullpath((abs), (rel), PATH_MAX)
+#else
+#include <limits.h> /* PATH_MAX */
 #endif
 
 #include "ta_libc.h"
 #include "ta_abstract.h"
 
-/* ---- High-resolution nanosecond timer ---- */
-static long long get_nanotime(void) {
-#ifdef __APPLE__
-    static mach_timebase_info_data_t info = {0, 0};
-    if( info.denom == 0 ) mach_timebase_info(&info);
-    uint64_t t = mach_absolute_time();
-    return (long long)(t * info.numer / info.denom);
-#elif defined(WIN32) || defined(_WIN32)
-    static LARGE_INTEGER freq = {0};
-    LARGE_INTEGER t;
-    if( freq.QuadPart == 0 ) QueryPerformanceFrequency(&freq);
-    QueryPerformanceCounter(&t);
-    return (t.QuadPart / freq.QuadPart) * 1000000000LL
-         + (t.QuadPart % freq.QuadPart) * 1000000000LL / freq.QuadPart;
-#else
-    struct timespec ts;
-    if( clock_gettime(CLOCK_MONOTONIC, &ts) == 0 )
-        return (long long)ts.tv_sec * 1000000000LL + (long long)ts.tv_nsec;
-    return 0;
-#endif
-}
+/* Timing now comes from each server's JSON-RPC timing_ns field (the reference
+ * baseline is ta_ref_serve, task #7), so no in-process timer is needed here. */
 
 /* ---- Language definitions ---- */
 
@@ -62,6 +54,12 @@ static const char *const argv_rust[]  = {"./ta_codegen_serve_rust", NULL};
 static const char *const argv_c[]     = {"./ta_codegen_serve_c", NULL};
 static const char *const argv_java[]  = {"java", "-cp", "ta_codegen_java", "TaCodegenServe", NULL};
 static const char *const argv_dotnet[]= {"dotnet", "ta_codegen_dotnet/TaCodegenServe.dll", NULL};
+/* Reference oracle (reference-as-server, task #7): the frozen reference C
+ * library exposed as a JSON-RPC server. NOT a tested language — it is the
+ * baseline every language server (including the generated C server) is diffed
+ * against. Built from the pinned-tag worktree by scripts/regtest.py so it stays
+ * frozen once src/ta_func becomes the generated code. */
+static const char *const argv_cref[]  = {"./ta_ref_serve", NULL};
 static const CodegenLanguage ALL_LANGUAGES[] = {
     {"c",      "C",            argv_c},
     {"rust",   "Rust",         argv_rust},
@@ -274,13 +272,34 @@ typedef struct {
     /* Unstable period info */
     TA_FuncUnstId unstId;
 
-    /* Codegen pipe */
+    /* Codegen pipe (language server under test) */
     CodegenPipe *cp;
+    /* Reference oracle pipe (ta_ref_serve) — fills the comparison baseline */
+    CodegenPipe *refCp;
     char *requestBuf;
     char *responseBuf;
 
     /* Error tracking */
     ErrorNumber codegenError;
+
+    /* When set, build_json_request uses a large value for every IntegerRange
+     * opt param (Task 10 large-period coverage) instead of the default. */
+    int useLargePeriod;
+
+    /* Ref differential sweep: when optOverrideActive, build_json_request
+     * emits optOverride[i] for optional param i instead of the default (or
+     * large-period) value. Stored as double; integer params truncate on
+     * emission. Takes precedence over useLargePeriod. */
+    int    optOverrideActive;
+    double optOverride[16];
+
+    /* Float-variant leg: build_json_request adds "use_float":1, routing the
+     * servers through the single-precision TA_S_ API. Comparisons then use
+     * an epsilon widened by epsilonScale (float noise from codegen operation
+     * reordering; 0 means the default scale of 1). */
+    int    useFloat;
+    double epsilonScale;
+    int    sweepFloatLeg;   /* run the float leg per sweep variant (C only) */
 
     /* Timing */
     long long c_ref_total_ns;
@@ -289,6 +308,71 @@ typedef struct {
     long long server_unguarded_total_ns;
     int       timing_unguarded_count;
 } CodegenRangeTestParam;
+
+/* Forward declaration: defined with the sweep further below, used by the
+ * per-function default pass as well. */
+static void run_float_leg(CodegenRangeTestParam *p);
+
+/* ---- Large-period stress coverage (Task 10) ----
+ * The default codegen sweep uses each opt param's default (e.g. period 14), so a
+ * period-dependent buffer sized smaller than a larger period would never be
+ * exercised. These helpers drive a second comparison pass with every
+ * IntegerRange opt param pushed above the historical CIRCBUF static-buffer sizes
+ * (50 for MFI, 30 for CCI), catching that class of regression for ALL
+ * period-parameterized indicators. */
+
+/* A stress period for an IntegerRange opt param: above the historical CIRCBUF
+ * static buffers (50/30), clamped to [min,max] and bounded so meaningful output
+ * remains. Uses default+50 (not a fixed constant) so multi-period functions like
+ * APO/PPO/ADOSC keep their fast<slow ordering and don't collapse to an all-zero
+ * difference series (which would make the comparison pass while verifying nothing). */
+static int compute_large_int(const TA_OptInputParameterInfo *optInfo, int nbBars)
+{
+    const TA_IntegerRange *r = (const TA_IntegerRange *)optInfo->dataSet;
+    int lo = r ? (int)r->min : 1;
+    int hi = r ? (int)r->max : 1;
+    int target = (int)optInfo->defaultValue + 50;
+    if( target > hi ) target = hi;
+    if( target > nbBars - 5 ) target = nbBars - 5;
+    if( target < lo ) target = lo;
+    return target;
+}
+
+/* Set every IntegerRange opt param on the holder to its stress period; IntegerList
+ * (enums) and Real* params are left at their defaults. Returns the count that
+ * ended up strictly larger than the default (so a large-period pass is meaningful). */
+static int set_large_opt_periods(TA_ParamHolder *paramHolder,
+                                 const TA_FuncInfo *funcInfo, int nbBars)
+{
+    unsigned int i;
+    int nLarger = 0;
+    for( i = 0; i < funcInfo->nbOptInput; i++ )
+    {
+        const TA_OptInputParameterInfo *optInfo;
+        TA_GetOptInputParameterInfo(funcInfo->handle, i, &optInfo);
+        if( optInfo->type != TA_OptInput_IntegerRange )
+            continue;
+        int large = compute_large_int(optInfo, nbBars);
+        if( large > (int)optInfo->defaultValue )
+            nLarger++;
+        TA_SetOptInputParamInteger(paramHolder, i, large);
+    }
+    return nLarger;
+}
+
+/* Restore every IntegerRange opt param to its default. */
+static void reset_opt_periods_to_default(TA_ParamHolder *paramHolder,
+                                         const TA_FuncInfo *funcInfo)
+{
+    unsigned int i;
+    for( i = 0; i < funcInfo->nbOptInput; i++ )
+    {
+        const TA_OptInputParameterInfo *optInfo;
+        TA_GetOptInputParameterInfo(funcInfo->handle, i, &optInfo);
+        if( optInfo->type == TA_OptInput_IntegerRange )
+            TA_SetOptInputParamInteger(paramHolder, i, (int)optInfo->defaultValue);
+    }
+}
 
 /* ---- Generic JSON request builder (Task 7) ---- */
 
@@ -414,11 +498,19 @@ static int build_json_request(CodegenRangeTestParam *p,
         {
         case TA_OptInput_RealRange:
         case TA_OptInput_RealList:
-            pos += snprintf(buf + pos, bufSize - pos, "%.15g", optInfo->defaultValue);
+            pos += snprintf(buf + pos, bufSize - pos, "%.15g",
+                p->optOverrideActive ? p->optOverride[i] : optInfo->defaultValue);
             break;
         case TA_OptInput_IntegerRange:
+            pos += snprintf(buf + pos, bufSize - pos, "%d",
+                p->optOverrideActive ? (int)p->optOverride[i]
+                : p->useLargePeriod  ? compute_large_int(optInfo, p->nbBars)
+                                     : (int)optInfo->defaultValue);
+            break;
         case TA_OptInput_IntegerList:
-            pos += snprintf(buf + pos, bufSize - pos, "%d", (int)optInfo->defaultValue);
+            pos += snprintf(buf + pos, bufSize - pos, "%d",
+                p->optOverrideActive ? (int)p->optOverride[i]
+                                     : (int)optInfo->defaultValue);
             break;
         }
     }
@@ -430,6 +522,9 @@ static int build_json_request(CodegenRangeTestParam *p,
                          ? (int)TA_GetUnstablePeriod(p->unstId) : 0;
         pos += snprintf(buf + pos, bufSize - pos, ",\"unstablePeriod\":%d", unstPeriod);
     }
+
+    if( p->useFloat )
+        pos += snprintf(buf + pos, bufSize - pos, ",\"use_float\":1");
 
     pos += snprintf(buf + pos, bufSize - pos, "}}");
 
@@ -529,11 +624,13 @@ static void compare_codegen_output_generic(
         {
             double cVal = p->outRealBufs[outputNb][i];
             double diff = fabs(cVal - cg_out[i]);
-            double threshold = CODEGEN_EPSILON;
-            /* Use relative epsilon for large values (JSON roundtrip precision) */
+            double scale = (p->epsilonScale > 0.0) ? p->epsilonScale : 1.0;
+            double threshold = CODEGEN_EPSILON * scale;
+            /* Use relative epsilon for large values (JSON roundtrip precision;
+             * for the float leg, single-precision significand). */
             if( fabs(cVal) > 1.0 )
             {
-                double relThreshold = fabs(cVal) * 1e-12;
+                double relThreshold = fabs(cVal) * ((scale > 1.0) ? 1e-6 * scale : 1e-12);
                 if( relThreshold > threshold )
                     threshold = relThreshold;
             }
@@ -760,12 +857,55 @@ static int codegen_matches_filter(const char *filter, const char *name)
     return 0;
 }
 
+/* ---- Reference-as-server baseline (task #7) ----
+ * Parse a ta_ref_serve JSON-RPC response into the same baseline fields that
+ * compare_codegen_output_generic() diffs each language server against. This
+ * replaces the former in-process TA_CallFunc baseline so that post-cutover
+ * (when src/ta_func is the generated code) the reference comes from the frozen
+ * reference library exposed as a server, not from an in-process call that would
+ * be the generated code comparing against itself. Field names mirror
+ * compare_codegen_output_generic() exactly (output 0 has no numeric suffix).
+ * Returns the server's timing_ns (raw indicator time) for the C-ref column. */
+static double parse_ref_baseline(CodegenRangeTestParam *p)
+{
+    p->lastRetCode   = (TA_RetCode)json_get_int(p->responseBuf, "retCode");
+    p->lastBegIdx    = json_get_int(p->responseBuf, "outBegIdx");
+    p->lastNbElement = json_get_int(p->responseBuf, "outNBElement");
+
+    if( p->lastRetCode == TA_SUCCESS && p->lastNbElement > 0 )
+    {
+        for( unsigned int o = 0; o < p->funcInfo->nbOutput; o++ )
+        {
+            char fieldName[64];
+            if( p->outputIsInteger[o] )
+            {
+                if( o == 0 ) snprintf(fieldName, sizeof(fieldName), "outInteger");
+                else         snprintf(fieldName, sizeof(fieldName), "outInteger%d", (int)o);
+                json_get_int_array(p->responseBuf, fieldName,
+                                   p->outIntBufs[o], MAX_NB_TEST_ELEMENT);
+            }
+            else
+            {
+                if( o == 0 ) snprintf(fieldName, sizeof(fieldName), "outReal");
+                else         snprintf(fieldName, sizeof(fieldName), "outReal%d", (int)o);
+                json_get_double_array(p->responseBuf, fieldName,
+                                      p->outRealBufs[o], MAX_NB_TEST_ELEMENT);
+            }
+        }
+    }
+
+    int len;
+    const char *t = json_find_field(p->responseBuf, "timing_ns", &len);
+    return t ? (double)strtoll(t, NULL, 10) : 0.0;
+}
+
 /* ---- Per-function callback for TA_ForEachFunc (Task 9) ---- */
 
 typedef struct {
     const TA_History *history;
     const char       *functionFilter;
     CodegenPipe      *cp;
+    CodegenPipe      *refCp;       /* ta_ref_serve oracle (shared across languages) */
     char             *requestBuf;
     char             *responseBuf;
     ErrorNumber       error;
@@ -774,6 +914,9 @@ typedef struct {
     int               skipped;
     int               langIndex;   /* index into ALL_LANGUAGES */
     const CodegenLanguage *lang;
+    /* Ref differential sweep counters */
+    int               sweepVariants;
+    int               sweepFunctions;
 } ForEachFuncContext;
 
 static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
@@ -850,6 +993,7 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     params.nbBars      = (int)ctx->history->nbBars;
     params.unstId      = get_unst_id(funcInfo->name);
     params.cp          = ctx->cp;
+    params.refCp       = ctx->refCp;
     params.requestBuf  = ctx->requestBuf;
     params.responseBuf = ctx->responseBuf;
     params.codegenError = TA_TEST_PASS;
@@ -860,24 +1004,34 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     /* Set up output buffers */
     setup_outputs(&params);
 
-    /* Warmup C reference call (cache priming) */
-    TA_Integer begIdx  = 0;
-    TA_Integer nbElem  = 0;
-    TA_CallFunc(params.paramHolder, 0, params.nbBars - 1, &begIdx, &nbElem);
-
-    /* Measure C reference call (single, post-warmup) */
-    begIdx = 0;
-    nbElem = 0;
-    long long c_ns0 = get_nanotime();
-    TA_CallFunc(params.paramHolder, 0, params.nbBars - 1, &begIdx, &nbElem);
-    long long c_ns1 = get_nanotime();
-    double c_avg_ns = (double)(c_ns1 - c_ns0);
+    /* ---- Baseline from ta_ref_serve (reference-as-server, task #7) ----
+     * The codegen comparison baseline is the reference C library exposed as a
+     * JSON-RPC server, NOT an in-process call. ta_ref_serve links the frozen
+     * pinned-tag reference and speaks the same protocol, so one request drives
+     * both it and the language server under test. Post-cutover this keeps the
+     * generated C server diffed against a frozen reference, not against itself.
+     * (doRangeTest below still calls the in-process lib for self-coherency.) */
+    build_json_request(&params, 0, params.nbBars - 1);
+    /* Warmup (discard) then measured baseline call (same request). */
+    codegen_pipe_call(params.refCp, params.requestBuf, params.responseBuf, JSON_BUF_SIZE);
+    ErrorNumber refErr = codegen_pipe_call(params.refCp, params.requestBuf,
+                                           params.responseBuf, JSON_BUF_SIZE);
+    if( refErr != TA_TEST_PASS || json_is_error(params.responseBuf) )
+    {
+        printf("FAILED (ta_ref_serve: %s for TA_%s)\n",
+               refErr != TA_TEST_PASS ? "call failed" : "no result",
+               funcInfo->name);
+        free_outputs(&params);
+        TA_ParamHolderFree(paramHolder);
+        ctx->error = (refErr != TA_TEST_PASS) ? refErr : TA_CODEGEN_RETCODE_MISMATCH;
+        ctx->failed++;
+        return;
+    }
+    double c_avg_ns = parse_ref_baseline(&params);
     params.c_ref_total_ns = (long long)c_avg_ns;
-
-    /* Save C reference results for codegen comparison */
-    params.lastRetCode  = TA_SUCCESS;
-    params.lastBegIdx   = begIdx;
-    params.lastNbElement = nbElem;
+    /* Default-period element count, captured for the doRangeTest guard below
+     * (params.lastNbElement is overwritten by the large-period pass). */
+    TA_Integer nbElem = params.lastNbElement;
 
     /* Warmup call: discard the first call to eliminate cold-start effects
      * (JVM class loading, Rust monomorphization, CPU cache priming, etc.) */
@@ -903,17 +1057,88 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
             compare_codegen_output_generic(&params, outNb);
     }
 
-    /* Snapshot server timing from the full-range comparison call.
-     * Both c_ref_ns and s_avg_ns are single full-range calls (apples-to-apples).
-     * Note: C-ref includes ta_abstract dispatch overhead; server measures the
-     * raw indicator call only. This is intentional — the dispatch overhead is
-     * real cost that library users pay. */
+    /* Whether the backend supported this function at the default period (non-error
+     * response). Used so the large-period pass can flag a server error that appears
+     * ONLY at the large period as a real regression, not an unsupported-skip. */
+    int defaultSupported = (codegenErr == TA_TEST_PASS)
+                           && !json_is_error(params.responseBuf);
+
+    /* Snapshot server timing from the full-range comparison call. Both c_ref_ns
+     * (ta_ref_serve) and s_avg_ns are single full-range JSON-RPC calls measuring
+     * the raw indicator time server-side — apples-to-apples. */
     double s_avg_ns = (params.timing_count > 0)
                       ? (double)params.server_total_ns / (double)params.timing_count
                       : 0.0;
     double s_avg_ns_unguarded = (params.timing_unguarded_count > 0)
                       ? (double)params.server_unguarded_total_ns / (double)params.timing_unguarded_count
                       : 0.0;
+
+    /* ---- Float-variant pass (TA_S_) ----
+     * Every function at default params, C server only (the other backends
+     * have no single-precision API): single-precision current vs
+     * single-precision frozen reference. This is the systematic coverage
+     * for the 161 TA_S_ guarded+unguarded pairs.
+     */
+    if( params.codegenError == TA_TEST_PASS && strcmp(ctx->lang->name, "c") == 0 )
+        run_float_leg(&params);
+
+    /* ---- Large-period pass (Task 10) ----
+     * Re-run the codegen value comparison with every IntegerRange opt param pushed
+     * above the historical CIRCBUF static-buffer sizes (50/30), so period-dependent
+     * buffer regressions (the MFI/CCI overflow class) are caught. Runs after the
+     * timing snapshot (no skew); periods are restored before doRangeTest. Skipped
+     * when the default pass already failed. Note: an indicator whose large-period
+     * lookback exceeds the test history (e.g. high EMA-multiplier functions like T3)
+     * produces no output and is skipped here — such functions have no period-sized
+     * buffer, so the overflow class does not apply to them. */
+    if( params.codegenError == TA_TEST_PASS )
+    {
+        int nLarge = set_large_opt_periods(paramHolder, funcInfo, params.nbBars);
+        if( nLarge > 0 )
+        {
+            /* Large-period baseline also comes from ta_ref_serve; the same request
+             * (built with useLargePeriod) then drives the language server. */
+            params.useLargePeriod = 1;
+            build_json_request(&params, 0, params.nbBars - 1);
+            ErrorNumber lref = codegen_pipe_call(params.refCp, params.requestBuf,
+                                                 params.responseBuf, JSON_BUF_SIZE);
+            if( lref != TA_TEST_PASS )
+            {
+                params.codegenError = lref;
+            }
+            else if( !json_is_error(params.responseBuf) )
+            {
+                parse_ref_baseline(&params);
+                if( params.lastNbElement > 0 )
+                {
+                    ErrorNumber le = codegen_pipe_call(params.cp, params.requestBuf,
+                                                       params.responseBuf, JSON_BUF_SIZE);
+                    if( le != TA_TEST_PASS )
+                        params.codegenError = le;
+                    else if( defaultSupported && json_is_error(params.responseBuf) )
+                    {
+                        /* Reference produced output at this period but the backend
+                         * errored only at the large period -- a real divergence, not
+                         * an unsupported-skip. */
+                        printf("CODEGEN MISMATCH [TA_%s]: large-period (lnb=%d) server "
+                               "error where C reference succeeded\n",
+                               funcInfo->name, (int)params.lastNbElement);
+                        params.codegenError = TA_CODEGEN_RETCODE_MISMATCH;
+                    }
+                    else
+                        for( unsigned int o = 0; o < funcInfo->nbOutput; o++ )
+                            compare_codegen_output_generic(&params, o);
+                }
+            }
+            /* else: reference produced no result at the large period (e.g. lookback
+             * exceeds the test history) — nothing to compare, like the old lnb==0. */
+            params.useLargePeriod = 0;
+        }
+        /* set_large_opt_periods mutated the holder (for every IntegerRange param,
+         * even when nLarge==0); always restore so doRangeTest and the next function
+         * run at the default period. */
+        reset_opt_periods_to_default(paramHolder, funcInfo);
+    }
 
     /* Run doRangeTest with the generic callback (C reference coherency only).
      * Skip when lookback exceeds data range (no output possible). */
@@ -1010,13 +1235,383 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     TA_ParamHolderFree(paramHolder);
 }
 
+
+/* ---- Ref differential sweep (#94 groundwork) ----
+ * The default and large-period passes above diff each language server against
+ * ta_ref_serve at two parameter points per function. This sweep broadens the
+ * sample: every IntegerRange param at a few non-default values, every
+ * IntegerList (MAType) value, RealRange params at their suggested bounds,
+ * plus a Metastock-compatibility pass and an unstable-period pass at the
+ * defaults. Purely differential: for every variant both servers must agree on
+ * retCode, outBegIdx, outNBElement and every output value.
+ *
+ * Integer periods are floored at max(min, 2): period=1 is the intentional
+ * divergence from the frozen reference fixed for #48/#59 (the reference is
+ * wrong there), and that territory is owned by the PERIOD1/BOUNDARY
+ * hand-written group with its own pinned expected values.
+ */
+
+#define SWEEP_MAX_OPT 16
+
+/* Send a set_compatibility to one server. Returns 1 on success. */
+static int sweep_set_compat(CodegenPipe *pipe, int mode, char *respBuf)
+{
+    char req[96];
+    snprintf(req, sizeof(req),
+             "{\"method\":\"set_compatibility\",\"params\":{\"mode\":%d}}", mode);
+    if( codegen_pipe_call(pipe, req, respBuf, JSON_BUF_SIZE) != TA_TEST_PASS )
+        return 0;
+    return !json_is_error(respBuf);
+}
+
+/* In-process GUARDED comparison buffers for the sweep triangle (see below). */
+static TA_Real    sweepGuardedReal[MAX_OUTPUTS][MAX_NB_TEST_ELEMENT];
+static TA_Integer sweepGuardedInt[MAX_OUTPUTS][MAX_NB_TEST_ELEMENT];
+
+/* Compare the in-process GUARDED call against the ta_ref_serve baseline for
+ * one sweep variant. The language servers reply with their UNGUARDED result
+ * (the server re-runs TA_X_Unguarded over the same buffers), so without this
+ * leg the guarded path would only ever be verified at the hand-written pins:
+ * server-vs-reference checks unguarded, this checks guarded, closing the
+ * guarded/unguarded/reference triangle at every sweep variant. C only — the
+ * in-process library IS the C backend. */
+static void sweep_compare_guarded(CodegenRangeTestParam *p)
+{
+    unsigned int i;
+    int outBegIdx = -1, outNbElement = -1;
+
+    if( p->paramHolder == NULL )
+        return;
+
+    /* Apply this variant's optional params to the holder. */
+    for( i = 0; i < p->funcInfo->nbOptInput; i++ )
+    {
+        const TA_OptInputParameterInfo *optInfo;
+        TA_GetOptInputParameterInfo(p->funcInfo->handle, i, &optInfo);
+        if( optInfo->type == TA_OptInput_RealRange ||
+            optInfo->type == TA_OptInput_RealList )
+            TA_SetOptInputParamReal(p->paramHolder, i, p->optOverride[i]);
+        else
+            TA_SetOptInputParamInteger(p->paramHolder, i, (int)p->optOverride[i]);
+    }
+
+    if( TA_CallFunc(p->paramHolder, 0, p->nbBars - 1,
+                    &outBegIdx, &outNbElement) != p->lastRetCode
+        || outBegIdx != p->lastBegIdx
+        || outNbElement != p->lastNbElement )
+    {
+        printf("SWEEP GUARDED MISMATCH [TA_%s]: rc/begIdx/nbElement "
+               "guarded=%d/%d vs ref=%d/%d (nb %d vs %d)\n",
+               p->funcInfo->name, outBegIdx, outNbElement,
+               (int)p->lastBegIdx, (int)p->lastNbElement,
+               outNbElement, (int)p->lastNbElement);
+        p->codegenError = TA_CODEGEN_BEGIDX_MISMATCH;
+        return;
+    }
+
+    for( i = 0; i < p->funcInfo->nbOutput && i < MAX_OUTPUTS; i++ )
+    {
+        int j;
+        if( p->outputIsInteger[i] )
+        {
+            for( j = 0; j < outNbElement; j++ )
+                if( sweepGuardedInt[i][j] != p->outIntBufs[i][j] )
+                {
+                    printf("SWEEP GUARDED MISMATCH [TA_%s]: outInt%u[%d] "
+                           "guarded=%d ref=%d\n", p->funcInfo->name, i, j,
+                           sweepGuardedInt[i][j], p->outIntBufs[i][j]);
+                    p->codegenError = TA_CODEGEN_OUTPUT_MISMATCH;
+                    return;
+                }
+        }
+        else
+        {
+            for( j = 0; j < outNbElement; j++ )
+                if( fabs(sweepGuardedReal[i][j] - p->outRealBufs[i][j]) > 1e-6 )
+                {
+                    printf("SWEEP GUARDED MISMATCH [TA_%s]: out%u[%d] "
+                           "guarded=%.12g ref=%.12g\n", p->funcInfo->name, i, j,
+                           sweepGuardedReal[i][j], p->outRealBufs[i][j]);
+                    p->codegenError = TA_CODEGEN_OUTPUT_MISMATCH;
+                    return;
+                }
+        }
+    }
+}
+
+/* Float-variant leg: re-run the current request through the TA_S_ API on
+ * BOTH servers ("use_float":1) and diff single-precision against
+ * single-precision. The frozen reference library exports the guarded TA_S_
+ * functions, so ta_ref_serve provides a true S baseline. Widened epsilon:
+ * float carries ~1e-7 relative noise per reordered operation chain. */
+static void run_float_leg(CodegenRangeTestParam *p)
+{
+    if( p->codegenError != TA_TEST_PASS )
+        return;
+    p->useFloat = 1;
+    p->epsilonScale = 100.0;
+    build_json_request(p, 0, p->nbBars - 1);
+    if( codegen_pipe_call(p->refCp, p->requestBuf, p->responseBuf,
+                          JSON_BUF_SIZE) == TA_TEST_PASS
+        && !json_is_error(p->responseBuf) )
+    {
+        parse_ref_baseline(p);
+        if( codegen_pipe_call(p->cp, p->requestBuf, p->responseBuf,
+                              JSON_BUF_SIZE) != TA_TEST_PASS )
+            p->codegenError = TA_CODEGEN_RETCODE_MISMATCH;
+        else
+            for( unsigned int o = 0; o < p->funcInfo->nbOutput; o++ )
+                compare_codegen_output_generic(p, o);
+        if( p->codegenError != TA_TEST_PASS )
+            printf("  (mismatch above is from the FLOAT (TA_S_) leg)\n");
+    }
+    p->useFloat = 0;
+    p->epsilonScale = 0.0;
+}
+
+/* Run one variant: ta_ref_serve fills the baseline, the language server is
+ * diffed against it. Returns 1 if the variant was comparable (counted), 0 if
+ * the reference could not answer it. Mismatches land in p->codegenError. */
+static int sweep_run_variant(CodegenRangeTestParam *p)
+{
+    build_json_request(p, 0, p->nbBars - 1);
+    if( codegen_pipe_call(p->refCp, p->requestBuf, p->responseBuf,
+                          JSON_BUF_SIZE) != TA_TEST_PASS
+        || json_is_error(p->responseBuf) )
+        return 0;   /* reference cannot answer this variant -- nothing to diff */
+    parse_ref_baseline(p);
+
+    if( codegen_pipe_call(p->cp, p->requestBuf, p->responseBuf,
+                          JSON_BUF_SIZE) != TA_TEST_PASS )
+    {
+        p->codegenError = TA_CODEGEN_RETCODE_MISMATCH;
+        return 1;
+    }
+    for( unsigned int o = 0; o < p->funcInfo->nbOutput; o++ )
+        compare_codegen_output_generic(p, o);
+
+    if( p->codegenError == TA_TEST_PASS )
+        sweep_compare_guarded(p);
+    if( p->sweepFloatLeg )
+        run_float_leg(p);
+    return 1;
+}
+
+static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
+{
+    ForEachFuncContext *ctx = (ForEachFuncContext *)opaqueData;
+    unsigned int i;
+
+    if( ctx->error != TA_TEST_PASS )
+        return;
+    if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) )
+        return;
+    if( funcInfo->nbOptInput == 0 || funcInfo->nbOptInput > SWEEP_MAX_OPT )
+        return;
+
+    /* Skip functions with integer inputs (same rule as the main pass). */
+    for( i = 0; i < funcInfo->nbInput; i++ )
+    {
+        const TA_InputParameterInfo *inputInfo;
+        TA_GetInputParameterInfo(funcInfo->handle, i, &inputInfo);
+        if( inputInfo->type == TA_Input_Integer )
+            return;
+    }
+
+    TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, 0);
+
+    CodegenRangeTestParam params;
+    memset(&params, 0, sizeof(params));
+    params.funcInfo    = funcInfo;
+    params.paramHolder = NULL;
+    params.history     = ctx->history;
+    params.nbBars      = (int)ctx->history->nbBars;
+    params.unstId      = get_unst_id(funcInfo->name);
+    params.cp          = ctx->cp;
+    params.refCp       = ctx->refCp;
+    params.requestBuf  = ctx->requestBuf;
+    params.responseBuf = ctx->responseBuf;
+    params.codegenError = TA_TEST_PASS;
+    setup_outputs(&params);
+
+    /* In-process GUARDED triangle leg (see sweep_compare_guarded): only while
+     * sweeping the C server — the in-process library is the C backend, so
+     * repeating it for the other language iterations would be identical. */
+    if( strcmp(ctx->lang->name, "c") == 0 )
+    {
+        params.sweepFloatLeg = 1;
+        if( TA_ParamHolderAlloc(funcInfo->handle, &params.paramHolder) == TA_SUCCESS )
+        {
+            setup_inputs(params.paramHolder, funcInfo, ctx->history);
+            for( i = 0; i < funcInfo->nbOutput && i < MAX_OUTPUTS; i++ )
+            {
+                const TA_OutputParameterInfo *outputInfo;
+                TA_GetOutputParameterInfo(funcInfo->handle, i, &outputInfo);
+                if( outputInfo->type == TA_Output_Real )
+                    TA_SetOutputParamRealPtr(params.paramHolder, i, &sweepGuardedReal[i][0]);
+                else
+                    TA_SetOutputParamIntegerPtr(params.paramHolder, i, &sweepGuardedInt[i][0]);
+            }
+        }
+        else
+            params.paramHolder = NULL;
+    }
+
+    /* Seed every override with the default value. */
+    double defVals[SWEEP_MAX_OPT];
+    for( i = 0; i < funcInfo->nbOptInput; i++ )
+    {
+        const TA_OptInputParameterInfo *optInfo;
+        TA_GetOptInputParameterInfo(funcInfo->handle, i, &optInfo);
+        defVals[i] = optInfo->defaultValue;
+        params.optOverride[i] = optInfo->defaultValue;
+    }
+    params.optOverrideActive = 1;
+
+    int variants = 0;
+    const char *failParam = NULL;
+    double failValue = 0.0;
+
+    /* One param varied at a time, the others at their defaults. */
+    for( i = 0; i < funcInfo->nbOptInput && params.codegenError == TA_TEST_PASS; i++ )
+    {
+        const TA_OptInputParameterInfo *optInfo;
+        TA_GetOptInputParameterInfo(funcInfo->handle, i, &optInfo);
+
+        double cand[8];
+        int nc = 0;
+
+        if( optInfo->type == TA_OptInput_IntegerRange )
+        {
+            const TA_IntegerRange *r = (const TA_IntegerRange *)optInfo->dataSet;
+            int lo  = (r->min < 2) ? 2 : r->min;       /* floor: see header comment */
+            int hi  = (r->max > 100) ? 100 : r->max;   /* keep lookbacks < nbBars */
+            int def = (int)optInfo->defaultValue;
+            int base[5];
+            int b, k;
+            base[0] = lo; base[1] = lo + 1; base[2] = lo + 7;
+            base[3] = def - 1; base[4] = def + 3;
+            for( b = 0; b < 5; b++ )
+            {
+                int v = base[b];
+                if( v < lo ) v = lo;
+                if( v > hi ) v = hi;
+                if( v == def ) continue;
+                for( k = 0; k < nc; k++ )
+                    if( (int)cand[k] == v ) break;
+                if( k == nc )
+                    cand[nc++] = (double)v;
+            }
+        }
+        else if( optInfo->type == TA_OptInput_IntegerList )
+        {
+            const TA_IntegerList *l = (const TA_IntegerList *)optInfo->dataSet;
+            unsigned int e;
+            for( e = 0; e < l->nbElement && nc < 8; e++ )
+            {
+                if( l->data[e].value != (int)optInfo->defaultValue )
+                    cand[nc++] = (double)l->data[e].value;
+            }
+        }
+        else if( optInfo->type == TA_OptInput_RealRange )
+        {
+            const TA_RealRange *r = (const TA_RealRange *)optInfo->dataSet;
+            double sugg[2];
+            int b;
+            sugg[0] = r->suggested_start;
+            sugg[1] = r->suggested_end;
+            for( b = 0; b < 2; b++ )
+            {
+                double v = sugg[b];
+                if( fabs(v) > 1e30 ) continue;             /* unbounded sentinel */
+                if( v < r->min || v > r->max ) continue;
+                if( v == optInfo->defaultValue ) continue;
+                cand[nc++] = v;
+            }
+        }
+        else
+            continue;
+
+        for( int c = 0; c < nc && params.codegenError == TA_TEST_PASS; c++ )
+        {
+            params.optOverride[i] = cand[c];
+            variants += sweep_run_variant(&params);
+            if( params.codegenError != TA_TEST_PASS )
+            {
+                failParam = optInfo->paramName;
+                failValue = cand[c];
+            }
+            params.optOverride[i] = defVals[i];
+        }
+    }
+
+    /* Metastock-compatibility pass at defaults (both servers AND the
+     * in-process library switched, for the guarded triangle leg). */
+    if( params.codegenError == TA_TEST_PASS )
+    {
+        if( sweep_set_compat(params.refCp, 1, params.responseBuf) &&
+            sweep_set_compat(params.cp,    1, params.responseBuf) )
+        {
+            TA_SetCompatibility(TA_COMPATIBILITY_METASTOCK);
+            variants += sweep_run_variant(&params);
+            TA_SetCompatibility(TA_COMPATIBILITY_DEFAULT);
+            if( params.codegenError != TA_TEST_PASS )
+            {
+                failParam = "compatibility=METASTOCK";
+                failValue = 1;
+            }
+        }
+        sweep_set_compat(params.refCp, 0, params.responseBuf);
+        sweep_set_compat(params.cp,    0, params.responseBuf);
+    }
+
+    /* Unstable-period pass at defaults (sent per-call to both servers). */
+    if( params.codegenError == TA_TEST_PASS &&
+        (funcInfo->flags & TA_FUNC_FLG_UNST_PER) &&
+        params.unstId != TA_FUNC_UNST_NONE )
+    {
+        TA_SetUnstablePeriod(params.unstId, 3);
+        variants += sweep_run_variant(&params);
+        TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, 0);
+        /* The per-call unstablePeriod field is sticky server-side (each call
+         * sets the server's global for that function). Send one defaults call
+         * carrying 0 so BOTH servers are restored for later functions and
+         * languages — ta_ref_serve is shared across the language loop, and
+         * dependents like ADOSC read EMA's global without sending the field. */
+        if( params.codegenError == TA_TEST_PASS )
+            variants += sweep_run_variant(&params);
+        if( params.codegenError != TA_TEST_PASS )
+        {
+            failParam = "unstablePeriod";
+            failValue = 3;
+        }
+    }
+
+    if( params.paramHolder != NULL )
+        TA_ParamHolderFree(params.paramHolder);
+
+    ctx->sweepVariants += variants;
+    ctx->sweepFunctions++;
+
+    if( params.codegenError != TA_TEST_PASS )
+    {
+        printf("  REF SWEEP FAIL [TA_%s]: %s=%g (mismatch detail above)\n",
+               funcInfo->name, failParam ? failParam : "?", failValue);
+        ctx->failed++;
+        ctx->error = params.codegenError;
+    }
+
+    free_outputs(&params);
+}
+
 /* ---- Test orchestration (Task 9) ---- */
 
 static ErrorNumber test_codegen_for_language(
     const CodegenLanguage *lang,
     int langIndex,
     const TA_History *history,
-    const char *functionFilter)
+    const char *functionFilter,
+    CodegenPipe *refCp)
 {
     CodegenPipe cp;
     ErrorNumber errNb;
@@ -1055,6 +1650,7 @@ static ErrorNumber test_codegen_for_language(
     ctx.history        = history;
     ctx.functionFilter = functionFilter;
     ctx.cp             = &cp;
+    ctx.refCp          = refCp;
     ctx.requestBuf     = requestBuf;
     ctx.responseBuf    = responseBuf;
     ctx.error          = TA_TEST_PASS;
@@ -1065,6 +1661,18 @@ static ErrorNumber test_codegen_for_language(
     ctx.lang           = lang;
 
     TA_ForEachFunc(test_one_function, &ctx);
+
+    /* Ref differential sweep: broaden the ta_ref_serve comparison beyond the
+     * default and large-period points (see sweep_one_function). */
+    if( ctx.error == TA_TEST_PASS && refCp )
+    {
+        ctx.sweepVariants  = 0;
+        ctx.sweepFunctions = 0;
+        TA_ForEachFunc(sweep_one_function, &ctx);
+        printf("  Ref differential sweep: %d variants across %d functions%s\n",
+               ctx.sweepVariants, ctx.sweepFunctions,
+               ctx.error == TA_TEST_PASS ? ", all match ta_ref_serve" : "");
+    }
 
     free(requestBuf);
     free(responseBuf);
@@ -1206,7 +1814,7 @@ static void write_timing_report(const char *filepath)
     /* Get git SHA */
     char gitSha[64] = "unknown";
     FILE *git = popen("git rev-parse --short HEAD 2>/dev/null", "r");
-    if( git ) { fgets(gitSha, sizeof(gitSha), git); pclose(git); }
+    if( git ) { if( fgets(gitSha, sizeof(gitSha), git) == NULL ) strcpy(gitSha, "unknown"); pclose(git); }
     char *nl = strchr(gitSha, '\n');
     if( nl ) *nl = '\0';
 
@@ -1284,7 +1892,7 @@ static void write_markdown_report(const char *filepath, const char *languageFilt
     /* Git SHA */
     char gitSha[64] = "unknown";
     FILE *git = popen("git rev-parse --short HEAD 2>/dev/null", "r");
-    if( git ) { fgets(gitSha, sizeof(gitSha), git); pclose(git); }
+    if( git ) { if( fgets(gitSha, sizeof(gitSha), git) == NULL ) strcpy(gitSha, "unknown"); pclose(git); }
     char *nl = strchr(gitSha, '\n');
     if( nl ) *nl = '\0';
 
@@ -1362,8 +1970,8 @@ static void write_markdown_report(const char *filepath, const char *languageFilt
         char avgStr[32], vsStr[32];
         if( langMeasured[li] < total / 2 ) {
             fmt_ns(avgStr, sizeof(avgStr), avg);
-            char tmp[16]; snprintf(tmp, sizeof(tmp), "~%s*", avgStr);
-            strncpy(avgStr, tmp, sizeof(avgStr));
+            char tmp[40]; snprintf(tmp, sizeof(tmp), "~%s*", avgStr);
+            avgStr[0] = '\0'; strncat(avgStr, tmp, sizeof(avgStr) - 1);
             snprintf(vsStr, sizeof(vsStr), "*%d/%d measured", langMeasured[li], total);
         } else {
             fmt_ns(avgStr, sizeof(avgStr), avg);
@@ -1450,18 +2058,37 @@ ErrorNumber test_codegen(const TA_History *history,
     printf("Codegen Multi-Language Verification\n");
     printf("=============================================\n");
 
+    /* Spawn the reference oracle once; it is the shared baseline for every
+     * language server, including the generated C server (reference-as-server,
+     * task #7). The runner no longer computes the baseline in-process. */
+    CodegenPipe refCp;
+    errNb = codegen_pipe_open(&refCp, argv_cref);
+    if( errNb != TA_TEST_PASS )
+    {
+        printf("\nFAILED: cannot start ta_ref_serve (the reference oracle).\n"
+               "        Build it via scripts/regtest.py (it builds ta_ref_serve\n"
+               "        from the pinned-tag reference worktree into bin/).\n");
+        return errNb;
+    }
+    printf("Reference oracle: ta_ref_serve (pid=%d)\n", refCp.child_pid);
+
     for( unsigned int i = 0; i < NUM_LANGUAGES; i++ )
     {
         if( !language_matches_filter(languageFilter, ALL_LANGUAGES[i].name) )
             continue;
 
         errNb = test_codegen_for_language(&ALL_LANGUAGES[i], (int)i, history,
-                                          functionFilter);
+                                          functionFilter, &refCp);
         if( errNb != TA_TEST_PASS )
+        {
+            codegen_pipe_close(&refCp);
             return errNb;
+        }
 
         langsTested++;
     }
+
+    codegen_pipe_close(&refCp);
 
     if( langsTested == 0 )
     {
@@ -1547,8 +2174,8 @@ ErrorNumber test_codegen(const TA_History *history,
             char avgStr[32], vsStr[32];
             if( langMeasured[li] < total / 2 ) {
                 fmt_ns(avgStr, sizeof(avgStr), avg);
-                char tmp[16]; snprintf(tmp, sizeof(tmp), "~%s*", avgStr);
-                strncpy(avgStr, tmp, sizeof(avgStr));
+                char tmp[40]; snprintf(tmp, sizeof(tmp), "~%s*", avgStr);
+                avgStr[0] = '\0'; strncat(avgStr, tmp, sizeof(avgStr) - 1);
                 snprintf(vsStr, sizeof(vsStr), "*%d/%d measured", langMeasured[li], total);
             } else {
                 fmt_ns(avgStr, sizeof(avgStr), avg);

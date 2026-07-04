@@ -281,10 +281,10 @@ def set_version_string_spec_in(root_dir: str, new_version:str):
 
 def get_version_string_cargo(root_dir: str) -> str:
     """
-    Parse the file ta_codegen_output/rust/Cargo.toml to get the version string. Example:
+    Parse the file ta_codegen/output/rust/Cargo.toml to get the version string. Example:
       version = "0.6.4"
     """
-    cargo_file_path = path_join(root_dir, "ta_codegen_output", "rust", "Cargo.toml")
+    cargo_file_path = path_join(root_dir, "ta_codegen/output", "rust", "Cargo.toml")
 
     if not os.path.exists(cargo_file_path):
         print(f"Error: Cargo.toml not found at {cargo_file_path}")
@@ -307,9 +307,9 @@ def get_version_string_cargo(root_dir: str) -> str:
 
 def set_version_string_cargo(root_dir: str, new_version: str):
     """
-    Update the version in ta_codegen_output/rust/Cargo.toml.
+    Update the version in ta_codegen/output/rust/Cargo.toml.
     """
-    cargo_file_path = path_join(root_dir, "ta_codegen_output", "rust", "Cargo.toml")
+    cargo_file_path = path_join(root_dir, "ta_codegen/output", "rust", "Cargo.toml")
 
     if not os.path.exists(cargo_file_path):
         print(f"Warning: Cargo.toml not found at {cargo_file_path}")
@@ -437,7 +437,7 @@ def sync_versions(root_dir: str) -> Tuple[bool,str]:
     """
     Synchronize the version between:
           src/ta_common/ta_version.c
-          ta_codegen_output/rust/Cargo.toml
+          ta_codegen/output/rust/Cargo.toml
           CMakeLists.txt (root of repos)
           VERSION file (root of repos)
           conanfile.py (root of repos)
@@ -508,6 +508,25 @@ def sync_versions(root_dir: str) -> Tuple[bool,str]:
         print(f"Updating conanfile.py to [{highest_version}]")
         set_version_string_conanfile(root_dir, highest_version)
         is_updated = True
+
+    # docs/install.md hardcodes the released version in its text and download
+    # URLs (the only semver strings in that file). Nothing else updates the
+    # website at release time — "Release (step 2)" only publishes the draft —
+    # so rewrite any older semver here. (0.7.1 release: the site kept showing
+    # 0.6.4 because this was a manual step nobody remembered.)
+    install_md = os.path.join(root_dir, "docs", "install.md")
+    if os.path.isfile(install_md):
+        with open(install_md, "r") as f:
+            content = f.read()
+        semvers = set(re.findall(r"\b\d+\.\d+\.\d+\b", content))
+        stale = [v for v in semvers if compare_version(highest_version, v) > 0]
+        if stale:
+            for v in stale:
+                content = content.replace(v, highest_version)
+            with open(install_md, "w") as f:
+                f.write(content)
+            print(f"Updating docs/install.md to [{highest_version}] (was: {', '.join(sorted(stale))})")
+            is_updated = True
 
     return is_updated, version_c
 
@@ -599,14 +618,13 @@ def calculate_sources_digest(root_dir: str, silent: bool = False) -> str:
         "ta-lib.*.in",
         "cmake/*",
         "include/ta_abstract.h",
-        "include/ta_def.h",
+        "include/ta_defs.h",
         "include/ta_func.h",
         "include/ta_libc.h",
         "src/**/*.c",
         "src/**/*.h",
         "src/**/*.am",
         "*.am",
-        "src/ta_abstract/templates/*",
         "ta_func_api.xml",
         "ta_func_list.txt",
         "java/src/**/*.java",

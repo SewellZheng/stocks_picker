@@ -25,7 +25,6 @@ ar-lib
 **/.history/
 
 # TA-Lib tools (must be built by devs on its own platform)
-src/tools/gen_code/gen_code
 src/tools/ta_regtest/ta_regtest
 bin/*
 !bin/HOLDER
@@ -90,12 +89,15 @@ cmake-build*/
 rust/target
 
 # Build artifacts (platform-specific, rebuilt locally)
-ta_codegen_output/c/ta_func/ta_codegen_funcs.c
-ta_codegen_output/dotnet/bin/
-ta_codegen_output/dotnet/obj/
-ta_codegen_output/java/*.class
+ta_codegen/output/c/ta_func/ta_codegen_funcs.c
+ta_codegen/output/dotnet/bin/
+ta_codegen/output/dotnet/obj/
+ta_codegen/output/java/*.class
 
 # Git worktrees
 .worktrees/
-ta_codegen_output/rust/target/
+ta_codegen/output/rust/target/
 .claude/worktrees
+
+# Local working notes — never commit (see to_be_deleted/ contents before deleting)
+to_be_deleted/

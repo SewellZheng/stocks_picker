@@ -19,6 +19,22 @@
 #endif
 #if defined(WIN32) || defined(_WIN32)
 #include <windows.h>
+/* MSVC portability: popen/pclose are prefixed, strcasestr is a GNU
+ * extension with no Windows equivalent. */
+#define popen  _popen
+#define pclose _pclose
+static char *win_strcasestr(const char *haystack, const char *needle)
+{
+    size_t nlen = strlen(needle);
+    if( nlen == 0 ) return (char *)haystack;
+    for( ; *haystack; haystack++ )
+    {
+        if( _strnicmp(haystack, needle, nlen) == 0 )
+            return (char *)haystack;
+    }
+    return NULL;
+}
+#define strcasestr win_strcasestr
 #endif
 
 #include "ta_libc.h"
@@ -115,6 +131,8 @@ typedef struct {
     const char *const *argv;
     CodegenPipe cp;
     int active;
+    int optional;   /* 1 = only run when named in --language (third-party
+                       comparison servers, e.g. talib_rs) */
 } BenchLanguage;
 
 static const char *const argv_cref[]   = {"./ta_ref_serve", NULL};
@@ -122,13 +140,16 @@ static const char *const argv_c[]      = {"./ta_codegen_serve_c", NULL};
 static const char *const argv_rust[]   = {"./ta_codegen_serve_rust", NULL};
 static const char *const argv_java[]   = {"java", "-cp", "ta_codegen_java", "TaCodegenServe", NULL};
 static const char *const argv_dotnet[] = {"dotnet", "ta_codegen_dotnet/TaCodegenServe.dll", NULL};
+/* Third-party comparison server (pure-Rust talib-rs crate, opt-in only). */
+static const char *const argv_talib_rs[] = {"./ta_talib_rs_serve", NULL};
 
 static BenchLanguage LANGUAGES[] = {
-    {"cref",   "C-ref",  argv_cref,   {0}, 0},
-    {"c",      "C",      argv_c,      {0}, 0},
-    {"rust",   "Rust",   argv_rust,   {0}, 0},
-    {"java",   "Java",   argv_java,   {0}, 0},
-    {"dotnet", ".NET",   argv_dotnet, {0}, 0},
+    {"cref",     "C-ref",    argv_cref,     {0}, 0, 0},
+    {"c",        "C",        argv_c,        {0}, 0, 0},
+    {"rust",     "Rust",     argv_rust,     {0}, 0, 0},
+    {"java",     "Java",     argv_java,     {0}, 0, 0},
+    {"dotnet",   ".NET",     argv_dotnet,   {0}, 0, 0},
+    {"talib_rs", "talib-rs", argv_talib_rs, {0}, 0, 1},
 };
 #define NUM_LANGUAGES (sizeof(LANGUAGES)/sizeof(LANGUAGES[0]))
 
@@ -262,9 +283,14 @@ static void bench_one_function(const TA_FuncInfo *fi, void *opaque) {
             const char *t = json_find_field(ctx->respBuf, "timing_ns", &len);
             if( t ) {
                 long long ns = strtoll(t, NULL, 10);
-                if( !has_timing[li] || ns < timings[li] )
-                    timings[li] = ns;
-                has_timing[li] = 1;
+                /* Error responses carry timing_ns 0 — not a measurement.
+                 * Without this guard an errored call would show up as a
+                 * (green) 0 ns row instead of ERR. */
+                if( ns > 0 ) {
+                    if( !has_timing[li] || ns < timings[li] )
+                        timings[li] = ns;
+                    has_timing[li] = 1;
+                }
             }
             const char *tu = json_find_field(ctx->respBuf, "timing_ns_unguarded", &len);
             if( tu ) {
@@ -287,9 +313,12 @@ static void bench_one_function(const TA_FuncInfo *fi, void *opaque) {
     for( unsigned int li = 0; li < NUM_LANGUAGES; li++ ) {
         if( !LANGUAGES[li].active ) continue;
         int is_cref = (strcmp(LANGUAGES[li].name, "cref") == 0);
+        /* The header prints a value + "ung" column pair for every active
+         * non-cref language, so each row must emit both cells to stay
+         * aligned — even when the server returned no timing at all. */
         if( !has_timing[li] ) {
             printf(" %10s", "ERR");
-            if( !is_cref && has_timing_ung[li] ) printf(" %10s", "ERR");
+            if( !is_cref ) printf(" %10s", "ERR");
         } else if( is_cref ) {
             printf(" %10lld", timings[li]);
         } else {
@@ -297,13 +326,13 @@ static void bench_one_function(const TA_FuncInfo *fi, void *opaque) {
             const char *clr = (ratio > 1.10) ? "\033[31m" : (ratio < 0.90) ? "\033[32m" : "";
             const char *rst = (*clr) ? "\033[0m" : "";
             printf(" %s%10lld%s", clr, timings[li], rst);
-            /* Unguarded column */
+            /* Unguarded column (always emitted — see header alignment note) */
             if( has_timing_ung[li] && timings_ung[li] > 0 ) {
                 double ratio_u = (ref_ns > 0) ? (double)timings_ung[li] / (double)ref_ns : 0.0;
                 const char *clr_u = (ratio_u > 1.10) ? "\033[31m" : (ratio_u < 0.90) ? "\033[32m" : "";
                 const char *rst_u = (*clr_u) ? "\033[0m" : "";
                 printf(" %s%10lld%s", clr_u, timings_ung[li], rst_u);
-            } else if( has_timing_ung[li] ) {
+            } else {
                 printf(" %10s", "--");
             }
         }
@@ -338,6 +367,7 @@ int main(int argc, char *argv[]) {
     char *respBuf = malloc(JSON_BUF_SIZE);
 
     for( unsigned int li = 0; li < NUM_LANGUAGES; li++ ) {
+        if( LANGUAGES[li].optional && !lang_filter ) continue;
         if( !lang_matches(lang_filter, LANGUAGES[li].name) ) continue;
         if( codegen_pipe_open(&LANGUAGES[li].cp, LANGUAGES[li].argv) == TA_TEST_PASS ) {
             LANGUAGES[li].active = 1;

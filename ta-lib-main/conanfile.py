@@ -6,7 +6,7 @@ import os
 
 class TaLibConan(ConanFile):
     name = "ta-lib"
-    version = "0.6.4"
+    version = "0.7.1"
 
     license = "BSD-3-Clause"
     url = "https://github.com/ta-lib/ta-lib"

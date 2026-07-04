@@ -38,20 +38,29 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
+/* FLOOR BEGIN */
+static const TA_InputParameterInfo    *TA_FLOOR_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
 
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
+static const TA_OutputParameterInfo   *TA_FLOOR_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
 
-/* Floor BEGIN */
-DEF_MATH_UNARY_OPERATOR( FLOOR, "Vector Floor", "Floor" )
-/* Floor END */
+static const TA_OptInputParameterInfo *TA_FLOOR_OptInputs[] =
+{ NULL };
 
+DEF_FUNCTION( FLOOR,
+              TA_GroupId_MathTransform,
+              "Vector Floor",
+              "Floor",
+              0
+             );
+/* FLOOR END */
 
 /****************************************************************************
  * Step 2 - Add your TA function to the table.
@@ -68,9 +77,3 @@ const TA_FuncDef *TA_DEF_TableF[] =
 const unsigned int TA_DEF_TableFSize =
               ((sizeof(TA_DEF_TableF)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

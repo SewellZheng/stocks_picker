@@ -1,0 +1,37 @@
+# SIN
+
+## Summary
+
+Vector trigonometric sine: applies sin() element-wise to each input value. Part of the Math Transform group.
+
+## Formula
+
+outReal[i] = sin(inReal[i])
+
+## Inputs
+
+- `inReal` — Input values (radians)
+
+## Outputs
+
+- `outReal` — Sine of each input
+
+## Implementation
+
+TA-Lib Definition: [`sin.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/sin/sin.c) · [`sin.yaml`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/sin/sin.yaml)
+
+| Native | File |
+|--------|------|
+| C | [`ta_SIN.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_SIN.c) |
+| Rust | [`sin.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/src/ta_func/sin.rs) |
+| Java | [`Core.java`](https://github.com/TA-Lib/ta-lib/blob/main/java/src/com/tictactec/ta/lib/Core.java) |
+
+TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+
+## Aliases
+
+sine
+
+## See Also
+
+COS · TAN · ASIN

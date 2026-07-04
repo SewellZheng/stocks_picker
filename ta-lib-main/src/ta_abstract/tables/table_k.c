@@ -38,16 +38,6 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* KAMA BEGIN */
 static const TA_InputParameterInfo    *TA_KAMA_Inputs[]    =
 {
@@ -62,18 +52,17 @@ static const TA_OutputParameterInfo   *TA_KAMA_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_KAMA_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_30_MINIMUM2,
+{ &TA_DEF_UI_TimePeriod_30,
   NULL
 };
 
-DEF_FUNCTION( KAMA,                       /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "Kaufman Adaptive Moving Average", /* hint */
-              "Kama",                       /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP|TA_FUNC_FLG_UNST_PER        /* flags */
+DEF_FUNCTION( KAMA,
+              TA_GroupId_OverlapStudies,
+              "Kaufman Adaptive Moving Average",
+              "Kama",
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_UNST_PER
              );
 /* KAMA END */
-
 
 /****************************************************************************
  * Step 2 - Add your TA function to the table.
@@ -90,9 +79,3 @@ const TA_FuncDef *TA_DEF_TableK[] =
 const unsigned int TA_DEF_TableKSize =
               ((sizeof(TA_DEF_TableK)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

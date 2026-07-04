@@ -36,14 +36,18 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
- *
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  112400 MF   First version.
- *  122506 MF   Add tests for MININDEX,MAXINDEX,MINMAX and MINMAXINDEX.
+ *  112400 MF     First version.
+ *  122506 MF     Add tests for MININDEX,MAXINDEX,MINMAX and MINMAXINDEX.
+ *  070226 MF,CC  Add TA_MIDPOINT tests: expected-value pins and a
+ *                referenceMidpoint (the original brute rescan) compared
+ *                against the cached-index implementation, like the
+ *                existing MIN/MAX reference checks.
  */
 
 /* Description:
@@ -77,7 +81,8 @@ TA_MAX_TEST,
 TA_MINMAX_TEST,
 TA_MININDEX_TEST,
 TA_MAXINDEX_TEST,
-TA_MINMAXINDEX_TEST
+TA_MINMAXINDEX_TEST,
+TA_MIDPOINT_TEST
 } TA_TestId;
 
 typedef struct
@@ -131,6 +136,14 @@ static TA_RetCode referenceMax( TA_Integer    startIdx,
                                 TA_Integer   *outBegIdx,
                                 TA_Integer   *outNbElement,
                                 TA_Real       outReal[] );
+
+static TA_RetCode referenceMidpoint( TA_Integer    startIdx,
+                                     TA_Integer    endIdx,
+                                     const TA_Real inReal[],
+                                     TA_Integer    optInTimePeriod,
+                                     TA_Integer   *outBegIdx,
+                                     TA_Integer   *outNbElement,
+                                     TA_Real       outReal[] );
 
 static ErrorNumber testCompareToReference( const TA_Real *input, int nbElement );
 
@@ -223,7 +236,21 @@ static TA_Test tableTest[] =
    { 1, TA_MINMAX_TEST, 0, 251, 14, TA_SUCCESS, 0, 91.125,  13,  252-13 },
    { 1, TA_MINMAXINDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 91.125,  13,  252-13 },
    { 1, TA_MININDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 91.125,  13,  252-13 },
-   { 1, TA_MAXINDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 91.125,  13,  252-13 }
+   { 1, TA_MAXINDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 91.125,  13,  252-13 },
+
+   /**********************/
+   /*   MIDPOINT TEST    */
+   /**********************/
+   { 1, TA_MIDPOINT_TEST, 0, 251, 14, TA_SUCCESS,      0,  94.9700,  13,  252-13 }, /* First Value */
+   { 0, TA_MIDPOINT_TEST, 0, 251, 14, TA_SUCCESS,      1,  94.9700,  13,  252-13 },
+   { 0, TA_MIDPOINT_TEST, 0, 251, 14, TA_SUCCESS, 252-14, 109.2200,  13,  252-13 }, /* Last Value */
+
+   { 1, TA_MIDPOINT_TEST, 0, 251,  2, TA_SUCCESS,      0,  92.0000,   1,  252-1 },  /* First Value */
+   { 0, TA_MIDPOINT_TEST, 0, 251,  2, TA_SUCCESS,      1,  93.3275,   1,  252-1 },
+   { 0, TA_MIDPOINT_TEST, 0, 251,  2, TA_SUCCESS,  252-2, 109.4400,   1,  252-1 },  /* Last Value */
+
+   { 1, TA_MIDPOINT_TEST, 0, 251, 30, TA_SUCCESS,      0,  90.0325,  29,  252-29 }, /* First Value */
+   { 0, TA_MIDPOINT_TEST, 0, 251, 30, TA_SUCCESS, 252-30, 107.2500,  29,  252-29 }  /* Last Value */
 };
 
 #define NB_TEST (sizeof(tableTest)/sizeof(TA_Test))
@@ -379,6 +406,17 @@ static TA_RetCode rangeTestFunction( TA_Integer    startIdx,
       *lookback = TA_MAX_Lookback( testParam->test->optInTimePeriod );
       break;
 
+   case TA_MIDPOINT_TEST:
+      retCode = TA_MIDPOINT( startIdx,
+                        endIdx,
+                        testParam->close,
+                        testParam->test->optInTimePeriod,
+                        outBegIdx,
+                        outNbElement,
+                        outputBuffer );
+      *lookback = TA_MIDPOINT_Lookback( testParam->test->optInTimePeriod );
+      break;
+
    case TA_MINMAX_TEST:
       retCode = TA_MINMAX( startIdx,
                         endIdx,
@@ -494,6 +532,15 @@ static ErrorNumber do_test( const TA_History *history,
                         &outNbElement,
                         gBuffer[0].out0 );
       break;
+   case TA_MIDPOINT_TEST:
+      retCode = TA_MIDPOINT( test->startIdx,
+                             test->endIdx,
+                             gBuffer[0].in,
+                             test->optInTimePeriod,
+                             &outBegIdx,
+                             &outNbElement,
+                             gBuffer[0].out0 );
+      break;
    case TA_MINMAX_TEST:
       retCode = TA_MINMAX( test->startIdx,
                            test->endIdx,
@@ -543,7 +590,8 @@ static ErrorNumber do_test( const TA_History *history,
    /* CHECK_EXPECTED_VALUE only applies to functions with real outputs. */
    if( test->theFunction == TA_MIN_TEST ||
        test->theFunction == TA_MAX_TEST ||
-       test->theFunction == TA_MINMAX_TEST )
+       test->theFunction == TA_MINMAX_TEST ||
+       test->theFunction == TA_MIDPOINT_TEST )
    {
       CHECK_EXPECTED_VALUE( gBuffer[0].out0, 0 );
    }
@@ -561,6 +609,13 @@ static ErrorNumber do_test( const TA_History *history,
          break;
       case TA_MAX_TEST:
          errNb = server_verify("MAX", test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_MIDPOINT_TEST:
+         errNb = server_verify("MIDPOINT", test->startIdx, test->endIdx, history->nbBars,
                                retCode, outBegIdx, outNbElement,
                                (const TA_Real*[]){ gBuffer[0].in, NULL },
                                (double[]){ (double)test->optInTimePeriod }, 1,
@@ -604,9 +659,10 @@ static ErrorNumber do_test( const TA_History *history,
    outBegIdx = outNbElement = 0;
 
    /* Make another call where the input and the output are the
-    * same buffer. (Only for MIN/MAX which have real outputs.)
+    * same buffer. (Only for MIN/MAX/MIDPOINT which have one real output.)
     */
-   if( test->theFunction == TA_MIN_TEST || test->theFunction == TA_MAX_TEST )
+   if( test->theFunction == TA_MIN_TEST || test->theFunction == TA_MAX_TEST ||
+       test->theFunction == TA_MIDPOINT_TEST )
    {
       CLEAR_EXPECTED_VALUE(0);
       if( test->theFunction == TA_MIN_TEST )
@@ -618,6 +674,16 @@ static ErrorNumber do_test( const TA_History *history,
                            &outBegIdx,
                            &outNbElement,
                            gBuffer[1].in );
+      }
+      else if( test->theFunction == TA_MIDPOINT_TEST )
+      {
+         retCode = TA_MIDPOINT( test->startIdx,
+                                test->endIdx,
+                                gBuffer[1].in,
+                                test->optInTimePeriod,
+                                &outBegIdx,
+                                &outNbElement,
+                                gBuffer[1].in );
       }
       else
       {
@@ -803,6 +869,73 @@ static TA_RetCode referenceMax( TA_Integer    startIdx,
    return TA_SUCCESS;
 }
 
+/* The original brute-rescan TA_MIDPOINT, kept as the non-optimized
+ * reference for the cached-extremum-index implementation.
+ */
+static TA_RetCode referenceMidpoint( TA_Integer    startIdx,
+                                     TA_Integer    endIdx,
+                                     const TA_Real inReal[],
+                                     TA_Integer    optInTimePeriod,
+                                     TA_Integer   *outBegIdx,
+                                     TA_Integer   *outNbElement,
+                                     TA_Real       outReal[] )
+{
+   TA_Real lowest, highest, tmp;
+   TA_Integer outIdx, nbInitialElementNeeded;
+   TA_Integer trailingIdx, today, i;
+
+   /* Identify the minimum number of price bar needed
+    * to identify at least one output over the specified
+    * period.
+    */
+   nbInitialElementNeeded = (optInTimePeriod-1);
+
+   /* Move up the start index if there is not
+    * enough initial data.
+    */
+   if( startIdx < nbInitialElementNeeded )
+      startIdx = nbInitialElementNeeded;
+
+   /* Make sure there is still something to evaluate. */
+   if( startIdx > endIdx )
+   {
+      *outBegIdx    = 0;
+      *outNbElement = 0;
+      return TA_SUCCESS;
+   }
+
+   /* Proceed with the calculation for the requested range.
+    * Note that this algorithm allows the input and
+    * output to be the same buffer.
+    */
+   outIdx = 0;
+   today       = startIdx;
+   trailingIdx = startIdx-nbInitialElementNeeded;
+
+   while( today <= endIdx )
+   {
+      lowest  = inReal[trailingIdx++];
+      highest = lowest;
+      for( i=trailingIdx; i <= today; i++ )
+      {
+         tmp = inReal[i];
+         if( tmp < lowest ) lowest = tmp;
+         else if( tmp > highest ) highest = tmp;
+      }
+
+      outReal[outIdx++] = (highest+lowest)/2.0;
+      today++;
+   }
+
+   /* Keep the outBegIdx relative to the
+    * caller input before returning.
+    */
+   *outBegIdx    = startIdx;
+   *outNbElement = outIdx;
+
+   return TA_SUCCESS;
+}
+
 static ErrorNumber testCompareToReference( const TA_Real *input, int nbElement )
 {
    TA_Integer outBegIdx, outNbElement;
@@ -818,7 +951,7 @@ static ErrorNumber testCompareToReference( const TA_Real *input, int nbElement )
    outBegIdxRef = outNbElementRef = -1;
 
    /* Do a systematic tests, even for failure cases. */
-   for( testNb=0; testNb <= 1; testNb++ ) /* 0=TA_MIN, 1=TA_MAX */
+   for( testNb=0; testNb <= 2; testNb++ ) /* 0=TA_MIN, 1=TA_MAX, 2=TA_MIDPOINT */
    {
       for( period=2; period <= nbElement; period++ )
       {
@@ -839,9 +972,12 @@ static ErrorNumber testCompareToReference( const TA_Real *input, int nbElement )
                if( testNb == 0 )
                   retCodeRef = referenceMin( startIdx, endIdx, input, period,
                                              &outBegIdxRef, &outNbElementRef, gBuffer[0].out0 );
-               else
+               else if( testNb == 1 )
                   retCodeRef = referenceMax( startIdx, endIdx, input, period,
                                              &outBegIdxRef, &outNbElementRef, gBuffer[0].out0 );
+               else
+                  retCodeRef = referenceMidpoint( startIdx, endIdx, input, period,
+                                                  &outBegIdxRef, &outNbElementRef, gBuffer[0].out0 );
 
                /* Verify that the input was preserved */
                errNb = checkDataSame( gBuffer[0].in, input, nbElement );
@@ -852,9 +988,12 @@ static ErrorNumber testCompareToReference( const TA_Real *input, int nbElement )
                if( testNb == 0 )
                   retCode = TA_MIN( startIdx, endIdx, input, period,
                                     &outBegIdx, &outNbElement, gBuffer[1].out0 );
-               else
+               else if( testNb == 1 )
                   retCode = TA_MAX( startIdx, endIdx, input, period,
                                     &outBegIdx, &outNbElement, gBuffer[1].out0 );
+               else
+                  retCode = TA_MIDPOINT( startIdx, endIdx, input, period,
+                                         &outBegIdx, &outNbElement, gBuffer[1].out0 );
 
                /* Verify that the input was preserved */
                errNb = checkDataSame( gBuffer[0].in, input, nbElement );
@@ -895,9 +1034,12 @@ static ErrorNumber testCompareToReference( const TA_Real *input, int nbElement )
                   if( testNb == 0 )
                      retCode = TA_MIN( startIdx, endIdx, gBuffer[0].in, period,
                                        &outBegIdx, &outNbElement, gBuffer[0].in );
-                  else
+                  else if( testNb == 1 )
                      retCode = TA_MAX( startIdx, endIdx, gBuffer[0].in, period,
                                        &outBegIdx, &outNbElement, gBuffer[0].in );
+                  else
+                     retCode = TA_MIDPOINT( startIdx, endIdx, gBuffer[0].in, period,
+                                            &outBegIdx, &outNbElement, gBuffer[0].in );
 
                   /* The reference and TA-LIB should have the same output. */
                   if( retCode != retCodeRef )

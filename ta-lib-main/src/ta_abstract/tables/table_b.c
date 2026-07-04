@@ -38,56 +38,63 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* BBANDS BEGIN */
-
-/* Nb Deviation up/down is used for bollinger bands. */
-const TA_OptInputParameterInfo TA_DEF_UI_NbDeviationUp =
+static const TA_RealRange TA_DEF_BBANDS_NbDevUp =
 {
-   TA_OptInput_RealRange, /* type */
-   "optInNbDevUp",        /* paramName */
-   0,                     /* flags */
-
-   "Deviations up",     /* displayName */
-   (const void *)&TA_DEF_NbDeviation, /* dataSet */
-   2.0, /* defaultValue */
-   "Deviation multiplier for upper band", /* hint */
-
-   NULL /* CamelCase name */
+   TA_REAL_MIN,
+   TA_REAL_MAX,
+   2,
+   -2.0,
+   2.0,
+   0.2
 };
 
-const TA_OptInputParameterInfo TA_DEF_UI_NbDeviationDn =
+static const TA_OptInputParameterInfo TA_DEF_UI_D_BBANDS_NbDevUp =
 {
-   TA_OptInput_RealRange, /* type */
-   "optInNbDevDn",        /* paramName */
-   0,                     /* flags */
+   TA_OptInput_RealRange,
+   "optInNbDevUp",
+   0,
 
-   "Deviations down",          /* displayName */
-   (const void *)&TA_DEF_NbDeviation, /* dataSet */
-   2.0, /* defaultValue */
-   "Deviation multiplier for lower band", /* hint */
+   "Deviations up",
+   (const void *)&TA_DEF_BBANDS_NbDevUp,
+   2.0,
+   "Deviation multiplier for upper band",
 
-   NULL /* CamelCase name */
+   NULL
 };
 
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_BBANDS_Middle =
-                               { TA_Output_Real, "outRealMiddleBand", TA_OUT_LINE };
+static const TA_RealRange TA_DEF_BBANDS_NbDevDn =
+{
+   TA_REAL_MIN,
+   TA_REAL_MAX,
+   2,
+   -2.0,
+   2.0,
+   0.2
+};
 
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_BBANDS_Upper =
+static const TA_OptInputParameterInfo TA_DEF_UI_D_BBANDS_NbDevDn =
+{
+   TA_OptInput_RealRange,
+   "optInNbDevDn",
+   0,
+
+   "Deviations down",
+   (const void *)&TA_DEF_BBANDS_NbDevDn,
+   2.0,
+   "Deviation multiplier for lower band",
+
+   NULL
+};
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_BBANDS_UpperBand =
                                { TA_Output_Real, "outRealUpperBand", TA_OUT_UPPER_LIMIT };
 
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_BBANDS_Lower =
-                                { TA_Output_Real, "outRealLowerBand", TA_OUT_LOWER_LIMIT };
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_BBANDS_MiddleBand =
+                               { TA_Output_Real, "outRealMiddleBand", TA_OUT_LINE };
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_BBANDS_LowerBand =
+                               { TA_Output_Real, "outRealLowerBand", TA_OUT_LOWER_LIMIT };
 
 static const TA_InputParameterInfo    *TA_BBANDS_Inputs[]    =
 {
@@ -97,28 +104,54 @@ static const TA_InputParameterInfo    *TA_BBANDS_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_BBANDS_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real_BBANDS_Upper,
-  &TA_DEF_UI_Output_Real_BBANDS_Middle,
-  &TA_DEF_UI_Output_Real_BBANDS_Lower,
+  &TA_DEF_UI_Output_Real_BBANDS_UpperBand,
+  &TA_DEF_UI_Output_Real_BBANDS_MiddleBand,
+  &TA_DEF_UI_Output_Real_BBANDS_LowerBand,
   NULL
 };
 
 static const TA_OptInputParameterInfo *TA_BBANDS_OptInputs[] =
 { &TA_DEF_UI_TimePeriod_5_MINIMUM2,
-  &TA_DEF_UI_NbDeviationUp,
-  &TA_DEF_UI_NbDeviationDn,
+  &TA_DEF_UI_D_BBANDS_NbDevUp,
+  &TA_DEF_UI_D_BBANDS_NbDevDn,
   &TA_DEF_UI_MA_Method,
   NULL
 };
 
-DEF_FUNCTION( BBANDS,                    /* name */
-              TA_GroupId_OverlapStudies, /* groupId */
-              "Bollinger Bands",         /* hint */
-              "Bbands",                  /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP        /* flags */
+DEF_FUNCTION( BBANDS,
+              TA_GroupId_OverlapStudies,
+              "Bollinger Bands",
+              "Bbands",
+              TA_FUNC_FLG_OVERLAP
              );
 /* BBANDS END */
 
+/* BETA BEGIN */
+static const TA_InputParameterInfo    *TA_BETA_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real0,
+  &TA_DEF_UI_Input_Real1,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_BETA_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_BETA_OptInputs[] =
+{ &TA_DEF_UI_TimePeriod_5,
+  NULL
+};
+
+DEF_FUNCTION( BETA,
+              TA_GroupId_Statistic,
+              "Beta",
+              "Beta",
+              0
+             );
+/* BETA END */
 
 /* BOP BEGIN */
 static const TA_InputParameterInfo    *TA_BOP_Inputs[]    =
@@ -133,43 +166,16 @@ static const TA_OutputParameterInfo   *TA_BOP_Outputs[]   =
   NULL
 };
 
-static const TA_OptInputParameterInfo *TA_BOP_OptInputs[] = { NULL };
+static const TA_OptInputParameterInfo *TA_BOP_OptInputs[] =
+{ NULL };
 
-DEF_FUNCTION( BOP,                   /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "Balance Of Power",         /* hint */
-              "Bop",                      /* CamelCase name */
-              0                          /* flags */
+DEF_FUNCTION( BOP,
+              TA_GroupId_MomentumIndicators,
+              "Balance Of Power",
+              "Bop",
+              0
              );
 /* BOP END */
-
-/* BETA BEGIN */
-static const TA_InputParameterInfo    *TA_BETA_Inputs[]    =
-{
-    &TA_DEF_UI_Input_Real0,
-    &TA_DEF_UI_Input_Real1,
-    NULL
-};
-
-static const TA_OutputParameterInfo   *TA_BETA_Outputs[]   =
-{
-    &TA_DEF_UI_Output_Real,
-    NULL
-};
-
-static const TA_OptInputParameterInfo *TA_BETA_OptInputs[] =
-{
-  &TA_DEF_UI_TimePeriod_5,
-  NULL
-};
-
-DEF_FUNCTION( BETA,                      /* name */
-              TA_GroupId_Statistic,     /* groupId */
-              "Beta", /* hint */
-              "Beta",                /* CamelCase name */
-              0                        /* flags */
-            );
-/* BETA END */
 
 /****************************************************************************
  * Step 2 - Add your TA function to the table.
@@ -188,9 +194,3 @@ const TA_FuncDef *TA_DEF_TableB[] =
 const unsigned int TA_DEF_TableBSize =
               ((sizeof(TA_DEF_TableB)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

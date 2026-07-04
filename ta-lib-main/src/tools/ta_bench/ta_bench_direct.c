@@ -20,6 +20,22 @@
 #endif
 #if defined(WIN32) || defined(_WIN32)
 #include <windows.h>
+/* MSVC portability: popen/pclose are prefixed, strcasestr is a GNU
+ * extension with no Windows equivalent. */
+#define popen  _popen
+#define pclose _pclose
+static char *win_strcasestr(const char *haystack, const char *needle)
+{
+    size_t nlen = strlen(needle);
+    if( nlen == 0 ) return (char *)haystack;
+    for( ; *haystack; haystack++ )
+    {
+        if( _strnicmp(haystack, needle, nlen) == 0 )
+            return (char *)haystack;
+    }
+    return NULL;
+}
+#define strcasestr win_strcasestr
 #endif
 
 #include "ta_libc.h"

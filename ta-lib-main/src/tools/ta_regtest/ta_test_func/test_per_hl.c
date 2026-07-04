@@ -36,14 +36,17 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
- *
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  020203 MF   First version.
- *  122506 MF   Add TA_BETA tests.
+ *  020203 MF     First version.
+ *  122506 MF     Add TA_BETA tests.
+ *  070226 MF,CC  Add TA_MIDPRICE tests pinning both scan strategies of
+ *                the hybrid implementation around its period-20
+ *                threshold (brute: 14,19,20 | cached-index: 21,30).
  */
 
 /* Description:
@@ -78,7 +81,8 @@ TA_AROON_UP_TEST,
 TA_AROON_DOWN_TEST,
 TA_AROONOSC_TEST,
 TA_CORREL_TEST,
-TA_BETA_TEST
+TA_BETA_TEST,
+TA_MIDPRICE_TEST
 } TA_TestId;
 
 typedef struct
@@ -208,6 +212,33 @@ static TA_Test tableTest[] =
    { 0, TA_AROONOSC_TEST, 0, 251, 14, TA_SUCCESS, 252-16, -28.5714,  14,  252-14 },
    { 0, TA_AROONOSC_TEST, 0, 251, 14, TA_SUCCESS, 252-15, -14.28571,  14,  252-14 }, /* Last Value */
 
+   /*****************/
+   /* MIDPRICE TEST */
+   /*****************/
+   /* The MIDPRICE implementation picks its scan strategy by period:
+    * <= 20 uses the brute window rescan, > 20 the cached extremum
+    * index. Periods 19/20/21 pin both algorithms at the threshold;
+    * 14 covers the default period, 30 goes deeper into the cached arm.
+    * Each period also runs the full doRangeTest startIdx/endIdx sweep.
+    */
+   { 1, TA_MIDPRICE_TEST, 0, 251, 14, TA_SUCCESS,      0,  94.2200,  13,  252-13 }, /* First Value */
+   { 0, TA_MIDPRICE_TEST, 0, 251, 14, TA_SUCCESS,      1,  93.1875,  13,  252-13 },
+   { 0, TA_MIDPRICE_TEST, 0, 251, 14, TA_SUCCESS, 252-14, 108.6250,  13,  252-13 }, /* Last Value */
+
+   { 1, TA_MIDPRICE_TEST, 0, 251, 19, TA_SUCCESS,      0,  93.1875,  18,  252-18 }, /* First Value */
+   { 0, TA_MIDPRICE_TEST, 0, 251, 19, TA_SUCCESS, 252-19, 113.3100,  18,  252-18 }, /* Last Value */
+
+   { 1, TA_MIDPRICE_TEST, 0, 251, 20, TA_SUCCESS,      0,  93.1875,  19,  252-19 }, /* First Value */
+   { 0, TA_MIDPRICE_TEST, 0, 251, 20, TA_SUCCESS,      2,  93.0775,  19,  252-19 },
+   { 0, TA_MIDPRICE_TEST, 0, 251, 20, TA_SUCCESS, 252-20, 113.3100,  19,  252-19 }, /* Last Value */
+
+   { 1, TA_MIDPRICE_TEST, 0, 251, 21, TA_SUCCESS,      0,  93.1875,  20,  252-20 }, /* First Value */
+   { 0, TA_MIDPRICE_TEST, 0, 251, 21, TA_SUCCESS,      1,  93.0775,  20,  252-20 },
+   { 0, TA_MIDPRICE_TEST, 0, 251, 21, TA_SUCCESS, 252-21, 112.7450,  20,  252-20 }, /* Last Value */
+
+   { 1, TA_MIDPRICE_TEST, 0, 251, 30, TA_SUCCESS,      0,  90.2500,  29,  252-29 }, /* First Value */
+   { 0, TA_MIDPRICE_TEST, 0, 251, 30, TA_SUCCESS, 252-30, 107.8400,  29,  252-29 }, /* Last Value */
+
 };
 
 #define NB_TEST (sizeof(tableTest)/sizeof(TA_Test))
@@ -336,6 +367,18 @@ static TA_RetCode rangeTestFunction( TA_Integer    startIdx,
       *lookback = TA_BETA_Lookback(testParam->test->optInTimePeriod);
       break;
 
+   case TA_MIDPRICE_TEST:
+      retCode = TA_MIDPRICE( startIdx,
+                             endIdx,
+                             testParam->high,
+                             testParam->low,
+                             testParam->test->optInTimePeriod,
+                             outBegIdx,
+                             outNbElement,
+                             outputBuffer );
+      *lookback = TA_MIDPRICE_Lookback( testParam->test->optInTimePeriod );
+      break;
+
    default:
       retCode = TA_INTERNAL_ERROR(132);
    }
@@ -426,6 +469,18 @@ static ErrorNumber do_test( const TA_History *history,
                          );
       break;
 
+   case TA_MIDPRICE_TEST:
+      retCode = TA_MIDPRICE( test->startIdx,
+                             test->endIdx,
+                             gBuffer[0].in,
+                             gBuffer[1].in,
+                             test->optInTimePeriod,
+                             &outBegIdx,
+                             &outNbElement,
+                             gBuffer[0].out0
+                           );
+      break;
+
    default:
       retCode = TA_INTERNAL_ERROR(133);
    }
@@ -475,6 +530,14 @@ static ErrorNumber do_test( const TA_History *history,
          break;
       case TA_BETA_TEST:
          funcName = "BETA";
+         errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
+                               retCode, outBegIdx, outNbElement,
+                               (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in, NULL },
+                               (double[]){ (double)test->optInTimePeriod }, 1,
+                               (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL);
+         break;
+      case TA_MIDPRICE_TEST:
+         funcName = "MIDPRICE";
          errNb = server_verify(funcName, test->startIdx, test->endIdx, history->nbBars,
                                retCode, outBegIdx, outNbElement,
                                (const TA_Real*[]){ gBuffer[0].in, gBuffer[1].in, NULL },
@@ -555,6 +618,18 @@ static ErrorNumber do_test( const TA_History *history,
                          &outNbElement,
                          gBuffer[0].in
                          );
+      break;
+
+   case TA_MIDPRICE_TEST:
+      retCode = TA_MIDPRICE( test->startIdx,
+                             test->endIdx,
+                             gBuffer[0].in,
+                             gBuffer[1].in,
+                             test->optInTimePeriod,
+                             &outBegIdx,
+                             &outNbElement,
+                             gBuffer[0].in
+                           );
       break;
 
    default:
@@ -648,6 +723,18 @@ static ErrorNumber do_test( const TA_History *history,
                          &outNbElement,
                          gBuffer[1].in
                          );
+      break;
+
+   case TA_MIDPRICE_TEST:
+      retCode = TA_MIDPRICE( test->startIdx,
+                             test->endIdx,
+                             gBuffer[0].in,
+                             gBuffer[1].in,
+                             test->optInTimePeriod,
+                             &outBegIdx,
+                             &outNbElement,
+                             gBuffer[1].in
+                           );
       break;
 
    default:

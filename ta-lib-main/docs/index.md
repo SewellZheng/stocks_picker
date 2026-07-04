@@ -9,7 +9,7 @@ hide:
 </figure>
 <h3 align="center">Use TA-Lib to add technical analysis to your own financial market trading applications</h3>
 
-* 200 indicators such as ADX, MACD, RSI, Stochastic, Bollinger Bands etc... [:octicons-arrow-right-24: See complete list...](functions.md)
+* 200 indicators such as ADX, MACD, RSI, Stochastic, Bollinger Bands etc... [:octicons-arrow-right-24: See complete list...](functions/index.md)
  
 * Candlestick patterns recognition
 

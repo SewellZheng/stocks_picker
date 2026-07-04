@@ -38,16 +38,6 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* IMI BEGIN */
 static const TA_InputParameterInfo    *TA_IMI_Inputs[]    =
 {
@@ -62,18 +52,16 @@ static const TA_OutputParameterInfo   *TA_IMI_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_IMI_OptInputs[] =
-{
-  &TA_DEF_UI_TimePeriod_14_MINIMUM2,
+{ &TA_DEF_UI_TimePeriod_14_MINIMUM2,
   NULL
 };
 
-DEF_FUNCTION( IMI,                        /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "Intraday Momentum Index",  /* hint */
-              "Imi",                      /* CamelCase name */
-              TA_FUNC_FLG_UNST_PER        /* flags */
+DEF_FUNCTION( IMI,
+              TA_GroupId_MomentumIndicators,
+              "Intraday Momentum Index",
+              "Imi",
+              TA_FUNC_FLG_UNST_PER
              );
-
 /* IMI END */
 
 /****************************************************************************
@@ -91,9 +79,3 @@ const TA_FuncDef *TA_DEF_TableI[] =
 const unsigned int TA_DEF_TableISize =
               ((sizeof(TA_DEF_TableI)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

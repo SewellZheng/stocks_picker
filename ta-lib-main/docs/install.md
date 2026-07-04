@@ -4,7 +4,7 @@ hide:
 ---
 Instructions are for installing the C/C++ shared, static libraries and headers on your system.
 
-Latest release is [0.6.4 on Github](https://github.com/ta-lib/ta-lib/releases/latest)
+Latest release is [0.7.1 on Github](https://github.com/ta-lib/ta-lib/releases/latest)
 
 For python and Rusers, see instead [ta-lib-python](https://github.com/TA-Lib/ta-lib-python) or [ta-lib-R](https://github.com/serkor1/ta-lib-R)
 
@@ -21,12 +21,14 @@ For python and Rusers, see instead [ta-lib-python](https://github.com/TA-Lib/ta-
     - [Debian packages](#linux-debian-packages)
     - [Build from source](#linux-build-from-source)
 
+- [GitHub Actions](#github-actions)
+
 
 ## Windows
 
 ### Executable Installer (recommended)
 
-1. **Download** latest [ta-lib-0.6.4-windows-x86_64.msi](https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-windows-x86_64.msi)
+1. **Download** latest [ta-lib-0.7.1-windows-x86_64.msi](https://github.com/ta-lib/ta-lib/releases/download/v0.7.1/ta-lib-0.7.1-windows-x86_64.msi)
 
 2. **Run the Installer**:
     - Double-click the downloaded `.msi` file.
@@ -46,8 +48,8 @@ Use the .zip packages when you prefer to get the libraries without installing (e
 
 | Platform | Download |
 |------------------------|--|
-| Intel/AMD 64-bits| [ta-lib-0.6.4-windows-x86_64.zip](https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-windows-x86_64.zip) |
-| Intel/AMD 32-bits| [ta-lib-0.6.4-windows-x86_32.zip](https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-windows-x86_32.zip) |
+| Intel/AMD 64-bits| [ta-lib-0.7.1-windows-x86_64.zip](https://github.com/ta-lib/ta-lib/releases/download/v0.7.1/ta-lib-0.7.1-windows-x86_64.zip) |
+| Intel/AMD 32-bits| [ta-lib-0.7.1-windows-x86_32.zip](https://github.com/ta-lib/ta-lib/releases/download/v0.7.1/ta-lib-0.7.1-windows-x86_32.zip) |
 | ARM64 | Not yet available. |
 
 ### Windows Build from Source
@@ -77,12 +79,12 @@ See the [homebrew formula](https://formulae.brew.sh/formula/ta-lib) for the late
 
 Ensure you have the required dependencies: `brew install automake && brew install libtool`
 
-1. **Download** latest [ta-lib-0.6.4-src.tar.gz](https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz) (or, alternatively, clone down [https://github.com/ta-lib/ta-lib/](https://github.com/ta-lib/ta-lib/) and checkout the main branch)
+1. **Download** latest [ta-lib-0.7.1-src.tar.gz](https://github.com/ta-lib/ta-lib/releases/download/v0.7.1/ta-lib-0.7.1-src.tar.gz) (or, alternatively, clone down [https://github.com/ta-lib/ta-lib/](https://github.com/ta-lib/ta-lib/) and checkout the main branch)
 
 2. **Extract the Tarball** if you downloaded the source manually:
    ```bash
-   tar -xzf ta-lib-0.6.4-src.tar.gz
-   cd ta-lib-0.6.4
+   tar -xzf ta-lib-0.7.1-src.tar.gz
+   cd ta-lib-0.7.1
    ```
 
 3. **Build and Install**:
@@ -111,18 +113,18 @@ Recommended for all debian-based distributions (e.g. Ubuntu, Mint...)
 
     | Platform | Download |
     |------------------------|--|
-    | Intel/AMD 64-bits | [ta-lib_0.6.4_amd64.deb](https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib_0.6.4_amd64.deb) |
-    | ARM64 (e.g. Raspberry Pi)| [ta-lib_0.6.4_arm64.deb](https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib_0.6.4_arm64.deb) |
-    | Intel/AMD 32-bits| [ta-lib_0.6.4_i386.deb](https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib_0.6.4_i386.deb) |
+    | Intel/AMD 64-bits | [ta-lib_0.7.1_amd64.deb](https://github.com/ta-lib/ta-lib/releases/download/v0.7.1/ta-lib_0.7.1_amd64.deb) |
+    | ARM64 (e.g. Raspberry Pi)| [ta-lib_0.7.1_arm64.deb](https://github.com/ta-lib/ta-lib/releases/download/v0.7.1/ta-lib_0.7.1_arm64.deb) |
+    | Intel/AMD 32-bits| [ta-lib_0.7.1_i386.deb](https://github.com/ta-lib/ta-lib/releases/download/v0.7.1/ta-lib_0.7.1_i386.deb) |
 
 2. **Install or Update**:
    ```bash
    # For Intel/AMD (64 bits)
-   sudo dpkg -i ta-lib_0.6.4_amd64.deb
+   sudo dpkg -i ta-lib_0.7.1_amd64.deb
    # or
-   sudo dpkg -i ta-lib_0.6.4_arm64.deb
+   sudo dpkg -i ta-lib_0.7.1_arm64.deb
    # or
-   sudo dpkg -i ta-lib_0.6.4_i386.deb
+   sudo dpkg -i ta-lib_0.7.1_i386.deb
    ```
    If you choose to uninstall do:
     ```bash
@@ -131,12 +133,12 @@ Recommended for all debian-based distributions (e.g. Ubuntu, Mint...)
 
 ### Linux Build from Source
 
-1. **Download** latest [ta-lib-0.6.4-src.tar.gz](https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz) (or, alternatively, clone down [https://github.com/ta-lib/ta-lib/](https://github.com/ta-lib/ta-lib/) and checkout the main branch)
+1. **Download** latest [ta-lib-0.7.1-src.tar.gz](https://github.com/ta-lib/ta-lib/releases/download/v0.7.1/ta-lib-0.7.1-src.tar.gz) (or, alternatively, clone down [https://github.com/ta-lib/ta-lib/](https://github.com/ta-lib/ta-lib/) and checkout the main branch)
 
 2. **Extract the Tarball** if you downloaded the source manually:
    ```bash
-   tar -xzf ta-lib-0.6.4-src.tar.gz
-   cd ta-lib-0.6.4
+   tar -xzf ta-lib-0.7.1-src.tar.gz
+   cd ta-lib-0.7.1
    ```
 
 3. **Build and Install**:
@@ -152,4 +154,23 @@ Recommended for all debian-based distributions (e.g. Ubuntu, Mint...)
     ```bash
     sudo make uninstall
     ```
+
+
+## GitHub Actions
+
+To install the TA-Lib C library in a CI pipeline, use the [setup-ta-lib](https://github.com/TA-Lib/setup-ta-lib) action. It runs on Linux, macOS and Windows runners.
+
+```yaml
+- uses: TA-Lib/setup-ta-lib@v1
+```
+
+The latest release is installed by default. To pin a specific version:
+
+```yaml
+- uses: TA-Lib/setup-ta-lib@v1
+  with:
+    version: "0.7.1"
+```
+
+This is handy as a step before installing a wrapper that depends on the C library, such as the Python `ta-lib` package.
 

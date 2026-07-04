@@ -23,6 +23,7 @@ import re
 from utilities.files import path_join
 from utilities.common import get_release_assets, verify_git_repo
 from utilities.versions import check_sources_digest, check_versions
+from utilities.package_digest import PackageDigest
 from datetime import datetime
 
 if __name__ == "__main__":
@@ -70,12 +71,22 @@ if __name__ == "__main__":
         if not os.path.exists(digest_file):
             print(f"Error: Missing file [{asset}.digest]. Did you forget some re-build and/or tests steps?")
             exit(1)
-        # Verify the digest file is for the current source code.
-        with open(digest_file, 'r') as f:
-            digest = f.read().strip()
-            if digest != sources_digest:
-                print(f"Error: Digest mismatch for [{asset}.digest]. Did you forget some re-build and/or tests steps?");
-                exit(1)
+        # The digest is a PackageDigest JSON record (see utilities/package_digest.py).
+        # Verify it was built from the current sources, built successfully, its
+        # enabled tests passed, and the package file was not modified since.
+        pdigest = PackageDigest.read(root_dir, asset)
+        if pdigest.sources_digest != sources_digest:
+            print(f"Error: Digest mismatch for [{asset}.digest]. Did you forget some re-build and/or tests steps?")
+            exit(1)
+        if pdigest.built_success != "True":
+            print(f"Error: [{asset}] is not marked as successfully built.")
+            exit(1)
+        if not pdigest.are_all_tests_passed():
+            print(f"Error: [{asset}] has failing or unknown test results in its digest.")
+            exit(1)
+        if pdigest.package_md5 not in ("Disabled", "Unknown") and pdigest.package_md5 != pdigest.calculate_md5():
+            print(f"Error: [{asset}] md5 does not match its digest record (file modified after packaging?).")
+            exit(1)
 
     # Verify CHANGELOG.md exists and there is a top entry matching the VERSION file.
     changelog_path = path_join(root_dir, 'CHANGELOG.md')

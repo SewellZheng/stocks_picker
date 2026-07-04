@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Expand Hilbert transform macros and DO_PRICE_WMA in ta_func_defs source files.
+"""Expand Hilbert transform macros and DO_PRICE_WMA in ta_codegen/input source files.
 
 Handles:
 - HILBERT_VARIABLES(name) -> variable declarations
@@ -152,7 +152,7 @@ def process_file(filepath):
 
 
 def main():
-    base = os.path.join(os.path.dirname(__file__), '..', 'ta_func_defs')
+    base = os.path.join(os.path.dirname(__file__), '..', 'ta_codegen/input')
     files = glob.glob(os.path.join(base, '**', '*.c'), recursive=True)
 
     count = 0

@@ -31,7 +31,6 @@ class PackageDigest:
     built_success: str = "False"    # "True" or "False"
 
     package_md5: str = "Disabled"     # "Disabled", "Unknown" or "hash_of_package"
-    gen_code_pass: str = "Disabled"   # "Disabled", "Unknown", "True" or "False"
     ta_regtest_pass: str = "Disabled" # "Disabled", "Unknown", "True" or "False"
     dist_test_pass: str = "Disabled"  # "Disabled", ""Unknown", True" or "False"
 
@@ -54,15 +53,13 @@ class PackageDigest:
         # When name is "github-*", then it is tracking the state of a repo branch, else
         # assume it is tracking a package in dist/
         if self.asset_file_name.startswith("github-"):
-            # gen_code is enabled only when doing repos branch processing.
+            # github-* tracks the state of a repo branch.
             self._disable_package_md5()
             self._disable_dist_test()
-            self._enable_gen_code()
             self._enable_ta_regtest()
         else:
             self._enable_package_md5()
             self._enable_dist_test()
-            self._disable_gen_code()
             # ta_regtest must work for src.tar.gz (needed for homebrew maintainer).
             if self.asset_file_name.endswith("-src.tar.gz"):
                 self._enable_ta_regtest()
@@ -83,7 +80,6 @@ class PackageDigest:
             builder_id=data.get("builder_id", ""),
             built_success=data.get("built_success", ""),
             package_md5=data.get("package_md5", ""),
-            gen_code_pass=data.get("gen_code_pass", ""),
             ta_regtest_pass=data.get("ta_regtest_pass", ""),
             dist_test_pass=data.get("dist_test_pass", ""),
         )
@@ -95,10 +91,6 @@ class PackageDigest:
         # Verify supported values.
         if pdigest.built_success not in ["True", "False"]:
             print(f"Error: Invalid value for built_success: {pdigest.built_success}")
-            sys.exit(1)
-
-        if pdigest.gen_code_pass not in ["Disabled", "Unknown", "True", "False"]:
-            print(f"Error: Invalid value for gen_code_pass: {pdigest.gen_code_pass}")
             sys.exit(1)
 
         if pdigest.ta_regtest_pass not in ["Disabled", "Unknown", "True", "False"]:
@@ -122,7 +114,6 @@ class PackageDigest:
             "builder_id": self.builder_id,
             "built_success": self.built_success,
             "package_md5": self.package_md5,
-            "gen_code_pass": self.gen_code_pass,
             "ta_regtest_pass": self.ta_regtest_pass,
             "dist_test_pass": self.dist_test_pass,
         }
@@ -134,9 +125,6 @@ class PackageDigest:
         return _calculate_md5(package_file_path)
 
     def clear_tests(self):
-        if self.gen_code_pass != "Disabled":
-            self.gen_code_pass = "Unknown"
-
         if self.ta_regtest_pass != "Disabled":
             self.ta_regtest_pass = "Unknown"
 
@@ -144,8 +132,6 @@ class PackageDigest:
             self.dist_test_pass = "Unknown"
 
     def are_all_tests_passed(self) -> bool:
-        if self.gen_code_pass != "Disabled" and self.gen_code_pass != "True":
-            return False
         if self.ta_regtest_pass != "Disabled" and self.ta_regtest_pass != "True":
             return False
         if self.dist_test_pass != "Disabled" and self.dist_test_pass != "True":
@@ -158,13 +144,6 @@ class PackageDigest:
 
     def _disable_package_md5(self):
         self.package_md5 = "Disabled"
-
-    def _enable_gen_code(self):
-        if self.gen_code_pass == "Disabled":
-            self.gen_code_pass = "Unknown"
-
-    def _disable_gen_code(self):
-        self.gen_code_pass = "Disabled"
 
     def _enable_ta_regtest(self):
         if self.ta_regtest_pass == "Disabled":

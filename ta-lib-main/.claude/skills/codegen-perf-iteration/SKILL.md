@@ -15,7 +15,7 @@ GENERATE → BUILD → TEST → BENCHMARK → ANALYZE → CONSULT → PLAN → F
 
 ### GENERATE
 ```bash
-cd tools/ta_codegen
+cd ta_codegen/generator
 cargo run --release -- generate --backend=c
 cargo run --release -- generate-servers --backend=c
 cargo run --release -- generate-bench --backend=c
@@ -118,10 +118,10 @@ Root cause categories:
 
 ### FIX
 Make ONE change. Fix locations in priority order:
-1. `ta_func_defs/<name>/<name>.c` — extracted indicator source
-2. `tools/ta_codegen/src/backends/c.rs` — C backend rendering
-3. `ta_func_defs/lib/c/ta_lib_types.h` — type system, globals, macros
-4. `tools/ta_codegen/src/parser/` — parser changes
+1. `ta_codegen/input/<name>/<name>.c` — indicator source (plain C)
+2. `ta_codegen/generator/src/backends/c.rs` — C backend rendering
+3. `ta_codegen/generator/src/backends/builtins.rs` + `ta_codegen/input/lib/` — shared macros, types, globals
+4. `ta_codegen/generator/src/parser/` — parser changes
 
 After fixing, go back to GENERATE and repeat the full loop.
 
@@ -165,18 +165,21 @@ For one-off runs: just invoke `/codegen-perf-iteration` directly.
 
 ## Rebuilding ta_ref_serve
 
-When cmake rebuilds libta-lib.a, the reference server needs rebuilding too:
+`scripts/regtest.py` rebuilds `ta_ref_serve` automatically in its cmake step, so the
+normal pipeline handles this. The manual fallback (when cmake rebuilds `libta-lib.a`
+and you need the reference server refreshed by hand) reads from
+`ta_codegen/output/c/ta_codegen_serve.c`:
 ```bash
-sed '/#include "ta_[A-Z].*\.c"/d' ta_codegen_output/c/ta_codegen_serve.c > /tmp/ta_ref_serve.c
+sed '/#include "ta_[A-Z].*\.c"/d' ta_codegen/output/c/ta_codegen_serve.c > /tmp/ta_ref_serve.c
 sed -i '' '/#include "ta_lib_globals.c"/a\
 extern int TA_Initialize(void);\
 extern int TA_RestoreCandleDefaultSettings(int settingType);
 ' /tmp/ta_ref_serve.c
 sed -i '' 's|int main(void) {|int main(void) { TA_Initialize(); TA_RestoreCandleDefaultSettings(11);|' /tmp/ta_ref_serve.c
-cc -O3 -DNDEBUG -Wno-everything -I ta_codegen_output/c -o bin/ta_ref_serve /tmp/ta_ref_serve.c cmake-build/libta-lib.a -lm
+cc -O3 -DNDEBUG -Wno-everything -I ta_codegen/output/c -o bin/ta_ref_serve /tmp/ta_ref_serve.c cmake-build/libta-lib.a -lm
 ```
 
-## Current State (2026-03-21)
+## Current State (historical snapshot, 2026-03-21)
 
 ### Resolved
 - Candle macros (`TA_CANDLERANGE`/`TA_CANDLEAVERAGE`) match reference pattern
@@ -198,12 +201,12 @@ cc -O3 -DNDEBUG -Wno-everything -I ta_codegen_output/c -o bin/ta_ref_serve /tmp/
 
 | File | Role |
 |------|------|
-| `tools/ta_codegen/src/backends/c.rs` | C code generation — validation, candle macros, `&&` split |
-| `tools/ta_codegen/src/bench_gen.rs` | Generates ta_bench_cg direct-call benchmark binary |
-| `tools/ta_codegen/src/server_gen.rs` | Server generation — dispatch, load_data, timing |
-| `tools/ta_codegen/src/main.rs` | Build step, generate-bench command |
-| `ta_func_defs/<name>/<name>.c` | Extracted indicator source — the logic itself |
-| `ta_func_defs/lib/c/ta_lib_types.h` | Type system, static globals, candle macros |
+| `ta_codegen/generator/src/backends/c.rs` | C code generation — validation, candle macros, `&&` split |
+| `ta_codegen/generator/src/bench_gen.rs` | Generates ta_bench_cg direct-call benchmark binary |
+| `ta_codegen/generator/src/server_gen.rs` | Server generation — dispatch, load_data, timing |
+| `ta_codegen/generator/src/main.rs` | Build step, generate-bench command |
+| `ta_codegen/input/<name>/<name>.c` | Indicator source — the logic itself (plain C) |
+| `ta_codegen/generator/src/backends/builtins.rs`, `ta_codegen/input/lib/` | Shared macros, static globals, candle helpers |
 | `src/tools/ta_bench/ta_bench_direct.c` | Direct-call benchmark orchestrator (cmake) |
 | `src/tools/ta_bench/ta_bench.c` | Server-based benchmark with thermal canary |
 | `scripts/regtest.py` | Full pipeline: generate + build + test + bench + direct-bench |

@@ -11,11 +11,20 @@ on:
     - cron: "0 5 * * *" # every day 5AM
 
   workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Force rebuild + tests even when dist digests match"
+        type: boolean
+        default: false
 
 jobs:
   test:
     name: Test ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Scheduled runs leave this '0'; a manual dispatch can force package.py
+      # to rebuild and re-test everything despite matching dist digests.
+      PACKAGE_FORCE_BUILD: ${{ inputs.force_build && '1' || '0' }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-2022]
@@ -44,7 +53,7 @@ jobs:
         shell: bash
         run: |
           sudo apt update
-          sudo apt install -y automake libtool autogen mcpp
+          sudo apt install -y automake libtool autogen
           sudo apt install -y openjdk-21-jdk
           sudo apt install -y gcc-multilib
           sudo apt install -y gcc-i686-linux-gnu
@@ -62,19 +71,44 @@ jobs:
           :: echo VCVARSALL=%VCVARSALL% >> %GITHUB_ENV%
           echo PYTHON=python >> %GITHUB_ENV%
 
+      # NOTE: one command per step (or && chains). A multi-line `shell: cmd`
+      # script propagates only the LAST command's exit code, which masked
+      # every failure in this job for months (wix EULA errors, full MSVC
+      # build failures, dead MSI packaging) while the job stayed green.
+      # WiX is version-pinned for determinism (an unpinned install is what
+      # silently jumped to v7 in April and broke packaging).
+      - name: Install WiX (Windows x64)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: dotnet tool install --global wix --version 7.0.0 && echo %USERPROFILE%\.dotnet\tools>>%GITHUB_PATH%
+
+      # TA-Lib generates no revenue, so the Open Source Maintenance Fee does
+      # not apply (the OSMF exempts organizations under USD 10k/year), but
+      # WiX v7 still requires explicit EULA acceptance (WIX7015 otherwise).
+      # Accepted per project-maintainer decision, 2026-07-03.
+      - name: Accept WiX OSMF EULA (Windows x64)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: wix eula accept wix7
+
+      - name: Add WiX UI extension (Windows x64)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: wix extension add --global WixToolset.UI.wixext/7.0.0 && wix extension list --global
+
       - name: Build dist assets (Windows x64)
         if: runner.os == 'Windows'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: cmd
-        run: |
-          :: call "%VCVARSALL%" x64
-          dotnet tool install --global wix
-          set PATH=%PATH%;%USERPROFILE%\.dotnet\tools
-          wix extension add --global WixToolset.UI.wixext
-          wix extension list --global
-          %PYTHON% %GITHUB_WORKSPACE%\scripts\package.py
-          %PYTHON% %GITHUB_WORKSPACE%\scripts\test-dist.py
+        run: '%PYTHON% %GITHUB_WORKSPACE%\scripts\package.py'
+
+      - name: Test dist assets (Windows x64)
+        if: runner.os == 'Windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: cmd
+        run: '%PYTHON% %GITHUB_WORKSPACE%\scripts\test-dist.py'
 
       - name: Check for changes and commit if any
         env:
@@ -112,3 +146,155 @@ jobs:
           else
             echo "No changes detected in dist directory"
           fi
+
+  # First-ever clang + ARM64 + macOS coverage of the generated C: build with
+  # the default Apple toolchain and run the full C reference suite. Kept
+  # separate from the dist 'test' job (macOS produces no dist assets); the
+  # C hero philosophy applies — this needs no Rust/Java/.NET toolchain.
+  test-macos:
+    name: Test macos-latest (clang, ARM64)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      - name: Build (CMake, AppleClang)
+        shell: bash
+        run: |
+          mkdir -p cmake-build && cd cmake-build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_DEV_TOOLS=ON
+          cmake --build . -j 3
+
+      - name: Run C regression suite
+        shell: bash
+        run: cd cmake-build/bin && ./ta_regtest
+
+  # Cross-language codegen verification — runs AFTER the C tests (needs: test).
+  # C is the hero: the 'test' job above validates the C library with a C-only
+  # toolchain (CMake/autotools never invoke cargo, so ta_regtest needs no Rust
+  # toolchain). Only this job adds the Rust/Java/.NET toolchains, builds the
+  # JSON-RPC language servers plus the frozen reference server (ta_ref_serve,
+  # from the pinned reference tag), and runs ta_regtest --codegen-only:
+  # 161 functions x 4 languages diffed against the reference, including the
+  # non-default-parameter ref differential sweep. POSIX-only (the server
+  # harness uses fork/exec), hence no Windows leg.
+  cross-language:
+    name: Cross-language codegen tests
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+          fetch-depth: 0 # ta_ref_serve builds from the pinned reference tag
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install JDK
+        shell: bash
+        run: |
+          sudo apt update
+          sudo apt install -y openjdk-21-jdk
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build servers and run cross-language verification
+        shell: bash
+        run: |
+          # Rust toolchain and cmake are preinstalled on ubuntu-latest.
+          # C reference tests already ran in the 'test' job (the hero);
+          # --codegen-only runs just the cross-language verification.
+          # Benchmarks are skipped: CI timing is noise.
+          python3 scripts/regtest.py --no-perftest --no-direct-bench --codegen-only
+
+  # Conan packaging (#86) was never exercised by CI: build the package
+  # recipe end to end (library-only; BUILD_DEV_TOOLS stays off in the
+  # recipe). Gated on the C hero job like the other non-hero jobs.
+  conan:
+    name: Conan package build
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Build conan package
+        shell: bash
+        run: |
+          pip install conan
+          conan profile detect --force
+          conan create . --build=missing
+
+  # Runs LAST (needs: test) so every other job tested the committed,
+  # already-generated sources. This regenerates from ta_codegen/input/ and fails
+  # if anything differs — i.e. an input edit whose generated output was never
+  # re-generated and committed.
+  regen-check:
+    name: ta_codegen output up-to-date
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      # The two hand-maintained ta_regtest source lists must agree: a file
+      # present only in CMakeLists.txt builds fine locally (CMake) and then
+      # breaks the autotools dist path above, and vice versa. Pure text
+      # check, fails fast before anything is built.
+      - name: Verify ta_regtest source lists (CMake vs autotools) agree
+        shell: bash
+        run: python3 scripts/build.py check-source-lists
+
+      # Check the INPUT source of truth first: it must be re-indented (leading
+      # whitespace, trailing whitespace, and blank-line runs). This fails early
+      # and clearly, before the output-regeneration check below.
+      - name: Verify ta_codegen/input is formatted
+        shell: bash
+        run: |
+          if ! python3 scripts/build.py format-check; then
+            echo "::error::ta_codegen/input is not formatted. Run 'scripts/build.py format' and commit the result."
+            exit 1
+          fi
+          echo "ta_codegen/input is formatted. OK."
+
+      - name: Regenerate all backends and verify committed output matches
+        shell: bash
+        run: |
+          # cmake + cargo are preinstalled on ubuntu-latest; generate is cargo-only (no mcpp needed).
+          python3 scripts/build.py generate
+          status="$(git status --porcelain)"
+          if [ -n "$status" ]; then
+            echo "::error::ta_codegen output is out of date. Run 'scripts/build.py generate' and commit the regenerated files."
+            echo "$status"
+            echo "----- git diff -----"
+            git --no-pager diff
+            exit 1
+          fi
+          echo "ta_codegen output matches the committed source. OK."

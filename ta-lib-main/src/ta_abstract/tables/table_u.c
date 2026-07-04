@@ -38,57 +38,47 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* ULTOSC BEGIN */
-const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_7_PER1 =
+static const TA_OptInputParameterInfo TA_DEF_UI_D_ULTOSC_TimePeriod1 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod1",       /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod1",
+   0,
 
-   "First Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive, /* dataSet */
-   7, /* defaultValue */
-   "Number of bars for 1st period.", /* hint */
+   "First Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   7,
+   "Number of bars for 1st period.",
 
-   NULL /* CamelCase name */
+   NULL
 };
 
-const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_14_PER2 =
+static const TA_OptInputParameterInfo TA_DEF_UI_D_ULTOSC_TimePeriod2 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod2",       /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod2",
+   0,
 
-   "Second Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive, /* dataSet */
-   14, /* defaultValue */
-   "Number of bars fro 2nd period", /* hint */
+   "Second Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   14,
+   "Number of bars fro 2nd period",
 
-   NULL /* CamelCase name */
+   NULL
 };
 
-const TA_OptInputParameterInfo TA_DEF_UI_TimePeriod_28_PER3 =
+static const TA_OptInputParameterInfo TA_DEF_UI_D_ULTOSC_TimePeriod3 =
 {
-   TA_OptInput_IntegerRange, /* type */
-   "optInTimePeriod3",       /* paramName */
-   0,                        /* flags */
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod3",
+   0,
 
-   "Third Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive, /* dataSet */
-   28, /* defaultValue */
-   "Number of bars for 3rd period", /* hint */
+   "Third Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   28,
+   "Number of bars for 3rd period",
 
-   NULL /* CamelCase name */
+   NULL
 };
 
 static const TA_InputParameterInfo    *TA_ULTOSC_Inputs[]    =
@@ -104,18 +94,17 @@ static const TA_OutputParameterInfo   *TA_ULTOSC_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_ULTOSC_OptInputs[] =
-{
-  &TA_DEF_UI_TimePeriod_7_PER1,
-  &TA_DEF_UI_TimePeriod_14_PER2,
-  &TA_DEF_UI_TimePeriod_28_PER3,
+{ &TA_DEF_UI_D_ULTOSC_TimePeriod1,
+  &TA_DEF_UI_D_ULTOSC_TimePeriod2,
+  &TA_DEF_UI_D_ULTOSC_TimePeriod3,
   NULL
 };
 
-DEF_FUNCTION( ULTOSC,                         /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "Ultimate Oscillator",          /* hint */
-              "UltOsc",                       /* CamelCase name */
-              0                               /* flags */
+DEF_FUNCTION( ULTOSC,
+              TA_GroupId_MomentumIndicators,
+              "Ultimate Oscillator",
+              "UltOsc",
+              0
              );
 /* ULTOSC END */
 
@@ -134,9 +123,3 @@ const TA_FuncDef *TA_DEF_TableU[] =
 const unsigned int TA_DEF_TableUSize =
               ((sizeof(TA_DEF_TableU)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

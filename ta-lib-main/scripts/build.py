@@ -2,15 +2,17 @@
 
 # Developer build helper for TA-Lib.
 #
-# Wraps CMake so you can build and test from any directory within the repo.
+# The C library + C tools build with CMake (this wraps it); the Rust ta_codegen
+# tool and the JSON-RPC servers build with cargo directly. The C build systems
+# (CMake/autotools) never invoke cargo — building ta_codegen and the dev tools is
+# this script's job.
 #
 # Usage:
-#   scripts/build.py                Build library + all tools
-#   scripts/build.py ta_regtest     Build the regression test runner
-#   scripts/build.py gen_code       Build the legacy C code generator
-#   scripts/build.py ta_codegen     Build the Rust codegen tool
-#   scripts/build.py generate       Generate per-function source for all backends
-#   scripts/build.py servers        Generate + compile JSON-RPC language servers
+#   scripts/build.py                Build library + all C tools (CMake)
+#   scripts/build.py ta_regtest     Build the regression test runner (CMake)
+#   scripts/build.py ta_codegen     Build the Rust codegen tool (cargo)
+#   scripts/build.py generate       Generate per-function source for all backends (cargo)
+#   scripts/build.py servers        Generate + compile JSON-RPC language servers (cargo)
 #   scripts/build.py test           C reference regression tests
 #   scripts/build.py regtest        Full cross-language regression tests
 #   scripts/build.py regtest-only   Codegen verification only (skip C tests)
@@ -85,18 +87,25 @@ def cmake_build(build_dir: str, target: str = None, jobs: int = DEFAULT_JOBS):
 def show_help():
     print("""TA-Lib Build Targets
 
-  Building:
-    (default)           Build library + all tools
+  Building (C, via CMake):
+    (default)           Build library + all C tools
     ta_regtest          Build the regression test runner
-    gen_code            Build the legacy C code generator
+
+  Building (Rust ta_codegen, via cargo — CMake never invokes cargo):
     ta_codegen          Build the Rust codegen tool
     generate            Generate per-function source for all backends
     servers             Generate all source + compile JSON-RPC language servers
+    format              Re-indent the ta_codegen/input/ C source of truth
+    format-check        Verify inputs are formatted (fails if not); writes nothing
 
   Testing:
     test                C reference regression tests
-    regtest             Full pipeline: servers + C tests + codegen verification
+    check-source-lists  Verify the CMake and autotools ta_regtest source
+                        lists agree (no build; pure text check)
+    regtest             Full pipeline: servers (cargo) + C tests + codegen verification
     regtest-only        Codegen verification only (skip C tests)
+    talib-rs-server     Build the third-party talib-rs benchmark server (opt-in;
+                        then: ta_bench --language=cref,c,talib_rs --function=...)
 
   Other:
     clean               Remove cmake-build/
@@ -108,14 +117,125 @@ def show_help():
     --cmake-args="..."  Extra arguments passed to cmake configure
 """)
 
-# Each target maps to cmake target(s). Use only the final dependency target
-# when earlier targets are already wired as CMake dependencies.
+def run_codegen(root_dir: str, *cargo_args: str):
+    """Run a cargo command in the ta_codegen generator crate.
+
+    This is how ta_codegen (Rust) is built/run — directly via cargo, never through
+    CMake. Keeps the C build systems free of any Rust/cargo dependency.
+    """
+    codegen_dir = os.path.join(root_dir, "ta_codegen", "generator")
+    subprocess.run(['cargo', *cargo_args], check=True, cwd=codegen_dir)
+
+def build_servers(root_dir: str):
+    """Generate the JSON-RPC language servers and compile them (cargo)."""
+    run_codegen(root_dir, 'run', '--release', '--', 'generate-servers')
+    run_codegen(root_dir, 'run', '--release', '--', 'build')
+
+def build_talib_rs_server(root_dir: str):
+    """Build the third-party talib-rs benchmark server (cargo, opt-in).
+
+    Wraps the crates.io `talib-rs` crate in the ta_codegen JSON-RPC protocol so
+    `ta_bench --language=...,talib_rs` can benchmark it alongside the TA-Lib
+    language servers. Never built by default — it downloads a third-party
+    crate.
+    """
+    crate_dir = os.path.join(root_dir, "src", "tools", "talib_rs_serve")
+    subprocess.run(['cargo', 'build', '--release'], check=True, cwd=crate_dir)
+    shutil.copy2(
+        os.path.join(crate_dir, "target", "release", "talib_rs_serve"),
+        os.path.join(root_dir, "bin", "ta_talib_rs_serve"),
+    )
+    print("  talib-rs comparison server -> bin/ta_talib_rs_serve")
+
+def check_regtest_source_lists(root_dir: str) -> bool:
+    """Verify the two hand-maintained ta_regtest source lists agree.
+
+    ta_regtest is built by BOTH build systems: CMake (TA_REGTEST_SOURCES in
+    CMakeLists.txt, used by the local dev loop and the cross-language CI job)
+    and autotools (ta_regtest_SOURCES in src/tools/ta_regtest/Makefile.am,
+    used by the dist "end-user simulation" nightly). The lists are maintained
+    by hand in parallel: a file added to only one of them compiles fine under
+    CMake locally and then breaks the autotools nightly. Returns True when
+    the lists are identical.
+    """
+    import re
+
+    cmake_path = os.path.join(root_dir, 'CMakeLists.txt')
+    with open(cmake_path, encoding='utf-8') as f:
+        cmake_text = f.read()
+    m = re.search(r'set\(TA_REGTEST_SOURCES\n(.*?)\n\s*\)', cmake_text, re.S)
+    if not m:
+        print("Error: TA_REGTEST_SOURCES block not found in CMakeLists.txt")
+        return False
+    cmake_set = set()
+    for line in m.group(1).splitlines():
+        entry = line.strip().strip('"')
+        if not entry:
+            continue
+        cmake_set.add(entry.replace(
+            '${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/', ''))
+
+    am_path = os.path.join(root_dir, 'src', 'tools', 'ta_regtest', 'Makefile.am')
+    am_set = set()
+    with open(am_path, encoding='utf-8') as f:
+        lines = f.readlines()
+    i = 0
+    while i < len(lines):
+        if lines[i].lstrip().startswith('ta_regtest_SOURCES'):
+            block = lines[i].split('=', 1)[1]
+            while block.rstrip().endswith('\\') and i + 1 < len(lines):
+                block = block.rstrip().rstrip('\\') + ' '
+                i += 1
+                block += lines[i]
+            am_set.update(block.rstrip().rstrip('\\').split())
+            break
+        i += 1
+    if not am_set:
+        print(f"Error: ta_regtest_SOURCES block not found in {am_path}")
+        return False
+
+    # The two shipped Visual Studio projects list the same sources a third
+    # and fourth time (ClCompile entries, backslash paths).
+    vcxproj_sets = {}
+    for rel in ('ide/vs2022/lib_proj/ta_regtest/ta_regtest.vcxproj',
+                'ide/vs2012/lib_proj/ta_regtest/ta_regtest.vcxproj'):
+        vpath = os.path.join(root_dir, rel)
+        vset = set()
+        with open(vpath, encoding='utf-8-sig') as f:
+            for m in re.finditer(r'<ClCompile Include="([^"]+)"', f.read()):
+                entry = m.group(1).replace('\\', '/')
+                marker = 'src/tools/ta_regtest/'
+                if marker in entry:
+                    vset.add(entry.split(marker, 1)[1])
+        vcxproj_sets[rel] = vset
+
+    ok = True
+    lists = [('CMakeLists.txt TA_REGTEST_SOURCES', cmake_set),
+             ('src/tools/ta_regtest/Makefile.am ta_regtest_SOURCES', am_set)]
+    lists += [(rel, vset) for rel, vset in vcxproj_sets.items()]
+    union = set()
+    for _, entries in lists:
+        union |= entries
+    for name, entries in lists:
+        missing = sorted(union - entries)
+        for entry in missing:
+            print(f"Error: missing from {name}: {entry}")
+            ok = False
+    if not ok:
+        print("Add the missing entries so all build systems compile the same files.")
+        return False
+
+    print(f"ta_regtest source lists agree across CMake, autotools and the two "
+          f"VS projects ({len(cmake_set)} files). OK.")
+    return True
+
+# Rust targets run cargo directly (no CMake).
+CARGO_TARGETS = {'ta_codegen', 'generate', 'servers', 'format', 'format-check',
+                 'talib-rs-server'}
+
+# C targets map to a cmake target.
 SIMPLE_TARGETS = {
     'ta_regtest':  'ensure_ta_regtest_in_bin',
-    'gen_code':    'ensure_gen_code_in_bin',
-    'ta_codegen':  'ta_codegen_bin',
-    'generate':    'ta_codegen_generate',
-    'servers':     'ta_codegen_servers',
     'test':        'test',
     'regtest':     'regtest',
     'regtest-only':'regtest-only',
@@ -125,10 +245,12 @@ SIMPLE_TARGETS = {
 TARGET_PREREQS = {
     'all':          PREREQS_BUILD_BASIC,
     'ta_regtest':   PREREQS_BUILD_BASIC,
-    'gen_code':     PREREQS_BUILD_BASIC,
     'ta_codegen':   PREREQS_BUILD_CODEGEN,
     'generate':     PREREQS_BUILD_CODEGEN,
+    'format':       PREREQS_BUILD_CODEGEN,
+    'format-check': PREREQS_BUILD_CODEGEN,
     'servers':      PREREQS_BUILD_SERVERS,
+    'talib-rs-server': PREREQS_BUILD_CODEGEN,
     'test':         PREREQS_BUILD_BASIC,
     'regtest':      PREREQS_BUILD_SERVERS,
     'regtest-only': PREREQS_BUILD_SERVERS,
@@ -166,9 +288,35 @@ def main():
             print("Nothing to clean.")
         return
 
+    # Pure text check — no build prerequisites.
+    if args.target == 'check-source-lists':
+        sys.exit(0 if check_regtest_source_lists(root_dir) else 1)
+
     check_prerequisites(TARGET_PREREQS.get(args.target, PREREQS_BUILD_BASIC))
 
+    # Rust ta_codegen targets build with cargo directly — no CMake involved.
+    if args.target in CARGO_TARGETS:
+        if args.target == 'ta_codegen':
+            run_codegen(root_dir, 'build', '--release')
+        elif args.target == 'generate':
+            run_codegen(root_dir, 'run', '--release', '--', 'generate')
+        elif args.target == 'format':
+            run_codegen(root_dir, 'run', '--release', '--', 'format')
+        elif args.target == 'format-check':
+            run_codegen(root_dir, 'run', '--release', '--', 'format', '--check')
+        elif args.target == 'talib-rs-server':
+            build_talib_rs_server(root_dir)
+        else:  # servers
+            build_servers(root_dir)
+        return
+
     ensure_configured(root_dir, build_dir, args.build_type, args.cmake_args)
+
+    # The cross-language tests run the C ta_regtest binary against the language
+    # servers, so build the servers (cargo) first — the CMake regtest target no
+    # longer does it.
+    if args.target in ('regtest', 'regtest-only'):
+        build_servers(root_dir)
 
     if args.target == 'all':
         cmake_build(build_dir, jobs=args.jobs)

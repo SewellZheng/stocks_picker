@@ -100,14 +100,6 @@ def is_java_installed() -> bool:
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
-def is_mcpp_installed() -> bool:
-    try:
-        subprocess.run(['mcpp', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
-    except FileNotFoundError:
-        return False
-
-
 def check_prerequisites(tools: list):
     """Check that all required tools are installed. Exit with an error if any are missing.
 
@@ -138,12 +130,11 @@ PREREQS_GCC = ("gcc", is_gcc_installed, "apt install build-essential (or brew in
 PREREQS_JAVAC = ("javac", is_javac_installed, "apt install default-jdk (or brew install openjdk)")
 PREREQS_JAVA = ("java", is_java_installed, "apt install default-jdk (or brew install openjdk)")
 PREREQS_DOTNET = ("dotnet", is_dotnet_installed, "see https://dotnet.microsoft.com/download")
-PREREQS_MCPP = ("mcpp", is_mcpp_installed, "apt install mcpp (or brew install mcpp)")
 
 # Grouped prerequisite sets for common build scenarios.
 PREREQS_BUILD_BASIC = [PREREQS_CMAKE]
-PREREQS_BUILD_CODEGEN = [PREREQS_CMAKE, PREREQS_CARGO, PREREQS_MCPP]
-PREREQS_BUILD_SERVERS = [PREREQS_CMAKE, PREREQS_CARGO, PREREQS_MCPP, PREREQS_GCC, PREREQS_JAVAC, PREREQS_JAVA, PREREQS_DOTNET]
+PREREQS_BUILD_CODEGEN = [PREREQS_CMAKE, PREREQS_CARGO]
+PREREQS_BUILD_SERVERS = [PREREQS_CMAKE, PREREQS_CARGO, PREREQS_GCC, PREREQS_JAVAC, PREREQS_JAVA, PREREQS_DOTNET]
 
 def is_wix_installed() -> bool:
     # For installation, see https://cmake.org/cmake/help/latest/cpack_gen/wix.html#wix-net-tools
@@ -238,7 +229,7 @@ def get_release_assets(version:str) -> list:
         f'ta-lib_{version}_i386.deb',
     ]
 
-# Utility functions to identify the gen_code generated files.
+# Utility functions to identify the ta_codegen-generated files.
 def get_src_generated_files() -> list:
     """
     Return the list of generated files and directories.
@@ -261,7 +252,6 @@ def get_src_generated_files() -> list:
         'src/ta_abstract/frames/*.c',
         'src/ta_abstract/frames/*.h',
         'src/ta_common/ta_retcode.c',
-        'src/ta_abstract/ta_java_defs.h',
     ]
 
 def get_all_generated_files() -> list:
@@ -274,9 +264,6 @@ def get_all_generated_files() -> list:
     TA-Lib maintainers should update this list everytime a new file is generated (or not).
     """
     return [
-        'dotnet/src/Core/TA-Lib-Core.vcproj',
-        'dotnet/src/Core/TA-Lib-Core.h',
-        'ide/msvc/lib_proj/ta_func/ta_func.dsp',
         'java/src/**',
     ]  + get_src_generated_files()
 

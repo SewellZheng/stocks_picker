@@ -38,28 +38,29 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* T3 BEGIN */
-static const TA_OptInputParameterInfo TA_DEF_UI_VFactor =
+static const TA_RealRange TA_DEF_T3_VFactor =
 {
-   TA_OptInput_RealRange, /* type */
-   "optInVFactor", /* paramName */
-   0,                  /* flags */
+   0.0,
+   1.0,
+   2,
+   0.01,
+   1.0,
+   0.05
+};
 
-   "Volume Factor",          /* displayName */
-   (const void *)&TA_DEF_ZeroToOne, /* dataSet */
-   0.7, /* defaultValue */
-   "Volume Factor", /* hint */
-   NULL /* CamelCase name */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_T3_VFactor =
+{
+   TA_OptInput_RealRange,
+   "optInVFactor",
+   0,
+
+   "Volume Factor",
+   (const void *)&TA_DEF_T3_VFactor,
+   0.7,
+   "Volume Factor",
+
+   NULL
 };
 
 static const TA_InputParameterInfo    *TA_T3_Inputs[]    =
@@ -75,25 +76,65 @@ static const TA_OutputParameterInfo   *TA_T3_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_T3_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_5_MINIMUM2,
-  &TA_DEF_UI_VFactor,
+{ &TA_DEF_UI_TimePeriod_5,
+  &TA_DEF_UI_D_T3_VFactor,
   NULL
 };
 
-DEF_FUNCTION( T3,                       /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "Triple Exponential Moving Average (T3)", /* hint */
-              "T3",                       /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP|TA_FUNC_FLG_UNST_PER /* flags */
+DEF_FUNCTION( T3,
+              TA_GroupId_OverlapStudies,
+              "Triple Exponential Moving Average (T3)",
+              "T3",
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_UNST_PER
              );
 /* T3 END */
 
 /* TAN BEGIN */
-DEF_MATH_UNARY_OPERATOR( TAN, "Vector Trigonometric Tan", "Tan" )
+static const TA_InputParameterInfo    *TA_TAN_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_TAN_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_TAN_OptInputs[] =
+{ NULL };
+
+DEF_FUNCTION( TAN,
+              TA_GroupId_MathTransform,
+              "Vector Trigonometric Tan",
+              "Tan",
+              0
+             );
 /* TAN END */
 
 /* TANH BEGIN */
-DEF_MATH_UNARY_OPERATOR( TANH, "Vector Trigonometric Tanh", "Tanh" )
+static const TA_InputParameterInfo    *TA_TANH_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_TANH_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_TANH_OptInputs[] =
+{ NULL };
+
+DEF_FUNCTION( TANH,
+              TA_GroupId_MathTransform,
+              "Vector Trigonometric Tanh",
+              "Tanh",
+              0
+             );
 /* TANH END */
 
 /* TEMA BEGIN */
@@ -110,15 +151,15 @@ static const TA_OutputParameterInfo   *TA_TEMA_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_TEMA_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_30_MINIMUM2,
+{ &TA_DEF_UI_TimePeriod_30,
   NULL
 };
 
-DEF_FUNCTION( TEMA,                       /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "Triple Exponential Moving Average", /* hint */
-              "Tema",                     /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP         /* flags */
+DEF_FUNCTION( TEMA,
+              TA_GroupId_OverlapStudies,
+              "Triple Exponential Moving Average",
+              "Tema",
+              TA_FUNC_FLG_OVERLAP
              );
 /* TEMA END */
 
@@ -135,13 +176,14 @@ static const TA_OutputParameterInfo   *TA_TRANGE_Outputs[]   =
   NULL
 };
 
-static const TA_OptInputParameterInfo *TA_TRANGE_OptInputs[] = { NULL };
+static const TA_OptInputParameterInfo *TA_TRANGE_OptInputs[] =
+{ NULL };
 
-DEF_FUNCTION( TRANGE,                     /* name */
-              TA_GroupId_VolatilityIndicators,  /* groupId */
-              "True Range",               /* hint */
-              "TrueRange",                /* CamelCase name */
-              0                           /* flags */
+DEF_FUNCTION( TRANGE,
+              TA_GroupId_VolatilityIndicators,
+              "True Range",
+              "TrueRange",
+              0
              );
 /* TRANGE END */
 
@@ -159,15 +201,15 @@ static const TA_OutputParameterInfo   *TA_TRIMA_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_TRIMA_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_30_MINIMUM2,
+{ &TA_DEF_UI_TimePeriod_30,
   NULL
 };
 
-DEF_FUNCTION( TRIMA,                       /* name */
-              TA_GroupId_OverlapStudies,   /* groupId */
-              "Triangular Moving Average", /* hint */
-              "Trima",                     /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP          /* flags */
+DEF_FUNCTION( TRIMA,
+              TA_GroupId_OverlapStudies,
+              "Triangular Moving Average",
+              "Trima",
+              TA_FUNC_FLG_OVERLAP
              );
 /* TRIMA END */
 
@@ -189,22 +231,22 @@ static const TA_OptInputParameterInfo *TA_TRIX_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( TRIX,                       /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "1-day Rate-Of-Change (ROC) of a Triple Smooth EMA", /* hint */
-              "Trix",                     /* CamelCase name */
-              0                           /* flags */
+DEF_FUNCTION( TRIX,
+              TA_GroupId_MomentumIndicators,
+              "1-day Rate-Of-Change (ROC) of a Triple Smooth EMA",
+              "Trix",
+              0
              );
 /* TRIX END */
 
 /* TSF BEGIN */
-static const TA_InputParameterInfo *TA_TSF_Inputs[]    =
+static const TA_InputParameterInfo    *TA_TSF_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
   NULL
 };
 
-static const TA_OutputParameterInfo *TA_TSF_Outputs[]   =
+static const TA_OutputParameterInfo   *TA_TSF_Outputs[]   =
 {
   &TA_DEF_UI_Output_Real,
   NULL
@@ -215,11 +257,11 @@ static const TA_OptInputParameterInfo *TA_TSF_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( TSF,                   /* name */
-              TA_GroupId_Statistic,  /* groupId */
-              "Time Series Forecast",/* hint */
-              "Tsf",                 /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP    /* flags */
+DEF_FUNCTION( TSF,
+              TA_GroupId_Statistic,
+              "Time Series Forecast",
+              "Tsf",
+              TA_FUNC_FLG_OVERLAP
              );
 /* TSF END */
 
@@ -236,13 +278,14 @@ static const TA_OutputParameterInfo   *TA_TYPPRICE_Outputs[]   =
   NULL
 };
 
-static const TA_OptInputParameterInfo *TA_TYPPRICE_OptInputs[] = { NULL };
+static const TA_OptInputParameterInfo *TA_TYPPRICE_OptInputs[] =
+{ NULL };
 
-DEF_FUNCTION( TYPPRICE,                   /* name */
-              TA_GroupId_PriceTransform,  /* groupId */
-              "Typical Price",            /* hint */
-              "TypPrice",                 /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP         /* flags */
+DEF_FUNCTION( TYPPRICE,
+              TA_GroupId_PriceTransform,
+              "Typical Price",
+              "TypPrice",
+              TA_FUNC_FLG_OVERLAP
              );
 /* TYPPRICE END */
 
@@ -269,9 +312,3 @@ const TA_FuncDef *TA_DEF_TableT[] =
 const unsigned int TA_DEF_TableTSize =
               ((sizeof(TA_DEF_TableT)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

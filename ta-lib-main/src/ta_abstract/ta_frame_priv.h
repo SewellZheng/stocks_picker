@@ -31,15 +31,6 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-
-/* TA_ParamHolderPriv is the private implementation of a TA_ParamHolder. */
-
-/* Definition in this header shall be used only internaly by the
- * ta_abstract module.
- * End-user of the TA-LIB shall never attempt to access these
- * structure directly.
- */
-
 #ifndef TA_FRAME_PRIV_H
 #define TA_FRAME_PRIV_H
 
@@ -99,18 +90,12 @@ typedef struct
 
 typedef struct
 {
-   /* Magic number is used to detect internal error. */
    unsigned int magicNumber;
 
    TA_ParamHolderInput    *in;
    TA_ParamHolderOptInput *optIn;
    TA_ParamHolderOutput   *out;
 
-   /* Indicate which parameter have been initialized.
-    * The LSB (Less Significant Bit) is the first parameter
-    * and a bit equal to '1' indicate that the parameter is
-    * not initialized.
-    */
    unsigned int inBitmap;
    unsigned int outBitmap;
 

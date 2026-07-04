@@ -1,20 +1,44 @@
 #!/usr/bin/env python3
 """
-Manual helper to prepare/update a TA-Lib vcpkg port PR.
+Post-release helper: submit a TA-Lib update PR to microsoft/vcpkg.
 
-Why this exists:
-- Homebrew already has manual post-release support via post-release-brew.py.
-- vcpkg maintainers welcomed a manual PR workflow for TA-Lib updates.
+What this script does
+---------------------
+1) Fetches the latest PUBLISHED TA-Lib release from GitHub (version + source tarball).
+2) Computes the SHA512 of the tarball (required by vcpkg).
+3) Prints the update plan.
+4) With confirmation, updates a local microsoft/vcpkg checkout and opens a PR.
 
-What this script does:
-1) Reads TA-Lib version from the repository VERSION file.
-2) Downloads/caches the latest release source tarball and computes SHA512 (required by vcpkg).
-3) Prints ready-to-copy update instructions for microsoft/vcpkg.
-4) Optionally updates a local vcpkg checkout (versions + baseline) when provided.
+Usage
+-----
+  # Default: interactive full pipeline (clone vcpkg, update files, open PR)
+  python post-release-vcpkg.py
 
-Notes:
-- This script is intentionally conservative and defaults to "plan/output" mode.
-- It does not push branches by default.
+  # Plan-only / non-interactive (used by CI, no side-effects)
+  python post-release-vcpkg.py --plan
+
+  # Use an existing local vcpkg checkout instead of auto-cloning
+  python post-release-vcpkg.py --vcpkg-root /path/to/vcpkg
+
+Safety guards (applied before performing any write operations)
+-------------------------------------------------------------
+- Must run from the original TA-Lib repository (not a fork).
+- Must be on the 'main' branch.
+- Checks for an existing open PR in microsoft/vcpkg to avoid duplicates.
+
+Idempotency
+-----------
+Safe to run multiple times for the same release:
+- If an open PR already exists for this version, the script exits cleanly.
+- Updating the vcpkg port files is idempotent (re-sets the same version/SHA512).
+- git checkout -B + "no changes to commit" guard prevents duplicate commits.
+
+Version source
+--------------
+The authoritative version is the LATEST PUBLISHED RELEASE from the GitHub API.
+The local git tag is checked as a sanity test; a mismatch prints an [info]
+message with instructions on how to align your checkout (not an error), since
+the tarball — not local source — is what vcpkg uses.
 """
 
 from __future__ import annotations
@@ -24,16 +48,17 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from utilities.common import run_command
+from utilities.common import run_command, verify_git_repo_original
 from utilities.files import path_join
-from utilities.versions import get_version_string
 
 API_RELEASE_LATEST = "https://api.github.com/repos/TA-Lib/ta-lib/releases/latest"
-ASSET_PATTERN = re.compile(r"ta-lib-(\d+\.\d+\.\d+)-src\.tar\.gz$")
+ASSET_PATTERN = re.compile(r"ta-lib-(\d+\.\d+\.\d+)-github-tag-archive\.tar\.gz$")
 VCPKG_PORT_NAME = "talib"
 
 
@@ -69,21 +94,30 @@ def version_key(v: str) -> tuple[int, int, int]:
     return int(m.group(1)), int(m.group(2)), int(m.group(3))
 
 
-def read_latest_release_src_tarball() -> tuple[str, str, str]:
+def read_latest_release_src_tarball() -> tuple[str, str, str, str]:
+    """Return (version, tarball_name, download_url, tag_name) for the latest published release.
+
+    IMPORTANT: the download_url is the GitHub TAG ARCHIVE
+    (github.com/.../archive/<tag>.tar.gz), NOT the release's src.tar.gz
+    asset. vcpkg_from_github() downloads the tag archive, so the SHA512 in
+    portfile.cmake must be computed over those bytes — hashing the release
+    asset produced a hash-mismatch failure on every triplet (0.7.1 PR).
+    """
     data = fetch_json(API_RELEASE_LATEST)
-    assets = data.get("assets", [])
-    for a in assets:
-        name = a.get("name", "")
-        m = ASSET_PATTERN.search(name)
-        if m:
-            version = m.group(1)
-            return version, name, a.get("browser_download_url", "")
-    raise RuntimeError("Could not find ta-lib-<version>-src.tar.gz asset in latest release")
+    if data.get("draft", False):
+        raise RuntimeError("Latest GitHub release is still a draft (not yet published).")
+    tag_name = data.get("tag_name", "")
+    if not tag_name:
+        raise RuntimeError("Latest release has no tag_name")
+    version = tag_name.lstrip("v")
+    archive_url = f"https://github.com/TA-Lib/ta-lib/archive/{tag_name}.tar.gz"
+    tarball_name = f"ta-lib-{version}-github-tag-archive.tar.gz"
+    return version, tarball_name, archive_url, tag_name
 
 
 def read_cached_latest_release_src_tarball(out_dir: Path) -> tuple[str, str, Path]:
     candidates: list[tuple[tuple[int, int, int], str, Path]] = []
-    for p in out_dir.glob("ta-lib-*-src.tar.gz"):
+    for p in out_dir.glob("ta-lib-*-github-tag-archive.tar.gz"):
         m = ASSET_PATTERN.search(p.name)
         if not m:
             continue
@@ -95,14 +129,97 @@ def read_cached_latest_release_src_tarball(out_dir: Path) -> tuple[str, str, Pat
     return version, path.name, path
 
 
-def read_repo_version() -> str:
-    root_dir = Path(path_join(Path(__file__).resolve().parent, "..")).resolve()
-    return get_version_string(str(root_dir))
+def _check_local_at_release_tag(tag_name: str, version: str) -> None:
+    """
+    Sanity-check that the local checkout is at the release tag.
+    This is informational only — the script builds from the downloaded tarball,
+    not from local source.  A mismatch means the user may be confused about
+    which version they are updating vcpkg for.
+
+    Prints an info message (not an error) because the tarball is the authority.
+    """
+    # Resolve the commit the release tag points to.
+    tag_result = subprocess.run(
+        ["git", "rev-parse", f"refs/tags/{tag_name}^{{}}"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parent,
+    )
+    if tag_result.returncode != 0:
+        # Tag not found locally — common if the repo was cloned without tags.
+        print(
+            f"[info] Release tag '{tag_name}' not found in the local repository.\n"
+            f"[info] To align with the release, run:\n"
+            f"[info]   git fetch --tags\n"
+            f"[info]   git checkout {tag_name}\n"
+            f"[info] (To return to the latest main afterwards: git checkout main)"
+        )
+        return
+
+    tag_commit = tag_result.stdout.strip()
+
+    head_result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parent,
+    )
+    head_commit = head_result.stdout.strip() if head_result.returncode == 0 else ""
+
+    if head_commit != tag_commit:
+        print(
+            f"[info] Local HEAD ({head_commit[:12]}) does not match release tag '{tag_name}' ({tag_commit[:12]}).\n"
+            f"[info] The vcpkg update will still use the downloaded tarball for version {version},\n"
+            f"[info] but if you want your local checkout to match the release:\n"
+            f"[info]   git checkout {tag_name}\n"
+            f"[info] (To return to the latest main afterwards: git checkout main)"
+        )
+
+
+def _current_branch() -> str:
+    """Return the current git branch name, or '(unknown)' on failure."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return "(unknown)"
+    return result.stdout.strip()
+
+
+def _check_no_existing_vcpkg_pr(version: str) -> None:
+    """
+    Raise RuntimeError if an open PR for this version already exists in
+    microsoft/vcpkg.  Uses the public GitHub search API (no auth required).
+    Raises RuntimeError if the API call fails — caller should retry later.
+    """
+    query = "repo:microsoft/vcpkg is:pr is:open [ta-lib] in:title"
+    url = "https://api.github.com/search/issues?" + urlencode({"q": query, "per_page": "10"})
+    # Match the version as a whole token (word boundaries) to avoid false positives
+    # such as 0.6.1 matching 0.6.10 or 10.6.1.
+    version_re = re.compile(r"\b" + re.escape(version) + r"\b")
+    try:
+        data = fetch_json(url)
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not verify existing vcpkg PRs: {e}\n"
+            "Cannot proceed without confirming no duplicate PR exists. Please retry later."
+        ) from e
+    for item in data.get("items", []):
+        title = item.get("title", "")
+        if version_re.search(title):
+            pr_url = item.get("html_url", "")
+            raise RuntimeError(
+                f"An open PR for ta-lib {version} already exists in microsoft/vcpkg:\n"
+                f"  {pr_url}\n"
+                "No new PR is needed. Run with --plan to review the current state."
+            )
 
 
 def update_vcpkg_files(vcpkg_root: Path, version: str, sha512: str) -> None:
     """
-    Best-effort local file updates for a standard vcpkg checkout.
+    Idempotent: updates the vcpkg port files for talib to the given version + sha512.
     If expected files are missing, print guidance and return.
     """
     portfile = vcpkg_root / "ports" / VCPKG_PORT_NAME / "portfile.cmake"
@@ -136,7 +253,9 @@ def update_vcpkg_files(vcpkg_root: Path, version: str, sha512: str) -> None:
 
     # Replace SHA512 in portfile.cmake (first SHA512 occurrence)
     text = portfile.read_text()
-    text_new = re.sub(r"(SHA512\s+)[0-9a-fA-F]{64,128}", rf"\1{sha512}", text, count=1)
+    # \g<1> (not \1): a SHA starting with a digit would otherwise merge into
+    # the group reference (\1 + "12..." parsed as \112 -> garbage in the file).
+    text_new = re.sub(r"(SHA512\s+)[0-9a-fA-F]{64,128}", rf"\g<1>{sha512}", text, count=1)
     if text_new == text:
         print("[warn] Could not auto-replace SHA512 in portfile.cmake. Update manually.")
     else:
@@ -218,87 +337,121 @@ def commit_and_open_pr(vcpkg_root: Path, version: str) -> None:
 
     status = run_command(["git", "status", "--porcelain"], cwd=str(vcpkg_root))
     if not status.strip():
-        print("[warn] No changes to commit.")
+        print("[warn] No changes to commit — port files already up-to-date for this version.")
         return
 
     run_command(["git", "commit", "-m", f"[ta-lib] update to {version}"], cwd=str(vcpkg_root))
-    run_command(["git", "push", "-u", "origin", f"ta-lib-{version}"], cwd=str(vcpkg_root))
 
     gh_path = shutil.which("gh")
     if gh_path is None:
-        print("[warn] GitHub CLI not found; skipping PR creation.")
-        print("       Run manually: gh pr create --repo microsoft/vcpkg --fill")
+        print("[warn] GitHub CLI not found; cannot fork/push/PR.")
+        print("       Push the branch to YOUR vcpkg fork and run:")
+        print("       gh pr create --repo microsoft/vcpkg --fill")
         return
 
-    run_command([gh_path, "pr", "create", "--repo", "microsoft/vcpkg", "--fill"], cwd=str(vcpkg_root))
+    # Contributors cannot push branches to microsoft/vcpkg directly (403).
+    # Push to the user's fork and open a cross-fork PR.
+    login = run_command([gh_path, "api", "user", "--jq", ".login"]).strip()
+    run_command([gh_path, "repo", "fork", "microsoft/vcpkg", "--clone=false"])  # idempotent
+    remotes = run_command(["git", "remote"], cwd=str(vcpkg_root)).split()
+    fork_url = f"https://github.com/{login}/vcpkg.git"
+    if "fork" in remotes:
+        run_command(["git", "remote", "set-url", "fork", fork_url], cwd=str(vcpkg_root))
+    else:
+        run_command(["git", "remote", "add", "fork", fork_url], cwd=str(vcpkg_root))
+    run_command(["git", "push", "-u", "fork", f"ta-lib-{version}"], cwd=str(vcpkg_root))
+
+    run_command([gh_path, "pr", "create", "--repo", "microsoft/vcpkg",
+                 "--head", f"{login}:ta-lib-{version}",
+                 "--title", f"[talib] update to {version}", "--fill-first"],
+                cwd=str(vcpkg_root))
     print("[ok] Opened PR in microsoft/vcpkg")
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Prepare TA-Lib vcpkg update info")
-    p.add_argument("--vcpkg-root", help="Optional path to local microsoft/vcpkg checkout")
-    p.add_argument("--out-dir", default="temp/post-release-vcpkg", help="Download/cache directory")
-    p.add_argument(
-        "--perform-local-changes",
-        action="store_true",
-        help=f"Perform: clone/fetch vcpkg, update {VCPKG_PORT_NAME} port files, and run ./vcpkg x-add-version {VCPKG_PORT_NAME}",
+    p = argparse.ArgumentParser(
+        description="Submit a TA-Lib update PR to microsoft/vcpkg after a release.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Run with no arguments to update the local vcpkg checkout and open a PR.\n"
+            "Run with --plan to only print the update plan (used by CI, no side-effects)."
+        ),
     )
-    p.add_argument(
-        "--create-pr",
-        action="store_true",
-        help="Perform: commit changes, push branch, and open a PR with gh",
-    )
+    p.add_argument("--plan", action="store_true", help="Print the update plan only; do not modify anything.")
+    p.add_argument("--vcpkg-root", help="Path to an existing local microsoft/vcpkg checkout (auto-cloned if omitted).")
+    p.add_argument("--out-dir", default="temp/post-release-vcpkg", help="Directory for downloading/caching the release tarball.")
     args = p.parse_args()
 
     out_dir = Path(args.out_dir).resolve()
-    version = read_repo_version()
-    try:
-        release_version, tar_name, asset_url = read_latest_release_src_tarball()
-        tar_path = out_dir / tar_name
-        if not tar_path.exists():
-            print(f"Downloading {asset_url}")
-            download(asset_url, tar_path)
-        else:
-            print(f"Using cached tarball: {tar_path}")
-    except Exception as e:
-        print(f"[warn] Failed to read/download latest release tarball: {e}")
-        release_version, tar_name, tar_path = read_cached_latest_release_src_tarball(out_dir)
-        asset_url = "(cached/offline)"
-        print(f"[ok] Falling back to cached latest tarball: {tar_path}")
 
-    if release_version != version:
+    # --- Step 1: resolve the authoritative version from the published release ---
+    try:
+        release_version, tar_name, asset_url, tag_name = read_latest_release_src_tarball()
+    except Exception as e:
         raise RuntimeError(
-            f"VERSION file has {version}, but latest release tarball is {release_version}. "
-            "Update VERSION to the released version (or publish the matching release) and rerun."
+            f"Could not fetch latest TA-Lib release from GitHub: {e}\n"
+            "Make sure the release has been published (not a draft) and you have internet access."
         )
+
+    # Sanity-check: verify the local checkout is at the release tag (informational only).
+    try:
+        _check_local_at_release_tag(tag_name, release_version)
+    except Exception:
+        pass  # Never block on this check — the tarball is the authority.
+
+    version = release_version
+
+    # --- Step 2: download (or use cached) tarball and compute SHA512 ---
+    tar_path = out_dir / tar_name
+    if not tar_path.exists():
+        print(f"Downloading {asset_url}")
+        download(asset_url, tar_path)
+    else:
+        print(f"Using cached tarball: {tar_path}")
 
     sha512 = sha512_file(tar_path)
 
+    # --- Step 3: print the plan ---
     print("\n=== TA-Lib vcpkg update plan ===")
     print(f"Version : {version}")
     print(f"Asset   : {asset_url}")
     print(f"SHA512  : {sha512}")
-    print("\nSuggested next steps:")
-    print("1) Clone/fetch microsoft/vcpkg")
-    print(f"2) Update ports/{VCPKG_PORT_NAME}/{{portfile.cmake,vcpkg.json}}")
-    print(f"3) Run: ./vcpkg x-add-version {VCPKG_PORT_NAME}")
-    print("4) Commit + open PR to microsoft/vcpkg")
 
-    vcpkg_root: Path | None = None
-    if args.perform_local_changes or args.create_pr:
-        vcpkg_root = Path(args.vcpkg_root) if args.vcpkg_root else Path(path_join(out_dir, "vcpkg"))
-        vcpkg_root = ensure_vcpkg_checkout(vcpkg_root)
+    if args.plan:
+        print("\n[plan mode] No changes made.")
+        return 0
 
-    if args.perform_local_changes:
-        assert vcpkg_root is not None
-        update_vcpkg_files(vcpkg_root, version, sha512)
-        run_x_add_version(vcpkg_root)
-    elif args.vcpkg_root:
-        update_vcpkg_files(Path(args.vcpkg_root), version, sha512)
+    # --- Step 4: safety guards (only when actually performing operations) ---
+    verify_git_repo_original()
+    branch = _current_branch()
+    if branch != "main":
+        raise RuntimeError(
+            f"Must be on the 'main' branch (currently on '{branch}').\n"
+            "The vcpkg port update should only be submitted after the official TA-Lib\n"
+            "release has been published from main."
+        )
 
-    if args.create_pr:
-        assert vcpkg_root is not None
-        commit_and_open_pr(vcpkg_root, version)
+    _check_no_existing_vcpkg_pr(version)
+
+    # --- Step 5: confirmation prompt ---
+    print(
+        "\nThis will:\n"
+        f"  1) Clone/update microsoft/vcpkg locally\n"
+        f"  2) Update ports/{VCPKG_PORT_NAME}/{{portfile.cmake,vcpkg.json}} to {version}\n"
+        f"  3) Run ./vcpkg x-add-version {VCPKG_PORT_NAME}\n"
+        f"  4) Commit, push branch ta-lib-{version}, and open a PR to microsoft/vcpkg\n"
+    )
+    confirm = input("Proceed? (yes/NO): ")
+    if confirm.strip().lower() != "yes":
+        print("Operation cancelled.")
+        return 0
+
+    # --- Step 6: perform the update ---
+    vcpkg_root = Path(args.vcpkg_root) if args.vcpkg_root else Path(path_join(out_dir, "vcpkg"))
+    vcpkg_root = ensure_vcpkg_checkout(vcpkg_root)
+    update_vcpkg_files(vcpkg_root, version, sha512)
+    run_x_add_version(vcpkg_root)
+    commit_and_open_pr(vcpkg_root, version)
 
     return 0
 
@@ -309,3 +462,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}")
         raise SystemExit(1)
+

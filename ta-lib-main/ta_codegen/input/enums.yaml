@@ -1,0 +1,52 @@
+# Enum type definitions for ta_codegen.
+#
+# Each enum has a name and a list of variants. The variant fields are:
+#   c_name:      C constant (e.g. TA_MAType_SMA)
+#   pascal_name: PascalCase for Java/.NET (e.g. Sma)
+#   value:       Integer value
+#
+# The short_name (used in source case labels like MAType_SMA) is derived
+# automatically from the c_name by stripping the TA_{EnumName}_ prefix.
+
+MAType:
+  - { c_name: TA_MAType_SMA,   pascal_name: Sma,   value: 0 }
+  - { c_name: TA_MAType_EMA,   pascal_name: Ema,   value: 1 }
+  - { c_name: TA_MAType_WMA,   pascal_name: Wma,   value: 2 }
+  - { c_name: TA_MAType_DEMA,  pascal_name: Dema,  value: 3 }
+  - { c_name: TA_MAType_TEMA,  pascal_name: Tema,  value: 4 }
+  - { c_name: TA_MAType_TRIMA, pascal_name: Trima, value: 5 }
+  - { c_name: TA_MAType_KAMA,  pascal_name: Kama,  value: 6 }
+  - { c_name: TA_MAType_MAMA,  pascal_name: Mama,  value: 7 }
+  - { c_name: TA_MAType_T3,    pascal_name: T3,    value: 8 }
+
+# FuncUnstId — the unstable-period function IDs. This list IS the source of truth
+# for the FuncUnstId enum generated into the GENCODE section of include/ta_defs.h
+# (ta_codegen takes over gen_code's last role there). Order = ascending `value`,
+# which is the enum ordinal (the C/Java backends index unstablePeriod[] by it).
+# The TA_FUNC_UNST_ALL / _NONE sentinels are appended by the generator, not listed
+# here. Add a row when a new indicator gains an unstable period.
+FuncUnstId:
+  - { c_name: TA_FUNC_UNST_ADX,          pascal_name: Adx,         value: 0 }
+  - { c_name: TA_FUNC_UNST_ADXR,         pascal_name: Adxr,        value: 1 }
+  - { c_name: TA_FUNC_UNST_ATR,          pascal_name: Atr,         value: 2 }
+  - { c_name: TA_FUNC_UNST_CMO,          pascal_name: Cmo,         value: 3 }
+  - { c_name: TA_FUNC_UNST_DX,           pascal_name: Dx,          value: 4 }
+  - { c_name: TA_FUNC_UNST_EMA,          pascal_name: Ema,         value: 5 }
+  - { c_name: TA_FUNC_UNST_HT_DCPERIOD,  pascal_name: HtDcPeriod,  value: 6 }
+  - { c_name: TA_FUNC_UNST_HT_DCPHASE,   pascal_name: HtDcPhase,   value: 7 }
+  - { c_name: TA_FUNC_UNST_HT_PHASOR,    pascal_name: HtPhasor,    value: 8 }
+  - { c_name: TA_FUNC_UNST_HT_SINE,      pascal_name: HtSine,      value: 9 }
+  - { c_name: TA_FUNC_UNST_HT_TRENDLINE, pascal_name: HtTrendline, value: 10 }
+  - { c_name: TA_FUNC_UNST_HT_TRENDMODE, pascal_name: HtTrendMode, value: 11 }
+  - { c_name: TA_FUNC_UNST_IMI,          pascal_name: Imi,         value: 12 }
+  - { c_name: TA_FUNC_UNST_KAMA,         pascal_name: Kama,        value: 13 }
+  - { c_name: TA_FUNC_UNST_MAMA,         pascal_name: Mama,        value: 14 }
+  - { c_name: TA_FUNC_UNST_MFI,          pascal_name: Mfi,         value: 15 }
+  - { c_name: TA_FUNC_UNST_MINUS_DI,     pascal_name: MinusDI,     value: 16 }
+  - { c_name: TA_FUNC_UNST_MINUS_DM,     pascal_name: MinusDM,     value: 17 }
+  - { c_name: TA_FUNC_UNST_NATR,         pascal_name: Natr,        value: 18 }
+  - { c_name: TA_FUNC_UNST_PLUS_DI,      pascal_name: PlusDI,      value: 19 }
+  - { c_name: TA_FUNC_UNST_PLUS_DM,      pascal_name: PlusDM,      value: 20 }
+  - { c_name: TA_FUNC_UNST_RSI,          pascal_name: Rsi,         value: 21 }
+  - { c_name: TA_FUNC_UNST_STOCHRSI,     pascal_name: StochRsi,    value: 22 }
+  - { c_name: TA_FUNC_UNST_T3,           pascal_name: T3,          value: 23 }

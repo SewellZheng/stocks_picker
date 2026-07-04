@@ -38,71 +38,6 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
-const TA_OptInputParameterInfo TA_DEF_UI_Signal_Period =
-{
-   TA_OptInput_IntegerRange, /* type */
-   "optInSignalPeriod",      /* paramName */
-   0,                        /* flags */
-
-   "Signal Period",            /* displayName */
-   (const void *)&TA_DEF_TimePeriod_Positive, /* dataSet */
-   9, /* defaultValue */
-   "Smoothing for the signal line (nb of period)", /* hint */
-
-   NULL /* CamelCase name */
-};
-
-const TA_OptInputParameterInfo TA_DEF_UI_Slow_MA_Type =
-{
-   TA_OptInput_IntegerList, /* type */
-   "optInSlowMAType",       /* paramName */
-   0,                       /* flags */
-
-   "Slow MA",                /* displayName */
-   (const void *)&TA_MA_TypeList, /* dataSet */
-   0, /* defaultValue = simple average */
-   "Type of Moving Average for slow MA", /* hint */
-
-   NULL /* CamelCase name */
-};
-
-const TA_OptInputParameterInfo TA_DEF_UI_Fast_MA_Type =
-{
-   TA_OptInput_IntegerList, /* type */
-   "optInFastMAType",       /* paramName */
-   0,                       /* flags */
-
-   "Fast MA",                /* displayName */
-   (const void *)&TA_MA_TypeList, /* dataSet */
-   0, /* defaultValue = simple average */
-   "Type of Moving Average for fast MA", /* hint */
-
-   NULL /* CamelCase name */
-};
-
-const TA_OptInputParameterInfo TA_DEF_UI_Signal_MA_Type =
-{
-   TA_OptInput_IntegerList, /* type */
-   "optInSignalMAType",     /* paramName */
-   0,                       /* flags */
-   "Signal MA",             /* displayName */
-   (const void *)&TA_MA_TypeList, /* dataSet */
-   0, /* defaultValue = simple average */
-   "Type of Moving Average for signal line", /* hint */
-
-   NULL /* CamelCase name */
-};
-
 /* MA BEGIN */
 static const TA_InputParameterInfo    *TA_MA_Inputs[]    =
 {
@@ -122,23 +57,37 @@ static const TA_OptInputParameterInfo *TA_MA_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MA,                         /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "Moving average",       /* hint */
-              "MovingAverage",            /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP         /* flags */
+DEF_FUNCTION( MA,
+              TA_GroupId_OverlapStudies,
+              "Moving average",
+              "MovingAverage",
+              TA_FUNC_FLG_OVERLAP
              );
 /* MA END */
 
 /* MACD BEGIN */
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACD =
+static const TA_OptInputParameterInfo TA_DEF_UI_D_MACD_SignalPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInSignalPeriod",
+   0,
+
+   "Signal Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   9,
+   "Smoothing for the signal line (nb of period)",
+
+   NULL
+};
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACD_outMACD =
                                { TA_Output_Real, "outMACD", TA_OUT_LINE };
 
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACDSignal =
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACD_outMACDSignal =
                                { TA_Output_Real, "outMACDSignal", TA_OUT_DASH_LINE };
 
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACDHist =
-                                { TA_Output_Real, "outMACDHist", TA_OUT_HISTO };
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACD_outMACDHist =
+                               { TA_Output_Real, "outMACDHist", TA_OUT_HISTO };
 
 static const TA_InputParameterInfo    *TA_MACD_Inputs[]    =
 {
@@ -146,63 +95,151 @@ static const TA_InputParameterInfo    *TA_MACD_Inputs[]    =
   NULL
 };
 
-static const TA_OutputParameterInfo *TA_MACD_Outputs[]   =
+static const TA_OutputParameterInfo   *TA_MACD_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real_MACD,
-  &TA_DEF_UI_Output_Real_MACDSignal,
-  &TA_DEF_UI_Output_Real_MACDHist,
+  &TA_DEF_UI_Output_Real_MACD_outMACD,
+  &TA_DEF_UI_Output_Real_MACD_outMACDSignal,
+  &TA_DEF_UI_Output_Real_MACD_outMACDHist,
   NULL
 };
 
 static const TA_OptInputParameterInfo *TA_MACD_OptInputs[] =
 { &TA_DEF_UI_Fast_Period,
   &TA_DEF_UI_Slow_Period,
-  &TA_DEF_UI_Signal_Period,
+  &TA_DEF_UI_D_MACD_SignalPeriod,
   NULL
 };
 
-DEF_FUNCTION( MACD,                       /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "Moving Average Convergence/Divergence", /* hint */
-              "Macd",                     /* CamelCase name */
-              0                           /* flags */
+DEF_FUNCTION( MACD,
+              TA_GroupId_MomentumIndicators,
+              "Moving Average Convergence/Divergence",
+              "Macd",
+              0
              );
 /* MACD END */
 
 /* MACDEXT BEGIN */
+const TA_OptInputParameterInfo TA_DEF_UI_D_MACDEXT_FastMAType =
+{
+   TA_OptInput_IntegerList,
+   "optInFastMAType",
+   0,
+
+   "Fast MA",
+   (const void *)&TA_MA_TypeList,
+   0,
+   "Type of Moving Average for fast MA",
+
+   NULL
+};
+
+const TA_OptInputParameterInfo TA_DEF_UI_D_MACDEXT_SlowMAType =
+{
+   TA_OptInput_IntegerList,
+   "optInSlowMAType",
+   0,
+
+   "Slow MA",
+   (const void *)&TA_MA_TypeList,
+   0,
+   "Type of Moving Average for slow MA",
+
+   NULL
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_MACDEXT_SignalPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInSignalPeriod",
+   0,
+
+   "Signal Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   9,
+   "Smoothing for the signal line (nb of period)",
+
+   NULL
+};
+
+const TA_OptInputParameterInfo TA_DEF_UI_D_MACDEXT_SignalMAType =
+{
+   TA_OptInput_IntegerList,
+   "optInSignalMAType",
+   0,
+
+   "Signal MA",
+   (const void *)&TA_MA_TypeList,
+   0,
+   "Type of Moving Average for signal line",
+
+   NULL
+};
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACDEXT_outMACD =
+                               { TA_Output_Real, "outMACD", TA_OUT_LINE };
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACDEXT_outMACDSignal =
+                               { TA_Output_Real, "outMACDSignal", TA_OUT_DASH_LINE };
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACDEXT_outMACDHist =
+                               { TA_Output_Real, "outMACDHist", TA_OUT_HISTO };
+
 static const TA_InputParameterInfo    *TA_MACDEXT_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
   NULL
 };
 
-static const TA_OutputParameterInfo *TA_MACDEXT_Outputs[]   =
+static const TA_OutputParameterInfo   *TA_MACDEXT_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real_MACD,
-  &TA_DEF_UI_Output_Real_MACDSignal,
-  &TA_DEF_UI_Output_Real_MACDHist,
+  &TA_DEF_UI_Output_Real_MACDEXT_outMACD,
+  &TA_DEF_UI_Output_Real_MACDEXT_outMACDSignal,
+  &TA_DEF_UI_Output_Real_MACDEXT_outMACDHist,
   NULL
 };
 
 static const TA_OptInputParameterInfo *TA_MACDEXT_OptInputs[] =
 { &TA_DEF_UI_Fast_Period,
-  &TA_DEF_UI_Fast_MA_Type,
+  &TA_DEF_UI_D_MACDEXT_FastMAType,
   &TA_DEF_UI_Slow_Period,
-  &TA_DEF_UI_Slow_MA_Type,
-  &TA_DEF_UI_Signal_Period,
-  &TA_DEF_UI_Signal_MA_Type,
+  &TA_DEF_UI_D_MACDEXT_SlowMAType,
+  &TA_DEF_UI_D_MACDEXT_SignalPeriod,
+  &TA_DEF_UI_D_MACDEXT_SignalMAType,
   NULL
 };
 
-DEF_FUNCTION( MACDEXT,                     /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "MACD with controllable MA type", /* hint */
-              "MacdExt",                  /* CamelCase name */
-              0                           /* flags */
+DEF_FUNCTION( MACDEXT,
+              TA_GroupId_MomentumIndicators,
+              "MACD with controllable MA type",
+              "MacdExt",
+              0
              );
 /* MACDEXT END */
 
 /* MACDFIX BEGIN */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_MACDFIX_SignalPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInSignalPeriod",
+   0,
+
+   "Signal Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   9,
+   "Smoothing for the signal line (nb of period)",
+
+   NULL
+};
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACDFIX_outMACD =
+                               { TA_Output_Real, "outMACD", TA_OUT_LINE };
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACDFIX_outMACDSignal =
+                               { TA_Output_Real, "outMACDSignal", TA_OUT_DASH_LINE };
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MACDFIX_outMACDHist =
+                               { TA_Output_Real, "outMACDHist", TA_OUT_HISTO };
+
 static const TA_InputParameterInfo    *TA_MACDFIX_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -211,75 +248,78 @@ static const TA_InputParameterInfo    *TA_MACDFIX_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_MACDFIX_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real_MACD,
-  &TA_DEF_UI_Output_Real_MACDSignal,
-  &TA_DEF_UI_Output_Real_MACDHist,
+  &TA_DEF_UI_Output_Real_MACDFIX_outMACD,
+  &TA_DEF_UI_Output_Real_MACDFIX_outMACDSignal,
+  &TA_DEF_UI_Output_Real_MACDFIX_outMACDHist,
   NULL
 };
 
 static const TA_OptInputParameterInfo *TA_MACDFIX_OptInputs[] =
-{ &TA_DEF_UI_Signal_Period,
+{ &TA_DEF_UI_D_MACDFIX_SignalPeriod,
   NULL
 };
 
-DEF_FUNCTION( MACDFIX,                    /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "Moving Average Convergence/Divergence Fix 12/26", /* hint */
-              "MacdFix",                  /* CamelCase name */
-              0                           /* flags */
+DEF_FUNCTION( MACDFIX,
+              TA_GroupId_MomentumIndicators,
+              "Moving Average Convergence/Divergence Fix 12/26",
+              "MacdFix",
+              0
              );
 /* MACDFIX END */
 
 /* MAMA BEGIN */
-const TA_RealRange TA_DEF_MAMA_FastLimit =
+static const TA_RealRange TA_DEF_MAMA_FastLimit =
 {
-   0.01,          /* min */
-   0.99,          /* max */
-   2,            /* precision */
-   0.21,         /* suggested start */
-   0.80,         /* suggested end   */
-   0.01          /* suggested increment */
+   0.01,
+   0.99,
+   2,
+   0.21,
+   0.8,
+   0.01
 };
 
-const TA_RealRange TA_DEF_MAMA_SlowLimit =
+static const TA_OptInputParameterInfo TA_DEF_UI_D_MAMA_FastLimit =
 {
-   0.01,         /* min */
-   0.99,         /* max   */
-   2,            /* precision */
-   0.01,         /* suggested start */
-   0.60,         /* suggested end   */
-   0.01          /* suggested increment */
+   TA_OptInput_RealRange,
+   "optInFastLimit",
+   0,
+
+   "Fast Limit",
+   (const void *)&TA_DEF_MAMA_FastLimit,
+   0.5,
+   "Upper limit use in the adaptive algorithm",
+
+   NULL
 };
 
-const TA_OptInputParameterInfo TA_DEF_UI_MAMA_FastLimit =
+static const TA_RealRange TA_DEF_MAMA_SlowLimit =
 {
-   TA_OptInput_RealRange, /* type */
-   "optInFastLimit",      /* paramName */
-   0,                        /* flags */
-   "Fast Limit",            /* displayName */
-   (const void *)&TA_DEF_MAMA_FastLimit, /* dataSet */
-   0.5, /* defaultValue */
-   "Upper limit use in the adaptive algorithm", /* hint */
-   NULL /* CamelCase name */
+   0.01,
+   0.99,
+   2,
+   0.01,
+   0.6,
+   0.01
 };
 
-const TA_OptInputParameterInfo TA_DEF_UI_MAMA_SlowLimit =
+static const TA_OptInputParameterInfo TA_DEF_UI_D_MAMA_SlowLimit =
 {
-   TA_OptInput_RealRange, /* type */
-   "optInSlowLimit",      /* paramName */
-   0,                        /* flags */
+   TA_OptInput_RealRange,
+   "optInSlowLimit",
+   0,
 
-   "Slow Limit",            /* displayName */
-   (const void *)&TA_DEF_MAMA_SlowLimit, /* dataSet */
-   0.05, /* defaultValue */
-   "Lower limit use in the adaptive algorithm", /* hint */
-   NULL /* CamelCase name */
+   "Slow Limit",
+   (const void *)&TA_DEF_MAMA_SlowLimit,
+   0.05,
+   "Lower limit use in the adaptive algorithm",
+
+   NULL
 };
 
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MAMA =
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MAMA_outMAMA =
                                { TA_Output_Real, "outMAMA", TA_OUT_LINE };
 
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_FAMA =
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MAMA_outFAMA =
                                { TA_Output_Real, "outFAMA", TA_OUT_DASH_LINE };
 
 static const TA_InputParameterInfo    *TA_MAMA_Inputs[]    =
@@ -290,26 +330,54 @@ static const TA_InputParameterInfo    *TA_MAMA_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_MAMA_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real_MAMA,
-  &TA_DEF_UI_Output_Real_FAMA,
+  &TA_DEF_UI_Output_Real_MAMA_outMAMA,
+  &TA_DEF_UI_Output_Real_MAMA_outFAMA,
   NULL
 };
 
 static const TA_OptInputParameterInfo *TA_MAMA_OptInputs[] =
-{ &TA_DEF_UI_MAMA_FastLimit,
-  &TA_DEF_UI_MAMA_SlowLimit,
+{ &TA_DEF_UI_D_MAMA_FastLimit,
+  &TA_DEF_UI_D_MAMA_SlowLimit,
   NULL
 };
 
-DEF_FUNCTION( MAMA,                         /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "MESA Adaptive Moving Average",       /* hint */
-              "Mama",                       /* CamelCase name */
-              TA_FUNC_FLG_UNST_PER|TA_FUNC_FLG_OVERLAP /* flags */
+DEF_FUNCTION( MAMA,
+              TA_GroupId_OverlapStudies,
+              "MESA Adaptive Moving Average",
+              "Mama",
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_OVERLAP
              );
 /* MAMA END */
 
 /* MAVP BEGIN */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_MAVP_MinPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInMinPeriod",
+   0,
+
+   "Minimum Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   2,
+   "Value less than minimum will be changed to Minimum period",
+
+   NULL
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_MAVP_MaxPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInMaxPeriod",
+   0,
+
+   "Maximum Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   30,
+   "Value higher than maximum will be changed to Maximum period",
+
+   NULL
+};
+
 static const TA_InputParameterInfo    *TA_MAVP_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -324,18 +392,17 @@ static const TA_OutputParameterInfo   *TA_MAVP_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_MAVP_OptInputs[] =
-{
-  &TA_DEF_UI_MinPeriod,
-  &TA_DEF_UI_MaxPeriod,
+{ &TA_DEF_UI_D_MAVP_MinPeriod,
+  &TA_DEF_UI_D_MAVP_MaxPeriod,
   &TA_DEF_UI_MA_Method,
   NULL
 };
 
-DEF_FUNCTION( MAVP,                         /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "Moving average with variable period",  /* hint */
-              "MovingAverageVariablePeriod", /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP         /* flags */
+DEF_FUNCTION( MAVP,
+              TA_GroupId_OverlapStudies,
+              "Moving average with variable period",
+              "MovingAverageVariablePeriod",
+              TA_FUNC_FLG_OVERLAP
              );
 /* MAVP END */
 
@@ -357,11 +424,11 @@ static const TA_OptInputParameterInfo *TA_MAX_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MAX,                       /* name */
-              TA_GroupId_MathOperators,  /* groupId */
-              "Highest value over a specified period", /* hint */
-              "Max",                     /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP        /* flags */
+DEF_FUNCTION( MAX,
+              TA_GroupId_MathOperators,
+              "Highest value over a specified period",
+              "Max",
+              TA_FUNC_FLG_OVERLAP
              );
 /* MAX END */
 
@@ -383,11 +450,11 @@ static const TA_OptInputParameterInfo *TA_MAXINDEX_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MAXINDEX,                  /* name */
-              TA_GroupId_MathOperators,  /* groupId */
-              "Index of highest value over a specified period", /* hint */
-              "MaxIndex",                /* CamelCase name */
-              0                          /* flags */
+DEF_FUNCTION( MAXINDEX,
+              TA_GroupId_MathOperators,
+              "Index of highest value over a specified period",
+              "MaxIndex",
+              0
              );
 /* MAXINDEX END */
 
@@ -404,15 +471,15 @@ static const TA_OutputParameterInfo   *TA_MEDPRICE_Outputs[]   =
   NULL
 };
 
-static const TA_OptInputParameterInfo *TA_MEDPRICE_OptInputs[] = { NULL };
+static const TA_OptInputParameterInfo *TA_MEDPRICE_OptInputs[] =
+{ NULL };
 
-DEF_FUNCTION( MEDPRICE,                   /* name */
-              TA_GroupId_PriceTransform,  /* groupId */
-              "Median Price",             /* hint */
-              "MedPrice",                 /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP         /* flags */
+DEF_FUNCTION( MEDPRICE,
+              TA_GroupId_PriceTransform,
+              "Median Price",
+              "MedPrice",
+              TA_FUNC_FLG_OVERLAP
              );
-
 /* MEDPRICE END */
 
 /* MFI BEGIN */
@@ -429,45 +496,17 @@ static const TA_OutputParameterInfo   *TA_MFI_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_MFI_OptInputs[] =
-{
-  &TA_DEF_UI_TimePeriod_14_MINIMUM2,
-  NULL
-};
-
-DEF_FUNCTION( MFI,                   /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "Money Flow Index",         /* hint */
-              "Mfi",                      /* CamelCase name */
-              TA_FUNC_FLG_UNST_PER        /* flags */
-             );
-/* MFI END */
-
-/* MIDPRICE BEGIN */
-static const TA_InputParameterInfo    *TA_MIDPRICE_Inputs[]    =
-{
-  &TA_DEF_UI_Input_Price_HL,
-  NULL
-};
-
-static const TA_OutputParameterInfo   *TA_MIDPRICE_Outputs[]   =
-{
-  &TA_DEF_UI_Output_Real,
-  NULL
-};
-
-static const TA_OptInputParameterInfo *TA_MIDPRICE_OptInputs[] =
 { &TA_DEF_UI_TimePeriod_14_MINIMUM2,
   NULL
 };
 
-DEF_FUNCTION( MIDPRICE,                    /* name */
-              TA_GroupId_OverlapStudies,   /* groupId */
-              "Midpoint Price over period",/* hint */
-              "MidPrice",                  /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP          /* flags */
+DEF_FUNCTION( MFI,
+              TA_GroupId_MomentumIndicators,
+              "Money Flow Index",
+              "Mfi",
+              TA_FUNC_FLG_UNST_PER
              );
-
-/* MIDPRICE END */
+/* MFI END */
 
 /* MIDPOINT BEGIN */
 static const TA_InputParameterInfo    *TA_MIDPOINT_Inputs[]    =
@@ -487,13 +526,39 @@ static const TA_OptInputParameterInfo *TA_MIDPOINT_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MIDPOINT,                   /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "MidPoint over period",     /* hint */
-              "MidPoint",                 /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP         /* flags */
+DEF_FUNCTION( MIDPOINT,
+              TA_GroupId_OverlapStudies,
+              "MidPoint over period",
+              "MidPoint",
+              TA_FUNC_FLG_OVERLAP
              );
 /* MIDPOINT END */
+
+/* MIDPRICE BEGIN */
+static const TA_InputParameterInfo    *TA_MIDPRICE_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Price_HL,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_MIDPRICE_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_MIDPRICE_OptInputs[] =
+{ &TA_DEF_UI_TimePeriod_14_MINIMUM2,
+  NULL
+};
+
+DEF_FUNCTION( MIDPRICE,
+              TA_GroupId_OverlapStudies,
+              "Midpoint Price over period",
+              "MidPrice",
+              TA_FUNC_FLG_OVERLAP
+             );
+/* MIDPRICE END */
 
 /* MIN BEGIN */
 static const TA_InputParameterInfo    *TA_MIN_Inputs[]    =
@@ -513,11 +578,11 @@ static const TA_OptInputParameterInfo *TA_MIN_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MIN,                       /* name */
-              TA_GroupId_MathOperators,  /* groupId */
-              "Lowest value over a specified period", /* hint */
-              "Min",                     /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP        /* flags */
+DEF_FUNCTION( MIN,
+              TA_GroupId_MathOperators,
+              "Lowest value over a specified period",
+              "Min",
+              TA_FUNC_FLG_OVERLAP
              );
 /* MIN END */
 
@@ -539,19 +604,19 @@ static const TA_OptInputParameterInfo *TA_MININDEX_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MININDEX,                  /* name */
-              TA_GroupId_MathOperators,  /* groupId */
-              "Index of lowest value over a specified period", /* hint */
-              "MinIndex",                /* CamelCase name */
-              0                          /* flags */
+DEF_FUNCTION( MININDEX,
+              TA_GroupId_MathOperators,
+              "Index of lowest value over a specified period",
+              "MinIndex",
+              0
              );
 /* MININDEX END */
 
 /* MINMAX BEGIN */
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_Min =
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MINMAX_outMin =
                                { TA_Output_Real, "outMin", TA_OUT_LINE };
 
-const TA_OutputParameterInfo TA_DEF_UI_Output_Real_Max =
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_MINMAX_outMax =
                                { TA_Output_Real, "outMax", TA_OUT_LINE };
 
 static const TA_InputParameterInfo    *TA_MINMAX_Inputs[]    =
@@ -562,8 +627,8 @@ static const TA_InputParameterInfo    *TA_MINMAX_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_MINMAX_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real_Min,
-  &TA_DEF_UI_Output_Real_Max,
+  &TA_DEF_UI_Output_Real_MINMAX_outMin,
+  &TA_DEF_UI_Output_Real_MINMAX_outMax,
   NULL
 };
 
@@ -572,19 +637,19 @@ static const TA_OptInputParameterInfo *TA_MINMAX_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MINMAX,                    /* name */
-              TA_GroupId_MathOperators,  /* groupId */
-              "Lowest and highest values over a specified period", /* hint */
-              "MinMax",                  /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP        /* flags */
+DEF_FUNCTION( MINMAX,
+              TA_GroupId_MathOperators,
+              "Lowest and highest values over a specified period",
+              "MinMax",
+              TA_FUNC_FLG_OVERLAP
              );
 /* MINMAX END */
 
 /* MINMAXINDEX BEGIN */
-const TA_OutputParameterInfo TA_DEF_UI_Output_Integer_MinIdx =
+const TA_OutputParameterInfo TA_DEF_UI_Output_Integer_MINMAXINDEX_outMinIdx =
                                { TA_Output_Integer, "outMinIdx", TA_OUT_LINE };
 
-const TA_OutputParameterInfo TA_DEF_UI_Output_Integer_MaxIdx =
+const TA_OutputParameterInfo TA_DEF_UI_Output_Integer_MINMAXINDEX_outMaxIdx =
                                { TA_Output_Integer, "outMaxIdx", TA_OUT_LINE };
 
 static const TA_InputParameterInfo    *TA_MINMAXINDEX_Inputs[]    =
@@ -595,8 +660,8 @@ static const TA_InputParameterInfo    *TA_MINMAXINDEX_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_MINMAXINDEX_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Integer_MinIdx,
-  &TA_DEF_UI_Output_Integer_MaxIdx,
+  &TA_DEF_UI_Output_Integer_MINMAXINDEX_outMinIdx,
+  &TA_DEF_UI_Output_Integer_MINMAXINDEX_outMaxIdx,
   NULL
 };
 
@@ -605,11 +670,11 @@ static const TA_OptInputParameterInfo *TA_MINMAXINDEX_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MINMAXINDEX,               /* name */
-              TA_GroupId_MathOperators,  /* groupId */
-              "Indexes of lowest and highest values over a specified period", /* hint */
-              "MinMaxIndex",             /* CamelCase name */
-              0                          /* flags */
+DEF_FUNCTION( MINMAXINDEX,
+              TA_GroupId_MathOperators,
+              "Indexes of lowest and highest values over a specified period",
+              "MinMaxIndex",
+              0
              );
 /* MINMAXINDEX END */
 
@@ -631,13 +696,12 @@ static const TA_OptInputParameterInfo *TA_MINUS_DI_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MINUS_DI,                      /* name */
-              TA_GroupId_MomentumIndicators,    /* groupId */
-              "Minus Directional Indicator", /* hint */
-              "MinusDI",                     /* CamelCase name */
-              TA_FUNC_FLG_UNST_PER           /* flags */
+DEF_FUNCTION( MINUS_DI,
+              TA_GroupId_MomentumIndicators,
+              "Minus Directional Indicator",
+              "MinusDI",
+              TA_FUNC_FLG_UNST_PER
              );
-
 /* MINUS_DI END */
 
 /* MINUS_DM BEGIN */
@@ -658,13 +722,12 @@ static const TA_OptInputParameterInfo *TA_MINUS_DM_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MINUS_DM,                     /* name */
-              TA_GroupId_MomentumIndicators,   /* groupId */
-              "Minus Directional Movement", /* hint */
-              "MinusDM",                    /* CamelCase name */
-              TA_FUNC_FLG_UNST_PER          /* flags */
+DEF_FUNCTION( MINUS_DM,
+              TA_GroupId_MomentumIndicators,
+              "Minus Directional Movement",
+              "MinusDM",
+              TA_FUNC_FLG_UNST_PER
              );
-
 /* MINUS_DM END */
 
 /* MOM BEGIN */
@@ -685,16 +748,37 @@ static const TA_OptInputParameterInfo *TA_MOM_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( MOM,                     /* name */
-              TA_GroupId_MomentumIndicators,  /* groupId */
-              "Momentum",        /* hint */
-              "Mom",             /* CamelCase name */
-              0                  /* flags */
+DEF_FUNCTION( MOM,
+              TA_GroupId_MomentumIndicators,
+              "Momentum",
+              "Mom",
+              0
              );
 /* MOM END */
 
 /* MULT BEGIN */
-DEF_MATH_BINARY_OPERATOR( MULT, "Vector Arithmetic Mult", "Mult" )
+static const TA_InputParameterInfo    *TA_MULT_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real0,
+  &TA_DEF_UI_Input_Real1,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_MULT_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_MULT_OptInputs[] =
+{ NULL };
+
+DEF_FUNCTION( MULT,
+              TA_GroupId_MathOperators,
+              "Vector Arithmetic Mult",
+              "Mult",
+              0
+             );
 /* MULT END */
 
 /****************************************************************************
@@ -731,9 +815,3 @@ const TA_FuncDef *TA_DEF_TableM[] =
 const unsigned int TA_DEF_TableMSize =
               ((sizeof(TA_DEF_TableM)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

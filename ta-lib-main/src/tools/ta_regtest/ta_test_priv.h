@@ -31,6 +31,12 @@ ErrorNumber test_abstract( void );
 #include "codegen_pipe.h"
 void test_abstract_set_server(CodegenPipe *cp);
 
+/* Run abstract metadata parity (TA_GetFuncInfo + the three param-info getters)
+ * for every function against the server set via test_abstract_set_server(),
+ * comparing to the C reference. Does NOT exercise abstract_call. Returns
+ * TA_TEST_PASS on full parity. Used to lock cross-language introspection in CI. */
+ErrorNumber test_abstract_server_metadata( const char *functionFilter );
+
 ErrorNumber freeLib( void );
 ErrorNumber allocLib( void );
 

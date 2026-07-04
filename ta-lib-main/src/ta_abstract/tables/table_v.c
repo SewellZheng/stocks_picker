@@ -38,16 +38,6 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* VAR BEGIN */
 static const TA_InputParameterInfo    *TA_VAR_Inputs[]    =
 {
@@ -67,11 +57,11 @@ static const TA_OptInputParameterInfo *TA_VAR_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( VAR,                      /* name */
-              TA_GroupId_Statistic,     /* groupId */
-              "Variance",               /* hint */
-              "Variance",               /* CamelCase name */
-              0                         /* flags */
+DEF_FUNCTION( VAR,
+              TA_GroupId_Statistic,
+              "Variance",
+              "Variance",
+              0
              );
 /* VAR END */
 
@@ -90,9 +80,3 @@ const TA_FuncDef *TA_DEF_TableV[] =
 const unsigned int TA_DEF_TableVSize =
               ((sizeof(TA_DEF_TableV)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

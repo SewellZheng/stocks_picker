@@ -38,16 +38,6 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* DEMA BEGIN */
 static const TA_InputParameterInfo    *TA_DEMA_Inputs[]    =
 {
@@ -62,20 +52,41 @@ static const TA_OutputParameterInfo   *TA_DEMA_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_DEMA_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_30_MINIMUM2,
+{ &TA_DEF_UI_TimePeriod_30,
   NULL
 };
 
-DEF_FUNCTION( DEMA,                       /* name */
-              TA_GroupId_OverlapStudies,  /* groupId */
-              "Double Exponential Moving Average", /* hint */
-              "Dema",                     /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP         /* flags */
+DEF_FUNCTION( DEMA,
+              TA_GroupId_OverlapStudies,
+              "Double Exponential Moving Average",
+              "Dema",
+              TA_FUNC_FLG_OVERLAP
              );
 /* DEMA END */
 
 /* DIV BEGIN */
-DEF_MATH_BINARY_OPERATOR( DIV, "Vector Arithmetic Div", "Div" )
+static const TA_InputParameterInfo    *TA_DIV_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real0,
+  &TA_DEF_UI_Input_Real1,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_DIV_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_DIV_OptInputs[] =
+{ NULL };
+
+DEF_FUNCTION( DIV,
+              TA_GroupId_MathOperators,
+              "Vector Arithmetic Div",
+              "Div",
+              0
+             );
 /* DIV END */
 
 /* DX BEGIN */
@@ -96,11 +107,11 @@ static const TA_OptInputParameterInfo *TA_DX_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( DX,                           /* name */
-              TA_GroupId_MomentumIndicators,   /* groupId */
-              "Directional Movement Index", /* hint */
-              "Dx",                         /* CamelCase name */
-              TA_FUNC_FLG_UNST_PER          /* flags */
+DEF_FUNCTION( DX,
+              TA_GroupId_MomentumIndicators,
+              "Directional Movement Index",
+              "Dx",
+              TA_FUNC_FLG_UNST_PER
              );
 /* DX END */
 
@@ -121,9 +132,3 @@ const TA_FuncDef *TA_DEF_TableD[] =
 const unsigned int TA_DEF_TableDSize =
               ((sizeof(TA_DEF_TableD)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/

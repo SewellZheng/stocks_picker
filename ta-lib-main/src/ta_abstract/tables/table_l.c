@@ -38,16 +38,6 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
-/* Follow the 3 steps defined below for adding a new TA Function to this
- * file.
- */
-
-/****************************************************************************
- * Step 1 - Define here the interface to your TA functions with
- *          the macro DEF_FUNCTION.
- *
- ****************************************************************************/
-
 /* LINEARREG BEGIN */
 static const TA_InputParameterInfo    *TA_LINEARREG_Inputs[]    =
 {
@@ -55,7 +45,7 @@ static const TA_InputParameterInfo    *TA_LINEARREG_Inputs[]    =
   NULL
 };
 
-static const TA_OutputParameterInfo *TA_LINEARREG_Outputs[]   =
+static const TA_OutputParameterInfo   *TA_LINEARREG_Outputs[]   =
 {
   &TA_DEF_UI_Output_Real,
   NULL
@@ -66,39 +56,13 @@ static const TA_OptInputParameterInfo *TA_LINEARREG_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( LINEARREG,           /* name */
-              TA_GroupId_Statistic,/* groupId */
-              "Linear Regression", /* hint */
-              "LinearReg",         /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP  /* flags */
+DEF_FUNCTION( LINEARREG,
+              TA_GroupId_Statistic,
+              "Linear Regression",
+              "LinearReg",
+              TA_FUNC_FLG_OVERLAP
              );
 /* LINEARREG END */
-
-/* LINEARREG_SLOPE BEGIN */
-static const TA_InputParameterInfo    *TA_LINEARREG_SLOPE_Inputs[]    =
-{
-  &TA_DEF_UI_Input_Real,
-  NULL
-};
-
-static const TA_OutputParameterInfo *TA_LINEARREG_SLOPE_Outputs[]   =
-{
-  &TA_DEF_UI_Output_Real,
-  NULL
-};
-
-static const TA_OptInputParameterInfo *TA_LINEARREG_SLOPE_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_14_MINIMUM2,
-  NULL
-};
-
-DEF_FUNCTION( LINEARREG_SLOPE,     /* name */
-              TA_GroupId_Statistic,/* groupId */
-              "Linear Regression Slope", /* hint */
-              "LinearRegSlope",    /* CamelCase name */
-              0                    /* flags */
-             );
-/* LINEARREG_SLOPE END */
 
 /* LINEARREG_ANGLE BEGIN */
 static const TA_InputParameterInfo    *TA_LINEARREG_ANGLE_Inputs[]    =
@@ -107,7 +71,7 @@ static const TA_InputParameterInfo    *TA_LINEARREG_ANGLE_Inputs[]    =
   NULL
 };
 
-static const TA_OutputParameterInfo *TA_LINEARREG_ANGLE_Outputs[]   =
+static const TA_OutputParameterInfo   *TA_LINEARREG_ANGLE_Outputs[]   =
 {
   &TA_DEF_UI_Output_Real,
   NULL
@@ -118,11 +82,11 @@ static const TA_OptInputParameterInfo *TA_LINEARREG_ANGLE_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( LINEARREG_ANGLE,           /* name */
-              TA_GroupId_Statistic,/* groupId */
-              "Linear Regression Angle", /* hint */
-              "LinearRegAngle",    /* CamelCase name */
-              0                    /* flags */
+DEF_FUNCTION( LINEARREG_ANGLE,
+              TA_GroupId_Statistic,
+              "Linear Regression Angle",
+              "LinearRegAngle",
+              0
              );
 /* LINEARREG_ANGLE END */
 
@@ -133,7 +97,7 @@ static const TA_InputParameterInfo    *TA_LINEARREG_INTERCEPT_Inputs[]    =
   NULL
 };
 
-static const TA_OutputParameterInfo *TA_LINEARREG_INTERCEPT_Outputs[]   =
+static const TA_OutputParameterInfo   *TA_LINEARREG_INTERCEPT_Outputs[]   =
 {
   &TA_DEF_UI_Output_Real,
   NULL
@@ -144,20 +108,86 @@ static const TA_OptInputParameterInfo *TA_LINEARREG_INTERCEPT_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( LINEARREG_INTERCEPT,           /* name */
-              TA_GroupId_Statistic,/* groupId */
-              "Linear Regression Intercept", /* hint */
-              "LinearRegIntercept",  /* CamelCase name */
-              TA_FUNC_FLG_OVERLAP    /* flags */
+DEF_FUNCTION( LINEARREG_INTERCEPT,
+              TA_GroupId_Statistic,
+              "Linear Regression Intercept",
+              "LinearRegIntercept",
+              TA_FUNC_FLG_OVERLAP
              );
 /* LINEARREG_INTERCEPT END */
 
+/* LINEARREG_SLOPE BEGIN */
+static const TA_InputParameterInfo    *TA_LINEARREG_SLOPE_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_LINEARREG_SLOPE_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_LINEARREG_SLOPE_OptInputs[] =
+{ &TA_DEF_UI_TimePeriod_14_MINIMUM2,
+  NULL
+};
+
+DEF_FUNCTION( LINEARREG_SLOPE,
+              TA_GroupId_Statistic,
+              "Linear Regression Slope",
+              "LinearRegSlope",
+              0
+             );
+/* LINEARREG_SLOPE END */
+
 /* LN BEGIN */
-DEF_MATH_UNARY_OPERATOR( LN, "Vector Log Natural", "Ln" )
+static const TA_InputParameterInfo    *TA_LN_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_LN_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_LN_OptInputs[] =
+{ NULL };
+
+DEF_FUNCTION( LN,
+              TA_GroupId_MathTransform,
+              "Vector Log Natural",
+              "Ln",
+              0
+             );
 /* LN END */
 
 /* LOG10 BEGIN */
-DEF_MATH_UNARY_OPERATOR( LOG10, "Vector Log10", "Log10" )
+static const TA_InputParameterInfo    *TA_LOG10_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_LOG10_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_LOG10_OptInputs[] =
+{ NULL };
+
+DEF_FUNCTION( LOG10,
+              TA_GroupId_MathTransform,
+              "Vector Log10",
+              "Log10",
+              0
+             );
 /* LOG10 END */
 
 /****************************************************************************
@@ -180,9 +210,3 @@ const TA_FuncDef *TA_DEF_TableL[] =
 const unsigned int TA_DEF_TableLSize =
               ((sizeof(TA_DEF_TableL)/sizeof(TA_FuncDef *))-1);
 
-
-/****************************************************************************
- * Step 3 - Make sure "gen_code" is executed for generating all other
- *          source files derived from this one.
- *          You can then re-compile the library as usual and you are done!
- ****************************************************************************/
