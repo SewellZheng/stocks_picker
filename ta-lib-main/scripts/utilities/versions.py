@@ -509,24 +509,12 @@ def sync_versions(root_dir: str) -> Tuple[bool,str]:
         set_version_string_conanfile(root_dir, highest_version)
         is_updated = True
 
-    # docs/install.md hardcodes the released version in its text and download
-    # URLs (the only semver strings in that file). Nothing else updates the
-    # website at release time — "Release (step 2)" only publishes the draft —
-    # so rewrite any older semver here. (0.7.1 release: the site kept showing
-    # 0.6.4 because this was a manual step nobody remembered.)
-    install_md = os.path.join(root_dir, "docs", "install.md")
-    if os.path.isfile(install_md):
-        with open(install_md, "r") as f:
-            content = f.read()
-        semvers = set(re.findall(r"\b\d+\.\d+\.\d+\b", content))
-        stale = [v for v in semvers if compare_version(highest_version, v) > 0]
-        if stale:
-            for v in stale:
-                content = content.replace(v, highest_version)
-            with open(install_md, "w") as f:
-                f.write(content)
-            print(f"Updating docs/install.md to [{highest_version}] (was: {', '.join(sorted(stale))})")
-            is_updated = True
+    # NOTE: docs/install.md (the website install page) is intentionally NOT
+    # synced here. It must advertise the latest *published* release, not this
+    # in-development VERSION, so rewriting it from `highest_version` would leak a
+    # not-yet-released version onto the live website (which deploys from main on
+    # every push). That sync lives in scripts/sync-website.py (GitHub-API driven)
+    # and runs only where CI commits back to the repo (dev-nightly-tests.yml).
 
     return is_updated, version_c
 

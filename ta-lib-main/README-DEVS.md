@@ -106,12 +106,30 @@ Any dev with permission to merge to main branch can do a release.
 
 (9) Manually trig "Release (step 2)" Github action. This will make the release official/public and update the website.
 
-(10) Verify that https://ta-lib.org/install reflects the new version.
+(10) Verify the Github release page shows the new version with all assets attached and downloadable. The website (https://ta-lib.org/install) catches up on its own within a nightly cycle afterward — see "After a release" below.
 
 (11) Run "./scripts/post-release-vcpkg.py" and follow the instructions to submit a PR to microsoft/vcpkg. Monitor the PR is eventually merged by vcpkg maintainers. This may take a few days.
 
 (12) Monitor homebrew-core. The following formula will eventually be updated (may take an hour):
 https://github.com/Homebrew/homebrew-core/blob/30106807361198c58a395de65547694427adf229/Formula/t/ta-lib.rb
+
+
+## After a release
+
+Right after a release is public, open the next development version so `dev`/`main`
+stop advertising an already-released version:
+
+(A) On dev, bump the VERSION file to the next patch (e.g. `0.7.2` -> `0.7.3`). You can adjust the actual versionlater, the key here is it just need to be different/higher.
+
+(B) Add a `## [0.7.3] Not Released Yet` entry at the top of CHANGELOG.md.
+
+(C) Run `./scripts/sync.py`, push dev, then merge to main as usual.
+
+The website catches up on its own within a nightly cycle. Confirm with:
+
+```bash
+./scripts/sync-website.py --check   # non-zero if the website is behind
+```
 
 
 ## I want to modify the code... should I care to rebuild the packages?
