@@ -139,9 +139,8 @@ impl Core {
     /// # Panics
     ///
     /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range: undersized slices panic or, for functions that forward to unchecked
-    /// internals, cause undefined behavior. Sizing every output slice to the input length is always
-    /// sufficient.
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
     ///
     /// # Examples
     ///
@@ -380,7 +379,7 @@ impl Core {
                     afShort = optInAccelerationInitShort;
                     ep = newLow;
                     // Calculate the new SAR
-                    sar = (afShort as f64).mul_add(ep - sar, sar);
+                    sar = sar + afShort * (ep - sar);
                     // Make sure the new SAR is within
                     // yesterday's and today's range.
                     if sar < prevHigh {
@@ -403,7 +402,7 @@ impl Core {
                         }
                     }
                     // Calculate the new SAR
-                    sar = (afLong as f64).mul_add(ep - sar, sar);
+                    sar = sar + afLong * (ep - sar);
                     // Make sure the new SAR is within
                     // yesterday's and today's range.
                     if sar > prevLow {
@@ -436,7 +435,7 @@ impl Core {
                 afLong = optInAccelerationInitLong;
                 ep = newHigh;
                 // Calculate the new SAR
-                sar = (afLong as f64).mul_add(ep - sar, sar);
+                sar = sar + afLong * (ep - sar);
                 // Make sure the new SAR is within
                 // yesterday's and today's range.
                 if sar > prevLow {
@@ -459,7 +458,7 @@ impl Core {
                     }
                 }
                 // Calculate the new SAR
-                sar = (afShort as f64).mul_add(ep - sar, sar);
+                sar = sar + afShort * (ep - sar);
                 // Make sure the new SAR is within
                 // yesterday's and today's range.
                 if sar < prevHigh {
@@ -473,12 +472,12 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
-    /// Unchecked variant of [`Core::sarext`], used for internal cross-indicator calls.
+    /// Unguarded variant of [`Core::sarext`], used for internal cross-indicator calls.
     ///
-    /// Skips parameter validation and uses unchecked indexing internally. Every argument must
-    /// satisfy the constraints documented on [`Core::sarext`]; an out-of-range parameter, an input
-    /// slice not covering `startIdx..=endIdx`, or an undersized output slice may panic or cause
-    /// undefined behavior. Prefer [`Core::sarext`].
+    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
+    /// documented on [`Core::sarext`]; an out-of-range parameter, an input slice not covering
+    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
+    /// [`Core::sarext`].
     #[inline]
     pub fn sarext_unguarded(
         &self,
@@ -512,7 +511,6 @@ impl Core {
         let mut ep: f64 = 0.0_f64;
         let mut sar: f64 = 0.0_f64;
         let mut ep_temp: [f64; 1 as usize] = [0.0_f64; 1 as usize];
-        unsafe {
         assert!(endIdx < inHigh.len());
         assert!(endIdx < inLow.len());
         let _assertLb = self.sarext_lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort);
@@ -545,7 +543,7 @@ impl Core {
         if optInStartValue == 0_f64 {
             let mut _dup_out: usize = 0_usize;
             retCode = self.minus_dm_unguarded(startIdx, startIdx, inHigh, inLow, 1, &mut tempInt, &mut _dup_out, &mut ep_temp);
-            if *ep_temp.as_ptr().add(0) > 0_f64 {
+            if ep_temp[0] > 0_f64 {
                 isLong = 0;
             } else {
                 isLong = 1;
@@ -563,30 +561,30 @@ impl Core {
         (*outBegIdx) = startIdx;
         outIdx = 0;
         todayIdx = startIdx;
-        newHigh = *inHigh.as_ptr().add(todayIdx - 1);
-        newLow = *inLow.as_ptr().add(todayIdx - 1);
+        newHigh = inHigh[todayIdx - 1];
+        newLow = inLow[todayIdx - 1];
         if optInStartValue == 0_f64 {
             if isLong == 1 {
-                ep = *inHigh.as_ptr().add(todayIdx);
+                ep = inHigh[todayIdx];
                 sar = newLow;
             } else {
-                ep = *inLow.as_ptr().add(todayIdx);
+                ep = inLow[todayIdx];
                 sar = newHigh;
             }
         } else if optInStartValue > 0_f64 {
-            ep = *inHigh.as_ptr().add(todayIdx);
+            ep = inHigh[todayIdx];
             sar = optInStartValue;
         } else {
-            ep = *inLow.as_ptr().add(todayIdx);
+            ep = inLow[todayIdx];
             sar = (optInStartValue).abs();
         }
-        newLow = *inLow.as_ptr().add(todayIdx);
-        newHigh = *inHigh.as_ptr().add(todayIdx);
+        newLow = inLow[todayIdx];
+        newHigh = inHigh[todayIdx];
         while todayIdx <= endIdx {
             prevLow = newLow;
             prevHigh = newHigh;
-            newLow = *inLow.as_ptr().add(todayIdx);
-            newHigh = *inHigh.as_ptr().add(todayIdx);
+            newLow = inLow[todayIdx];
+            newHigh = inHigh[todayIdx];
             todayIdx += 1;
             if isLong == 1 {
                 if newLow <= sar {
@@ -601,11 +599,11 @@ impl Core {
                     if optInOffsetOnReverse != 0.0 {
                         sar += sar * optInOffsetOnReverse;
                     }
-                    *outReal.as_mut_ptr().add(outIdx) = 0_f64 - sar;
+                    outReal[outIdx] = 0_f64 - sar;
                     outIdx += 1;
                     afShort = optInAccelerationInitShort;
                     ep = newLow;
-                    sar = (afShort as f64).mul_add(ep - sar, sar);
+                    sar = sar + afShort * (ep - sar);
                     if sar < prevHigh {
                         sar = prevHigh;
                     }
@@ -613,7 +611,7 @@ impl Core {
                         sar = newHigh;
                     }
                 } else {
-                    *outReal.as_mut_ptr().add(outIdx) = sar;
+                    outReal[outIdx] = sar;
                     outIdx += 1;
                     if newHigh > ep {
                         ep = newHigh;
@@ -622,7 +620,7 @@ impl Core {
                             afLong = optInAccelerationMaxLong;
                         }
                     }
-                    sar = (afLong as f64).mul_add(ep - sar, sar);
+                    sar = sar + afLong * (ep - sar);
                     if sar > prevLow {
                         sar = prevLow;
                     }
@@ -642,11 +640,11 @@ impl Core {
                 if optInOffsetOnReverse != 0.0 {
                     sar -= sar * optInOffsetOnReverse;
                 }
-                *outReal.as_mut_ptr().add(outIdx) = sar;
+                outReal[outIdx] = sar;
                 outIdx += 1;
                 afLong = optInAccelerationInitLong;
                 ep = newHigh;
-                sar = (afLong as f64).mul_add(ep - sar, sar);
+                sar = sar + afLong * (ep - sar);
                 if sar > prevLow {
                     sar = prevLow;
                 }
@@ -654,7 +652,7 @@ impl Core {
                     sar = newLow;
                 }
             } else {
-                *outReal.as_mut_ptr().add(outIdx) = 0_f64 - sar;
+                outReal[outIdx] = 0_f64 - sar;
                 outIdx += 1;
                 if newLow < ep {
                     ep = newLow;
@@ -663,7 +661,7 @@ impl Core {
                         afShort = optInAccelerationMaxShort;
                     }
                 }
-                sar = (afShort as f64).mul_add(ep - sar, sar);
+                sar = sar + afShort * (ep - sar);
                 if sar < prevHigh {
                     sar = prevHigh;
                 }
@@ -674,7 +672,6 @@ impl Core {
         }
         (*outNBElement) = outIdx;
         return RetCode::Success;
-        } // unsafe
     }
 }
 /***************/

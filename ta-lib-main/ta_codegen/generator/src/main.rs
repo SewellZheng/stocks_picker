@@ -1216,8 +1216,12 @@ codegen-units = 1
     // --- .cargo/config.toml ---
     let cargo_config_dir = rust_dir.join(".cargo");
     std::fs::create_dir_all(&cargo_config_dir).unwrap();
-    let cargo_config = r#"[build]
-rustflags = ["-C", "target-cpu=native"]
+    let cargo_config = r#"# Build with the default target CPU (baseline x86-64 / aarch64).
+# This is what crates.io users get by default, so it is what the local
+# servers and benchmarks must measure — no native-tuning bias vs the
+# baseline-built C library and third-party comparison servers.
+# Opt into native tuning explicitly: RUSTFLAGS="-C target-cpu=native"
+[build]
 "#;
     std::fs::write(cargo_config_dir.join("config.toml"), cargo_config).unwrap();
 
@@ -1268,13 +1272,23 @@ rustflags = ["-C", "target-cpu=native"]
 //! ([`Core::set_unstable_period`]), Metastock compatibility
 //! ([`Core::set_compatibility`]), and candlestick thresholds.
 //!
-//! Every indicator also has an `*_unguarded` variant that skips validation and
-//! bounds checks for internal cross-indicator calls — prefer the checked methods.
+//! Every indicator also has an `*_unguarded` variant that skips parameter
+//! validation for internal cross-indicator calls — prefer the checked methods.
+//! The crate is `#![forbid(unsafe_code)]`: misuse of an `*_unguarded` variant
+//! panics, it never triggers undefined behavior.
 //!
 //! The full function reference, grouped by category, is at
 //! [ta-lib.org/functions](https://ta-lib.org/functions/).
 
+#![forbid(unsafe_code)]
 #![allow(non_snake_case, unused_variables, unused_assignments, unused_mut, unused_parens, arithmetic_overflow)]
+// Generated code: Clippy's style/complexity lints are noise on machine output, and
+// several "fixes" would change numeric behavior — e.g. `neg_cmp_op_on_partial_ord`
+// on C's `!(a < b)` NaN idiom, or De Morgan rewrites under `nonminimal_bool`. The
+// crate is verified bit-exact against the C reference, so these are suppressed rather
+// than applied. `too_many_arguments` is inherent to the C API arity.
+#![allow(clippy::all, clippy::pedantic)]
+#![allow(clippy::approx_constant)] // PI (180/3.141592653589793) is copied verbatim from the C source.
 pub mod ta_func;
 pub mod abstract_api;
 pub use ta_func::*;

@@ -133,9 +133,8 @@ impl Core {
     /// # Panics
     ///
     /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range: undersized slices panic or, for functions that forward to unchecked
-    /// internals, cause undefined behavior. Sizing every output slice to the input length is always
-    /// sufficient.
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
     ///
     /// # Examples
     ///
@@ -157,6 +156,11 @@ impl Core {
     /// # See also
     ///
     /// [`Core::ema`] · [`Core::dema`] · [`Core::tema`] · [`Core::ma`]
+    ///
+    /// # References
+    ///
+    /// * Tim Tillson, *Smoothing Techniques for More Accurate Signals*, Technical Analysis of
+    ///   Stocks & Commodities, V.16:1 (January 1998)
     ///
     /// Further reading: [ta-lib.org/functions/t3](https://ta-lib.org/functions/t3/)
     #[doc(alias = "TillsonT3")]
@@ -256,7 +260,7 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(inReal[{ let _v = today; today += 1; _v }], one_minus_k * e1);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
             tempReal += e1;
             i -= 1;
         }
@@ -266,8 +270,8 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(inReal[{ let _v = today; today += 1; _v }], one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
             tempReal += e2;
             i -= 1;
         }
@@ -277,9 +281,9 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(inReal[{ let _v = today; today += 1; _v }], one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
             tempReal += e3;
             i -= 1;
         }
@@ -289,10 +293,10 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(inReal[{ let _v = today; today += 1; _v }], one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
-            e4 = (k as f64).mul_add(e3, one_minus_k * e4);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
+            e4 = k * e3 + one_minus_k * e4;
             tempReal += e4;
             i -= 1;
         }
@@ -302,11 +306,11 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(inReal[{ let _v = today; today += 1; _v }], one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
-            e4 = (k as f64).mul_add(e3, one_minus_k * e4);
-            e5 = (k as f64).mul_add(e4, one_minus_k * e5);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
+            e4 = k * e3 + one_minus_k * e4;
+            e5 = k * e4 + one_minus_k * e5;
             tempReal += e5;
             i -= 1;
         }
@@ -314,32 +318,32 @@ impl Core {
         // Skip the unstable period
         while today <= startIdx {
             // Do the calculation but do not write the output
-            e1 = (k as f64).mul_add(inReal[{ let _v = today; today += 1; _v }], one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
-            e4 = (k as f64).mul_add(e3, one_minus_k * e4);
-            e5 = (k as f64).mul_add(e4, one_minus_k * e5);
-            e6 = (k as f64).mul_add(e5, one_minus_k * e6);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
+            e4 = k * e3 + one_minus_k * e4;
+            e5 = k * e4 + one_minus_k * e5;
+            e6 = k * e5 + one_minus_k * e6;
         }
         // Calculate the constants
         tempReal = optInVFactor * optInVFactor;
         c1 = 0_f64 - tempReal * optInVFactor;
         c2 = 3.0 * (tempReal - c1);
         c3 = (0_f64 - 6.0) * tempReal - 3.0 * (optInVFactor - c1);
-        c4 = (3.0 as f64).mul_add(tempReal, (3.0 as f64).mul_add(optInVFactor, 1.0) - c1);
+        c4 = 1.0 + 3.0 * optInVFactor - c1 + 3.0 * tempReal;
         // Write the first output
         outIdx = 0;
-        outReal[outIdx] = (c4 as f64).mul_add(e3, (c3 as f64).mul_add(e4, (c1 as f64).mul_add(e6, c2 * e5)));
+        outReal[outIdx] = c1 * e6 + c2 * e5 + c3 * e4 + c4 * e3;
         outIdx += 1;
         // Calculate and output the remaining of the range.
         while today <= endIdx {
-            e1 = (k as f64).mul_add(inReal[{ let _v = today; today += 1; _v }], one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
-            e4 = (k as f64).mul_add(e3, one_minus_k * e4);
-            e5 = (k as f64).mul_add(e4, one_minus_k * e5);
-            e6 = (k as f64).mul_add(e5, one_minus_k * e6);
-            outReal[outIdx] = (c4 as f64).mul_add(e3, (c3 as f64).mul_add(e4, (c1 as f64).mul_add(e6, c2 * e5)));
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
+            e4 = k * e3 + one_minus_k * e4;
+            e5 = k * e4 + one_minus_k * e5;
+            e6 = k * e5 + one_minus_k * e6;
+            outReal[outIdx] = c1 * e6 + c2 * e5 + c3 * e4 + c4 * e3;
             outIdx += 1;
         }
         // Indicates to the caller the number of output
@@ -347,12 +351,12 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
-    /// Unchecked variant of [`Core::t3`], used for internal cross-indicator calls.
+    /// Unguarded variant of [`Core::t3`], used for internal cross-indicator calls.
     ///
-    /// Skips parameter validation and uses unchecked indexing internally. Every argument must
-    /// satisfy the constraints documented on [`Core::t3`]; an out-of-range parameter, an input
-    /// slice not covering `startIdx..=endIdx`, or an undersized output slice may panic or cause
-    /// undefined behavior. Prefer [`Core::t3`].
+    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
+    /// documented on [`Core::t3`]; an out-of-range parameter, an input slice not covering
+    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
+    /// [`Core::t3`].
     #[inline]
     pub fn t3_unguarded(
         &self,
@@ -382,7 +386,6 @@ impl Core {
         let mut c3: f64 = 0.0_f64;
         let mut c4: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
-        unsafe {
         assert!(endIdx < inReal.len());
         let _assertLb = self.t3_lookback(optInTimePeriod, optInVFactor);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
@@ -401,7 +404,7 @@ impl Core {
             outIdx = 0;
             today = startIdx;
             while today <= endIdx {
-                *outReal.as_mut_ptr().add(outIdx) = ((*inReal.as_ptr().add({ let _v = today; today += 1; _v })) as f64);
+                outReal[outIdx] = ((inReal[{ let _v = today; today += 1; _v }]) as f64);
                 outIdx += 1;
             }
             (*outNBElement) = outIdx;
@@ -411,11 +414,11 @@ impl Core {
         today = startIdx - lookbackTotal;
         k = 2.0 / (((optInTimePeriod) as f64) + 1.0);
         one_minus_k = 1.0 - k;
-        tempReal = *inReal.as_ptr().add({ let _v = today; today += 1; _v });
+        tempReal = inReal[{ let _v = today; today += 1; _v }];
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            tempReal += *inReal.as_ptr().add({ let _v = today; today += 1; _v });
+            tempReal += inReal[{ let _v = today; today += 1; _v }];
             i -= 1;
         }
         e1 = tempReal / ((optInTimePeriod) as f64);
@@ -423,7 +426,7 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(*inReal.as_ptr().add({ let _v = today; today += 1; _v }), one_minus_k * e1);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
             tempReal += e1;
             i -= 1;
         }
@@ -432,8 +435,8 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(*inReal.as_ptr().add({ let _v = today; today += 1; _v }), one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
             tempReal += e2;
             i -= 1;
         }
@@ -442,9 +445,9 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(*inReal.as_ptr().add({ let _v = today; today += 1; _v }), one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
             tempReal += e3;
             i -= 1;
         }
@@ -453,10 +456,10 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(*inReal.as_ptr().add({ let _v = today; today += 1; _v }), one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
-            e4 = (k as f64).mul_add(e3, one_minus_k * e4);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
+            e4 = k * e3 + one_minus_k * e4;
             tempReal += e4;
             i -= 1;
         }
@@ -465,44 +468,43 @@ impl Core {
         // for( i = (optInTimePeriod - 1) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod - 1) as usize;
         while i > 0 {
-            e1 = (k as f64).mul_add(*inReal.as_ptr().add({ let _v = today; today += 1; _v }), one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
-            e4 = (k as f64).mul_add(e3, one_minus_k * e4);
-            e5 = (k as f64).mul_add(e4, one_minus_k * e5);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
+            e4 = k * e3 + one_minus_k * e4;
+            e5 = k * e4 + one_minus_k * e5;
             tempReal += e5;
             i -= 1;
         }
         e6 = tempReal / ((optInTimePeriod) as f64);
         while today <= startIdx {
-            e1 = (k as f64).mul_add(*inReal.as_ptr().add({ let _v = today; today += 1; _v }), one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
-            e4 = (k as f64).mul_add(e3, one_minus_k * e4);
-            e5 = (k as f64).mul_add(e4, one_minus_k * e5);
-            e6 = (k as f64).mul_add(e5, one_minus_k * e6);
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
+            e4 = k * e3 + one_minus_k * e4;
+            e5 = k * e4 + one_minus_k * e5;
+            e6 = k * e5 + one_minus_k * e6;
         }
         tempReal = optInVFactor * optInVFactor;
         c1 = 0_f64 - tempReal * optInVFactor;
         c2 = 3.0 * (tempReal - c1);
         c3 = (0_f64 - 6.0) * tempReal - 3.0 * (optInVFactor - c1);
-        c4 = (3.0 as f64).mul_add(tempReal, (3.0 as f64).mul_add(optInVFactor, 1.0) - c1);
+        c4 = 1.0 + 3.0 * optInVFactor - c1 + 3.0 * tempReal;
         outIdx = 0;
-        *outReal.as_mut_ptr().add(outIdx) = (c4 as f64).mul_add(e3, (c3 as f64).mul_add(e4, (c1 as f64).mul_add(e6, c2 * e5)));
+        outReal[outIdx] = c1 * e6 + c2 * e5 + c3 * e4 + c4 * e3;
         outIdx += 1;
         while today <= endIdx {
-            e1 = (k as f64).mul_add(*inReal.as_ptr().add({ let _v = today; today += 1; _v }), one_minus_k * e1);
-            e2 = (k as f64).mul_add(e1, one_minus_k * e2);
-            e3 = (k as f64).mul_add(e2, one_minus_k * e3);
-            e4 = (k as f64).mul_add(e3, one_minus_k * e4);
-            e5 = (k as f64).mul_add(e4, one_minus_k * e5);
-            e6 = (k as f64).mul_add(e5, one_minus_k * e6);
-            *outReal.as_mut_ptr().add(outIdx) = (c4 as f64).mul_add(e3, (c3 as f64).mul_add(e4, (c1 as f64).mul_add(e6, c2 * e5)));
+            e1 = k * inReal[{ let _v = today; today += 1; _v }] + one_minus_k * e1;
+            e2 = k * e1 + one_minus_k * e2;
+            e3 = k * e2 + one_minus_k * e3;
+            e4 = k * e3 + one_minus_k * e4;
+            e5 = k * e4 + one_minus_k * e5;
+            e6 = k * e5 + one_minus_k * e6;
+            outReal[outIdx] = c1 * e6 + c2 * e5 + c3 * e4 + c4 * e3;
             outIdx += 1;
         }
         (*outNBElement) = outIdx;
         return RetCode::Success;
-        } // unsafe
     }
 }
 /***************/

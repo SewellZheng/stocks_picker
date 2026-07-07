@@ -50,6 +50,8 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  181012 AB    Initial Version
+ *  070526 MF,CC  Fix #98: the unstable period grew the summation window
+ *                to period+u bars; window is now always 'period'.
  */
 
 // Import types from parent module
@@ -113,9 +115,8 @@ impl Core {
     /// # Panics
     ///
     /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range: undersized slices panic or, for functions that forward to unchecked
-    /// internals, cause undefined behavior. Sizing every output slice to the input length is always
-    /// sufficient.
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
     ///
     /// # Examples
     ///
@@ -182,7 +183,7 @@ impl Core {
             let mut upsum: f64 = 0.0;
             let mut downsum: f64 = 0.0;
             let mut i: usize = 0_usize;
-            for i in (startIdx - lookback as usize)..(startIdx as usize) + 1 {
+            for i in (startIdx - ((optInTimePeriod - 1)) as usize as usize)..(startIdx as usize) + 1 {
                 let mut close: f64 = inClose[i];
                 let mut open: f64 = inOpen[i];
                 if close > open {
@@ -199,12 +200,12 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
-    /// Unchecked variant of [`Core::imi`], used for internal cross-indicator calls.
+    /// Unguarded variant of [`Core::imi`], used for internal cross-indicator calls.
     ///
-    /// Skips parameter validation and uses unchecked indexing internally. Every argument must
-    /// satisfy the constraints documented on [`Core::imi`]; an out-of-range parameter, an input
-    /// slice not covering `startIdx..=endIdx`, or an undersized output slice may panic or cause
-    /// undefined behavior. Prefer [`Core::imi`].
+    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
+    /// documented on [`Core::imi`]; an out-of-range parameter, an input slice not covering
+    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
+    /// [`Core::imi`].
     #[inline]
     pub fn imi_unguarded(
         &self,
@@ -219,7 +220,6 @@ impl Core {
     ) -> RetCode {
         let mut lookback: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
-        unsafe {
         assert!(endIdx < inOpen.len());
         assert!(endIdx < inClose.len());
         let _assertLb = self.imi_lookback(optInTimePeriod);
@@ -240,15 +240,15 @@ impl Core {
             let mut upsum: f64 = 0.0;
             let mut downsum: f64 = 0.0;
             let mut i: usize = 0_usize;
-            for i in (startIdx - lookback as usize)..(startIdx as usize) + 1 {
-                let mut close: f64 = *inClose.as_ptr().add(i);
-                let mut open: f64 = *inOpen.as_ptr().add(i);
+            for i in (startIdx - ((optInTimePeriod - 1)) as usize as usize)..(startIdx as usize) + 1 {
+                let mut close: f64 = inClose[i];
+                let mut open: f64 = inOpen[i];
                 if close > open {
                     upsum += close - open;
                 } else {
                     downsum += open - close;
                 }
-                *outReal.as_mut_ptr().add(outIdx) = 100.0 * (upsum / (upsum + downsum));
+                outReal[outIdx] = 100.0 * (upsum / (upsum + downsum));
             }
             i = (startIdx as usize) + 1;
             startIdx += 1;
@@ -256,7 +256,6 @@ impl Core {
         }
         (*outNBElement) = outIdx;
         return RetCode::Success;
-        } // unsafe
     }
 }
 /***************/

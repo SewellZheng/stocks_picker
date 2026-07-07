@@ -232,6 +232,13 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     {"RSI",          TA_FUNC_UNST_RSI},
     {"STOCHRSI",     TA_FUNC_UNST_STOCHRSI},
     {"T3",           TA_FUNC_UNST_T3},
+    /* EMA-derived: doRangeTest sweeps UNST_EMA, as the hand MA tests do. */
+    {"DEMA",         TA_FUNC_UNST_EMA},
+    {"TEMA",         TA_FUNC_UNST_EMA},
+    {"TRIX",         TA_FUNC_UNST_EMA},
+    {"MACD",         TA_FUNC_UNST_EMA},
+    {"MACDEXT",      TA_FUNC_UNST_EMA},
+    {"MACDFIX",      TA_FUNC_UNST_EMA},
 };
 #define NUM_UNSTABLE_MAP (sizeof(UNSTABLE_MAP) / sizeof(UNSTABLE_MAP[0]))
 
@@ -243,6 +250,15 @@ static TA_FuncUnstId get_unst_id(const char *funcName)
             return UNSTABLE_MAP[i].id;
     }
     return TA_FUNC_UNST_NONE;
+}
+
+/* doRangeTest convergence driver; ADXR converges via its internal ADX
+ * (same mapping as test_adx.c). Codegen sweeps keep get_unst_id(). */
+static TA_FuncUnstId get_range_unst_id(const char *funcName)
+{
+    if( strcmp(funcName, "ADXR") == 0 ) return TA_FUNC_UNST_ADX;
+    if( strcmp(funcName, "STOCHRSI") == 0 ) return TA_FUNC_UNST_RSI;
+    return get_unst_id(funcName);
 }
 
 /* ---- Generic CodegenRangeTestParam (Task 6) ---- */
@@ -673,6 +689,81 @@ static void compare_codegen_output_generic(
     }
 }
 
+/* ---- Edge-range server sweep ----
+ * The full-range codegen comparison (and the doRangeTest sweep) exercise the
+ * language servers only at the full range [0, nbBars-1]. That misses the
+ * lookback-boundary corners where a composed indicator forms an empty/short
+ * internal sub-range -- e.g. APO/PPO computing (fastMA - slowMA) while the slow
+ * MA is still empty, or IMI's window at startIdx == lookback. In a release
+ * server the resulting usize underflow wraps harmlessly (the wrapped value is
+ * dead); in a DEBUG-profile server it panics on the overflow check.
+ *
+ * This sweep drives the server across short ranges near the lookback (startIdx 0,
+ * endIdx 0..lookback+margin) and diffs each against ta_ref_serve, so:
+ *   - release: adds value-coherency coverage at the lookback boundary, and
+ *   - debug:   turns any arithmetic overflow/underflow into a hard failure
+ *              (a server crash closes the pipe -> a non-PASS read here).
+ *
+ * Comparing ref-vs-server at the SAME (startIdx, endIdx) is always valid, so no
+ * DO_NOT_COMPARE exemptions are needed: path-dependence (AD/OBV/SAR/...) only
+ * affects cross-range coherency, which this does not test. */
+#define EDGE_SWEEP_MARGIN 3
+static double parse_ref_baseline(CodegenRangeTestParam *p);  /* defined below */
+static void run_edge_range_sweep(CodegenRangeTestParam *p)
+{
+    if( p->codegenError != TA_TEST_PASS )
+        return;
+
+    TA_Integer lookback = 0;
+    if( TA_GetLookback(p->paramHolder, &lookback) != TA_SUCCESS || lookback < 0 )
+        return;
+
+    TA_Integer maxEnd = lookback + EDGE_SWEEP_MARGIN;
+    if( maxEnd > p->nbBars - 1 )
+        maxEnd = p->nbBars - 1;
+
+    p->useLargePeriod = 0;
+    for( TA_Integer endIdx = 0; endIdx <= maxEnd; endIdx++ )
+    {
+        build_json_request(p, 0, endIdx);
+
+        /* Reference baseline (ta_ref_serve). */
+        ErrorNumber rref = codegen_pipe_call(p->refCp, p->requestBuf,
+                                             p->responseBuf, JSON_BUF_SIZE);
+        if( rref != TA_TEST_PASS )
+        {
+            printf("EDGE SWEEP [TA_%s]: reference server call failed at (0,%d)\n",
+                   p->funcInfo->name, (int)endIdx);
+            p->codegenError = rref;
+            return;
+        }
+        if( json_is_error(p->responseBuf) )
+            continue;  /* function unsupported / errored at this range */
+        parse_ref_baseline(p);
+
+        /* Language server under test. A crash (e.g. a debug-build arithmetic
+         * overflow) closes the pipe, so the read returns non-PASS here. */
+        ErrorNumber rlang = codegen_pipe_call(p->cp, p->requestBuf,
+                                              p->responseBuf, JSON_BUF_SIZE);
+        if( rlang != TA_TEST_PASS )
+        {
+            printf("CODEGEN EDGE CRASH [TA_%s]: server stopped responding at "
+                   "range (0,%d) -- likely a debug-build arithmetic overflow\n",
+                   p->funcInfo->name, (int)endIdx);
+            p->codegenError = rlang;
+            return;
+        }
+
+        for( unsigned int o = 0; o < p->funcInfo->nbOutput; o++ )
+            compare_codegen_output_generic(p, o);
+        if( p->codegenError != TA_TEST_PASS )
+        {
+            printf("  (edge range was (0,%d))\n", (int)endIdx);
+            return;
+        }
+    }
+}
+
 /* ---- Generic doRangeTest callback (Task 8) ---- */
 
 static TA_RetCode codegen_range_generic(
@@ -684,8 +775,11 @@ static TA_RetCode codegen_range_generic(
 {
     CodegenRangeTestParam *p = (CodegenRangeTestParam *)opaqueData;
 
-    /* Set output type flag */
+    /* Unstable integer outputs (HT_TRENDMODE) go through the real-path
+     * comparator, like the hand tests' FREE_INT_BUFFER conversion. */
     *isOutputInteger = (unsigned int)p->outputIsInteger[outputNb];
+    if( p->outputIsInteger[outputNb] && p->unstId != TA_FUNC_UNST_NONE )
+        *isOutputInteger = 0;
 
     /* Get lookback */
     TA_GetLookback(p->paramHolder, lookback);
@@ -715,10 +809,15 @@ static TA_RetCode codegen_range_generic(
     /* Copy the requested output into the doRangeTest buffer */
     if( p->lastRetCode == TA_SUCCESS && p->lastNbElement > 0 )
     {
-        if( p->outputIsInteger[outputNb] )
+        if( *isOutputInteger )
         {
             for( int i = 0; i < p->lastNbElement; i++ )
                 outputBufferInt[i] = p->outIntBufs[outputNb][i];
+        }
+        else if( p->outputIsInteger[outputNb] )
+        {
+            for( int i = 0; i < p->lastNbElement; i++ )
+                outputBuffer[i] = (TA_Real)p->outIntBufs[outputNb][i];
         }
         else
         {
@@ -828,17 +927,33 @@ static void free_outputs(CodegenRangeTestParam *p)
 
 static unsigned int get_integer_tolerance(const TA_FuncInfo *funcInfo)
 {
-    /* Functions with only integer outputs (candlestick patterns) and
-     * functions with unstable periods need TA_DO_NOT_COMPARE to avoid
-     * false failures from range-dependent floating-point drift.
-     *
-     * For now, use TA_DO_NOT_COMPARE for all functions -- the codegen
-     * comparison is the real test. doRangeTest still validates coherency
-     * (lookback consistency, no out-of-bounds writes, etc.).
-     */
-    (void)funcInfo;
-    return TA_DO_NOT_COMPARE;
+    /* Compare values by default (#98: DO_NOT_COMPARE-for-all hid the TRIX
+     * mislabeling for two decades). Exceptions: accumulations seeded at
+     * startIdx and path-dependent state machines cannot converge.
+     * Tolerances mirror the hand-written tests (test_adx.c, test_1in_*.c),
+     * extended to the whole Wilder family for sampling robustness. */
+    static const char *rangeDependent[] = { "AD", "ADOSC", "OBV", "SAR", "SAREXT" };
+    static const struct { const char *name; unsigned int tol; } perFuncTol[] = {
+        { "MINUS_DI", 2 }, { "PLUS_DI", 2 }, { "DX", 2 },
+        { "ADX", 2 }, { "ADXR", 2 },
+        { "ATR", 2 }, { "NATR", 2 }, { "RSI", 2 }, { "CMO", 2 },
+        { "MACD", 10 }, { "MACDEXT", 10 }, { "MACDFIX", 10 },
+        { "HT_DCPHASE", 360 },
+        { "HT_SINE", 10 },
+    };
+    for( unsigned int i = 0; i < sizeof(rangeDependent)/sizeof(rangeDependent[0]); i++ )
+    {
+        if( strcmp(funcInfo->name, rangeDependent[i]) == 0 )
+            return TA_DO_NOT_COMPARE;
+    }
+    for( unsigned int i = 0; i < sizeof(perFuncTol)/sizeof(perFuncTol[0]); i++ )
+    {
+        if( strcmp(funcInfo->name, perFuncTol[i].name) == 0 )
+            return perFuncTol[i].tol;
+    }
+    return 0;
 }
+
 
 /* ---- Filter helper ---- */
 
@@ -1141,14 +1256,20 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         reset_opt_periods_to_default(paramHolder, funcInfo);
     }
 
+    /* Edge-range server sweep: drive the server across short ranges near the
+     * lookback and diff each against ta_ref_serve (see run_edge_range_sweep).
+     * Runs at default params, after the large-period restore above. */
+    run_edge_range_sweep(&params);
+
     /* Run doRangeTest with the generic callback (C reference coherency only).
-     * Skip when lookback exceeds data range (no output possible). */
+     * Skip when lookback exceeds data range (no output possible) or the edge
+     * sweep already failed. */
     ErrorNumber errNb = TA_TEST_PASS;
-    if( nbElem > 0 )
+    if( nbElem > 0 && params.codegenError == TA_TEST_PASS )
     {
         errNb = doRangeTest(
             codegen_range_generic,
-            params.unstId,
+            get_range_unst_id(funcInfo->name),
             (void *)&params,
             funcInfo->nbOutput,
             get_integer_tolerance(funcInfo));
@@ -1569,7 +1690,8 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     /* Unstable-period pass at defaults (sent per-call to both servers). */
     if( params.codegenError == TA_TEST_PASS &&
         (funcInfo->flags & TA_FUNC_FLG_UNST_PER) &&
-        params.unstId != TA_FUNC_UNST_NONE )
+        params.unstId != TA_FUNC_UNST_NONE &&
+        strcmp(funcInfo->name, "IMI") != 0 )   /* #98: IMI unstable semantics fixed vs frozen ref */
     {
         TA_SetUnstablePeriod(params.unstId, 3);
         variants += sweep_run_variant(&params);
@@ -2078,6 +2200,8 @@ typedef struct {
     char        *respBuf;
     const char  *funcList;   /* 0.6.4's list_functions payload (subset gate) */
     long long    comparisons, matches, benign, failures;
+    long long    skipped98;   /* TRIX startIdx>lookback cases (issue #98 fix) */
+    long long    cciTol;      /* CCI near-zero cases tolerated vs 0.6.4 (issue #7 fix) */
     int          reportedThisFunc;
     int          funcsWithFailures, funcsBenign, funcsSkipped;
     int          serverRestarts;
@@ -2227,8 +2351,16 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
     return nvec;
 }
 
-/* Returns 1 if BENIGN (all diffs numerically equal, i.e. +0.0 vs -0.0), else 0
- * (real divergence; prints detail, capped per function). */
+/* Tolerance for CCI vs 0.6.4 (issue #7 / SF bug 107 only). CCI's algorithm is
+ * byte-identical to 0.6.4 except the final guard: where prices over the period
+ * are (near-)identical the fix now returns exactly 0.0, whereas 0.6.4 divided
+ * sub-epsilon residue into a near-zero value (observed ~5e-14). This tolerance
+ * absorbs exactly that — orders of magnitude below any real CCI value, so a
+ * genuine divergence still fails. Applied ONLY to CCI. */
+#define FUZZ_CCI_064_TOL 1e-9
+
+/* Returns 0 if a REAL divergence, 1 if benign (+0.0 vs -0.0), 2 if a CCI
+ * near-zero case tolerated vs 0.6.4 (issue #7). Prints detail, capped per func. */
 static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
                                     CodegenRangeTestParam *p, int shape, int seed, int n,
                                     int s, int e, const double *optVals,
@@ -2253,7 +2385,8 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
     if( !fuzz_call(ctx) )
         return 0;   /* treat as real; the pipe failure is also counted */
 
-    int realDiff = 0, benignDiff = 0;
+    int realDiff = 0, benignDiff = 0, cciTolDiff = 0;
+    int isCCI = (strcmp(fi->name, "CCI") == 0);
     int firstO = -1, firstJ = -1;
     for( unsigned int o = 0; o < fi->nbOutput && o < MAX_OUTPUTS; o++ )
     {
@@ -2274,13 +2407,16 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
             {
                 double a = p->outRealBufs[o][j], b = g_fz064Real[o][j];
                 if( memcmp(&a, &b, sizeof(double)) == 0 ) continue;
+                double d = a - b; if( d < 0 ) d = -d;
                 if( a == b ) benignDiff = 1;        /* numerically equal => signed zero */
+                else if( isCCI && d <= FUZZ_CCI_064_TOL ) cciTolDiff = 1; /* issue #7 zero fix */
                 else { realDiff = 1; if( firstO < 0 ) { firstO = (int)o; firstJ = j; } }
             }
         }
     }
 
-    if( benignDiff && !realDiff ) return 1;   /* signed-zero only */
+    if( !realDiff && (benignDiff || cciTolDiff) )
+        return cciTolDiff ? 2 : 1;   /* 2 = CCI issue-#7 tolerance, 1 = signed-zero */
 
     if( report )
     {
@@ -2354,6 +2490,7 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     ctx->reportedThisFunc = 0;
     long long failBefore = ctx->failures;
     long long benignBefore = ctx->benign;
+    long long cciTolBefore = ctx->cciTol;
 
     for( int shape = 0; shape < FUZZ_NSHAPES; shape++ )
     for( int si = 0; si < (int)(sizeof(seeds)/sizeof(seeds[0])); si++ )
@@ -2397,6 +2534,29 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 int s = ranges[ri][0], e = ranges[ri][1];
                 TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, 0);
 
+                /* #98 fixes diverge from 0.6.4 only on their trigger cases:
+                 * TRIX/NATR startIdx > lookback; NATR also when a close in
+                 * the output range is zero (old code wrote outReal[0]). */
+                if( strcmp(funcInfo->name, "TRIX") == 0 ||
+                    strcmp(funcInfo->name, "NATR") == 0 )
+                {
+                    TA_Integer lb98 = 0;
+                    int skip98 = 0;
+                    if( TA_GetLookback(paramHolder, &lb98) == TA_SUCCESS )
+                    {
+                        if( s > lb98 )
+                            skip98 = 1;
+                        else if( strcmp(funcInfo->name, "NATR") == 0 )
+                        {
+                            for( int z = (s > lb98 ? s : lb98); z <= e; z++ )
+                                if( g_fzBuf[3][z] < 0.00000001 &&
+                                    g_fzBuf[3][z] > -0.00000001 )
+                                { skip98 = 1; break; }
+                        }
+                    }
+                    if( skip98 ) { ctx->skipped98++; continue; }
+                }
+
                 TA_Integer curBeg = 0, curNb = 0;
                 for( unsigned int o = 0; o < funcInfo->nbOutput; o++ )
                 {
@@ -2426,17 +2586,20 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 }
                 if( !mismatch ) { ctx->matches++; continue; }
 
-                if( fuzz_classify_and_report(ctx, funcInfo, &p, shape, seeds[si], n, s, e,
+                int cls = fuzz_classify_and_report(ctx, funcInfo, &p, shape, seeds[si], n, s, e,
                                              vec[k], (int)curRc, curBeg, curNb,
-                                             refRc, refBeg, refNb) )
-                    ctx->benign++;
-                else
-                    ctx->failures++;
+                                             refRc, refBeg, refNb);
+                if( cls == 0 )      ctx->failures++;
+                else if( cls == 2 ) ctx->cciTol++;   /* CCI issue-#7 near-zero (not a failure) */
+                else                ctx->benign++;
             }
         }
     }
 
     if( ctx->failures > failBefore ) ctx->funcsWithFailures++;
+    else if( ctx->cciTol > cciTolBefore )
+        printf("  TOLERATED TA_%s: %lld near-zero case(s) within %g vs 0.6.4 (issue #7 zero-value fix)\n",
+               funcInfo->name, ctx->cciTol - cciTolBefore, (double)FUZZ_CCI_064_TOL);
     else if( ctx->benign > benignBefore )
     {
         ctx->funcsBenign++;
@@ -2490,10 +2653,17 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     codegen_pipe_close(&cp);
 
     printf("\n---------------------------------------------\n");
-    printf("comparisons: %lld   matches: %lld   benign(signed-zero): %lld   failures: %lld\n",
-           ctx.comparisons, ctx.matches, ctx.benign, ctx.failures);
+    printf("comparisons: %lld   matches: %lld   benign(signed-zero): %lld   "
+           "cci-tolerated: %lld   failures: %lld\n",
+           ctx.comparisons, ctx.matches, ctx.benign, ctx.cciTol, ctx.failures);
     printf("functions: %d not-in-0.6.4 (skipped), %d with benign-only diffs, %d with real failures\n",
            ctx.funcsSkipped, ctx.funcsBenign, ctx.funcsWithFailures);
+    if( ctx.skipped98 > 0 )
+        printf("skipped: %lld TRIX/NATR partial-range case(s) — fixed in 0.7.2, issue #98\n",
+               ctx.skipped98);
+    if( ctx.cciTol > 0 )
+        printf("cci-tolerated: %lld CCI near-zero case(s) within %g vs 0.6.4 (issue #7 zero-value fix)\n",
+               ctx.cciTol, (double)FUZZ_CCI_064_TOL);
     if( ctx.serverRestarts )
         printf("oracle restarts (recovered crashes): %d\n", ctx.serverRestarts);
     if( ctx.comparisons == 0 )
@@ -2504,7 +2674,7 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     if( ctx.failures == 0 && ctx.error == TA_TEST_PASS )
     {
         printf("PASS — current library is bit-identical to v0.6.4 at period>=2"
-               " (benign signed-zero aside).\n");
+               " (benign signed-zero and CCI issue-#7 near-zero tolerance aside).\n");
         return TA_TEST_PASS;
     }
     printf("FAIL — %lld real divergence(s) across %d function(s).\n",

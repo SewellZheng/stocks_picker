@@ -16,8 +16,11 @@ use super::stmt_walk::StatementEmitter;
 
 /// Controls how the Rust renderer emits code.
 pub struct RustRenderCtx {
-    /// If true, emit `get_unchecked()` / `get_unchecked_mut()` instead of `[]` for array access.
-    pub unchecked: bool,
+    /// If true, emit a pre-loop bounds-assert preamble at the top of the body (the
+    /// `_unguarded`/`_private` variants). The asserts give LLVM the proof it needs to
+    /// elide the per-access bounds checks on the safe `[]` indexing that follows — the
+    /// generated code never uses `unsafe`. See `gen_unguarded_or_private_func`.
+    pub bounds_asserts: bool,
     /// Variable names declared as `VarType::Integer` or `VarType::Index` (usize in Rust).
     /// Used by type inference in expression rendering.
     pub index_vars: std::collections::HashSet<String>,
@@ -47,7 +50,7 @@ pub struct RustRenderCtx {
 impl RustRenderCtx {
     pub fn for_lookback() -> Self {
         RustRenderCtx {
-            unchecked: false,
+            bounds_asserts: false,
             index_vars: std::collections::HashSet::new(),
             real_vars: std::collections::HashSet::new(),
             vec_vars: std::collections::HashSet::new(),
@@ -191,7 +194,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         .collect();
 
     let ctx = RustRenderCtx {
-        unchecked: true,
+        bounds_asserts: true,
         index_vars,
         real_vars,
         vec_vars,
@@ -354,7 +357,7 @@ fn gen_guarded_func(
             .map(|o| o.name.clone())
             .collect();
         let g_ctx = RustRenderCtx {
-            unchecked: false,
+            bounds_asserts: false,
             index_vars: g_index_vars,
             real_vars: g_real_vars,
             vec_vars: g_vec_vars,
@@ -445,7 +448,7 @@ fn gen_guarded_func(
             .map(|o| o.name.clone())
             .collect();
         let g_ctx = RustRenderCtx {
-            unchecked: false,
+            bounds_asserts: false,
             index_vars: g_index_vars,
             real_vars: g_real_vars,
             vec_vars: g_vec_vars,
@@ -790,12 +793,12 @@ fn gen_unguarded_or_private_func(
 
     let inline_counter = Cell::new(0);
 
-    // Wrap entire body in unsafe block when using get_unchecked
-    if ctx.unchecked {
-        out.push_str("        unsafe {\n");
+    // Emit the pre-loop bounds-assert preamble for the unguarded/private variants.
+    if ctx.bounds_asserts {
         // Pre-loop bounds assertions: give LLVM proof that endIdx is within all
         // input/output array bounds. This enables loop unswitching and vectorization
-        // while get_unchecked eliminates per-access bounds checks. O(1) per call.
+        // and lets LLVM elide the per-access bounds checks on the safe `[]` indexing
+        // in the body — no `unsafe` needed. O(1) per call.
         for input in &func.inputs {
             out.push_str(&format!(
                 "        assert!(endIdx < {}.len());\n", input.name
@@ -879,11 +882,6 @@ fn gen_unguarded_or_private_func(
             helpers,
             &inline_counter,
         ));
-    }
-
-    // Close unsafe block
-    if ctx.unchecked {
-        out.push_str("        } // unsafe\n");
     }
 
     out.push_str("    }\n");
@@ -2440,11 +2438,7 @@ fn render_assign_target(
         Expr::Var(name) => name.clone(),
         Expr::ArrayAccess(name, idx) => {
             let idx_rendered = render_index_expr(idx, ctx, opt_real_params, registry, helpers);
-            if ctx.unchecked {
-                format!("*{name}.as_mut_ptr().add({idx_rendered})")
-            } else {
-                format!("{name}[{idx_rendered}]")
-            }
+            format!("{name}[{idx_rendered}]")
         }
         Expr::Literal(_)
         | Expr::IntLiteral(_)
@@ -2652,13 +2646,10 @@ impl ExprEmitter for RustExpr<'_> {
     fn array_access(&self, name: &str, idx: &Expr) -> String {
         let idx_rendered =
             render_index_expr(idx, self.ctx, self.opt_real_params, self.registry, self.helpers);
-        if self.ctx.unchecked {
-            // Use as_ptr().add() instead of get_unchecked() to avoid
-            // llvm.assume intrinsics that poison the optimizer under LTO.
-            format!("*{name}.as_ptr().add({idx_rendered})")
-        } else {
-            format!("{name}[{idx_rendered}]")
-        }
+        // Always safe `[]` indexing. In the `_unguarded`/`_private` variants the
+        // bounds-assert preamble lets LLVM elide the per-access checks, so this is
+        // as fast as the old raw-pointer path while keeping the crate `unsafe`-free.
+        format!("{name}[{idx_rendered}]")
     }
 
     fn func_call(&self, name: &str, args: &[Expr]) -> String {
@@ -2740,9 +2731,20 @@ impl ExprEmitter for RustExpr<'_> {
     }
 }
 
-/// Render an `Expr::BinOp` to Rust, including the FMA fusion, pointer-identity
-/// buffer comparisons, and the operand int/usize/f64 cast inference. Delegated to
-/// by [`RustExpr::binop`].
+/// FMA emission gate — intentionally OFF until the FMA-era transition
+/// (docs/fma-proposal.md, PR #96). With default (baseline) x86-64 rustflags,
+/// `f64::mul_add` cannot inline and degrades to a per-operation dispatch call
+/// into software `fma` (measured ~2x slower on EMA-family recursions), and on
+/// FMA-native targets (aarch64) it produces different bits than the C library,
+/// breaking cross-platform and cross-language bitwise consistency. Plain
+/// `a * b + c` is never contracted by rustc, so generated Rust matches C
+/// bit-for-bit on every target. Re-enable as part of the one-time FMA
+/// re-baselining event.
+const EMIT_FMA: bool = false;
+
+/// Render an `Expr::BinOp` to Rust, including the FMA fusion (gated by
+/// [`EMIT_FMA`]), pointer-identity buffer comparisons, and the operand
+/// int/usize/f64 cast inference. Delegated to by [`RustExpr::binop`].
 #[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
 fn render_binop(
     left: &Expr,
@@ -2759,7 +2761,7 @@ fn render_binop(
     // Fused multiply-add: (a * b) + c → (a as f64).mul_add(b, c)
     // Emits ARM fmadd (1 FP op) vs fmul+fadd (2 FP ops).
     // Only when BOTH multiply operands are float (not i32 * f64 patterns).
-    if matches!(op, BinOp::Add) {
+    if EMIT_FMA && matches!(op, BinOp::Add) {
         if let Expr::BinOp(a, BinOp::Mul, b) = left {
             let a_ok = expr_is_float_typed_ctx(a, Some(ctx)) && !is_definitely_integer(a, ctx);
             let b_ok = expr_is_float_typed_ctx(b, Some(ctx)) && !is_definitely_integer(b, ctx);
@@ -3613,19 +3615,15 @@ fn render_func_call(
         // 1-arg: ABS/fabs → .ta_abs() (generic) or .abs() (concrete)
         // 1-arg: all others → .ta_{fname}() (generic) or .{fname}() (concrete)
         match mf {
-            MathFn::Max => {
-                if args.len() >= 2 {
-                    let a = render_expr(&args[0], ctx, opt_real_params, registry, helpers);
-                    let b = render_expr(&args[1], ctx, opt_real_params, registry, helpers);
-                    return format!("({a}).max({b})");
-                }
+            MathFn::Max if args.len() >= 2 => {
+                let a = render_expr(&args[0], ctx, opt_real_params, registry, helpers);
+                let b = render_expr(&args[1], ctx, opt_real_params, registry, helpers);
+                return format!("({a}).max({b})");
             }
-            MathFn::Min => {
-                if args.len() >= 2 {
-                    let a = render_expr(&args[0], ctx, opt_real_params, registry, helpers);
-                    let b = render_expr(&args[1], ctx, opt_real_params, registry, helpers);
-                    return format!("({a}).min({b})");
-                }
+            MathFn::Min if args.len() >= 2 => {
+                let a = render_expr(&args[0], ctx, opt_real_params, registry, helpers);
+                let b = render_expr(&args[1], ctx, opt_real_params, registry, helpers);
+                return format!("({a}).min({b})");
             }
             _ => {}
         }
@@ -3675,20 +3673,35 @@ fn render_func_call(
                 String::new()
             }
             StdlibFn::Memcpy | StdlibFn::Memmove => {
-                // memcpy/memmove(dst, src, count) → slice copy
+                // memcpy/memmove(dst, src, count) → slice copy. When src and dst
+                // resolve to the same backing array (an in-place, possibly
+                // overlapping move) copy_from_slice cannot borrow the slice both
+                // mutably and immutably, and is UB on overlap anyway, so use
+                // copy_within — the overlap-safe primitive memmove exists for.
+                // Distinct arrays keep the plain copy_from_slice.
                 if args.len() >= 3 {
                     let (dst_arr, dst_off) =
                         decompose_rust_array_ref(&args[0], ctx, opt_real_params, registry, helpers);
                     let (src_arr, src_off) =
                         decompose_rust_array_ref(&args[1], ctx, opt_real_params, registry, helpers);
                     let count = render_expr(&args[2], ctx, opt_real_params, registry, helpers);
-                    format!(
-                        "{{\n            let _n = ({count}) as usize;\
-                         \n            let _di = ({dst_off}) as usize;\
-                         \n            let _si = ({src_off}) as usize;\
-                         \n            {dst_arr}[_di.._di + _n].copy_from_slice(&{src_arr}[_si.._si + _n]);\
-                         \n        }}"
-                    )
+                    if dst_arr == src_arr {
+                        format!(
+                            "{{\n            let _n = ({count}) as usize;\
+                             \n            let _di = ({dst_off}) as usize;\
+                             \n            let _si = ({src_off}) as usize;\
+                             \n            {dst_arr}.copy_within(_si.._si + _n, _di);\
+                             \n        }}"
+                        )
+                    } else {
+                        format!(
+                            "{{\n            let _n = ({count}) as usize;\
+                             \n            let _di = ({dst_off}) as usize;\
+                             \n            let _si = ({src_off}) as usize;\
+                             \n            {dst_arr}[_di.._di + _n].copy_from_slice(&{src_arr}[_si.._si + _n]);\
+                             \n        }}"
+                        )
+                    }
                 } else {
                     format!("/* {fname}: bad args */")
                 }
@@ -3744,12 +3757,12 @@ fn render_func_call(
         // Bare names (ema) → ema_unguarded (skip validation).
         // Private names (ema_private) → ema_private (generic, handles both f32/f64).
         let resolved = registry.resolve_call(fname, crate::registry::Lang::Rust);
-        let rendered_args = render_cross_indicator_args(args, ctx, opt_real_params, registry, helpers);
-        format!("self.{}({})", resolved, rendered_args.join(", "))
+        let (rendered_args, aliased) = render_cross_indicator_args(args, ctx, opt_real_params, registry, helpers);
+        wrap_cross_indicator_call(format!("self.{}({})", resolved, rendered_args.join(", ")), &aliased)
     } else if is_ta_function(fname) {
         let rust_name = fname.to_lowercase();
-        let rendered_args = render_cross_indicator_args(args, ctx, opt_real_params, registry, helpers);
-        format!("self.{}({})", rust_name, rendered_args.join(", "))
+        let (rendered_args, aliased) = render_cross_indicator_args(args, ctx, opt_real_params, registry, helpers);
+        wrap_cross_indicator_call(format!("self.{}({})", rust_name, rendered_args.join(", ")), &aliased)
     } else {
         let rendered_args: Vec<String> = args
             .iter()
@@ -3764,13 +3777,21 @@ fn render_func_call(
 /// The two AddressOf args (outBegIdx, outNBElement) mark the boundary.
 /// Input-position Vec locals use `&name` (coerces to `&[T]`).
 /// Output-position Vec locals use `&mut name[..]` (coerces to `&mut [T]`).
+///
+/// Returns the rendered arguments plus the list of Vec locals that are passed as **both**
+/// input and output (in-place aliasing, e.g. STOCH's in-place `ma` on `tempBuffer`). Rust
+/// forbids a simultaneous `&`/`&mut` to the same buffer, so the aliased input is borrowed
+/// immutably (`&name`) and the aliased output is redirected to a scratch buffer
+/// (`&mut _name_alias[..]`); the caller (`render_func_call`) wraps the call in a block that
+/// allocates the scratch buffer and `mem::swap`s the result back — a safe double-buffer that
+/// avoids both `unsafe` and a full input clone.
 fn render_cross_indicator_args(
     args: &[Expr],
     ctx: &RustRenderCtx,
     opt_real_params: &[String],
     registry: &Registry,
     helpers: &HelperRegistry,
-) -> Vec<String> {
+) -> (Vec<String>, Vec<String>) {
     // Find the outBegIdx/outNBElement boundary: two consecutive AddressOf args.
     // Everything after the second one is output slice/array position.
     // Don't use last AddressOf because outputs can also be AddressOf (e.g., &prevATR for scalar T).
@@ -3780,6 +3801,20 @@ fn render_cross_indicator_args(
     let output_vars: Vec<&str> = args[output_start..].iter()
         .filter_map(|a| if let Expr::Var(n) = a { Some(n.as_str()) } else { None })
         .collect();
+
+    // Vec locals passed as both input and output (in-place aliasing). Deduped, in first-seen
+    // order, so the caller can declare one scratch buffer per aliased var.
+    let mut aliased_vars: Vec<String> = Vec::new();
+    for arg in &args[..output_start] {
+        if let Expr::Var(name) = arg {
+            if (ctx.vec_vars.contains(name) || is_vec_local_var(name))
+                && output_vars.contains(&name.as_str())
+                && !aliased_vars.contains(name)
+            {
+                aliased_vars.push(name.clone());
+            }
+        }
+    }
 
     // Detect duplicate AddressOf vars (e.g., &tempInt used for both outBegIdx and outNBElement)
     let mut seen_address_of: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -3795,20 +3830,18 @@ fn render_cross_indicator_args(
         }
     }
 
-    args.iter()
+    let rendered = args.iter()
         .enumerate()
         .map(|(i, arg)| {
             let is_output = i >= output_start;
-            // Detect input-output aliasing: same Vec var used as both input and output.
-            // Use unsafe slice-from-raw-parts to avoid clone (EMA reads [today]
-            // and writes [outIdx] where outIdx <= today, so aliasing is safe).
-            if !is_output {
-                if let Expr::Var(name) = arg {
-                    if (ctx.vec_vars.contains(name) || is_vec_local_var(name))
-                        && output_vars.contains(&name.as_str())
-                    {
-                        return format!("unsafe {{ std::slice::from_raw_parts({name}.as_ptr(), {name}.len()) }}");
+            // In-place aliasing: borrow the input immutably and redirect the output to the
+            // scratch buffer that `render_func_call` swaps back after the call.
+            if let Expr::Var(name) = arg {
+                if aliased_vars.contains(name) {
+                    if is_output {
+                        return format!("&mut _{name}_alias[..]");
                     }
+                    return format!("&{name}");
                 }
             }
             // Detect duplicate &mut borrows: use the pre-declared dummy variable
@@ -3817,7 +3850,23 @@ fn render_cross_indicator_args(
             }
             render_cross_indicator_arg(arg, i, is_output, ctx, opt_real_params, registry, helpers)
         })
-        .collect()
+        .collect();
+    (rendered, aliased_vars)
+}
+
+/// Wrap a cross-indicator `self.fn(args)` call in the safe double-buffer block when the call
+/// aliases a Vec local as both input and output; otherwise return the call unchanged.
+fn wrap_cross_indicator_call(call: String, aliased_vars: &[String]) -> String {
+    if aliased_vars.is_empty() {
+        return call;
+    }
+    let mut decls = String::new();
+    let mut swaps = String::new();
+    for v in aliased_vars {
+        decls.push_str(&format!("let mut _{v}_alias: Vec<f64> = vec![0.0_f64; {v}.len()]; "));
+        swaps.push_str(&format!("std::mem::swap(&mut {v}, &mut _{v}_alias); "));
+    }
+    format!("{{ {decls}let _rc = {call}; {swaps}_rc }}")
 }
 
 /// Render a single argument for a cross-indicator call.

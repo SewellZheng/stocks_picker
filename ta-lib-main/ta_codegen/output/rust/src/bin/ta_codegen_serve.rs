@@ -1,4 +1,5 @@
-#![allow(non_snake_case, unused_variables, clippy::all)]
+#![forbid(unsafe_code)]
+#![allow(non_snake_case, unused_variables, dead_code, clippy::all)]
 
 use serde_json::{self, Value};
 use std::io::{self, BufRead, Write};
@@ -9254,7 +9255,10 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
         "set_unstable_period" => {
             let id = params["id"].as_u64().unwrap_or(99) as usize;
             let period = params["period"].as_i64().unwrap_or(0) as i32;
-            if id < FuncUnstId::FuncUnstAll as usize {
+            if id == FuncUnstId::FuncUnstAll as usize {
+                for i in 0..(FuncUnstId::FuncUnstAll as usize) { core.unstable_period[i] = period; }
+                "{\"status\":\"ok\"}".to_string()
+            } else if id < FuncUnstId::FuncUnstAll as usize {
                 core.unstable_period[id] = period;
                 "{\"status\":\"ok\"}".to_string()
             } else {

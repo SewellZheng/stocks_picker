@@ -24,7 +24,7 @@ const WRAP: usize = 92;
 // ---------------------------------------------------------------------------
 
 /// Full rustdoc block (+ `#[doc(alias)]` attributes) for the guarded public function.
-#[allow(clippy::implicit_hasher)]
+#[allow(clippy::implicit_hasher, clippy::too_many_lines)]
 pub fn guarded_docs(
     func: &FuncDef,
     snake: &str,
@@ -103,8 +103,7 @@ pub fn guarded_docs(
     d.blank();
     d.paragraph(
         "Input slices must cover `startIdx..=endIdx` and output slices must hold the \
-         number of values produced for that range: undersized slices panic or, for \
-         functions that forward to unchecked internals, cause undefined behavior. Sizing \
+         number of values produced for that range; an undersized slice panics. Sizing \
          every output slice to the input length is always sufficient.",
     );
 
@@ -201,15 +200,14 @@ pub fn unguarded_docs(func: &FuncDef, snake: &str, is_private: bool) -> String {
         ));
     } else {
         d.paragraph(&format!(
-            "Unchecked variant of [`Core::{snake}`], used for internal cross-indicator calls."
+            "Unguarded variant of [`Core::{snake}`], used for internal cross-indicator calls."
         ));
         d.blank();
         d.paragraph(&format!(
-            "Skips parameter validation and uses unchecked indexing internally. Every \
-             argument must satisfy the constraints documented on [`Core::{snake}`]; an \
-             out-of-range parameter, an input slice not covering `startIdx..=endIdx`, or \
-             an undersized output slice may panic or cause undefined behavior. Prefer \
-             [`Core::{snake}`]."
+            "Skips parameter validation; indexing stays safe. Every argument must satisfy \
+             the constraints documented on [`Core::{snake}`]; an out-of-range parameter, an \
+             input slice not covering `startIdx..=endIdx`, or an undersized output slice \
+             panics (never undefined behavior). Prefer [`Core::{snake}`]."
         ));
     }
 

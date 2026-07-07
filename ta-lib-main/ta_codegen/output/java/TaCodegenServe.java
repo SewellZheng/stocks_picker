@@ -2597,10 +2597,16 @@ class Core {
              /* Calculate the slow MA into the output. */
              retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
              if( retCode == RetCode.Success ) {
-                tempInteger = outBegIdx1.value - outBegIdx2.value;
-                /* Calculate (fast MA)-(slow MA) in the output. */
-                for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                   outReal[i] = tempBuffer[j] - outReal[i];
+                /* The slow MA begins at or after the fast MA, so the offset is
+                 * valid whenever the slow MA produced output. Guard it so the empty
+                 * case leaves the difference loop untouched.
+                 */
+                if( outNbElement1.value > 0 ) {
+                   tempInteger = outBegIdx1.value - outBegIdx2.value;
+                   /* Calculate (fast MA)-(slow MA) in the output. */
+                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
+                      outReal[i] = tempBuffer[j] - outReal[i];
+                   }
                 }
                 outBegIdx.value = outBegIdx1.value;
                 outNBElement.value = outNbElement1.value;
@@ -2637,9 +2643,11 @@ class Core {
           if( retCode == RetCode.Success ) {
              retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
              if( retCode == RetCode.Success ) {
-                tempInteger = outBegIdx1.value - outBegIdx2.value;
-                for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                   outReal[i] = tempBuffer[j] - outReal[i];
+                if( outNbElement1.value > 0 ) {
+                   tempInteger = outBegIdx1.value - outBegIdx2.value;
+                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
+                      outReal[i] = tempBuffer[j] - outReal[i];
+                   }
                 }
                 outBegIdx.value = outBegIdx1.value;
                 outNBElement.value = outNbElement1.value;
@@ -2692,9 +2700,11 @@ class Core {
           if( retCode == RetCode.Success ) {
              retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
              if( retCode == RetCode.Success ) {
-                tempInteger = outBegIdx1.value - outBegIdx2.value;
-                for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                   outReal[i] = tempBuffer[j] - outReal[i];
+                if( outNbElement1.value > 0 ) {
+                   tempInteger = outBegIdx1.value - outBegIdx2.value;
+                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
+                      outReal[i] = tempBuffer[j] - outReal[i];
+                   }
                 }
                 outBegIdx.value = outBegIdx1.value;
                 outNBElement.value = outNbElement1.value;
@@ -2731,9 +2741,11 @@ class Core {
           if( retCode == RetCode.Success ) {
              retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
              if( retCode == RetCode.Success ) {
-                tempInteger = outBegIdx1.value - outBegIdx2.value;
-                for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                   outReal[i] = tempBuffer[j] - outReal[i];
+                if( outNbElement1.value > 0 ) {
+                   tempInteger = outBegIdx1.value - outBegIdx2.value;
+                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
+                      outReal[i] = tempBuffer[j] - outReal[i];
+                   }
                 }
                 outBegIdx.value = outBegIdx1.value;
                 outNBElement.value = outNbElement1.value;
@@ -3722,14 +3734,16 @@ class Core {
      *  Initial  Name/description
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
-     *
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  112400 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
+     *  112400 MF     Template creation.
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  070626 MF,CC  Speed optimization: True Range computed inline in a
+     *                single pass (bit-exact, no temporary buffer).
      */
 
        public int atrLookback( int optInTimePeriod )
@@ -3759,15 +3773,19 @@ class Core {
                            MInteger outNBElement,
                            double outReal[] )
        {
-          RetCode retCode;
+          int i = 0;
           int outIdx = 0;
           int today = 0;
           int lookbackTotal = 0;
           int nbATR = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          double[] prevATR = new double[1];
-          double[] tempBuffer;
+          double prevATR = 0;
+          double periodTotal = 0;
+          double val2 = 0;
+          double val3 = 0;
+          double greatest = 0;
+          double tempCY = 0;
+          double tempLT = 0;
+          double tempHT = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -3805,51 +3823,112 @@ class Core {
              /* No smoothing needed. Just do a TRANGE. */
              return trueRangeUnguarded(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal) ;
           }
-          /* Allocate an intermediate buffer for TRANGE. */
-          tempBuffer = new double[(int)((lookbackTotal + (endIdx - startIdx) + 1) * 1)];
-          /* Do TRANGE in the intermediate buffer. */
-          retCode = trueRangeUnguarded(startIdx - lookbackTotal + 1, endIdx, inHigh, inLow, inClose, outBegIdx1, outNbElement1, tempBuffer);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
-          }
-          /* First value of the ATR is a simple Average of
-           * the TRANGE output for the specified period.
+          /* The True Range of each bar is computed inline in a single
+           * pass. No temporary buffer is needed.
+           *
+           * The arithmetic order below is the bit-exactness contract
+           * (do not reorder or fuse operations):
+           *  - True Range: start from high-low, then compare/replace
+           *    with the two previous-close distances, in that order.
+           *  - Seed: the first 'period' True Range values are summed,
+           *    accumulated from 0.0 in input order, then divided by
+           *    the period.
+           *  - Wilder smoothing: multiply by period-1, add the True
+           *    Range, divide by period, as three separate statements.
+           *
+           * In-place (outReal being one of the input arrays) is
+           * supported: each output is written only after every input
+           * read at or before its bar, and the output index is always
+           * smaller than the bar index of any remaining read.
            */
-          retCode = smaUnguarded(optInTimePeriod - 1, optInTimePeriod - 1, tempBuffer, optInTimePeriod, outBegIdx1, outNbElement1, prevATR);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
+          /* The first True Range needs the two price bars at
+           * startIdx-lookbackTotal+1 (a previous close is consumed).
+           */
+          today = startIdx - lookbackTotal + 1;
+          /* Seed the ATR with a simple average of the True Range
+           * for the first 'period' bars.
+           */
+          periodTotal = 0.0;
+          i = optInTimePeriod;
+          while( i-- > 0 ) {
+             /* Find the greatest of the 3 values. */
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             /* val1 */
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             periodTotal += greatest;
+             today += 1;
           }
+          prevATR = periodTotal / optInTimePeriod;
           /* Subsequent value are smoothed using the
            * previous ATR value (Wilder's approach).
            *  1) Multiply the previous ATR by 'period-1'.
            *  2) Add today TR value.
            *  3) Divide by 'period'.
            */
-          today = optInTimePeriod;
-          outIdx = this.unstablePeriod[FuncUnstId.Atr.ordinal()];
           /* Skip the unstable period. */
-          while( outIdx != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outIdx -= 1;
+          i = this.unstablePeriod[FuncUnstId.Atr.ordinal()];
+          while( i != 0 ) {
+             /* Find the greatest of the 3 values. */
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             /* val1 */
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             today += 1;
+             i -= 1;
           }
           /* Now start to write the final ATR in the caller
            * provided outReal.
            */
           outIdx = 1;
-          outReal[0] = prevATR[0];
+          outReal[0] = prevATR;
           /* Now do the number of requested ATR. */
           nbATR = endIdx - startIdx + 1;
           while( --nbATR != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outReal[outIdx++] = prevATR[0];
+             /* Find the greatest of the 3 values. */
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             /* val1 */
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             outReal[outIdx++] = prevATR;
+             today += 1;
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
-          return retCode ;
+          return RetCode.Success ;
        }
        public RetCode atrUnguarded( int startIdx,
                                     int endIdx,
@@ -3861,15 +3940,19 @@ class Core {
                                     MInteger outNBElement,
                                     double outReal[] )
        {
-          RetCode retCode;
+          int i = 0;
           int outIdx = 0;
           int today = 0;
           int lookbackTotal = 0;
           int nbATR = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          double[] prevATR = new double[1];
-          double[] tempBuffer;
+          double prevATR = 0;
+          double periodTotal = 0;
+          double val2 = 0;
+          double val3 = 0;
+          double greatest = 0;
+          double tempCY = 0;
+          double tempLT = 0;
+          double tempHT = 0;
           outBegIdx.value = 0;
           outNBElement.value = 0;
           lookbackTotal = atrLookback(optInTimePeriod);
@@ -3882,35 +3965,71 @@ class Core {
           if( optInTimePeriod <= 1 ) {
              return trueRangeUnguarded(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal) ;
           }
-          tempBuffer = new double[(int)((lookbackTotal + (endIdx - startIdx) + 1) * 1)];
-          retCode = trueRangeUnguarded(startIdx - lookbackTotal + 1, endIdx, inHigh, inLow, inClose, outBegIdx1, outNbElement1, tempBuffer);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
+          today = startIdx - lookbackTotal + 1;
+          periodTotal = 0.0;
+          i = optInTimePeriod;
+          while( i-- > 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             periodTotal += greatest;
+             today += 1;
           }
-          retCode = smaUnguarded(optInTimePeriod - 1, optInTimePeriod - 1, tempBuffer, optInTimePeriod, outBegIdx1, outNbElement1, prevATR);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
-          }
-          today = optInTimePeriod;
-          outIdx = this.unstablePeriod[FuncUnstId.Atr.ordinal()];
-          while( outIdx != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outIdx -= 1;
+          prevATR = periodTotal / optInTimePeriod;
+          i = this.unstablePeriod[FuncUnstId.Atr.ordinal()];
+          while( i != 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             today += 1;
+             i -= 1;
           }
           outIdx = 1;
-          outReal[0] = prevATR[0];
+          outReal[0] = prevATR;
           nbATR = endIdx - startIdx + 1;
           while( --nbATR != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outReal[outIdx++] = prevATR[0];
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             outReal[outIdx++] = prevATR;
+             today += 1;
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
-          return retCode ;
+          return RetCode.Success ;
        }
        public RetCode atr( int startIdx,
                            int endIdx,
@@ -3922,15 +4041,19 @@ class Core {
                            MInteger outNBElement,
                            double outReal[] )
        {
-          RetCode retCode;
+          int i = 0;
           int outIdx = 0;
           int today = 0;
           int lookbackTotal = 0;
           int nbATR = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          double[] prevATR = new double[1];
-          double[] tempBuffer;
+          double prevATR = 0;
+          double periodTotal = 0;
+          double val2 = 0;
+          double val3 = 0;
+          double greatest = 0;
+          double tempCY = 0;
+          double tempLT = 0;
+          double tempHT = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -3954,35 +4077,71 @@ class Core {
           if( optInTimePeriod <= 1 ) {
              return trueRangeUnguarded(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal) ;
           }
-          tempBuffer = new double[(int)((lookbackTotal + (endIdx - startIdx) + 1) * 1)];
-          retCode = trueRangeUnguarded(startIdx - lookbackTotal + 1, endIdx, inHigh, inLow, inClose, outBegIdx1, outNbElement1, tempBuffer);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
+          today = startIdx - lookbackTotal + 1;
+          periodTotal = 0.0;
+          i = optInTimePeriod;
+          while( i-- > 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             periodTotal += greatest;
+             today += 1;
           }
-          retCode = smaUnguarded(optInTimePeriod - 1, optInTimePeriod - 1, tempBuffer, optInTimePeriod, outBegIdx1, outNbElement1, prevATR);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
-          }
-          today = optInTimePeriod;
-          outIdx = this.unstablePeriod[FuncUnstId.Atr.ordinal()];
-          while( outIdx != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outIdx -= 1;
+          prevATR = periodTotal / optInTimePeriod;
+          i = this.unstablePeriod[FuncUnstId.Atr.ordinal()];
+          while( i != 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             today += 1;
+             i -= 1;
           }
           outIdx = 1;
-          outReal[0] = prevATR[0];
+          outReal[0] = prevATR;
           nbATR = endIdx - startIdx + 1;
           while( --nbATR != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outReal[outIdx++] = prevATR[0];
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             outReal[outIdx++] = prevATR;
+             today += 1;
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
-          return retCode ;
+          return RetCode.Success ;
        }
        public RetCode atrUnguarded( int startIdx,
                                     int endIdx,
@@ -3994,15 +4153,19 @@ class Core {
                                     MInteger outNBElement,
                                     double outReal[] )
        {
-          RetCode retCode;
+          int i = 0;
           int outIdx = 0;
           int today = 0;
           int lookbackTotal = 0;
           int nbATR = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          double[] prevATR = new double[1];
-          double[] tempBuffer;
+          double prevATR = 0;
+          double periodTotal = 0;
+          double val2 = 0;
+          double val3 = 0;
+          double greatest = 0;
+          double tempCY = 0;
+          double tempLT = 0;
+          double tempHT = 0;
           outBegIdx.value = 0;
           outNBElement.value = 0;
           lookbackTotal = atrLookback(optInTimePeriod);
@@ -4015,35 +4178,71 @@ class Core {
           if( optInTimePeriod <= 1 ) {
              return trueRangeUnguarded(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal) ;
           }
-          tempBuffer = new double[(int)((lookbackTotal + (endIdx - startIdx) + 1) * 1)];
-          retCode = trueRangeUnguarded(startIdx - lookbackTotal + 1, endIdx, inHigh, inLow, inClose, outBegIdx1, outNbElement1, tempBuffer);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
+          today = startIdx - lookbackTotal + 1;
+          periodTotal = 0.0;
+          i = optInTimePeriod;
+          while( i-- > 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             periodTotal += greatest;
+             today += 1;
           }
-          retCode = smaUnguarded(optInTimePeriod - 1, optInTimePeriod - 1, tempBuffer, optInTimePeriod, outBegIdx1, outNbElement1, prevATR);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
-          }
-          today = optInTimePeriod;
-          outIdx = this.unstablePeriod[FuncUnstId.Atr.ordinal()];
-          while( outIdx != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outIdx -= 1;
+          prevATR = periodTotal / optInTimePeriod;
+          i = this.unstablePeriod[FuncUnstId.Atr.ordinal()];
+          while( i != 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             today += 1;
+             i -= 1;
           }
           outIdx = 1;
-          outReal[0] = prevATR[0];
+          outReal[0] = prevATR;
           nbATR = endIdx - startIdx + 1;
           while( --nbATR != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outReal[outIdx++] = prevATR[0];
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             outReal[outIdx++] = prevATR;
+             today += 1;
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
-          return retCode ;
+          return RetCode.Success ;
        }
     /* List of contributors:
      *
@@ -4381,15 +4580,20 @@ class Core {
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
      *  JV       Jesus Viver <324122@cienz.unizar.es>
+     *  CC       Claude Code (AI assistant)
      *
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  112400 MF   Template creation.
-     *  010503 MF   Fix to always use SMA for the STDDEV (Thanks to JV).
-     *  052603 MF   Adapt code to compile with .NET Managed C++
+     *  112400 MF     Template creation.
+     *  010503 MF     Fix to always use SMA for the STDDEV (Thanks to JV).
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  070626 MF,CC  Fix #99: realign the middle band when the standard
+     *                deviation clamps to a later begIdx than the
+     *                (period-independent) MAMA lookback, for
+     *                optInTimePeriod >= 34.
      */
 
        public int bbandsLookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
@@ -4405,7 +4609,13 @@ class Core {
           if( optInNbDevDn == -4e37 ) {
              optInNbDevDn = 2e0;
           }
-          /* The lookback is driven by the middle band moving average. */
+          /* The lookback is driven by the middle band moving average. It also governs
+           * how the caller sizes the output buffers, which must hold the full moving
+           * average that ma() writes below - so it must not exceed the MA lookback,
+           * even when the standard deviation (lookback optInTimePeriod-1) clamps the
+           * first output to a later bar (outBegIdx > lookback for TA_MAType_MAMA with
+           * a large period). See the realignment in bbands() for that case.
+           */
           return movingAverageLookback(optInTimePeriod, optInMAType) ;
 
        }
@@ -4424,6 +4634,8 @@ class Core {
        {
           RetCode retCode;
           int i = 0;
+          int maBegIdx = 0;
+          int shiftIdx = 0;
           double tempReal = 0;
           double tempReal2 = 0;
           double[] tempBuffer1;
@@ -4481,6 +4693,8 @@ class Core {
              outNBElement.value = 0;
              return retCode ;
           }
+          /* Remember where the moving average begins, to realign it below. */
+          maBegIdx = outBegIdx.value;
           /* Calculate the standard deviation into tempBuffer2. */
           if( optInMAType == MAType.Sma ) {
              /* A small speed optimization by re-using the
@@ -4525,6 +4739,16 @@ class Core {
                 outNBElement.value = 0;
                 return retCode ;
              }
+          }
+          /* When the standard deviation (lookback optInTimePeriod-1) clamps to a later
+           * begIdx than the moving average did - as with TA_MAType_MAMA (constant
+           * lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
+           * at the earlier maBegIdx. Shift it forward so each band value pairs the
+           * moving average and standard deviation of the same bar.
+           */
+          if( outBegIdx.value > maBegIdx ) {
+             shiftIdx = outBegIdx.value - maBegIdx;
+             System.arraycopy(tempBuffer1, shiftIdx, tempBuffer1, 0, outNBElement.value * 1);
           }
           /* Copy the MA calculation into the middle band ouput, unless
            * the calculation was done into it already!
@@ -4599,6 +4823,8 @@ class Core {
        {
           RetCode retCode;
           int i = 0;
+          int maBegIdx = 0;
+          int shiftIdx = 0;
           double tempReal = 0;
           double tempReal2 = 0;
           double[] tempBuffer1;
@@ -4624,6 +4850,7 @@ class Core {
              outNBElement.value = 0;
              return retCode ;
           }
+          maBegIdx = outBegIdx.value;
           if( optInMAType == MAType.Sma ) {
              double _tempReal;
              double _periodTotal2;
@@ -4662,6 +4889,10 @@ class Core {
                 outNBElement.value = 0;
                 return retCode ;
              }
+          }
+          if( outBegIdx.value > maBegIdx ) {
+             shiftIdx = outBegIdx.value - maBegIdx;
+             System.arraycopy(tempBuffer1, shiftIdx, tempBuffer1, 0, outNBElement.value * 1);
           }
           if( tempBuffer1 != outRealMiddleBand ) {
              System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
@@ -4721,6 +4952,8 @@ class Core {
        {
           RetCode retCode;
           int i = 0;
+          int maBegIdx = 0;
+          int shiftIdx = 0;
           double tempReal = 0;
           double tempReal2 = 0;
           double[] tempBuffer1;
@@ -4763,6 +4996,7 @@ class Core {
              outNBElement.value = 0;
              return retCode ;
           }
+          maBegIdx = outBegIdx.value;
           if( optInMAType == MAType.Sma ) {
              double _tempReal;
              double _periodTotal2;
@@ -4801,6 +5035,10 @@ class Core {
                 outNBElement.value = 0;
                 return retCode ;
              }
+          }
+          if( outBegIdx.value > maBegIdx ) {
+             shiftIdx = outBegIdx.value - maBegIdx;
+             System.arraycopy(tempBuffer1, shiftIdx, tempBuffer1, 0, outNBElement.value * 1);
           }
           if( tempBuffer1 != outRealMiddleBand ) {
              System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
@@ -4860,6 +5098,8 @@ class Core {
        {
           RetCode retCode;
           int i = 0;
+          int maBegIdx = 0;
+          int shiftIdx = 0;
           double tempReal = 0;
           double tempReal2 = 0;
           double[] tempBuffer1;
@@ -4885,6 +5125,7 @@ class Core {
              outNBElement.value = 0;
              return retCode ;
           }
+          maBegIdx = outBegIdx.value;
           if( optInMAType == MAType.Sma ) {
              double _tempReal;
              double _periodTotal2;
@@ -4923,6 +5164,10 @@ class Core {
                 outNBElement.value = 0;
                 return retCode ;
              }
+          }
+          if( outBegIdx.value > maBegIdx ) {
+             shiftIdx = outBegIdx.value - maBegIdx;
+             System.arraycopy(tempBuffer1, shiftIdx, tempBuffer1, 0, outNBElement.value * 1);
           }
           if( tempBuffer1 != outRealMiddleBand ) {
              System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
@@ -5673,17 +5918,23 @@ class Core {
      *  Initial  Name/description
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
+     *  AF       Alexander Trufanov (github @trufanov-nok)
+     *  CC       Claude Code (AI assistant)
      *
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  031202 MF   Template creation.
-     *  052603 MF   Port to managed C++. Change to use CIRCBUF macros.
-     *  061704 MF   Lower limit for period to 2, and correct algorithm
-     *              to avoid cummulative error when value are close to
-     *              the floating point epsilon.
+     *  031202 MF     Template creation.
+     *  052603 MF     Port to managed C++. Change to use CIRCBUF macros.
+     *  061704 MF     Lower limit for period to 2, and correct algorithm
+     *                to avoid cummulative error when value are close to
+     *                the floating point epsilon.
+     *  070626 AF,CC  Guard the final division with TA_IS_ZERO instead of an exact
+     *                "!= 0.0" check: identical prices over the period leave
+     *                sub-epsilon residue that the exact check divided into a
+     *                spurious value (issue #7 / SF bug #107). Now returns 0.0.
      */
 
        public int cciLookback( int optInTimePeriod )
@@ -5790,7 +6041,7 @@ class Core {
              }
              /* And finally, the CCI... */
              tempReal = lastValue - theAverage;
-             if( tempReal != 0.0 && tempReal2 != 0.0 ) {
+             if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
                 outReal[outIdx++] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
              } else {
                 outReal[outIdx++] = 0.0;
@@ -5863,7 +6114,7 @@ class Core {
                 tempReal2 += Math.abs(circBuffer[j] - theAverage);
              }
              tempReal = lastValue - theAverage;
-             if( tempReal != 0.0 && tempReal2 != 0.0 ) {
+             if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
                 outReal[outIdx++] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
              } else {
                 outReal[outIdx++] = 0.0;
@@ -5944,7 +6195,7 @@ class Core {
                 tempReal2 += Math.abs(circBuffer[j] - theAverage);
              }
              tempReal = lastValue - theAverage;
-             if( tempReal != 0.0 && tempReal2 != 0.0 ) {
+             if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
                 outReal[outIdx++] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
              } else {
                 outReal[outIdx++] = 0.0;
@@ -6014,7 +6265,7 @@ class Core {
                 tempReal2 += Math.abs(circBuffer[j] - theAverage);
              }
              tempReal = lastValue - theAverage;
-             if( tempReal != 0.0 && tempReal2 != 0.0 ) {
+             if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
                 outReal[outIdx++] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
              } else {
                 outReal[outIdx++] = 0.0;
@@ -27797,14 +28048,16 @@ class Core {
      *  Initial  Name/description
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
-     *
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  010102 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
+     *  010102 MF     Template creation.
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  070526 MF,CC  Speed optimization: compute both EMA in a single
+     *                lockstep pass (bit-exact, no temporary buffers).
      */
 
        public int demaLookback( int optInTimePeriod )
@@ -27828,18 +28081,15 @@ class Core {
                             MInteger outNBElement,
                             double outReal[] )
        {
-          double[] firstEMA;
-          double[] secondEMA;
-          MInteger firstEMABegIdx = new MInteger();
-          MInteger firstEMANbElement = new MInteger();
-          MInteger secondEMABegIdx = new MInteger();
-          MInteger secondEMANbElement = new MInteger();
-          int tempInt = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
           int outIdx = 0;
-          int firstEMAIdx = 0;
-          int lookbackTotal = 0;
           int lookbackEMA = 0;
-          RetCode retCode;
+          int lookbackTotal = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -27887,53 +28137,87 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.Success ;
           }
-          /* Allocate a temporary buffer for the firstEMA.
+          /* Both EMA are computed in a single lockstep pass: each new
+           * EMA1 value is immediately fed into EMA2. No temporary
+           * buffers are needed.
            *
-           * When possible, re-use the outputBuffer for temp
-           * calculation.
+           * The arithmetic order below is the bit-exactness contract
+           * (do not reorder or fuse operations):
+           *  - EMA recursion: ((x-prev)*k)+prev.
+           *  - Default compatibility: each EMA is seeded with the sum
+           *    of its first 'period' inputs, accumulated from 0.0 in
+           *    input order (0.0+x is not x for x=-0.0), divided by
+           *    the period.
+           *  - Metastock compatibility: EMA1 is seeded from inReal[0],
+           *    EMA2 from the first EMA1 value.
+           * Output alignment is identical for all compatibility modes;
+           * only the seed values differ.
+           *
+           * In-place (inReal == outReal) is supported: outReal[outIdx]
+           * is written only after inReal[startIdx+outIdx] was read.
            */
-          if( inReal == outReal ) {
-             firstEMA = outReal;
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             /* Seed EMA1 with a simple average of the first
+              * 'period' price bars.
+              */
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             /* Advance EMA1 alone through its unstable period, up to
+              * the bar where EMA2 seeding begins.
+              */
+             while( today <= startIdx - lookbackEMA ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             /* Seed EMA2 with a simple average of the first 'period'
+              * EMA1 values, accumulated as EMA1 produces them.
+              */
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
           } else {
-             tempInt = lookbackTotal + (endIdx - startIdx) + 1;
-             firstEMA = new double[(int)(tempInt * 1)];
-          }
-          /* Calculate the first EMA */
-          retCode = emaUnguarded(startIdx - lookbackEMA, endIdx, inReal, optInTimePeriod, firstEMABegIdx, firstEMANbElement, firstEMA);
-          /* Verify for failure or if not enough data after
-           * calculating the first EMA.
-           */
-          if( retCode != RetCode.Success || firstEMANbElement.value == 0 ) {
-             if( firstEMA != outReal ) {
+             /* Metastock/Tradestation: seed each EMA with its first
+              * input value: EMA1 from inReal[0], EMA2 from the first
+              * EMA1 value.
+              */
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackEMA ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
              }
-             return retCode ;
+             prevEMA2 = prevEMA1;
           }
-          /* Allocate a temporary buffer for storing the EMA of the EMA. */
-          secondEMA = new double[(int)(firstEMANbElement.value * 1)];
-          retCode = emaUnguarded(0, firstEMANbElement.value - 1, firstEMA, optInTimePeriod, secondEMABegIdx, secondEMANbElement, secondEMA);
-          /* Return empty output on failure or if not enough data after
-           * calculating the second EMA.
+          /* Advance both EMA in lockstep through the unstable period
+           * of EMA2, up to the first output bar.
            */
-          if( retCode != RetCode.Success || secondEMANbElement.value == 0 ) {
-             if( firstEMA != outReal ) {
-             }
-             return retCode ;
+          while( today <= startIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
           }
-          /* Iterate through the second EMA and write the DEMA into
-           * the output.
+          /* Stable zone: keep advancing both EMA in lockstep and
+           * write the DEMA into the output.
            */
-          firstEMAIdx = secondEMABegIdx.value;
-          outIdx = 0;
-          while( outIdx < secondEMANbElement.value ) {
-             outReal[outIdx] = 2.0 * firstEMA[firstEMAIdx++] - secondEMA[outIdx];
-             outIdx += 1;
-          }
-          if( firstEMA != outReal ) {
+          outReal[0] = 2.0 * prevEMA1 - prevEMA2;
+          outIdx = 1;
+          while( today <= endIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             outReal[outIdx++] = 2.0 * prevEMA1 - prevEMA2;
           }
           /* Succeed. Indicate where the output starts relative to
            * the caller input.
            */
-          outBegIdx.value = firstEMABegIdx.value + secondEMABegIdx.value;
+          outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
           return RetCode.Success ;
        }
@@ -27945,18 +28229,15 @@ class Core {
                                      MInteger outNBElement,
                                      double outReal[] )
        {
-          double[] firstEMA;
-          double[] secondEMA;
-          MInteger firstEMABegIdx = new MInteger();
-          MInteger firstEMANbElement = new MInteger();
-          MInteger secondEMABegIdx = new MInteger();
-          MInteger secondEMANbElement = new MInteger();
-          int tempInt = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
           int outIdx = 0;
-          int firstEMAIdx = 0;
-          int lookbackTotal = 0;
           int lookbackEMA = 0;
-          RetCode retCode;
+          int lookbackTotal = 0;
           outNBElement.value = 0;
           outBegIdx.value = 0;
           lookbackEMA = emaLookback(optInTimePeriod);
@@ -27967,34 +28248,46 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.Success ;
           }
-          if( inReal == outReal ) {
-             firstEMA = outReal;
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             while( today <= startIdx - lookbackEMA ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
           } else {
-             tempInt = lookbackTotal + (endIdx - startIdx) + 1;
-             firstEMA = new double[(int)(tempInt * 1)];
-          }
-          retCode = emaUnguarded(startIdx - lookbackEMA, endIdx, inReal, optInTimePeriod, firstEMABegIdx, firstEMANbElement, firstEMA);
-          if( retCode != RetCode.Success || firstEMANbElement.value == 0 ) {
-             if( firstEMA != outReal ) {
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackEMA ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
              }
-             return retCode ;
+             prevEMA2 = prevEMA1;
           }
-          secondEMA = new double[(int)(firstEMANbElement.value * 1)];
-          retCode = emaUnguarded(0, firstEMANbElement.value - 1, firstEMA, optInTimePeriod, secondEMABegIdx, secondEMANbElement, secondEMA);
-          if( retCode != RetCode.Success || secondEMANbElement.value == 0 ) {
-             if( firstEMA != outReal ) {
-             }
-             return retCode ;
+          while( today <= startIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
           }
-          firstEMAIdx = secondEMABegIdx.value;
-          outIdx = 0;
-          while( outIdx < secondEMANbElement.value ) {
-             outReal[outIdx] = 2.0 * firstEMA[firstEMAIdx++] - secondEMA[outIdx];
-             outIdx += 1;
+          outReal[0] = 2.0 * prevEMA1 - prevEMA2;
+          outIdx = 1;
+          while( today <= endIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             outReal[outIdx++] = 2.0 * prevEMA1 - prevEMA2;
           }
-          if( firstEMA != outReal ) {
-          }
-          outBegIdx.value = firstEMABegIdx.value + secondEMABegIdx.value;
+          outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
           return RetCode.Success ;
        }
@@ -28006,18 +28299,15 @@ class Core {
                             MInteger outNBElement,
                             double outReal[] )
        {
-          double[] firstEMA;
-          double[] secondEMA;
-          MInteger firstEMABegIdx = new MInteger();
-          MInteger firstEMANbElement = new MInteger();
-          MInteger secondEMABegIdx = new MInteger();
-          MInteger secondEMANbElement = new MInteger();
-          int tempInt = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
           int outIdx = 0;
-          int firstEMAIdx = 0;
-          int lookbackTotal = 0;
           int lookbackEMA = 0;
-          RetCode retCode;
+          int lookbackTotal = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -28039,34 +28329,46 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.Success ;
           }
-          if( false ) {
-             firstEMA = outReal;
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             while( today <= startIdx - lookbackEMA ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
           } else {
-             tempInt = lookbackTotal + (endIdx - startIdx) + 1;
-             firstEMA = new double[(int)(tempInt * 1)];
-          }
-          retCode = emaUnguarded(startIdx - lookbackEMA, endIdx, inReal, optInTimePeriod, firstEMABegIdx, firstEMANbElement, firstEMA);
-          if( retCode != RetCode.Success || firstEMANbElement.value == 0 ) {
-             if( firstEMA != outReal ) {
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackEMA ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
              }
-             return retCode ;
+             prevEMA2 = prevEMA1;
           }
-          secondEMA = new double[(int)(firstEMANbElement.value * 1)];
-          retCode = emaUnguarded(0, firstEMANbElement.value - 1, firstEMA, optInTimePeriod, secondEMABegIdx, secondEMANbElement, secondEMA);
-          if( retCode != RetCode.Success || secondEMANbElement.value == 0 ) {
-             if( firstEMA != outReal ) {
-             }
-             return retCode ;
+          while( today <= startIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
           }
-          firstEMAIdx = secondEMABegIdx.value;
-          outIdx = 0;
-          while( outIdx < secondEMANbElement.value ) {
-             outReal[outIdx] = 2.0 * firstEMA[firstEMAIdx++] - secondEMA[outIdx];
-             outIdx += 1;
+          outReal[0] = 2.0 * prevEMA1 - prevEMA2;
+          outIdx = 1;
+          while( today <= endIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             outReal[outIdx++] = 2.0 * prevEMA1 - prevEMA2;
           }
-          if( firstEMA != outReal ) {
-          }
-          outBegIdx.value = firstEMABegIdx.value + secondEMABegIdx.value;
+          outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
           return RetCode.Success ;
        }
@@ -28078,18 +28380,15 @@ class Core {
                                      MInteger outNBElement,
                                      double outReal[] )
        {
-          double[] firstEMA;
-          double[] secondEMA;
-          MInteger firstEMABegIdx = new MInteger();
-          MInteger firstEMANbElement = new MInteger();
-          MInteger secondEMABegIdx = new MInteger();
-          MInteger secondEMANbElement = new MInteger();
-          int tempInt = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
           int outIdx = 0;
-          int firstEMAIdx = 0;
-          int lookbackTotal = 0;
           int lookbackEMA = 0;
-          RetCode retCode;
+          int lookbackTotal = 0;
           outNBElement.value = 0;
           outBegIdx.value = 0;
           lookbackEMA = emaLookback(optInTimePeriod);
@@ -28100,34 +28399,46 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.Success ;
           }
-          if( false ) {
-             firstEMA = outReal;
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             while( today <= startIdx - lookbackEMA ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
           } else {
-             tempInt = lookbackTotal + (endIdx - startIdx) + 1;
-             firstEMA = new double[(int)(tempInt * 1)];
-          }
-          retCode = emaUnguarded(startIdx - lookbackEMA, endIdx, inReal, optInTimePeriod, firstEMABegIdx, firstEMANbElement, firstEMA);
-          if( retCode != RetCode.Success || firstEMANbElement.value == 0 ) {
-             if( firstEMA != outReal ) {
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackEMA ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
              }
-             return retCode ;
+             prevEMA2 = prevEMA1;
           }
-          secondEMA = new double[(int)(firstEMANbElement.value * 1)];
-          retCode = emaUnguarded(0, firstEMANbElement.value - 1, firstEMA, optInTimePeriod, secondEMABegIdx, secondEMANbElement, secondEMA);
-          if( retCode != RetCode.Success || secondEMANbElement.value == 0 ) {
-             if( firstEMA != outReal ) {
-             }
-             return retCode ;
+          while( today <= startIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
           }
-          firstEMAIdx = secondEMABegIdx.value;
-          outIdx = 0;
-          while( outIdx < secondEMANbElement.value ) {
-             outReal[outIdx] = 2.0 * firstEMA[firstEMAIdx++] - secondEMA[outIdx];
-             outIdx += 1;
+          outReal[0] = 2.0 * prevEMA1 - prevEMA2;
+          outIdx = 1;
+          while( today <= endIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             outReal[outIdx++] = 2.0 * prevEMA1 - prevEMA2;
           }
-          if( firstEMA != outReal ) {
-          }
-          outBegIdx.value = firstEMABegIdx.value + secondEMABegIdx.value;
+          outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
           return RetCode.Success ;
        }
@@ -34942,10 +35253,15 @@ class Core {
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  120802 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
+     *  120802 MF     Template creation.
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  070326 MF,CC  Remove the smoothPrice circular buffer: it was written
+     *                on every bar but never read in this function (issue #88).
+     *                The trendline averages RAW price over the dominant cycle
+     *                period, exactly as published (Ehlers, "Rocket Science
+     *                for Traders": ITrend sums Price, not SmoothPrice).
      */
 
        public int htTrendlineLookback( )
@@ -35029,9 +35345,6 @@ class Core {
           double rad2Deg = 0;
           double todayValue = 0;
           double smoothPeriod = 0;
-          double[] smoothPrice;
-          int smoothPrice_Idx = 0;
-          int maxIdx_smoothPrice = (50)-1;
           int idx = 0;
           int DCPeriodInt = 0;
           double DCPeriod = 0;
@@ -35046,11 +35359,6 @@ class Core {
           /* Variable used for the price smoother (a weighted moving average). */
           /* Variable to keep track of the last 3 ITrend */
           /* Variables used for the Hilbert Transormation */
-          /* Variable used to keep track of the previous
-           * smooth price. In the case of this algorithm,
-           * we will never need more than 50 values.
-           */
-          smoothPrice = new double[maxIdx_smoothPrice+1];
           /* Variable used to calculate the dominant cycle phase */
           /* circular buffer already declared */
           iTrend3 = 0.0;
@@ -35173,9 +35481,6 @@ class Core {
           I1ForEvenPrev2 = 0.0;
           I1ForOddPrev2 = I1ForEvenPrev2;
           smoothPeriod = 0.0;
-          for( i = 0; i < 50; i += 1 ) {
-             smoothPrice[i] = 0.0;
-          }
           /* The code is speed optimized and is most likely very
            * hard to follow if you do not already know well the
            * original algorithm.
@@ -35192,10 +35497,6 @@ class Core {
              trailingWMAValue = inReal[trailingWMAIdx++];
              smoothedValue = periodWMASum * 0.1;
              periodWMASum -= periodWMASub;
-             /* Remember the smoothedValue into the smoothPrice
-              * circular buffer.
-              */
-             smoothPrice[smoothPrice_Idx] = smoothedValue;
              if( today % 2 == 0 ) {
                 /* Do the Hilbert Transforms for even price bar */
                 hilbertTempReal = a * smoothedValue;
@@ -35323,8 +35624,10 @@ class Core {
              /* Compute Trendline */
              DCPeriod = smoothPeriod + 0.5;
              DCPeriodInt = (int)DCPeriod;
-             /* idx is used to iterate for up to 50 of the last
-              * value of smoothPrice.
+             /* Average the RAW price over the dominant cycle period
+              * (Ehlers, "Rocket Science for Traders": the Instantaneous
+              * Trendline sums Price — not SmoothPrice, which only feeds
+              * the Hilbert detrender above). See issue #88.
               */
              idx = today;
              tempReal = 0.0;
@@ -35342,8 +35645,6 @@ class Core {
                 outReal[outIdx++] = tempReal2;
              }
              /* Ooof... let's do the next price bar now! */
-             smoothPrice_Idx++;
-             if( smoothPrice_Idx > maxIdx_smoothPrice ) { smoothPrice_Idx = 0; }
              today += 1;
           }
           outNBElement.value = outIdx;
@@ -35417,15 +35718,11 @@ class Core {
           double rad2Deg = 0;
           double todayValue = 0;
           double smoothPeriod = 0;
-          double[] smoothPrice;
-          int smoothPrice_Idx = 0;
-          int maxIdx_smoothPrice = (50)-1;
           int idx = 0;
           int DCPeriodInt = 0;
           double DCPeriod = 0;
           a = 0.0962;
           b = 0.5769;
-          smoothPrice = new double[maxIdx_smoothPrice+1];
           iTrend3 = 0.0;
           iTrend2 = iTrend3;
           iTrend1 = iTrend2;
@@ -35519,9 +35816,6 @@ class Core {
           I1ForEvenPrev2 = 0.0;
           I1ForOddPrev2 = I1ForEvenPrev2;
           smoothPeriod = 0.0;
-          for( i = 0; i < 50; i += 1 ) {
-             smoothPrice[i] = 0.0;
-          }
           while( today <= endIdx ) {
              adjustedPrevPeriod = 0.075 * period + 0.54;
              todayValue = inReal[today];
@@ -35531,7 +35825,6 @@ class Core {
              trailingWMAValue = inReal[trailingWMAIdx++];
              smoothedValue = periodWMASum * 0.1;
              periodWMASum -= periodWMASub;
-             smoothPrice[smoothPrice_Idx] = smoothedValue;
              if( today % 2 == 0 ) {
                 hilbertTempReal = a * smoothedValue;
                 detrender = 0 - detrender_Even[hilbertIdx];
@@ -35658,8 +35951,6 @@ class Core {
              if( today >= startIdx ) {
                 outReal[outIdx++] = tempReal2;
              }
-             smoothPrice_Idx++;
-             if( smoothPrice_Idx > maxIdx_smoothPrice ) { smoothPrice_Idx = 0; }
              today += 1;
           }
           outNBElement.value = outIdx;
@@ -35733,9 +36024,6 @@ class Core {
           double rad2Deg = 0;
           double todayValue = 0;
           double smoothPeriod = 0;
-          double[] smoothPrice;
-          int smoothPrice_Idx = 0;
-          int maxIdx_smoothPrice = (50)-1;
           int idx = 0;
           int DCPeriodInt = 0;
           double DCPeriod = 0;
@@ -35747,7 +36035,6 @@ class Core {
           }
           a = 0.0962;
           b = 0.5769;
-          smoothPrice = new double[maxIdx_smoothPrice+1];
           iTrend3 = 0.0;
           iTrend2 = iTrend3;
           iTrend1 = iTrend2;
@@ -35841,9 +36128,6 @@ class Core {
           I1ForEvenPrev2 = 0.0;
           I1ForOddPrev2 = I1ForEvenPrev2;
           smoothPeriod = 0.0;
-          for( i = 0; i < 50; i += 1 ) {
-             smoothPrice[i] = 0.0;
-          }
           while( today <= endIdx ) {
              adjustedPrevPeriod = 0.075 * period + 0.54;
              todayValue = inReal[today];
@@ -35853,7 +36137,6 @@ class Core {
              trailingWMAValue = inReal[trailingWMAIdx++];
              smoothedValue = periodWMASum * 0.1;
              periodWMASum -= periodWMASub;
-             smoothPrice[smoothPrice_Idx] = smoothedValue;
              if( today % 2 == 0 ) {
                 hilbertTempReal = a * smoothedValue;
                 detrender = 0 - detrender_Even[hilbertIdx];
@@ -35980,8 +36263,6 @@ class Core {
              if( today >= startIdx ) {
                 outReal[outIdx++] = tempReal2;
              }
-             smoothPrice_Idx++;
-             if( smoothPrice_Idx > maxIdx_smoothPrice ) { smoothPrice_Idx = 0; }
              today += 1;
           }
           outNBElement.value = outIdx;
@@ -36055,15 +36336,11 @@ class Core {
           double rad2Deg = 0;
           double todayValue = 0;
           double smoothPeriod = 0;
-          double[] smoothPrice;
-          int smoothPrice_Idx = 0;
-          int maxIdx_smoothPrice = (50)-1;
           int idx = 0;
           int DCPeriodInt = 0;
           double DCPeriod = 0;
           a = 0.0962;
           b = 0.5769;
-          smoothPrice = new double[maxIdx_smoothPrice+1];
           iTrend3 = 0.0;
           iTrend2 = iTrend3;
           iTrend1 = iTrend2;
@@ -36157,9 +36434,6 @@ class Core {
           I1ForEvenPrev2 = 0.0;
           I1ForOddPrev2 = I1ForEvenPrev2;
           smoothPeriod = 0.0;
-          for( i = 0; i < 50; i += 1 ) {
-             smoothPrice[i] = 0.0;
-          }
           while( today <= endIdx ) {
              adjustedPrevPeriod = 0.075 * period + 0.54;
              todayValue = inReal[today];
@@ -36169,7 +36443,6 @@ class Core {
              trailingWMAValue = inReal[trailingWMAIdx++];
              smoothedValue = periodWMASum * 0.1;
              periodWMASum -= periodWMASub;
-             smoothPrice[smoothPrice_Idx] = smoothedValue;
              if( today % 2 == 0 ) {
                 hilbertTempReal = a * smoothedValue;
                 detrender = 0 - detrender_Even[hilbertIdx];
@@ -36296,8 +36569,6 @@ class Core {
              if( today >= startIdx ) {
                 outReal[outIdx++] = tempReal2;
              }
-             smoothPrice_Idx++;
-             if( smoothPrice_Idx > maxIdx_smoothPrice ) { smoothPrice_Idx = 0; }
              today += 1;
           }
           outNBElement.value = outIdx;
@@ -36761,8 +37032,11 @@ class Core {
              /* Compute Trendline */
              DCPeriod = smoothPeriod + 0.5;
              DCPeriodInt = (int)DCPeriod;
-             /* idx is used to iterate for up to 50 of the last
-              * value of smoothPrice.
+             /* Average the RAW price over the dominant cycle period.
+              * Unlike the DC-phase loop above (which reads the smoothPrice
+              * circular buffer), the iTrend average reads the raw price,
+              * exactly as published (Ehlers, "Rocket Science for Traders":
+              * ITrend sums Price, not SmoothPrice). See issue #88.
               */
              idx = today;
              tempReal = 0.0;
@@ -38008,6 +38282,8 @@ class Core {
      *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
      *  181012 AB    Initial Version
+     *  070526 MF,CC  Fix #98: the unstable period grew the summation window
+     *                to period+u bars; window is now always 'period'.
      */
 
        public int imiLookback( int optInTimePeriod )
@@ -38058,7 +38334,7 @@ class Core {
              double upsum = 0.0;
              double downsum = 0.0;
              int i;
-             for( i = startIdx - lookback; i <= startIdx; i += 1 ) {
+             for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
                 double close = inClose[i];
                 double open = inOpen[i];
                 if( close > open ) {
@@ -38100,7 +38376,7 @@ class Core {
              double upsum = 0.0;
              double downsum = 0.0;
              int i;
-             for( i = startIdx - lookback; i <= startIdx; i += 1 ) {
+             for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
                 double close = inClose[i];
                 double open = inOpen[i];
                 if( close > open ) {
@@ -38153,7 +38429,7 @@ class Core {
              double upsum = 0.0;
              double downsum = 0.0;
              int i;
-             for( i = startIdx - lookback; i <= startIdx; i += 1 ) {
+             for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
                 double close = inClose[i];
                 double open = inOpen[i];
                 if( close > open ) {
@@ -38195,7 +38471,7 @@ class Core {
              double upsum = 0.0;
              double downsum = 0.0;
              int i;
-             for( i = startIdx - lookback; i <= startIdx; i += 1 ) {
+             for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
                 double close = inClose[i];
                 double open = inOpen[i];
                 if( close > open ) {
@@ -40346,14 +40622,18 @@ class Core {
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
      *  JPP      JP Pienaar (j.pienaar@mci.co.za)
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  112400 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
-     *  080403 JPP  Fix #767653 for logic when swapping periods.
+     *  112400 MF     Template creation.
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  080403 JPP    Fix #767653 for logic when swapping periods.
+     *  070526 MF,CC  Speed optimization: compute the two price EMA, the
+     *                signal line and the histogram in a single lockstep
+     *                pass (bit-exact, no temporary buffers).
      */
 
        public int macdLookback( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
@@ -40403,21 +40683,20 @@ class Core {
                             double outMACDSignal[],
                             double outMACDHist[] )
        {
-          double[] slowEMABuffer;
-          double[] fastEMABuffer;
-          RetCode retCode;
-          int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          double prevFast = 0;
+          double prevSlow = 0;
+          double prevSignal = 0;
+          double macdValue = 0;
+          double tempReal = 0;
           double slowK = 0;
           double fastK = 0;
           double signalK = 0;
+          int i = 0;
+          int today = 0;
+          int outIdx = 0;
+          int tempInteger = 0;
           int lookbackTotal = 0;
           int lookbackSignal = 0;
-          int useFixedK = 0;
-          int i = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -40439,30 +40718,6 @@ class Core {
           } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          /* !!! A lot of speed optimization could be done
-           * !!! with this function.
-           * !!!
-           * !!! A better approach would be to use ema
-           * !!! just to get the seeding values for the
-           * !!! fast and slow EMA. Then process the difference
-           * !!! in an allocated buffer until enough data is
-           * !!! available for the first signal value.
-           * !!! From that point all the processing can
-           * !!! be done in a tight loop.
-           * !!!
-           * !!! That approach will have the following
-           * !!! advantage:
-           * !!!   1) One mem allocation needed instead of two.
-           * !!!   2) The mem allocation size will be only the
-           * !!!      signal lookback period instead of the
-           * !!!      whole range of data.
-           * !!!   3) Processing will be done in a tight loop.
-           * !!!      allowing to avoid a lot of memory store-load
-           * !!!      operation.
-           * !!!   4) The memcpy at the end will be eliminated!
-           * !!!
-           * !!! If only I had time....
-           */
           /* Make sure slow is really slower than
            * the fast period! if not, swap...
            */
@@ -40475,20 +40730,17 @@ class Core {
           /* Catch special case for fix 26/12 MACD.
            * Use hardcoded k values matching the original algorithm.
            */
-          useFixedK = 0;
           if( optInSlowPeriod == 0 ) {
-             optInSlowPeriod = 26;
              /* Fix 26 */
+             optInSlowPeriod = 26;
              slowK = 0.075;
-             useFixedK = 1;
           } else {
              slowK = 2.0 / (double)(optInSlowPeriod + 1);
           }
           if( optInFastPeriod == 0 ) {
-             optInFastPeriod = 12;
              /* Fix 12 */
+             optInFastPeriod = 12;
              fastK = 0.15;
-             useFixedK = 1;
           } else {
              fastK = 2.0 / (double)(optInFastPeriod + 1);
           }
@@ -40508,68 +40760,121 @@ class Core {
              outNBElement.value = 0;
              return RetCode.Success ;
           }
-          /* Allocate intermediate buffer for fast/slow EMA. */
-          tempInteger = endIdx - startIdx + 1 + lookbackSignal;
-          fastEMABuffer = new double[(int)(tempInteger * 1)];
-          slowEMABuffer = new double[(int)(tempInteger * 1)];
-          /* Calculate the slow EMA.
+          /* Everything is computed in a single lockstep pass: each bar
+           * advances the fast and slow EMA (two independent recursions),
+           * their difference is the MACD line, and each MACD-line value
+           * is immediately fed into the signal EMA. No temporary buffers.
            *
-           * Move back the startIdx to get enough data
-           * for the signal period. That way, once the
-           * signal calculation is done, all the output
-           * will start at the requested 'startIdx'.
+           * The arithmetic order below is the bit-exactness contract
+           * (do not reorder or fuse operations):
+           *  - EMA recursion: ((x-prev)*k)+prev.
+           *  - Default compatibility: each EMA is seeded with the sum of
+           *    its first 'period' inputs, accumulated from 0.0 in input
+           *    order, divided by the period. The fast and slow seed
+           *    windows end on the same bar. The signal EMA is seeded the
+           *    same way from the first 'signal period' MACD-line values.
+           *  - Metastock compatibility: the fast and slow EMA are seeded
+           *    from inReal[0], the signal EMA from the first MACD-line
+           *    value.
+           * Output alignment is identical for all compatibility modes;
+           * only the seed values differ.
+           *
+           * In-place (an output == inReal) is supported: outputs at
+           * [outIdx] are written only after inReal[startIdx+outIdx] was
+           * read.
            */
-          tempInteger = startIdx - lookbackSignal;
-          /* Use ema_private when hardcoded k is needed (MACDFIX path).
-           * Use ema() for the normal path — codegen handles double/float routing.
+          if( this.compatibility == Compatibility.Default ) {
+             /* Seed each price EMA with a simple average of its first
+              * 'period' price bars. The fast window is the tail of the
+              * slow window: consume the leading slow-only bars first,
+              * then accumulate both over the shared bars.
+              */
+             today = startIdx - lookbackTotal;
+             tempReal = 0.0;
+             i = optInSlowPeriod - optInFastPeriod;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevFast = 0.0;
+             i = optInFastPeriod;
+             while( i-- > 0 ) {
+                prevFast += inReal[today];
+                tempReal += inReal[today++];
+             }
+             prevSlow = tempReal / optInSlowPeriod;
+             prevFast = prevFast / optInFastPeriod;
+             /* Advance both EMA through their unstable period, up to the
+              * first MACD-line bar.
+              */
+             while( today <= startIdx - lookbackSignal ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             }
+             macdValue = prevFast - prevSlow;
+             /* Seed the signal EMA with a simple average of the first
+              * 'signal period' MACD-line values, accumulated as they are
+              * produced.
+              */
+             prevSignal = 0.0;
+             prevSignal += macdValue;
+             i = optInSignalPeriod - 1;
+             while( i-- > 0 ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+                macdValue = prevFast - prevSlow;
+                prevSignal += macdValue;
+             }
+             prevSignal = prevSignal / optInSignalPeriod;
+          } else {
+             /* Metastock/Tradestation: seed the fast and slow EMA with
+              * inReal[0], advance them in lockstep up to the first
+              * MACD-line bar, then seed the signal EMA with the first
+              * MACD-line value.
+              */
+             prevFast = inReal[0];
+             prevSlow = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackSignal ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             }
+             macdValue = prevFast - prevSlow;
+             prevSignal = macdValue;
+          }
+          /* Advance everything in lockstep through the unstable period
+           * of the signal EMA, up to the first output bar.
            */
-          if( (useFixedK) != 0 ) {
-             retCode = emaPrivate(tempInteger, endIdx, inReal, optInSlowPeriod, slowK, outBegIdx1, outNbElement1, slowEMABuffer);
-          } else {
-             retCode = emaUnguarded(tempInteger, endIdx, inReal, optInSlowPeriod, outBegIdx1, outNbElement1, slowEMABuffer);
+          while( today <= startIdx ) {
+             tempReal = inReal[today++];
+             prevFast = (tempReal - prevFast) * fastK + prevFast;
+             prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             macdValue = prevFast - prevSlow;
+             prevSignal = (macdValue - prevSignal) * signalK + prevSignal;
           }
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          /* Calculate the fast EMA. */
-          if( (useFixedK) != 0 ) {
-             retCode = emaPrivate(tempInteger, endIdx, inReal, optInFastPeriod, fastK, outBegIdx2, outNbElement2, fastEMABuffer);
-          } else {
-             retCode = emaUnguarded(tempInteger, endIdx, inReal, optInFastPeriod, outBegIdx2, outNbElement2, fastEMABuffer);
-          }
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          /* Parano tests. Will be removed eventually. */
-          if( outBegIdx1.value != tempInteger || outBegIdx2.value != tempInteger || outNbElement1.value != outNbElement2.value || outNbElement1.value != endIdx - startIdx + 1 + lookbackSignal ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return RetCode.BadParam ;
-          }
-          /* Calculate (fast EMA) - (slow EMA). */
-          for( i = 0; i < outNbElement1.value; i += 1 ) {
-             fastEMABuffer[i] = fastEMABuffer[i] - slowEMABuffer[i];
-          }
-          /* Copy the result into the output for the caller. */
-          System.arraycopy(fastEMABuffer, lookbackSignal, outMACD, 0, (endIdx - startIdx + 1) * 1);
-          /* Calculate the signal/trigger line (on double buffer, use ema_private). */
-          retCode = emaPrivate(0, outNbElement1.value - 1, fastEMABuffer, optInSignalPeriod, signalK, outBegIdx2, outNbElement2, outMACDSignal);
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          /* Calculate the histogram. */
-          for( i = 0; i < outNbElement2.value; i += 1 ) {
-             outMACDHist[i] = outMACD[i] - outMACDSignal[i];
+          /* Stable zone: keep advancing in lockstep and write the three
+           * outputs.
+           */
+          outMACD[0] = macdValue;
+          outMACDSignal[0] = prevSignal;
+          outMACDHist[0] = macdValue - prevSignal;
+          outIdx = 1;
+          while( today <= endIdx ) {
+             tempReal = inReal[today++];
+             prevFast = (tempReal - prevFast) * fastK + prevFast;
+             prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             macdValue = prevFast - prevSlow;
+             prevSignal = (macdValue - prevSignal) * signalK + prevSignal;
+             outMACD[outIdx] = macdValue;
+             outMACDSignal[outIdx] = prevSignal;
+             outMACDHist[outIdx] = macdValue - prevSignal;
+             outIdx += 1;
           }
           /* All done! Indicate the output limits and return success. */
           outBegIdx.value = startIdx;
-          outNBElement.value = outNbElement2.value;
+          outNBElement.value = outIdx;
           return RetCode.Success ;
        }
        public RetCode macdUnguarded( int startIdx,
@@ -40584,38 +40889,34 @@ class Core {
                                      double outMACDSignal[],
                                      double outMACDHist[] )
        {
-          double[] slowEMABuffer;
-          double[] fastEMABuffer;
-          RetCode retCode;
-          int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          double prevFast = 0;
+          double prevSlow = 0;
+          double prevSignal = 0;
+          double macdValue = 0;
+          double tempReal = 0;
           double slowK = 0;
           double fastK = 0;
           double signalK = 0;
+          int i = 0;
+          int today = 0;
+          int outIdx = 0;
+          int tempInteger = 0;
           int lookbackTotal = 0;
           int lookbackSignal = 0;
-          int useFixedK = 0;
-          int i = 0;
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
              optInFastPeriod = tempInteger;
           }
-          useFixedK = 0;
           if( optInSlowPeriod == 0 ) {
              optInSlowPeriod = 26;
              slowK = 0.075;
-             useFixedK = 1;
           } else {
              slowK = 2.0 / (double)(optInSlowPeriod + 1);
           }
           if( optInFastPeriod == 0 ) {
              optInFastPeriod = 12;
              fastK = 0.15;
-             useFixedK = 1;
           } else {
              fastK = 2.0 / (double)(optInFastPeriod + 1);
           }
@@ -40631,50 +40932,74 @@ class Core {
              outNBElement.value = 0;
              return RetCode.Success ;
           }
-          tempInteger = endIdx - startIdx + 1 + lookbackSignal;
-          fastEMABuffer = new double[(int)(tempInteger * 1)];
-          slowEMABuffer = new double[(int)(tempInteger * 1)];
-          tempInteger = startIdx - lookbackSignal;
-          if( (useFixedK) != 0 ) {
-             retCode = emaPrivate(tempInteger, endIdx, inReal, optInSlowPeriod, slowK, outBegIdx1, outNbElement1, slowEMABuffer);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             tempReal = 0.0;
+             i = optInSlowPeriod - optInFastPeriod;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevFast = 0.0;
+             i = optInFastPeriod;
+             while( i-- > 0 ) {
+                prevFast += inReal[today];
+                tempReal += inReal[today++];
+             }
+             prevSlow = tempReal / optInSlowPeriod;
+             prevFast = prevFast / optInFastPeriod;
+             while( today <= startIdx - lookbackSignal ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             }
+             macdValue = prevFast - prevSlow;
+             prevSignal = 0.0;
+             prevSignal += macdValue;
+             i = optInSignalPeriod - 1;
+             while( i-- > 0 ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+                macdValue = prevFast - prevSlow;
+                prevSignal += macdValue;
+             }
+             prevSignal = prevSignal / optInSignalPeriod;
           } else {
-             retCode = emaUnguarded(tempInteger, endIdx, inReal, optInSlowPeriod, outBegIdx1, outNbElement1, slowEMABuffer);
+             prevFast = inReal[0];
+             prevSlow = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackSignal ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             }
+             macdValue = prevFast - prevSlow;
+             prevSignal = macdValue;
           }
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
+          while( today <= startIdx ) {
+             tempReal = inReal[today++];
+             prevFast = (tempReal - prevFast) * fastK + prevFast;
+             prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             macdValue = prevFast - prevSlow;
+             prevSignal = (macdValue - prevSignal) * signalK + prevSignal;
           }
-          if( (useFixedK) != 0 ) {
-             retCode = emaPrivate(tempInteger, endIdx, inReal, optInFastPeriod, fastK, outBegIdx2, outNbElement2, fastEMABuffer);
-          } else {
-             retCode = emaUnguarded(tempInteger, endIdx, inReal, optInFastPeriod, outBegIdx2, outNbElement2, fastEMABuffer);
-          }
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          if( outBegIdx1.value != tempInteger || outBegIdx2.value != tempInteger || outNbElement1.value != outNbElement2.value || outNbElement1.value != endIdx - startIdx + 1 + lookbackSignal ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return RetCode.BadParam ;
-          }
-          for( i = 0; i < outNbElement1.value; i += 1 ) {
-             fastEMABuffer[i] = fastEMABuffer[i] - slowEMABuffer[i];
-          }
-          System.arraycopy(fastEMABuffer, lookbackSignal, outMACD, 0, (endIdx - startIdx + 1) * 1);
-          retCode = emaPrivate(0, outNbElement1.value - 1, fastEMABuffer, optInSignalPeriod, signalK, outBegIdx2, outNbElement2, outMACDSignal);
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          for( i = 0; i < outNbElement2.value; i += 1 ) {
-             outMACDHist[i] = outMACD[i] - outMACDSignal[i];
+          outMACD[0] = macdValue;
+          outMACDSignal[0] = prevSignal;
+          outMACDHist[0] = macdValue - prevSignal;
+          outIdx = 1;
+          while( today <= endIdx ) {
+             tempReal = inReal[today++];
+             prevFast = (tempReal - prevFast) * fastK + prevFast;
+             prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             macdValue = prevFast - prevSlow;
+             prevSignal = (macdValue - prevSignal) * signalK + prevSignal;
+             outMACD[outIdx] = macdValue;
+             outMACDSignal[outIdx] = prevSignal;
+             outMACDHist[outIdx] = macdValue - prevSignal;
+             outIdx += 1;
           }
           outBegIdx.value = startIdx;
-          outNBElement.value = outNbElement2.value;
+          outNBElement.value = outIdx;
           return RetCode.Success ;
        }
        public RetCode macd( int startIdx,
@@ -40689,21 +41014,20 @@ class Core {
                             double outMACDSignal[],
                             double outMACDHist[] )
        {
-          double[] slowEMABuffer;
-          double[] fastEMABuffer;
-          RetCode retCode;
-          int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          double prevFast = 0;
+          double prevSlow = 0;
+          double prevSignal = 0;
+          double macdValue = 0;
+          double tempReal = 0;
           double slowK = 0;
           double fastK = 0;
           double signalK = 0;
+          int i = 0;
+          int today = 0;
+          int outIdx = 0;
+          int tempInteger = 0;
           int lookbackTotal = 0;
           int lookbackSignal = 0;
-          int useFixedK = 0;
-          int i = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -40730,18 +41054,15 @@ class Core {
              optInSlowPeriod = optInFastPeriod;
              optInFastPeriod = tempInteger;
           }
-          useFixedK = 0;
           if( optInSlowPeriod == 0 ) {
              optInSlowPeriod = 26;
              slowK = 0.075;
-             useFixedK = 1;
           } else {
              slowK = 2.0 / (double)(optInSlowPeriod + 1);
           }
           if( optInFastPeriod == 0 ) {
              optInFastPeriod = 12;
              fastK = 0.15;
-             useFixedK = 1;
           } else {
              fastK = 2.0 / (double)(optInFastPeriod + 1);
           }
@@ -40757,50 +41078,74 @@ class Core {
              outNBElement.value = 0;
              return RetCode.Success ;
           }
-          tempInteger = endIdx - startIdx + 1 + lookbackSignal;
-          fastEMABuffer = new double[(int)(tempInteger * 1)];
-          slowEMABuffer = new double[(int)(tempInteger * 1)];
-          tempInteger = startIdx - lookbackSignal;
-          if( (useFixedK) != 0 ) {
-             retCode = emaPrivate(tempInteger, endIdx, inReal, optInSlowPeriod, slowK, outBegIdx1, outNbElement1, slowEMABuffer);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             tempReal = 0.0;
+             i = optInSlowPeriod - optInFastPeriod;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevFast = 0.0;
+             i = optInFastPeriod;
+             while( i-- > 0 ) {
+                prevFast += inReal[today];
+                tempReal += inReal[today++];
+             }
+             prevSlow = tempReal / optInSlowPeriod;
+             prevFast = prevFast / optInFastPeriod;
+             while( today <= startIdx - lookbackSignal ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             }
+             macdValue = prevFast - prevSlow;
+             prevSignal = 0.0;
+             prevSignal += macdValue;
+             i = optInSignalPeriod - 1;
+             while( i-- > 0 ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+                macdValue = prevFast - prevSlow;
+                prevSignal += macdValue;
+             }
+             prevSignal = prevSignal / optInSignalPeriod;
           } else {
-             retCode = emaUnguarded(tempInteger, endIdx, inReal, optInSlowPeriod, outBegIdx1, outNbElement1, slowEMABuffer);
+             prevFast = inReal[0];
+             prevSlow = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackSignal ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             }
+             macdValue = prevFast - prevSlow;
+             prevSignal = macdValue;
           }
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
+          while( today <= startIdx ) {
+             tempReal = inReal[today++];
+             prevFast = (tempReal - prevFast) * fastK + prevFast;
+             prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             macdValue = prevFast - prevSlow;
+             prevSignal = (macdValue - prevSignal) * signalK + prevSignal;
           }
-          if( (useFixedK) != 0 ) {
-             retCode = emaPrivate(tempInteger, endIdx, inReal, optInFastPeriod, fastK, outBegIdx2, outNbElement2, fastEMABuffer);
-          } else {
-             retCode = emaUnguarded(tempInteger, endIdx, inReal, optInFastPeriod, outBegIdx2, outNbElement2, fastEMABuffer);
-          }
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          if( outBegIdx1.value != tempInteger || outBegIdx2.value != tempInteger || outNbElement1.value != outNbElement2.value || outNbElement1.value != endIdx - startIdx + 1 + lookbackSignal ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return RetCode.BadParam ;
-          }
-          for( i = 0; i < outNbElement1.value; i += 1 ) {
-             fastEMABuffer[i] = fastEMABuffer[i] - slowEMABuffer[i];
-          }
-          System.arraycopy(fastEMABuffer, lookbackSignal, outMACD, 0, (endIdx - startIdx + 1) * 1);
-          retCode = emaPrivate(0, outNbElement1.value - 1, fastEMABuffer, optInSignalPeriod, signalK, outBegIdx2, outNbElement2, outMACDSignal);
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          for( i = 0; i < outNbElement2.value; i += 1 ) {
-             outMACDHist[i] = outMACD[i] - outMACDSignal[i];
+          outMACD[0] = macdValue;
+          outMACDSignal[0] = prevSignal;
+          outMACDHist[0] = macdValue - prevSignal;
+          outIdx = 1;
+          while( today <= endIdx ) {
+             tempReal = inReal[today++];
+             prevFast = (tempReal - prevFast) * fastK + prevFast;
+             prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             macdValue = prevFast - prevSlow;
+             prevSignal = (macdValue - prevSignal) * signalK + prevSignal;
+             outMACD[outIdx] = macdValue;
+             outMACDSignal[outIdx] = prevSignal;
+             outMACDHist[outIdx] = macdValue - prevSignal;
+             outIdx += 1;
           }
           outBegIdx.value = startIdx;
-          outNBElement.value = outNbElement2.value;
+          outNBElement.value = outIdx;
           return RetCode.Success ;
        }
        public RetCode macdUnguarded( int startIdx,
@@ -40815,38 +41160,34 @@ class Core {
                                      double outMACDSignal[],
                                      double outMACDHist[] )
        {
-          double[] slowEMABuffer;
-          double[] fastEMABuffer;
-          RetCode retCode;
-          int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          double prevFast = 0;
+          double prevSlow = 0;
+          double prevSignal = 0;
+          double macdValue = 0;
+          double tempReal = 0;
           double slowK = 0;
           double fastK = 0;
           double signalK = 0;
+          int i = 0;
+          int today = 0;
+          int outIdx = 0;
+          int tempInteger = 0;
           int lookbackTotal = 0;
           int lookbackSignal = 0;
-          int useFixedK = 0;
-          int i = 0;
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
              optInFastPeriod = tempInteger;
           }
-          useFixedK = 0;
           if( optInSlowPeriod == 0 ) {
              optInSlowPeriod = 26;
              slowK = 0.075;
-             useFixedK = 1;
           } else {
              slowK = 2.0 / (double)(optInSlowPeriod + 1);
           }
           if( optInFastPeriod == 0 ) {
              optInFastPeriod = 12;
              fastK = 0.15;
-             useFixedK = 1;
           } else {
              fastK = 2.0 / (double)(optInFastPeriod + 1);
           }
@@ -40862,50 +41203,74 @@ class Core {
              outNBElement.value = 0;
              return RetCode.Success ;
           }
-          tempInteger = endIdx - startIdx + 1 + lookbackSignal;
-          fastEMABuffer = new double[(int)(tempInteger * 1)];
-          slowEMABuffer = new double[(int)(tempInteger * 1)];
-          tempInteger = startIdx - lookbackSignal;
-          if( (useFixedK) != 0 ) {
-             retCode = emaPrivate(tempInteger, endIdx, inReal, optInSlowPeriod, slowK, outBegIdx1, outNbElement1, slowEMABuffer);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             tempReal = 0.0;
+             i = optInSlowPeriod - optInFastPeriod;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevFast = 0.0;
+             i = optInFastPeriod;
+             while( i-- > 0 ) {
+                prevFast += inReal[today];
+                tempReal += inReal[today++];
+             }
+             prevSlow = tempReal / optInSlowPeriod;
+             prevFast = prevFast / optInFastPeriod;
+             while( today <= startIdx - lookbackSignal ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             }
+             macdValue = prevFast - prevSlow;
+             prevSignal = 0.0;
+             prevSignal += macdValue;
+             i = optInSignalPeriod - 1;
+             while( i-- > 0 ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+                macdValue = prevFast - prevSlow;
+                prevSignal += macdValue;
+             }
+             prevSignal = prevSignal / optInSignalPeriod;
           } else {
-             retCode = emaUnguarded(tempInteger, endIdx, inReal, optInSlowPeriod, outBegIdx1, outNbElement1, slowEMABuffer);
+             prevFast = inReal[0];
+             prevSlow = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackSignal ) {
+                tempReal = inReal[today++];
+                prevFast = (tempReal - prevFast) * fastK + prevFast;
+                prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             }
+             macdValue = prevFast - prevSlow;
+             prevSignal = macdValue;
           }
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
+          while( today <= startIdx ) {
+             tempReal = inReal[today++];
+             prevFast = (tempReal - prevFast) * fastK + prevFast;
+             prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             macdValue = prevFast - prevSlow;
+             prevSignal = (macdValue - prevSignal) * signalK + prevSignal;
           }
-          if( (useFixedK) != 0 ) {
-             retCode = emaPrivate(tempInteger, endIdx, inReal, optInFastPeriod, fastK, outBegIdx2, outNbElement2, fastEMABuffer);
-          } else {
-             retCode = emaUnguarded(tempInteger, endIdx, inReal, optInFastPeriod, outBegIdx2, outNbElement2, fastEMABuffer);
-          }
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          if( outBegIdx1.value != tempInteger || outBegIdx2.value != tempInteger || outNbElement1.value != outNbElement2.value || outNbElement1.value != endIdx - startIdx + 1 + lookbackSignal ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return RetCode.BadParam ;
-          }
-          for( i = 0; i < outNbElement1.value; i += 1 ) {
-             fastEMABuffer[i] = fastEMABuffer[i] - slowEMABuffer[i];
-          }
-          System.arraycopy(fastEMABuffer, lookbackSignal, outMACD, 0, (endIdx - startIdx + 1) * 1);
-          retCode = emaPrivate(0, outNbElement1.value - 1, fastEMABuffer, optInSignalPeriod, signalK, outBegIdx2, outNbElement2, outMACDSignal);
-          if( retCode != RetCode.Success ) {
-             outBegIdx.value = 0;
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          for( i = 0; i < outNbElement2.value; i += 1 ) {
-             outMACDHist[i] = outMACD[i] - outMACDSignal[i];
+          outMACD[0] = macdValue;
+          outMACDSignal[0] = prevSignal;
+          outMACDHist[0] = macdValue - prevSignal;
+          outIdx = 1;
+          while( today <= endIdx ) {
+             tempReal = inReal[today++];
+             prevFast = (tempReal - prevFast) * fastK + prevFast;
+             prevSlow = (tempReal - prevSlow) * slowK + prevSlow;
+             macdValue = prevFast - prevSlow;
+             prevSignal = (macdValue - prevSignal) * signalK + prevSignal;
+             outMACD[outIdx] = macdValue;
+             outMACDSignal[outIdx] = prevSignal;
+             outMACDHist[outIdx] = macdValue - prevSignal;
+             outIdx += 1;
           }
           outBegIdx.value = startIdx;
-          outNBElement.value = outNbElement2.value;
+          outNBElement.value = outIdx;
           return RetCode.Success ;
        }
     /* List of contributors:
@@ -40913,14 +41278,16 @@ class Core {
      *  Initial  Name/description
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
-     *
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  010802 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
+     *  010802 MF     Template creation.
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  070526 MF,CC  Speed optimization: delegate to the single-pass MACD
+     *                when all three MA types are EMA (bit-exact).
      */
 
        public int macdExtLookback( int optInFastPeriod, MAType optInFastMAType, int optInSlowPeriod, MAType optInSlowMAType, int optInSignalPeriod, MAType optInSignalMAType )
@@ -41000,6 +41367,14 @@ class Core {
              optInSignalPeriod = 9;
           } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
              return RetCode.BadParam;
+          }
+          /* An all-EMA MACDEXT computes exactly what MACD computes. Delegate
+           * to its single-pass implementation. Period 1 stays on the generic
+           * path: ma() copies the input for it instead of running an EMA
+           * recursion.
+           */
+          if( optInFastMAType == MAType.Ema && optInSlowMAType == MAType.Ema && optInSignalMAType == MAType.Ema && optInFastPeriod >= 2 && optInSlowPeriod >= 2 && optInSignalPeriod >= 2 ) {
+             return macdUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist) ;
           }
           /* Make sure slow is really slower than
            * the fast period! if not, swap...
@@ -41116,6 +41491,9 @@ class Core {
           int lookbackLargest = 0;
           int i = 0;
           MAType tempMAType;
+          if( optInFastMAType == MAType.Ema && optInSlowMAType == MAType.Ema && optInSignalMAType == MAType.Ema && optInFastPeriod >= 2 && optInSlowPeriod >= 2 && optInSignalPeriod >= 2 ) {
+             return macdUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist) ;
+          }
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
@@ -41226,6 +41604,9 @@ class Core {
           } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
              return RetCode.BadParam;
           }
+          if( optInFastMAType == MAType.Ema && optInSlowMAType == MAType.Ema && optInSignalMAType == MAType.Ema && optInFastPeriod >= 2 && optInSlowPeriod >= 2 && optInSignalPeriod >= 2 ) {
+             return macdUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist) ;
+          }
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
@@ -41315,6 +41696,9 @@ class Core {
           int lookbackLargest = 0;
           int i = 0;
           MAType tempMAType;
+          if( optInFastMAType == MAType.Ema && optInSlowMAType == MAType.Ema && optInSignalMAType == MAType.Ema && optInFastPeriod >= 2 && optInSlowPeriod >= 2 && optInSignalPeriod >= 2 ) {
+             return macdUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist) ;
+          }
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
@@ -48509,12 +48893,17 @@ class Core {
      *  Initial  Name/description
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
      *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
      *  060306 MF     Initial Version
+     *  070526 MF,CC  Fix #98: partial-range calls normalized with a close
+     *                from the wrong bar (TR-buffer-relative index).
+     *  070626 MF,CC  Speed optimization: True Range computed inline in a
+     *                single pass (bit-exact, no temporary buffer).
      */
 
        public int natrLookback( int optInTimePeriod )
@@ -48544,16 +48933,20 @@ class Core {
                             MInteger outNBElement,
                             double outReal[] )
        {
-          RetCode retCode;
+          int i = 0;
           int outIdx = 0;
           int today = 0;
           int lookbackTotal = 0;
           int nbATR = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          double[] prevATR = new double[1];
+          double prevATR = 0;
+          double periodTotal = 0;
           double tempValue = 0;
-          double[] tempBuffer;
+          double val2 = 0;
+          double val3 = 0;
+          double greatest = 0;
+          double tempCY = 0;
+          double tempLT = 0;
+          double tempHT = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -48606,62 +48999,126 @@ class Core {
              /* No smoothing needed. Just do a TRANGE. */
              return trueRangeUnguarded(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal) ;
           }
-          /* Allocate an intermediate buffer for TRANGE. */
-          tempBuffer = new double[(int)((lookbackTotal + (endIdx - startIdx) + 1) * 1)];
-          /* Do TRANGE in the intermediate buffer. */
-          retCode = trueRangeUnguarded(startIdx - lookbackTotal + 1, endIdx, inHigh, inLow, inClose, outBegIdx1, outNbElement1, tempBuffer);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
-          }
-          /* First value of the ATR is a simple Average of
-           * the TRANGE output for the specified period.
+          /* The True Range of each bar is computed inline in a single
+           * pass. No temporary buffer is needed.
+           *
+           * The arithmetic order below is the bit-exactness contract
+           * (do not reorder or fuse operations):
+           *  - True Range: start from high-low, then compare/replace
+           *    with the two previous-close distances, in that order.
+           *  - Seed: the first 'period' True Range values are summed,
+           *    accumulated from 0.0 in input order, then divided by
+           *    the period.
+           *  - Wilder smoothing: multiply by period-1, add the True
+           *    Range, divide by period, as three separate statements.
+           *
+           * Each output is normalized by the close of its own bar; a
+           * close of zero yields 0.0.
+           *
+           * In-place (outReal being one of the input arrays) is
+           * supported: each output is written only after every input
+           * read at or before its bar, and the output index is always
+           * smaller than the bar index of any remaining read.
            */
-          retCode = smaUnguarded(optInTimePeriod - 1, optInTimePeriod - 1, tempBuffer, optInTimePeriod, outBegIdx1, outNbElement1, prevATR);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
+          /* The first True Range needs the two price bars at
+           * startIdx-lookbackTotal+1 (a previous close is consumed).
+           */
+          today = startIdx - lookbackTotal + 1;
+          /* Seed the ATR with a simple average of the True Range
+           * for the first 'period' bars.
+           */
+          periodTotal = 0.0;
+          i = optInTimePeriod;
+          while( i-- > 0 ) {
+             /* Find the greatest of the 3 values. */
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             /* val1 */
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             periodTotal += greatest;
+             today += 1;
           }
+          prevATR = periodTotal / optInTimePeriod;
           /* Subsequent value are smoothed using the
            * previous ATR value (Wilder's approach).
            *  1) Multiply the previous ATR by 'period-1'.
            *  2) Add today TR value.
            *  3) Divide by 'period'.
            */
-          today = optInTimePeriod;
-          outIdx = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
           /* Skip the unstable period. */
-          while( outIdx != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outIdx -= 1;
+          i = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
+          while( i != 0 ) {
+             /* Find the greatest of the 3 values. */
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             /* val1 */
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             today += 1;
+             i -= 1;
           }
-          /* Now start to write the final ATR in the caller
+          /* Now start to write the final NATR in the caller
            * provided outReal.
            */
           outIdx = 1;
-          tempValue = inClose[today];
+          tempValue = inClose[startIdx];
           if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
-             outReal[0] = prevATR[0] / tempValue * 100.0;
+             outReal[0] = prevATR / tempValue * 100.0;
           } else {
              outReal[0] = 0.0;
           }
-          /* Now do the number of requested ATR. */
+          /* Now do the number of requested NATR. */
           nbATR = endIdx - startIdx + 1;
           while( --nbATR != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
+             /* Find the greatest of the 3 values. */
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             /* val1 */
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
              tempValue = inClose[today];
              if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
-                outReal[outIdx] = prevATR[0] / tempValue * 100.0;
+                outReal[outIdx] = prevATR / tempValue * 100.0;
              } else {
-                outReal[0] = 0.0;
+                outReal[outIdx] = 0.0;
              }
              outIdx += 1;
+             today += 1;
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
-          return retCode ;
+          return RetCode.Success ;
        }
        public RetCode natrUnguarded( int startIdx,
                                      int endIdx,
@@ -48673,16 +49130,20 @@ class Core {
                                      MInteger outNBElement,
                                      double outReal[] )
        {
-          RetCode retCode;
+          int i = 0;
           int outIdx = 0;
           int today = 0;
           int lookbackTotal = 0;
           int nbATR = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          double[] prevATR = new double[1];
+          double prevATR = 0;
+          double periodTotal = 0;
           double tempValue = 0;
-          double[] tempBuffer;
+          double val2 = 0;
+          double val3 = 0;
+          double greatest = 0;
+          double tempCY = 0;
+          double tempLT = 0;
+          double tempHT = 0;
           outBegIdx.value = 0;
           outNBElement.value = 0;
           lookbackTotal = natrLookback(optInTimePeriod);
@@ -48695,46 +49156,82 @@ class Core {
           if( optInTimePeriod <= 1 ) {
              return trueRangeUnguarded(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal) ;
           }
-          tempBuffer = new double[(int)((lookbackTotal + (endIdx - startIdx) + 1) * 1)];
-          retCode = trueRangeUnguarded(startIdx - lookbackTotal + 1, endIdx, inHigh, inLow, inClose, outBegIdx1, outNbElement1, tempBuffer);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
+          today = startIdx - lookbackTotal + 1;
+          periodTotal = 0.0;
+          i = optInTimePeriod;
+          while( i-- > 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             periodTotal += greatest;
+             today += 1;
           }
-          retCode = smaUnguarded(optInTimePeriod - 1, optInTimePeriod - 1, tempBuffer, optInTimePeriod, outBegIdx1, outNbElement1, prevATR);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
-          }
-          today = optInTimePeriod;
-          outIdx = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
-          while( outIdx != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outIdx -= 1;
+          prevATR = periodTotal / optInTimePeriod;
+          i = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
+          while( i != 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             today += 1;
+             i -= 1;
           }
           outIdx = 1;
-          tempValue = inClose[today];
+          tempValue = inClose[startIdx];
           if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
-             outReal[0] = prevATR[0] / tempValue * 100.0;
+             outReal[0] = prevATR / tempValue * 100.0;
           } else {
              outReal[0] = 0.0;
           }
           nbATR = endIdx - startIdx + 1;
           while( --nbATR != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
              tempValue = inClose[today];
              if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
-                outReal[outIdx] = prevATR[0] / tempValue * 100.0;
+                outReal[outIdx] = prevATR / tempValue * 100.0;
              } else {
-                outReal[0] = 0.0;
+                outReal[outIdx] = 0.0;
              }
              outIdx += 1;
+             today += 1;
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
-          return retCode ;
+          return RetCode.Success ;
        }
        public RetCode natr( int startIdx,
                             int endIdx,
@@ -48746,16 +49243,20 @@ class Core {
                             MInteger outNBElement,
                             double outReal[] )
        {
-          RetCode retCode;
+          int i = 0;
           int outIdx = 0;
           int today = 0;
           int lookbackTotal = 0;
           int nbATR = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          double[] prevATR = new double[1];
+          double prevATR = 0;
+          double periodTotal = 0;
           double tempValue = 0;
-          double[] tempBuffer;
+          double val2 = 0;
+          double val3 = 0;
+          double greatest = 0;
+          double tempCY = 0;
+          double tempLT = 0;
+          double tempHT = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -48779,46 +49280,82 @@ class Core {
           if( optInTimePeriod <= 1 ) {
              return trueRangeUnguarded(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal) ;
           }
-          tempBuffer = new double[(int)((lookbackTotal + (endIdx - startIdx) + 1) * 1)];
-          retCode = trueRangeUnguarded(startIdx - lookbackTotal + 1, endIdx, inHigh, inLow, inClose, outBegIdx1, outNbElement1, tempBuffer);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
+          today = startIdx - lookbackTotal + 1;
+          periodTotal = 0.0;
+          i = optInTimePeriod;
+          while( i-- > 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             periodTotal += greatest;
+             today += 1;
           }
-          retCode = smaUnguarded(optInTimePeriod - 1, optInTimePeriod - 1, tempBuffer, optInTimePeriod, outBegIdx1, outNbElement1, prevATR);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
-          }
-          today = optInTimePeriod;
-          outIdx = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
-          while( outIdx != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outIdx -= 1;
+          prevATR = periodTotal / optInTimePeriod;
+          i = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
+          while( i != 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             today += 1;
+             i -= 1;
           }
           outIdx = 1;
-          tempValue = inClose[today];
+          tempValue = inClose[startIdx];
           if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
-             outReal[0] = prevATR[0] / tempValue * 100.0;
+             outReal[0] = prevATR / tempValue * 100.0;
           } else {
              outReal[0] = 0.0;
           }
           nbATR = endIdx - startIdx + 1;
           while( --nbATR != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
              tempValue = inClose[today];
              if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
-                outReal[outIdx] = prevATR[0] / tempValue * 100.0;
+                outReal[outIdx] = prevATR / tempValue * 100.0;
              } else {
-                outReal[0] = 0.0;
+                outReal[outIdx] = 0.0;
              }
              outIdx += 1;
+             today += 1;
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
-          return retCode ;
+          return RetCode.Success ;
        }
        public RetCode natrUnguarded( int startIdx,
                                      int endIdx,
@@ -48830,16 +49367,20 @@ class Core {
                                      MInteger outNBElement,
                                      double outReal[] )
        {
-          RetCode retCode;
+          int i = 0;
           int outIdx = 0;
           int today = 0;
           int lookbackTotal = 0;
           int nbATR = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          double[] prevATR = new double[1];
+          double prevATR = 0;
+          double periodTotal = 0;
           double tempValue = 0;
-          double[] tempBuffer;
+          double val2 = 0;
+          double val3 = 0;
+          double greatest = 0;
+          double tempCY = 0;
+          double tempLT = 0;
+          double tempHT = 0;
           outBegIdx.value = 0;
           outNBElement.value = 0;
           lookbackTotal = natrLookback(optInTimePeriod);
@@ -48852,46 +49393,82 @@ class Core {
           if( optInTimePeriod <= 1 ) {
              return trueRangeUnguarded(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal) ;
           }
-          tempBuffer = new double[(int)((lookbackTotal + (endIdx - startIdx) + 1) * 1)];
-          retCode = trueRangeUnguarded(startIdx - lookbackTotal + 1, endIdx, inHigh, inLow, inClose, outBegIdx1, outNbElement1, tempBuffer);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
+          today = startIdx - lookbackTotal + 1;
+          periodTotal = 0.0;
+          i = optInTimePeriod;
+          while( i-- > 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             periodTotal += greatest;
+             today += 1;
           }
-          retCode = smaUnguarded(optInTimePeriod - 1, optInTimePeriod - 1, tempBuffer, optInTimePeriod, outBegIdx1, outNbElement1, prevATR);
-          if( retCode != RetCode.Success ) {
-             return retCode ;
-          }
-          today = optInTimePeriod;
-          outIdx = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
-          while( outIdx != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
-             outIdx -= 1;
+          prevATR = periodTotal / optInTimePeriod;
+          i = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
+          while( i != 0 ) {
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
+             today += 1;
+             i -= 1;
           }
           outIdx = 1;
-          tempValue = inClose[today];
+          tempValue = inClose[startIdx];
           if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
-             outReal[0] = prevATR[0] / tempValue * 100.0;
+             outReal[0] = prevATR / tempValue * 100.0;
           } else {
              outReal[0] = 0.0;
           }
           nbATR = endIdx - startIdx + 1;
           while( --nbATR != 0 ) {
-             prevATR[0] *= optInTimePeriod - 1;
-             prevATR[0] += tempBuffer[today++];
-             prevATR[0] /= optInTimePeriod;
+             tempLT = inLow[today];
+             tempHT = inHigh[today];
+             tempCY = inClose[today - 1];
+             greatest = tempHT - tempLT;
+             val2 = Math.abs(tempCY - tempHT);
+             if( val2 > greatest ) {
+                greatest = val2;
+             }
+             val3 = Math.abs(tempCY - tempLT);
+             if( val3 > greatest ) {
+                greatest = val3;
+             }
+             prevATR *= optInTimePeriod - 1;
+             prevATR += greatest;
+             prevATR /= optInTimePeriod;
              tempValue = inClose[today];
              if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
-                outReal[outIdx] = prevATR[0] / tempValue * 100.0;
+                outReal[outIdx] = prevATR / tempValue * 100.0;
              } else {
-                outReal[0] = 0.0;
+                outReal[outIdx] = 0.0;
              }
              outIdx += 1;
+             today += 1;
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
-          return retCode ;
+          return RetCode.Success ;
        }
     /* List of contributors:
      *
@@ -50630,14 +51207,20 @@ class Core {
              /* Calculate the slow MA into the output. */
              retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
              if( retCode == RetCode.Success ) {
-                tempInteger = outBegIdx1.value - outBegIdx2.value;
-                /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
-                for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                   tempReal = outReal[i];
-                   if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-                      outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
-                   } else {
-                      outReal[i] = 0.0;
+                /* The slow MA begins at or after the fast MA, so the offset is
+                 * valid whenever the slow MA produced output. Guard it so the empty
+                 * case leaves the difference loop untouched.
+                 */
+                if( outNbElement1.value > 0 ) {
+                   tempInteger = outBegIdx1.value - outBegIdx2.value;
+                   /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
+                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
+                      tempReal = outReal[i];
+                      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+                         outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
+                      } else {
+                         outReal[i] = 0.0;
+                      }
                    }
                 }
                 outBegIdx.value = outBegIdx1.value;
@@ -50676,13 +51259,15 @@ class Core {
           if( retCode == RetCode.Success ) {
              retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
              if( retCode == RetCode.Success ) {
-                tempInteger = outBegIdx1.value - outBegIdx2.value;
-                for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                   tempReal = outReal[i];
-                   if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-                      outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
-                   } else {
-                      outReal[i] = 0.0;
+                if( outNbElement1.value > 0 ) {
+                   tempInteger = outBegIdx1.value - outBegIdx2.value;
+                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
+                      tempReal = outReal[i];
+                      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+                         outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
+                      } else {
+                         outReal[i] = 0.0;
+                      }
                    }
                 }
                 outBegIdx.value = outBegIdx1.value;
@@ -50737,13 +51322,15 @@ class Core {
           if( retCode == RetCode.Success ) {
              retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
              if( retCode == RetCode.Success ) {
-                tempInteger = outBegIdx1.value - outBegIdx2.value;
-                for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                   tempReal = outReal[i];
-                   if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-                      outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
-                   } else {
-                      outReal[i] = 0.0;
+                if( outNbElement1.value > 0 ) {
+                   tempInteger = outBegIdx1.value - outBegIdx2.value;
+                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
+                      tempReal = outReal[i];
+                      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+                         outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
+                      } else {
+                         outReal[i] = 0.0;
+                      }
                    }
                 }
                 outBegIdx.value = outBegIdx1.value;
@@ -50782,13 +51369,15 @@ class Core {
           if( retCode == RetCode.Success ) {
              retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
              if( retCode == RetCode.Success ) {
-                tempInteger = outBegIdx1.value - outBegIdx2.value;
-                for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                   tempReal = outReal[i];
-                   if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-                      outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
-                   } else {
-                      outReal[i] = 0.0;
+                if( outNbElement1.value > 0 ) {
+                   tempInteger = outBegIdx1.value - outBegIdx2.value;
+                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
+                      tempReal = outReal[i];
+                      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+                         outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
+                      } else {
+                         outReal[i] = 0.0;
+                      }
                    }
                 }
                 outBegIdx.value = outBegIdx1.value;
@@ -57587,7 +58176,7 @@ class Core {
      *  Initial  Name/description
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
-     *
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
@@ -57600,6 +58189,8 @@ class Core {
      *                natural math (3*e1 - 3*e2 + e3 with e1=e2=e3=x) is
      *                exact on x86 but not under FMA contraction (ARM64
      *                clang leaves ~1e-14 residue), so the copy is explicit.
+     *  070526 MF,CC  Speed optimization: compute the three EMA in a single
+     *                lockstep pass (bit-exact, no temporary buffers).
      */
 
        public int temaLookback( int optInTimePeriod )
@@ -57623,21 +58214,16 @@ class Core {
                             MInteger outNBElement,
                             double outReal[] )
        {
-          double[] firstEMA;
-          double[] secondEMA;
-          MInteger firstEMABegIdx = new MInteger();
-          MInteger firstEMANbElement = new MInteger();
-          MInteger secondEMABegIdx = new MInteger();
-          MInteger secondEMANbElement = new MInteger();
-          MInteger thirdEMABegIdx = new MInteger();
-          MInteger thirdEMANbElement = new MInteger();
-          int tempInt = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double prevEMA3 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
           int outIdx = 0;
-          int lookbackTotal = 0;
           int lookbackEMA = 0;
-          int firstEMAIdx = 0;
-          int secondEMAIdx = 0;
-          RetCode retCode;
+          int lookbackTotal = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -57699,52 +58285,117 @@ class Core {
              outNBElement.value = outIdx;
              return RetCode.Success ;
           }
-          /* Allocate a temporary buffer for the firstEMA. */
-          tempInt = lookbackTotal + (endIdx - startIdx) + 1;
-          firstEMA = new double[(int)(tempInt * 1)];
-          /* Calculate the first EMA */
-          retCode = emaUnguarded(startIdx - lookbackEMA * 2, endIdx, inReal, optInTimePeriod, firstEMABegIdx, firstEMANbElement, firstEMA);
-          /* Verify for failure or if not enough data after
-           * calculating the first EMA.
+          /* The three EMA are computed in a single lockstep pass: each new
+           * EMA1 value is immediately fed into EMA2, and each new EMA2 value
+           * into EMA3. No temporary buffers are needed.
+           *
+           * The arithmetic order below is the bit-exactness contract
+           * (do not reorder or fuse operations):
+           *  - EMA recursion: ((x-prev)*k)+prev.
+           *  - Default compatibility: each EMA is seeded with the sum
+           *    of its first 'period' inputs, accumulated from 0.0 in
+           *    input order (0.0+x is not x for x=-0.0), divided by
+           *    the period.
+           *  - Metastock compatibility: EMA1 is seeded from inReal[0],
+           *    EMA2 from the first EMA1 value, EMA3 from the first EMA2
+           *    value.
+           *  - The combine keeps the (3.0*EMA1)-(3.0*EMA2) grouping,
+           *    added to EMA3 on the left.
+           * Output alignment is identical for all compatibility modes;
+           * only the seed values differ.
+           *
+           * In-place (inReal == outReal) is supported: outReal[outIdx]
+           * is written only after inReal[startIdx+outIdx] was read.
            */
-          if( retCode != RetCode.Success || firstEMANbElement.value == 0 ) {
-             return retCode ;
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             /* Seed EMA1 with a simple average of the first
+              * 'period' price bars.
+              */
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             /* Advance EMA1 alone through its unstable period, up to
+              * the bar where EMA2 seeding begins.
+              */
+             while( today <= startIdx - lookbackEMA * 2 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             /* Seed EMA2 with a simple average of the first 'period'
+              * EMA1 values, accumulated as EMA1 produces them.
+              */
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
+          } else {
+             /* Metastock/Tradestation: seed EMA1 from the first price
+              * bar, EMA2 from the first EMA1 value.
+              */
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackEMA * 2 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             prevEMA2 = prevEMA1;
           }
-          /* Allocate a temporary buffer for storing the EMA2 */
-          secondEMA = new double[(int)(firstEMANbElement.value * 1)];
-          retCode = emaUnguarded(0, firstEMANbElement.value - 1, firstEMA, optInTimePeriod, secondEMABegIdx, secondEMANbElement, secondEMA);
-          /* Return empty output on failure or if not enough data after
-           * calculating the second EMA.
+          /* Advance EMA1 and EMA2 in lockstep through the unstable
+           * period of EMA2, up to the bar where EMA3 seeding begins.
            */
-          if( retCode != RetCode.Success || secondEMANbElement.value == 0 ) {
-             return retCode ;
+          while( today <= startIdx - lookbackEMA ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
           }
-          /* Calculate the EMA3 into the caller provided output. */
-          retCode = emaUnguarded(0, secondEMANbElement.value - 1, secondEMA, optInTimePeriod, thirdEMABegIdx, thirdEMANbElement, outReal);
-          /* Return empty output on failure or if not enough data after
-           * calculating the third EMA.
+          if( this.compatibility == Compatibility.Default ) {
+             /* Seed EMA3 with a simple average of the first 'period'
+              * EMA2 values, accumulated as EMA2 produces them.
+              */
+             tempReal = 0.0;
+             tempReal += prevEMA2;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+                tempReal += prevEMA2;
+             }
+             prevEMA3 = tempReal / optInTimePeriod;
+          } else {
+             /* Metastock/Tradestation: seed EMA3 from the first EMA2
+              * value.
+              */
+             prevEMA3 = prevEMA2;
+          }
+          /* Advance all three EMA in lockstep through the unstable
+           * period of EMA3, up to the first output bar.
            */
-          if( retCode != RetCode.Success || thirdEMANbElement.value == 0 ) {
-             return retCode ;
+          while( today <= startIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
           }
-          /* Indicate where the output starts relative to
+          /* Stable zone: keep advancing the three EMA in lockstep and
+           * write the TEMA into the output.
+           */
+          outReal[0] = prevEMA3 + (3.0 * prevEMA1 - 3.0 * prevEMA2);
+          outIdx = 1;
+          while( today <= endIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+             outReal[outIdx++] = prevEMA3 + (3.0 * prevEMA1 - 3.0 * prevEMA2);
+          }
+          /* Succeed. Indicate where the output starts relative to
            * the caller input.
            */
-          firstEMAIdx = thirdEMABegIdx.value + secondEMABegIdx.value;
-          secondEMAIdx = thirdEMABegIdx.value;
-          outBegIdx.value = firstEMAIdx + firstEMABegIdx.value;
-          /* Do the TEMA:
-           *  Iterate through the EMA3 (output buffer) and adjust
-           *  the value by using the EMA2 and EMA1.
-           */
-          outIdx = 0;
-          while( outIdx < thirdEMANbElement.value ) {
-             outReal[outIdx] = outReal[outIdx] + (3.0 * firstEMA[firstEMAIdx++] - 3.0 * secondEMA[secondEMAIdx++]);
-             outIdx += 1;
-          }
-          /* Indicates to the caller the number of output
-           * successfully calculated.
-           */
+          outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
           return RetCode.Success ;
        }
@@ -57756,21 +58407,16 @@ class Core {
                                      MInteger outNBElement,
                                      double outReal[] )
        {
-          double[] firstEMA;
-          double[] secondEMA;
-          MInteger firstEMABegIdx = new MInteger();
-          MInteger firstEMANbElement = new MInteger();
-          MInteger secondEMABegIdx = new MInteger();
-          MInteger secondEMANbElement = new MInteger();
-          MInteger thirdEMABegIdx = new MInteger();
-          MInteger thirdEMANbElement = new MInteger();
-          int tempInt = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double prevEMA3 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
           int outIdx = 0;
-          int lookbackTotal = 0;
           int lookbackEMA = 0;
-          int firstEMAIdx = 0;
-          int secondEMAIdx = 0;
-          RetCode retCode;
+          int lookbackTotal = 0;
           outNBElement.value = 0;
           outBegIdx.value = 0;
           lookbackEMA = emaLookback(optInTimePeriod);
@@ -57790,29 +58436,65 @@ class Core {
              outNBElement.value = outIdx;
              return RetCode.Success ;
           }
-          tempInt = lookbackTotal + (endIdx - startIdx) + 1;
-          firstEMA = new double[(int)(tempInt * 1)];
-          retCode = emaUnguarded(startIdx - lookbackEMA * 2, endIdx, inReal, optInTimePeriod, firstEMABegIdx, firstEMANbElement, firstEMA);
-          if( retCode != RetCode.Success || firstEMANbElement.value == 0 ) {
-             return retCode ;
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             while( today <= startIdx - lookbackEMA * 2 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackEMA * 2 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             prevEMA2 = prevEMA1;
           }
-          secondEMA = new double[(int)(firstEMANbElement.value * 1)];
-          retCode = emaUnguarded(0, firstEMANbElement.value - 1, firstEMA, optInTimePeriod, secondEMABegIdx, secondEMANbElement, secondEMA);
-          if( retCode != RetCode.Success || secondEMANbElement.value == 0 ) {
-             return retCode ;
+          while( today <= startIdx - lookbackEMA ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
           }
-          retCode = emaUnguarded(0, secondEMANbElement.value - 1, secondEMA, optInTimePeriod, thirdEMABegIdx, thirdEMANbElement, outReal);
-          if( retCode != RetCode.Success || thirdEMANbElement.value == 0 ) {
-             return retCode ;
+          if( this.compatibility == Compatibility.Default ) {
+             tempReal = 0.0;
+             tempReal += prevEMA2;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+                tempReal += prevEMA2;
+             }
+             prevEMA3 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA3 = prevEMA2;
           }
-          firstEMAIdx = thirdEMABegIdx.value + secondEMABegIdx.value;
-          secondEMAIdx = thirdEMABegIdx.value;
-          outBegIdx.value = firstEMAIdx + firstEMABegIdx.value;
-          outIdx = 0;
-          while( outIdx < thirdEMANbElement.value ) {
-             outReal[outIdx] = outReal[outIdx] + (3.0 * firstEMA[firstEMAIdx++] - 3.0 * secondEMA[secondEMAIdx++]);
-             outIdx += 1;
+          while( today <= startIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
           }
+          outReal[0] = prevEMA3 + (3.0 * prevEMA1 - 3.0 * prevEMA2);
+          outIdx = 1;
+          while( today <= endIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+             outReal[outIdx++] = prevEMA3 + (3.0 * prevEMA1 - 3.0 * prevEMA2);
+          }
+          outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
           return RetCode.Success ;
        }
@@ -57824,21 +58506,16 @@ class Core {
                             MInteger outNBElement,
                             double outReal[] )
        {
-          double[] firstEMA;
-          double[] secondEMA;
-          MInteger firstEMABegIdx = new MInteger();
-          MInteger firstEMANbElement = new MInteger();
-          MInteger secondEMABegIdx = new MInteger();
-          MInteger secondEMANbElement = new MInteger();
-          MInteger thirdEMABegIdx = new MInteger();
-          MInteger thirdEMANbElement = new MInteger();
-          int tempInt = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double prevEMA3 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
           int outIdx = 0;
-          int lookbackTotal = 0;
           int lookbackEMA = 0;
-          int firstEMAIdx = 0;
-          int secondEMAIdx = 0;
-          RetCode retCode;
+          int lookbackTotal = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -57869,29 +58546,65 @@ class Core {
              outNBElement.value = outIdx;
              return RetCode.Success ;
           }
-          tempInt = lookbackTotal + (endIdx - startIdx) + 1;
-          firstEMA = new double[(int)(tempInt * 1)];
-          retCode = emaUnguarded(startIdx - lookbackEMA * 2, endIdx, inReal, optInTimePeriod, firstEMABegIdx, firstEMANbElement, firstEMA);
-          if( retCode != RetCode.Success || firstEMANbElement.value == 0 ) {
-             return retCode ;
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             while( today <= startIdx - lookbackEMA * 2 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackEMA * 2 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             prevEMA2 = prevEMA1;
           }
-          secondEMA = new double[(int)(firstEMANbElement.value * 1)];
-          retCode = emaUnguarded(0, firstEMANbElement.value - 1, firstEMA, optInTimePeriod, secondEMABegIdx, secondEMANbElement, secondEMA);
-          if( retCode != RetCode.Success || secondEMANbElement.value == 0 ) {
-             return retCode ;
+          while( today <= startIdx - lookbackEMA ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
           }
-          retCode = emaUnguarded(0, secondEMANbElement.value - 1, secondEMA, optInTimePeriod, thirdEMABegIdx, thirdEMANbElement, outReal);
-          if( retCode != RetCode.Success || thirdEMANbElement.value == 0 ) {
-             return retCode ;
+          if( this.compatibility == Compatibility.Default ) {
+             tempReal = 0.0;
+             tempReal += prevEMA2;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+                tempReal += prevEMA2;
+             }
+             prevEMA3 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA3 = prevEMA2;
           }
-          firstEMAIdx = thirdEMABegIdx.value + secondEMABegIdx.value;
-          secondEMAIdx = thirdEMABegIdx.value;
-          outBegIdx.value = firstEMAIdx + firstEMABegIdx.value;
-          outIdx = 0;
-          while( outIdx < thirdEMANbElement.value ) {
-             outReal[outIdx] = outReal[outIdx] + (3.0 * firstEMA[firstEMAIdx++] - 3.0 * secondEMA[secondEMAIdx++]);
-             outIdx += 1;
+          while( today <= startIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
           }
+          outReal[0] = prevEMA3 + (3.0 * prevEMA1 - 3.0 * prevEMA2);
+          outIdx = 1;
+          while( today <= endIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+             outReal[outIdx++] = prevEMA3 + (3.0 * prevEMA1 - 3.0 * prevEMA2);
+          }
+          outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
           return RetCode.Success ;
        }
@@ -57903,21 +58616,16 @@ class Core {
                                      MInteger outNBElement,
                                      double outReal[] )
        {
-          double[] firstEMA;
-          double[] secondEMA;
-          MInteger firstEMABegIdx = new MInteger();
-          MInteger firstEMANbElement = new MInteger();
-          MInteger secondEMABegIdx = new MInteger();
-          MInteger secondEMANbElement = new MInteger();
-          MInteger thirdEMABegIdx = new MInteger();
-          MInteger thirdEMANbElement = new MInteger();
-          int tempInt = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double prevEMA3 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
           int outIdx = 0;
-          int lookbackTotal = 0;
           int lookbackEMA = 0;
-          int firstEMAIdx = 0;
-          int secondEMAIdx = 0;
-          RetCode retCode;
+          int lookbackTotal = 0;
           outNBElement.value = 0;
           outBegIdx.value = 0;
           lookbackEMA = emaLookback(optInTimePeriod);
@@ -57937,29 +58645,65 @@ class Core {
              outNBElement.value = outIdx;
              return RetCode.Success ;
           }
-          tempInt = lookbackTotal + (endIdx - startIdx) + 1;
-          firstEMA = new double[(int)(tempInt * 1)];
-          retCode = emaUnguarded(startIdx - lookbackEMA * 2, endIdx, inReal, optInTimePeriod, firstEMABegIdx, firstEMANbElement, firstEMA);
-          if( retCode != RetCode.Success || firstEMANbElement.value == 0 ) {
-             return retCode ;
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             while( today <= startIdx - lookbackEMA * 2 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - lookbackEMA * 2 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             prevEMA2 = prevEMA1;
           }
-          secondEMA = new double[(int)(firstEMANbElement.value * 1)];
-          retCode = emaUnguarded(0, firstEMANbElement.value - 1, firstEMA, optInTimePeriod, secondEMABegIdx, secondEMANbElement, secondEMA);
-          if( retCode != RetCode.Success || secondEMANbElement.value == 0 ) {
-             return retCode ;
+          while( today <= startIdx - lookbackEMA ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
           }
-          retCode = emaUnguarded(0, secondEMANbElement.value - 1, secondEMA, optInTimePeriod, thirdEMABegIdx, thirdEMANbElement, outReal);
-          if( retCode != RetCode.Success || thirdEMANbElement.value == 0 ) {
-             return retCode ;
+          if( this.compatibility == Compatibility.Default ) {
+             tempReal = 0.0;
+             tempReal += prevEMA2;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+                tempReal += prevEMA2;
+             }
+             prevEMA3 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA3 = prevEMA2;
           }
-          firstEMAIdx = thirdEMABegIdx.value + secondEMABegIdx.value;
-          secondEMAIdx = thirdEMABegIdx.value;
-          outBegIdx.value = firstEMAIdx + firstEMABegIdx.value;
-          outIdx = 0;
-          while( outIdx < thirdEMANbElement.value ) {
-             outReal[outIdx] = outReal[outIdx] + (3.0 * firstEMA[firstEMAIdx++] - 3.0 * secondEMA[secondEMAIdx++]);
-             outIdx += 1;
+          while( today <= startIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
           }
+          outReal[0] = prevEMA3 + (3.0 * prevEMA1 - 3.0 * prevEMA2);
+          outIdx = 1;
+          while( today <= endIdx ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+             outReal[outIdx++] = prevEMA3 + (3.0 * prevEMA1 - 3.0 * prevEMA2);
+          }
+          outBegIdx.value = startIdx;
           outNBElement.value = outIdx;
           return RetCode.Success ;
        }
@@ -58853,14 +59597,18 @@ class Core {
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
      *  AA       Andrew Atkinson
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  112400 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
-     *  020605 AA   Fix #1117656. NULL pointer assignement.
+     *  112400 MF     Template creation.
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  020605 AA     Fix #1117656. NULL pointer assignement.
+     *  070526 MF,CC  Speed optimization: single lockstep pass (bit-exact
+     *                for startIdx <= lookback). Fix #98: partial-range
+     *                output was mislabeled by up to one EMA lookback.
      */
 
        public int trixLookback( int optInTimePeriod )
@@ -58883,14 +59631,16 @@ class Core {
                             MInteger outNBElement,
                             double outReal[] )
        {
-          double[] tempBuffer;
-          MInteger nbElement = new MInteger();
-          MInteger begIdx = new MInteger();
-          int totalLookback = 0;
-          int emaLookback = 0;
-          int rocLookback = 0;
-          RetCode retCode;
-          int nbElementToOutput = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double prevEMA3 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
+          int outIdx = 0;
+          int lookbackEMA = 0;
+          int lookbackTotal = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -58902,70 +59652,122 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          /* Adjust the startIdx to account for the lookback. */
-          emaLookback = emaLookback(optInTimePeriod);
-          rocLookback = rocRLookback(1);
-          totalLookback = emaLookback * 3 + rocLookback;
-          if( startIdx < totalLookback ) {
-             startIdx = totalLookback;
+          /* TRIX = 1-day percent rate-of-change of a triple EMA. */
+          /* Will change only on success. */
+          outNBElement.value = 0;
+          outBegIdx.value = 0;
+          /* Adjust startIdx to account for the lookback period. */
+          lookbackEMA = emaLookback(optInTimePeriod);
+          lookbackTotal = lookbackEMA * 3 + rocRLookback(1);
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
           }
           /* Make sure there is still something to evaluate. */
           if( startIdx > endIdx ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
              return RetCode.Success ;
           }
+          /* Single lockstep pass: EMA1 feeds EMA2 feeds EMA3, output is the
+           * roc() of consecutive EMA3 values. Output element j is the TRIX
+           * of bar startIdx+j (fix #98). The arithmetic order below is the
+           * bit-exactness contract — do not reorder or fuse operations; the
+           * seed sums accumulate from 0.0 in production order (0.0+x is not
+           * x for x=-0.0). In-place safe: outReal[outIdx] is written after
+           * inReal[startIdx+outIdx] was read.
+           */
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             /* Seed EMA1 with a simple average of the first
+              * 'period' price bars.
+              */
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             /* Advance EMA1 alone through its unstable period, up to
+              * the bar where EMA2 seeding begins.
+              */
+             while( today <= startIdx - (lookbackEMA * 2 + 1) ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             /* Seed EMA2 with a simple average of the first 'period'
+              * EMA1 values, accumulated as EMA1 produces them.
+              */
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
+          } else {
+             /* Metastock/Tradestation: seed EMA1 from the first price
+              * bar, EMA2 from the first EMA1 value.
+              */
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - (lookbackEMA * 2 + 1) ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             prevEMA2 = prevEMA1;
+          }
+          /* Advance EMA1 and EMA2 in lockstep through the unstable
+           * period of EMA2, up to the bar where EMA3 seeding begins.
+           */
+          while( today <= startIdx - (lookbackEMA + 1) ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+          }
+          if( this.compatibility == Compatibility.Default ) {
+             /* Seed EMA3 with a simple average of the first 'period'
+              * EMA2 values, accumulated as EMA2 produces them.
+              */
+             tempReal = 0.0;
+             tempReal += prevEMA2;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+                tempReal += prevEMA2;
+             }
+             prevEMA3 = tempReal / optInTimePeriod;
+          } else {
+             /* Metastock/Tradestation: seed EMA3 from the first EMA2
+              * value.
+              */
+             prevEMA3 = prevEMA2;
+          }
+          /* Advance all three EMA in lockstep through the unstable
+           * period of EMA3, up to the bar before the first output.
+           */
+          while( today <= startIdx - 1 ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+          }
+          /* Stable zone: keep advancing the three EMA in lockstep and
+           * write the 1-day rate-of-change of EMA3 into the output.
+           */
+          outIdx = 0;
+          while( today <= endIdx ) {
+             tempReal = prevEMA3;
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+             if( tempReal != 0.0 ) {
+                outReal[outIdx++] = (prevEMA3 / tempReal - 1.0) * 100.0;
+             } else {
+                outReal[outIdx++] = 0.0;
+             }
+          }
+          /* Succeed. Indicate where the output starts relative to
+           * the caller input.
+           */
           outBegIdx.value = startIdx;
-          nbElementToOutput = endIdx - startIdx + 1 + totalLookback;
-          /* Allocate a temporary buffer for performing
-           * the calculation.
-           */
-          tempBuffer = new double[(int)(nbElementToOutput * 1)];
-          /* Calculate the first EMA */
-          retCode = emaUnguarded(startIdx - totalLookback, endIdx, inReal, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          /* Verify for failure or if not enough data after
-           * calculating the EMA.
-           */
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= 1;
-          /* Make this variable zero base from now on. */
-          /* Calculate the second EMA */
-          nbElementToOutput -= emaLookback;
-          retCode = emaUnguarded(0, nbElementToOutput, tempBuffer, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          /* Verify for failure or if not enough data after
-           * calculating the EMA.
-           */
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          /* Calculate the third EMA */
-          nbElementToOutput -= emaLookback;
-          retCode = emaUnguarded(0, nbElementToOutput, tempBuffer, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          /* Verify for failure or if not enough data after
-           * calculating the EMA.
-           */
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          /* Calculate the 1-day Rate-Of-Change */
-          nbElementToOutput -= emaLookback;
-          retCode = rocUnguarded(0, nbElementToOutput, tempBuffer, 1, begIdx, outNBElement, outReal);
-          /* Verify for failure or if not enough data after
-           * calculating the rate-of-change.
-           */
-          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
+          outNBElement.value = outIdx;
           return RetCode.Success ;
        }
        public RetCode trixUnguarded( int startIdx,
@@ -58976,56 +59778,90 @@ class Core {
                                      MInteger outNBElement,
                                      double outReal[] )
        {
-          double[] tempBuffer;
-          MInteger nbElement = new MInteger();
-          MInteger begIdx = new MInteger();
-          int totalLookback = 0;
-          int emaLookback = 0;
-          int rocLookback = 0;
-          RetCode retCode;
-          int nbElementToOutput = 0;
-          emaLookback = emaLookback(optInTimePeriod);
-          rocLookback = rocRLookback(1);
-          totalLookback = emaLookback * 3 + rocLookback;
-          if( startIdx < totalLookback ) {
-             startIdx = totalLookback;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double prevEMA3 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
+          int outIdx = 0;
+          int lookbackEMA = 0;
+          int lookbackTotal = 0;
+          outNBElement.value = 0;
+          outBegIdx.value = 0;
+          lookbackEMA = emaLookback(optInTimePeriod);
+          lookbackTotal = lookbackEMA * 3 + rocRLookback(1);
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
           }
           if( startIdx > endIdx ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
              return RetCode.Success ;
           }
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             while( today <= startIdx - (lookbackEMA * 2 + 1) ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - (lookbackEMA * 2 + 1) ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             prevEMA2 = prevEMA1;
+          }
+          while( today <= startIdx - (lookbackEMA + 1) ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+          }
+          if( this.compatibility == Compatibility.Default ) {
+             tempReal = 0.0;
+             tempReal += prevEMA2;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+                tempReal += prevEMA2;
+             }
+             prevEMA3 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA3 = prevEMA2;
+          }
+          while( today <= startIdx - 1 ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+          }
+          outIdx = 0;
+          while( today <= endIdx ) {
+             tempReal = prevEMA3;
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+             if( tempReal != 0.0 ) {
+                outReal[outIdx++] = (prevEMA3 / tempReal - 1.0) * 100.0;
+             } else {
+                outReal[outIdx++] = 0.0;
+             }
+          }
           outBegIdx.value = startIdx;
-          nbElementToOutput = endIdx - startIdx + 1 + totalLookback;
-          tempBuffer = new double[(int)(nbElementToOutput * 1)];
-          retCode = emaUnguarded(startIdx - totalLookback, endIdx, inReal, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= 1;
-          nbElementToOutput -= emaLookback;
-          retCode = emaUnguarded(0, nbElementToOutput, tempBuffer, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= emaLookback;
-          retCode = emaUnguarded(0, nbElementToOutput, tempBuffer, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= emaLookback;
-          retCode = rocUnguarded(0, nbElementToOutput, tempBuffer, 1, begIdx, outNBElement, outReal);
-          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
+          outNBElement.value = outIdx;
           return RetCode.Success ;
        }
        public RetCode trix( int startIdx,
@@ -59036,14 +59872,16 @@ class Core {
                             MInteger outNBElement,
                             double outReal[] )
        {
-          double[] tempBuffer;
-          MInteger nbElement = new MInteger();
-          MInteger begIdx = new MInteger();
-          int totalLookback = 0;
-          int emaLookback = 0;
-          int rocLookback = 0;
-          RetCode retCode;
-          int nbElementToOutput = 0;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double prevEMA3 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
+          int outIdx = 0;
+          int lookbackEMA = 0;
+          int lookbackTotal = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -59055,48 +59893,80 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          emaLookback = emaLookback(optInTimePeriod);
-          rocLookback = rocRLookback(1);
-          totalLookback = emaLookback * 3 + rocLookback;
-          if( startIdx < totalLookback ) {
-             startIdx = totalLookback;
+          outNBElement.value = 0;
+          outBegIdx.value = 0;
+          lookbackEMA = emaLookback(optInTimePeriod);
+          lookbackTotal = lookbackEMA * 3 + rocRLookback(1);
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
           }
           if( startIdx > endIdx ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
              return RetCode.Success ;
           }
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             while( today <= startIdx - (lookbackEMA * 2 + 1) ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - (lookbackEMA * 2 + 1) ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             prevEMA2 = prevEMA1;
+          }
+          while( today <= startIdx - (lookbackEMA + 1) ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+          }
+          if( this.compatibility == Compatibility.Default ) {
+             tempReal = 0.0;
+             tempReal += prevEMA2;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+                tempReal += prevEMA2;
+             }
+             prevEMA3 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA3 = prevEMA2;
+          }
+          while( today <= startIdx - 1 ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+          }
+          outIdx = 0;
+          while( today <= endIdx ) {
+             tempReal = prevEMA3;
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+             if( tempReal != 0.0 ) {
+                outReal[outIdx++] = (prevEMA3 / tempReal - 1.0) * 100.0;
+             } else {
+                outReal[outIdx++] = 0.0;
+             }
+          }
           outBegIdx.value = startIdx;
-          nbElementToOutput = endIdx - startIdx + 1 + totalLookback;
-          tempBuffer = new double[(int)(nbElementToOutput * 1)];
-          retCode = emaUnguarded(startIdx - totalLookback, endIdx, inReal, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= 1;
-          nbElementToOutput -= emaLookback;
-          retCode = emaUnguarded(0, nbElementToOutput, tempBuffer, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= emaLookback;
-          retCode = emaUnguarded(0, nbElementToOutput, tempBuffer, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= emaLookback;
-          retCode = rocUnguarded(0, nbElementToOutput, tempBuffer, 1, begIdx, outNBElement, outReal);
-          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
+          outNBElement.value = outIdx;
           return RetCode.Success ;
        }
        public RetCode trixUnguarded( int startIdx,
@@ -59107,56 +59977,90 @@ class Core {
                                      MInteger outNBElement,
                                      double outReal[] )
        {
-          double[] tempBuffer;
-          MInteger nbElement = new MInteger();
-          MInteger begIdx = new MInteger();
-          int totalLookback = 0;
-          int emaLookback = 0;
-          int rocLookback = 0;
-          RetCode retCode;
-          int nbElementToOutput = 0;
-          emaLookback = emaLookback(optInTimePeriod);
-          rocLookback = rocRLookback(1);
-          totalLookback = emaLookback * 3 + rocLookback;
-          if( startIdx < totalLookback ) {
-             startIdx = totalLookback;
+          double prevEMA1 = 0;
+          double prevEMA2 = 0;
+          double prevEMA3 = 0;
+          double tempReal = 0;
+          double optInK_1 = 0;
+          int i = 0;
+          int today = 0;
+          int outIdx = 0;
+          int lookbackEMA = 0;
+          int lookbackTotal = 0;
+          outNBElement.value = 0;
+          outBegIdx.value = 0;
+          lookbackEMA = emaLookback(optInTimePeriod);
+          lookbackTotal = lookbackEMA * 3 + rocRLookback(1);
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
           }
           if( startIdx > endIdx ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
              return RetCode.Success ;
           }
+          optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+          if( this.compatibility == Compatibility.Default ) {
+             today = startIdx - lookbackTotal;
+             i = optInTimePeriod;
+             tempReal = 0.0;
+             while( i-- > 0 ) {
+                tempReal += inReal[today++];
+             }
+             prevEMA1 = tempReal / optInTimePeriod;
+             while( today <= startIdx - (lookbackEMA * 2 + 1) ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             tempReal = 0.0;
+             tempReal += prevEMA1;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                tempReal += prevEMA1;
+             }
+             prevEMA2 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA1 = inReal[0];
+             today = 1;
+             while( today <= startIdx - (lookbackEMA * 2 + 1) ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             }
+             prevEMA2 = prevEMA1;
+          }
+          while( today <= startIdx - (lookbackEMA + 1) ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+          }
+          if( this.compatibility == Compatibility.Default ) {
+             tempReal = 0.0;
+             tempReal += prevEMA2;
+             i = optInTimePeriod - 1;
+             while( i-- > 0 ) {
+                prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+                prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+                tempReal += prevEMA2;
+             }
+             prevEMA3 = tempReal / optInTimePeriod;
+          } else {
+             prevEMA3 = prevEMA2;
+          }
+          while( today <= startIdx - 1 ) {
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+          }
+          outIdx = 0;
+          while( today <= endIdx ) {
+             tempReal = prevEMA3;
+             prevEMA1 = (inReal[today++] - prevEMA1) * optInK_1 + prevEMA1;
+             prevEMA2 = (prevEMA1 - prevEMA2) * optInK_1 + prevEMA2;
+             prevEMA3 = (prevEMA2 - prevEMA3) * optInK_1 + prevEMA3;
+             if( tempReal != 0.0 ) {
+                outReal[outIdx++] = (prevEMA3 / tempReal - 1.0) * 100.0;
+             } else {
+                outReal[outIdx++] = 0.0;
+             }
+          }
           outBegIdx.value = startIdx;
-          nbElementToOutput = endIdx - startIdx + 1 + totalLookback;
-          tempBuffer = new double[(int)(nbElementToOutput * 1)];
-          retCode = emaUnguarded(startIdx - totalLookback, endIdx, inReal, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= 1;
-          nbElementToOutput -= emaLookback;
-          retCode = emaUnguarded(0, nbElementToOutput, tempBuffer, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= emaLookback;
-          retCode = emaUnguarded(0, nbElementToOutput, tempBuffer, optInTimePeriod, begIdx, nbElement, tempBuffer);
-          if( retCode != RetCode.Success || nbElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
-          nbElementToOutput -= emaLookback;
-          retCode = rocUnguarded(0, nbElementToOutput, tempBuffer, 1, begIdx, outNBElement, outReal);
-          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-             outNBElement.value = 0;
-             outBegIdx.value = 0;
-             return retCode ;
-          }
+          outNBElement.value = outIdx;
           return RetCode.Success ;
        }
     /* List of contributors:
@@ -62283,6 +63187,10 @@ public class TaCodegenServe {
         else if (json.contains("\"set_unstable_period\"")) {
             int id = jsonInt(json, "id");
             int period = jsonInt(json, "period");
+            if (id == core.unstablePeriod.length) {
+                for (int i = 0; i < core.unstablePeriod.length; i++) core.unstablePeriod[i] = period;
+                return "{\"status\":\"ok\"}"; 
+            }
             if (id >= 0 && id < core.unstablePeriod.length) {
                 core.unstablePeriod[id] = period;
                 return "{\"status\":\"ok\"}"; 

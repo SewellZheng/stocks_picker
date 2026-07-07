@@ -80,6 +80,16 @@ ta_regtest
 
 A single generic callback driven by `TA_ForEachFunc` enumeration covers all 161 indicators automatically. The callback uses ta_abstract metadata (`TA_GetFuncInfo`, `TA_GetInputParameterInfo`, `TA_GetOptInputParameterInfo`, `TA_GetOutputParameterInfo`) to build JSON-RPC requests without any per-function hand-coding. `TA_CallFunc` executes the C reference, then the callback copies the requested `outputNb` into the range-test output buffer.
 
+The generic `doRangeTest` sweep **compares values by default** for all 161
+functions (lesson from issue #98: the TRIX partial-range mislabeling survived
+two decades because this sweep used `TA_DO_NOT_COMPARE` everywhere, checking
+only coherency). EMA-derived functions (DEMA, TEMA, TRIX, MACD, MACDEXT,
+MACDFIX) map to `TA_FUNC_UNST_EMA` in `UNSTABLE_MAP` so the unstable-period
+mechanism absorbs their legitimate trajectory dependence. Documented
+exceptions that keep `TA_DO_NOT_COMPARE` (legitimate, non-converging range
+dependence): running accumulations seeded at `startIdx` (AD, OBV, ADOSC) and
+path-dependent state machines (SAR, SAREXT) — see `get_integer_tolerance()`.
+
 After all functions run, ta_regtest prints:
 - A **cross-language timing comparison table** (wall-clock ns per call, speedup vs C)
 - A **CLI summary** with pass/fail counts and average timing per language
@@ -187,5 +197,14 @@ Scope rules (deliberate):
   comparison must instead require an exact function-set match.
 - **Benign class:** a diff where every differing element is numerically equal
   (`+0.0` vs `-0.0`, from cached-index rewrites) is reported, not failed.
+- **#98 exceptions:** TRIX/NATR `startIdx > lookback` cases are skipped
+  (mislabeled / wrong-close output through 0.6.4, fixed in 0.7.2), plus NATR
+  cases with a zero close in the output range (old code clobbered
+  `outReal[0]`). The ref differential sweep skips IMI's unstable-period
+  variant (its unstable no longer grows the window). Comparing these against
+  frozen oracles would diff the bug fixes themselves. The fixed
+  behavior is validated instead by the (now value-comparing) range tests.
+  Reported in the summary as a `skipped:` line; everything else remains
+  waiver-free at period ≥ 2.
 - The oracle is reopened-and-retried once if it dies (latent 0.6.4 crash) so one
   bad case can't sink the run.

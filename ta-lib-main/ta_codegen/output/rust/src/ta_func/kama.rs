@@ -135,9 +135,8 @@ impl Core {
     /// # Panics
     ///
     /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range: undersized slices panic or, for functions that forward to unchecked
-    /// internals, cause undefined behavior. Sizing every output slice to the input length is always
-    /// sufficient.
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
     ///
     /// # Examples
     ///
@@ -159,6 +158,11 @@ impl Core {
     /// # See also
     ///
     /// [`Core::mama`] · [`Core::ema`] · [`Core::ma`]
+    ///
+    /// # References
+    ///
+    /// * Perry J. Kaufman, *Smarter Trading: Improving Performance in Changing Markets*,
+    ///   McGraw-Hill (1995)
     ///
     /// Further reading: [ta-lib.org/functions/kama](https://ta-lib.org/functions/kama/)
     #[doc(alias = "KaufmanAdaptiveMovingAverage")]
@@ -265,11 +269,11 @@ impl Core {
             tempReal = (periodROC / sumROC1).abs();
         }
         // Calculate the smoothing constant
-        tempReal = (tempReal as f64).mul_add(constDiff, constMax);
+        tempReal = tempReal * constDiff + constMax;
         tempReal *= tempReal;
         // Calculate the KAMA like an EMA, using the
         // smoothing constant as the adaptive factor.
-        prevKAMA = (inReal[{ let _v = today; today += 1; _v }] - prevKAMA as f64).mul_add(tempReal, prevKAMA);
+        prevKAMA = (inReal[{ let _v = today; today += 1; _v }] - prevKAMA) * tempReal + prevKAMA;
         // 'today' keep track of where the processing is within the
         // input.
         // Skip the unstable period. Do the whole processing
@@ -293,11 +297,11 @@ impl Core {
                 tempReal = (periodROC / sumROC1).abs();
             }
             // Calculate the smoothing constant
-            tempReal = (tempReal as f64).mul_add(constDiff, constMax);
+            tempReal = tempReal * constDiff + constMax;
             tempReal *= tempReal;
             // Calculate the KAMA like an EMA, using the
             // smoothing constant as the adaptive factor.
-            prevKAMA = (inReal[{ let _v = today; today += 1; _v }] - prevKAMA as f64).mul_add(tempReal, prevKAMA);
+            prevKAMA = (inReal[{ let _v = today; today += 1; _v }] - prevKAMA) * tempReal + prevKAMA;
         }
         // Write the first value.
         outReal[0] = prevKAMA;
@@ -323,23 +327,23 @@ impl Core {
                 tempReal = (periodROC / sumROC1).abs();
             }
             // Calculate the smoothing constant
-            tempReal = (tempReal as f64).mul_add(constDiff, constMax);
+            tempReal = tempReal * constDiff + constMax;
             tempReal *= tempReal;
             // Calculate the KAMA like an EMA, using the
             // smoothing constant as the adaptive factor.
-            prevKAMA = (inReal[{ let _v = today; today += 1; _v }] - prevKAMA as f64).mul_add(tempReal, prevKAMA);
+            prevKAMA = (inReal[{ let _v = today; today += 1; _v }] - prevKAMA) * tempReal + prevKAMA;
             outReal[outIdx] = prevKAMA;
             outIdx += 1;
         }
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
-    /// Unchecked variant of [`Core::kama`], used for internal cross-indicator calls.
+    /// Unguarded variant of [`Core::kama`], used for internal cross-indicator calls.
     ///
-    /// Skips parameter validation and uses unchecked indexing internally. Every argument must
-    /// satisfy the constraints documented on [`Core::kama`]; an out-of-range parameter, an input
-    /// slice not covering `startIdx..=endIdx`, or an undersized output slice may panic or cause
-    /// undefined behavior. Prefer [`Core::kama`].
+    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
+    /// documented on [`Core::kama`]; an out-of-range parameter, an input slice not covering
+    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
+    /// [`Core::kama`].
     #[inline]
     pub fn kama_unguarded(
         &self,
@@ -364,7 +368,6 @@ impl Core {
         let mut lookbackTotal: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
         let mut trailingValue: f64 = 0.0_f64;
-        unsafe {
         assert!(endIdx < inReal.len());
         let _assertLb = self.kama_lookback(optInTimePeriod);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
@@ -385,7 +388,7 @@ impl Core {
             outIdx = 0;
             today = startIdx;
             while today <= endIdx {
-                *outReal.as_mut_ptr().add(outIdx) = ((*inReal.as_ptr().add({ let _v = today; today += 1; _v })) as f64);
+                outReal[outIdx] = ((inReal[{ let _v = today; today += 1; _v }]) as f64);
                 outIdx += 1;
             }
             (*outNBElement) = outIdx;
@@ -405,13 +408,13 @@ impl Core {
         trailingIdx = today;
         i = (optInTimePeriod) as usize;
         while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            tempReal = *inReal.as_ptr().add({ let _v = today; today += 1; _v });
-            tempReal -= *inReal.as_ptr().add(today);
+            tempReal = inReal[{ let _v = today; today += 1; _v }];
+            tempReal -= inReal[today];
             sumROC1 += (tempReal).abs();
         }
-        prevKAMA = *inReal.as_ptr().add(today - 1);
-        tempReal = *inReal.as_ptr().add(today);
-        tempReal2 = *inReal.as_ptr().add({ let _v = trailingIdx; trailingIdx += 1; _v });
+        prevKAMA = inReal[today - 1];
+        tempReal = inReal[today];
+        tempReal2 = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
         periodROC = tempReal - tempReal2;
         trailingValue = tempReal2;
         if sumROC1 <= periodROC || (sumROC1).abs() < 1e-14 {
@@ -419,49 +422,48 @@ impl Core {
         } else {
             tempReal = (periodROC / sumROC1).abs();
         }
-        tempReal = (tempReal as f64).mul_add(constDiff, constMax);
+        tempReal = tempReal * constDiff + constMax;
         tempReal *= tempReal;
-        prevKAMA = (*inReal.as_ptr().add({ let _v = today; today += 1; _v }) - prevKAMA as f64).mul_add(tempReal, prevKAMA);
+        prevKAMA = (inReal[{ let _v = today; today += 1; _v }] - prevKAMA) * tempReal + prevKAMA;
         while today <= startIdx {
-            tempReal = *inReal.as_ptr().add(today);
-            tempReal2 = *inReal.as_ptr().add({ let _v = trailingIdx; trailingIdx += 1; _v });
+            tempReal = inReal[today];
+            tempReal2 = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             periodROC = tempReal - tempReal2;
             sumROC1 -= (trailingValue - tempReal2).abs();
-            sumROC1 += (tempReal - *inReal.as_ptr().add(today - 1)).abs();
+            sumROC1 += (tempReal - inReal[today - 1]).abs();
             trailingValue = tempReal2;
             if sumROC1 <= periodROC || (sumROC1).abs() < 1e-14 {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
             }
-            tempReal = (tempReal as f64).mul_add(constDiff, constMax);
+            tempReal = tempReal * constDiff + constMax;
             tempReal *= tempReal;
-            prevKAMA = (*inReal.as_ptr().add({ let _v = today; today += 1; _v }) - prevKAMA as f64).mul_add(tempReal, prevKAMA);
+            prevKAMA = (inReal[{ let _v = today; today += 1; _v }] - prevKAMA) * tempReal + prevKAMA;
         }
-        *outReal.as_mut_ptr().add(0) = prevKAMA;
+        outReal[0] = prevKAMA;
         outIdx = 1;
         (*outBegIdx) = today - 1;
         while today <= endIdx {
-            tempReal = *inReal.as_ptr().add(today);
-            tempReal2 = *inReal.as_ptr().add({ let _v = trailingIdx; trailingIdx += 1; _v });
+            tempReal = inReal[today];
+            tempReal2 = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             periodROC = tempReal - tempReal2;
             sumROC1 -= (trailingValue - tempReal2).abs();
-            sumROC1 += (tempReal - *inReal.as_ptr().add(today - 1)).abs();
+            sumROC1 += (tempReal - inReal[today - 1]).abs();
             trailingValue = tempReal2;
             if sumROC1 <= periodROC || (sumROC1).abs() < 1e-14 {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
             }
-            tempReal = (tempReal as f64).mul_add(constDiff, constMax);
+            tempReal = tempReal * constDiff + constMax;
             tempReal *= tempReal;
-            prevKAMA = (*inReal.as_ptr().add({ let _v = today; today += 1; _v }) - prevKAMA as f64).mul_add(tempReal, prevKAMA);
-            *outReal.as_mut_ptr().add(outIdx) = prevKAMA;
+            prevKAMA = (inReal[{ let _v = today; today += 1; _v }] - prevKAMA) * tempReal + prevKAMA;
+            outReal[outIdx] = prevKAMA;
             outIdx += 1;
         }
         (*outNBElement) = outIdx;
         return RetCode::Success;
-        } // unsafe
     }
 }
 /***************/

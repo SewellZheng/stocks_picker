@@ -234,6 +234,72 @@ jobs:
           # Benchmarks are skipped: CI timing is noise.
           python3 scripts/regtest.py --no-perftest --no-direct-bench --codegen-only
 
+  # Debug-profile Rust codegen gate. The release cross-language job above wraps a
+  # usize overflow silently (the wrapped value is dead), so it cannot see the
+  # IMI/APO/PPO-class arithmetic-overflow bugs: those only manifest as a debug
+  # panic. This job rebuilds the Rust server with the debug profile (overflow
+  # checks on) and runs the codegen edge-range sweep (test_codegen.c
+  # run_edge_range_sweep) against it, so any such overflow becomes a hard
+  # failure. Rust-only (no JDK/.NET), gated on the C hero job.
+  cross-language-rust-debug:
+    name: Rust codegen tests (debug profile — overflow gate)
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+          fetch-depth: 0 # ta_ref_serve builds from the pinned reference tag
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Build debug Rust server and run codegen overflow gate
+        shell: bash
+        run: |
+          # Rust toolchain and cmake are preinstalled on ubuntu-latest; no JDK/.NET
+          # (Rust-only). --rust-debug builds the server with overflow checks on so the
+          # edge-range sweep traps arithmetic overflow instead of wrapping it away.
+          python3 scripts/regtest.py --no-perftest --no-direct-bench --codegen-only --language=rust --rust-debug
+
+  # Clippy lint gate for the Rust code: the generator tool and the generated crate.
+  # The tool enforces #![deny(clippy::pedantic)] on itself, but nothing in CI ever
+  # ran clippy, so that gate silently drifted (pedantic errors landed on dev
+  # unnoticed). This makes clippy a hard gate. `-D warnings` promotes the remaining
+  # warn-level lints (and rustc warnings) to errors too; the generated crate stays
+  # green because its scaffolding emits a crate-level #![allow(clippy::all,
+  # clippy::pedantic)] — its machine output is verified bit-exact against the C
+  # reference, not linted (rewriting emitted comparisons would change NaN semantics).
+  # Rust-only and self-contained: no C build, no JDK/.NET, and intentionally NOT
+  # gated on the C hero 'test' job, so an unrelated dist failure can't skip it.
+  clippy:
+    name: Rust clippy (generator + generated crate)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      # Rust is preinstalled on ubuntu-latest; add the component defensively
+      # (idempotent — a no-op when clippy is already present).
+      - name: Ensure clippy component
+        shell: bash
+        run: rustup component add clippy
+
+      - name: Clippy the generator tool
+        shell: bash
+        run: cargo clippy --all-targets --manifest-path ta_codegen/generator/Cargo.toml -- -D warnings
+
+      - name: Clippy the generated crate
+        shell: bash
+        run: cargo clippy --all-targets --manifest-path ta_codegen/output/rust/Cargo.toml -- -D warnings
+
   # Bit-exact regression gate vs the last release (v0.6.4): diff every function
   # at period>=2, fail on any real divergence. C-only, gated on 'test'.
   # fetch-depth: 0 so the v0.6.4 tag is available. See ta_regtest/CLAUDE.md.

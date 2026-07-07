@@ -96,9 +96,8 @@ impl Core {
     /// # Panics
     ///
     /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range: undersized slices panic or, for functions that forward to unchecked
-    /// internals, cause undefined behavior. Sizing every output slice to the input length is always
-    /// sufficient.
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
     ///
     /// # Examples
     ///
@@ -375,7 +374,7 @@ impl Core {
         // in this package.
         DCPhase = 0.0;
         while today <= endIdx {
-            adjustedPrevPeriod = (0.075 as f64).mul_add(period, 0.54);
+            adjustedPrevPeriod = 0.075 * period + 0.54;
             todayValue = inReal[today];
             periodWMASub += todayValue;
             periodWMASub -= trailingWMAValue;
@@ -427,8 +426,8 @@ impl Core {
                 if { hilbertIdx += 1; hilbertIdx } == 3 {
                     hilbertIdx = 0;
                 }
-                Q2 = (0.2 as f64).mul_add(Q1 + jI, 0.8 * prevQ2);
-                I2 = (0.2 as f64).mul_add(I1ForEvenPrev3 - jQ, 0.8 * prevI2);
+                Q2 = 0.2 * (Q1 + jI) + 0.8 * prevQ2;
+                I2 = 0.2 * (I1ForEvenPrev3 - jQ) + 0.8 * prevI2;
                 // The variable I1 is the detrender delayed for
                 // 3 price bars.
                 //
@@ -474,8 +473,8 @@ impl Core {
                 jQ += prev_jQ_Odd;
                 prev_jQ_input_Odd = Q1;
                 jQ *= adjustedPrevPeriod;
-                Q2 = (0.2 as f64).mul_add(Q1 + jI, 0.8 * prevQ2);
-                I2 = (0.2 as f64).mul_add(I1ForOddPrev3 - jQ, 0.8 * prevI2);
+                Q2 = 0.2 * (Q1 + jI) + 0.8 * prevQ2;
+                I2 = 0.2 * (I1ForOddPrev3 - jQ) + 0.8 * prevI2;
                 // The varaiable I1 is the detrender delayed for
                 // 3 price bars.
                 //
@@ -485,8 +484,8 @@ impl Core {
                 I1ForEvenPrev2 = detrender;
             }
             // Adjust the period for next price bar
-            Re = (0.2 as f64).mul_add((I2 as f64).mul_add(prevI2, Q2 * prevQ2), 0.8 * Re);
-            Im = (0.2 as f64).mul_add(I2 * prevQ2 - Q2 * prevI2, 0.8 * Im);
+            Re = 0.2 * (I2 * prevI2 + Q2 * prevQ2) + 0.8 * Re;
+            Im = 0.2 * (I2 * prevQ2 - Q2 * prevI2) + 0.8 * Im;
             prevQ2 = Q2;
             prevI2 = I2;
             tempReal = period;
@@ -506,8 +505,8 @@ impl Core {
             } else if period > 50_f64 {
                 period = 50.0;
             }
-            period = (0.2 as f64).mul_add(period, 0.8 * tempReal);
-            smoothPeriod = (0.33 as f64).mul_add(period, 0.67 * smoothPeriod);
+            period = 0.2 * period + 0.8 * tempReal;
+            smoothPeriod = 0.33 * period + 0.67 * smoothPeriod;
             // Compute Dominant Cycle Phase
             prevDCPhase = DCPhase;
             DCPeriod = smoothPeriod + 0.5;
@@ -573,7 +572,7 @@ impl Core {
             if DCPeriodInt > 0 {
                 tempReal = tempReal / (DCPeriodInt as f64);
             }
-            trendline = ((2.0 as f64).mul_add(iTrend2, (4.0 as f64).mul_add(tempReal, 3.0 * iTrend1)) + iTrend3) / 10.0;
+            trendline = (4.0 * tempReal + 3.0 * iTrend1 + 2.0 * iTrend2 + iTrend3) / 10.0;
             iTrend3 = iTrend2;
             iTrend2 = iTrend1;
             iTrend1 = tempReal;
@@ -608,12 +607,12 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
-    /// Unchecked variant of [`Core::ht_trendmode`], used for internal cross-indicator calls.
+    /// Unguarded variant of [`Core::ht_trendmode`], used for internal cross-indicator calls.
     ///
-    /// Skips parameter validation and uses unchecked indexing internally. Every argument must
-    /// satisfy the constraints documented on [`Core::ht_trendmode`]; an out-of-range parameter, an
-    /// input slice not covering `startIdx..=endIdx`, or an undersized output slice may panic or
-    /// cause undefined behavior. Prefer [`Core::ht_trendmode`].
+    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
+    /// documented on [`Core::ht_trendmode`]; an out-of-range parameter, an input slice not covering
+    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
+    /// [`Core::ht_trendmode`].
     #[inline]
     pub fn ht_trendmode_unguarded(
         &self,
@@ -704,7 +703,6 @@ impl Core {
         let mut prevLeadSine: f64 = 0.0_f64;
         let mut sine: f64 = 0.0_f64;
         let mut leadSine: f64 = 0.0_f64;
-        unsafe {
         assert!(endIdx < inReal.len());
         let _assertLb = self.ht_trendmode_lookback();
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
@@ -739,67 +737,67 @@ impl Core {
         (*outBegIdx) = startIdx;
         trailingWMAIdx = startIdx - lookbackTotal;
         today = trailingWMAIdx;
-        tempReal = *inReal.as_ptr().add({ let _v = today; today += 1; _v });
+        tempReal = inReal[{ let _v = today; today += 1; _v }];
         periodWMASub = tempReal;
         periodWMASum = tempReal;
-        tempReal = *inReal.as_ptr().add({ let _v = today; today += 1; _v });
+        tempReal = inReal[{ let _v = today; today += 1; _v }];
         periodWMASub += tempReal;
         periodWMASum += tempReal * 2.0;
-        tempReal = *inReal.as_ptr().add({ let _v = today; today += 1; _v });
+        tempReal = inReal[{ let _v = today; today += 1; _v }];
         periodWMASub += tempReal;
         periodWMASum += tempReal * 3.0;
         trailingWMAValue = 0.0;
         i = 34;
         loop {
-            tempReal = *inReal.as_ptr().add({ let _v = today; today += 1; _v });
+            tempReal = inReal[{ let _v = today; today += 1; _v }];
             periodWMASub += tempReal;
             periodWMASub -= trailingWMAValue;
             periodWMASum += tempReal * 4.0;
-            trailingWMAValue = *inReal.as_ptr().add({ let _v = trailingWMAIdx; trailingWMAIdx += 1; _v });
+            trailingWMAValue = inReal[{ let _v = trailingWMAIdx; trailingWMAIdx += 1; _v }];
             smoothedValue = periodWMASum * 0.1;
             periodWMASum -= periodWMASub;
             if !({ i = i.wrapping_sub(1); i } != 0) { break; }
         }
         hilbertIdx = 0;
-        *detrender_Odd.as_mut_ptr().add(0) = 0.0;
-        *detrender_Odd.as_mut_ptr().add(1) = 0.0;
-        *detrender_Odd.as_mut_ptr().add(2) = 0.0;
-        *detrender_Even.as_mut_ptr().add(0) = 0.0;
-        *detrender_Even.as_mut_ptr().add(1) = 0.0;
-        *detrender_Even.as_mut_ptr().add(2) = 0.0;
+        detrender_Odd[0] = 0.0;
+        detrender_Odd[1] = 0.0;
+        detrender_Odd[2] = 0.0;
+        detrender_Even[0] = 0.0;
+        detrender_Even[1] = 0.0;
+        detrender_Even[2] = 0.0;
         detrender = 0.0;
         prev_detrender_Odd = 0.0;
         prev_detrender_Even = 0.0;
         prev_detrender_input_Odd = 0.0;
         prev_detrender_input_Even = 0.0;
-        *Q1_Odd.as_mut_ptr().add(0) = 0.0;
-        *Q1_Odd.as_mut_ptr().add(1) = 0.0;
-        *Q1_Odd.as_mut_ptr().add(2) = 0.0;
-        *Q1_Even.as_mut_ptr().add(0) = 0.0;
-        *Q1_Even.as_mut_ptr().add(1) = 0.0;
-        *Q1_Even.as_mut_ptr().add(2) = 0.0;
+        Q1_Odd[0] = 0.0;
+        Q1_Odd[1] = 0.0;
+        Q1_Odd[2] = 0.0;
+        Q1_Even[0] = 0.0;
+        Q1_Even[1] = 0.0;
+        Q1_Even[2] = 0.0;
         Q1 = 0.0;
         prev_Q1_Odd = 0.0;
         prev_Q1_Even = 0.0;
         prev_Q1_input_Odd = 0.0;
         prev_Q1_input_Even = 0.0;
-        *jI_Odd.as_mut_ptr().add(0) = 0.0;
-        *jI_Odd.as_mut_ptr().add(1) = 0.0;
-        *jI_Odd.as_mut_ptr().add(2) = 0.0;
-        *jI_Even.as_mut_ptr().add(0) = 0.0;
-        *jI_Even.as_mut_ptr().add(1) = 0.0;
-        *jI_Even.as_mut_ptr().add(2) = 0.0;
+        jI_Odd[0] = 0.0;
+        jI_Odd[1] = 0.0;
+        jI_Odd[2] = 0.0;
+        jI_Even[0] = 0.0;
+        jI_Even[1] = 0.0;
+        jI_Even[2] = 0.0;
         jI = 0.0;
         prev_jI_Odd = 0.0;
         prev_jI_Even = 0.0;
         prev_jI_input_Odd = 0.0;
         prev_jI_input_Even = 0.0;
-        *jQ_Odd.as_mut_ptr().add(0) = 0.0;
-        *jQ_Odd.as_mut_ptr().add(1) = 0.0;
-        *jQ_Odd.as_mut_ptr().add(2) = 0.0;
-        *jQ_Even.as_mut_ptr().add(0) = 0.0;
-        *jQ_Even.as_mut_ptr().add(1) = 0.0;
-        *jQ_Even.as_mut_ptr().add(2) = 0.0;
+        jQ_Odd[0] = 0.0;
+        jQ_Odd[1] = 0.0;
+        jQ_Odd[2] = 0.0;
+        jQ_Even[0] = 0.0;
+        jQ_Even[1] = 0.0;
+        jQ_Even[2] = 0.0;
         jQ = 0.0;
         prev_jQ_Odd = 0.0;
         prev_jQ_Even = 0.0;
@@ -819,24 +817,24 @@ impl Core {
         // for( i = 0; i < 50; i += 1 )
         i = 0;
         while i < 50 {
-            *smoothPrice.as_mut_ptr().add(i) = 0.0;
+            smoothPrice[i] = 0.0;
             i += 1;
         }
         DCPhase = 0.0;
         while today <= endIdx {
-            adjustedPrevPeriod = (0.075 as f64).mul_add(period, 0.54);
-            todayValue = *inReal.as_ptr().add(today);
+            adjustedPrevPeriod = 0.075 * period + 0.54;
+            todayValue = inReal[today];
             periodWMASub += todayValue;
             periodWMASub -= trailingWMAValue;
             periodWMASum += todayValue * 4.0;
-            trailingWMAValue = *inReal.as_ptr().add({ let _v = trailingWMAIdx; trailingWMAIdx += 1; _v });
+            trailingWMAValue = inReal[{ let _v = trailingWMAIdx; trailingWMAIdx += 1; _v }];
             smoothedValue = periodWMASum * 0.1;
             periodWMASum -= periodWMASub;
-            *smoothPrice.as_mut_ptr().add(smoothPrice_Idx) = smoothedValue;
+            smoothPrice[smoothPrice_Idx] = smoothedValue;
             if today % 2 == 0 {
                 hilbertTempReal = a * smoothedValue;
-                detrender = 0_f64 - *detrender_Even.as_ptr().add(hilbertIdx);
-                *detrender_Even.as_mut_ptr().add(hilbertIdx) = hilbertTempReal;
+                detrender = 0_f64 - detrender_Even[hilbertIdx];
+                detrender_Even[hilbertIdx] = hilbertTempReal;
                 detrender += hilbertTempReal;
                 detrender -= prev_detrender_Even;
                 prev_detrender_Even = b * prev_detrender_input_Even;
@@ -844,8 +842,8 @@ impl Core {
                 prev_detrender_input_Even = smoothedValue;
                 detrender *= adjustedPrevPeriod;
                 hilbertTempReal = a * detrender;
-                Q1 = 0_f64 - *Q1_Even.as_ptr().add(hilbertIdx);
-                *Q1_Even.as_mut_ptr().add(hilbertIdx) = hilbertTempReal;
+                Q1 = 0_f64 - Q1_Even[hilbertIdx];
+                Q1_Even[hilbertIdx] = hilbertTempReal;
                 Q1 += hilbertTempReal;
                 Q1 -= prev_Q1_Even;
                 prev_Q1_Even = b * prev_Q1_input_Even;
@@ -853,8 +851,8 @@ impl Core {
                 prev_Q1_input_Even = detrender;
                 Q1 *= adjustedPrevPeriod;
                 hilbertTempReal = a * I1ForEvenPrev3;
-                jI = 0_f64 - *jI_Even.as_ptr().add(hilbertIdx);
-                *jI_Even.as_mut_ptr().add(hilbertIdx) = hilbertTempReal;
+                jI = 0_f64 - jI_Even[hilbertIdx];
+                jI_Even[hilbertIdx] = hilbertTempReal;
                 jI += hilbertTempReal;
                 jI -= prev_jI_Even;
                 prev_jI_Even = b * prev_jI_input_Even;
@@ -862,8 +860,8 @@ impl Core {
                 prev_jI_input_Even = I1ForEvenPrev3;
                 jI *= adjustedPrevPeriod;
                 hilbertTempReal = a * Q1;
-                jQ = 0_f64 - *jQ_Even.as_ptr().add(hilbertIdx);
-                *jQ_Even.as_mut_ptr().add(hilbertIdx) = hilbertTempReal;
+                jQ = 0_f64 - jQ_Even[hilbertIdx];
+                jQ_Even[hilbertIdx] = hilbertTempReal;
                 jQ += hilbertTempReal;
                 jQ -= prev_jQ_Even;
                 prev_jQ_Even = b * prev_jQ_input_Even;
@@ -873,14 +871,14 @@ impl Core {
                 if { hilbertIdx += 1; hilbertIdx } == 3 {
                     hilbertIdx = 0;
                 }
-                Q2 = (0.2 as f64).mul_add(Q1 + jI, 0.8 * prevQ2);
-                I2 = (0.2 as f64).mul_add(I1ForEvenPrev3 - jQ, 0.8 * prevI2);
+                Q2 = 0.2 * (Q1 + jI) + 0.8 * prevQ2;
+                I2 = 0.2 * (I1ForEvenPrev3 - jQ) + 0.8 * prevI2;
                 I1ForOddPrev3 = I1ForOddPrev2;
                 I1ForOddPrev2 = detrender;
             } else {
                 hilbertTempReal = a * smoothedValue;
-                detrender = 0_f64 - *detrender_Odd.as_ptr().add(hilbertIdx);
-                *detrender_Odd.as_mut_ptr().add(hilbertIdx) = hilbertTempReal;
+                detrender = 0_f64 - detrender_Odd[hilbertIdx];
+                detrender_Odd[hilbertIdx] = hilbertTempReal;
                 detrender += hilbertTempReal;
                 detrender -= prev_detrender_Odd;
                 prev_detrender_Odd = b * prev_detrender_input_Odd;
@@ -888,8 +886,8 @@ impl Core {
                 prev_detrender_input_Odd = smoothedValue;
                 detrender *= adjustedPrevPeriod;
                 hilbertTempReal = a * detrender;
-                Q1 = 0_f64 - *Q1_Odd.as_ptr().add(hilbertIdx);
-                *Q1_Odd.as_mut_ptr().add(hilbertIdx) = hilbertTempReal;
+                Q1 = 0_f64 - Q1_Odd[hilbertIdx];
+                Q1_Odd[hilbertIdx] = hilbertTempReal;
                 Q1 += hilbertTempReal;
                 Q1 -= prev_Q1_Odd;
                 prev_Q1_Odd = b * prev_Q1_input_Odd;
@@ -897,8 +895,8 @@ impl Core {
                 prev_Q1_input_Odd = detrender;
                 Q1 *= adjustedPrevPeriod;
                 hilbertTempReal = a * I1ForOddPrev3;
-                jI = 0_f64 - *jI_Odd.as_ptr().add(hilbertIdx);
-                *jI_Odd.as_mut_ptr().add(hilbertIdx) = hilbertTempReal;
+                jI = 0_f64 - jI_Odd[hilbertIdx];
+                jI_Odd[hilbertIdx] = hilbertTempReal;
                 jI += hilbertTempReal;
                 jI -= prev_jI_Odd;
                 prev_jI_Odd = b * prev_jI_input_Odd;
@@ -906,21 +904,21 @@ impl Core {
                 prev_jI_input_Odd = I1ForOddPrev3;
                 jI *= adjustedPrevPeriod;
                 hilbertTempReal = a * Q1;
-                jQ = 0_f64 - *jQ_Odd.as_ptr().add(hilbertIdx);
-                *jQ_Odd.as_mut_ptr().add(hilbertIdx) = hilbertTempReal;
+                jQ = 0_f64 - jQ_Odd[hilbertIdx];
+                jQ_Odd[hilbertIdx] = hilbertTempReal;
                 jQ += hilbertTempReal;
                 jQ -= prev_jQ_Odd;
                 prev_jQ_Odd = b * prev_jQ_input_Odd;
                 jQ += prev_jQ_Odd;
                 prev_jQ_input_Odd = Q1;
                 jQ *= adjustedPrevPeriod;
-                Q2 = (0.2 as f64).mul_add(Q1 + jI, 0.8 * prevQ2);
-                I2 = (0.2 as f64).mul_add(I1ForOddPrev3 - jQ, 0.8 * prevI2);
+                Q2 = 0.2 * (Q1 + jI) + 0.8 * prevQ2;
+                I2 = 0.2 * (I1ForOddPrev3 - jQ) + 0.8 * prevI2;
                 I1ForEvenPrev3 = I1ForEvenPrev2;
                 I1ForEvenPrev2 = detrender;
             }
-            Re = (0.2 as f64).mul_add((I2 as f64).mul_add(prevI2, Q2 * prevQ2), 0.8 * Re);
-            Im = (0.2 as f64).mul_add(I2 * prevQ2 - Q2 * prevI2, 0.8 * Im);
+            Re = 0.2 * (I2 * prevI2 + Q2 * prevQ2) + 0.8 * Re;
+            Im = 0.2 * (I2 * prevQ2 - Q2 * prevI2) + 0.8 * Im;
             prevQ2 = Q2;
             prevI2 = I2;
             tempReal = period;
@@ -940,8 +938,8 @@ impl Core {
             } else if period > 50_f64 {
                 period = 50.0;
             }
-            period = (0.2 as f64).mul_add(period, 0.8 * tempReal);
-            smoothPeriod = (0.33 as f64).mul_add(period, 0.67 * smoothPeriod);
+            period = 0.2 * period + 0.8 * tempReal;
+            smoothPeriod = 0.33 * period + 0.67 * smoothPeriod;
             prevDCPhase = DCPhase;
             DCPeriod = smoothPeriod + 0.5;
             DCPeriodInt = (DCPeriod as usize) as usize;
@@ -952,7 +950,7 @@ impl Core {
             i = 0;
             while i < DCPeriodInt {
                 tempReal = (i as f64) * constDeg2RadBy360 / (DCPeriodInt as f64);
-                tempReal2 = *smoothPrice.as_ptr().add(idx);
+                tempReal2 = smoothPrice[idx];
                 realPart += (tempReal).sin() * tempReal2;
                 imagPart += (tempReal).cos() * tempReal2;
                 if idx == 0 {
@@ -991,13 +989,13 @@ impl Core {
             // for( i = 0; i < DCPeriodInt; i += 1 )
             i = 0;
             while i < DCPeriodInt {
-                tempReal += *inReal.as_ptr().add({ let _v = idx; idx = idx.wrapping_sub(1); _v });
+                tempReal += inReal[{ let _v = idx; idx = idx.wrapping_sub(1); _v }];
                 i += 1;
             }
             if DCPeriodInt > 0 {
                 tempReal = tempReal / (DCPeriodInt as f64);
             }
-            trendline = ((2.0 as f64).mul_add(iTrend2, (4.0 as f64).mul_add(tempReal, 3.0 * iTrend1)) + iTrend3) / 10.0;
+            trendline = (4.0 * tempReal + 3.0 * iTrend1 + 2.0 * iTrend2 + iTrend3) / 10.0;
             iTrend3 = iTrend2;
             iTrend2 = iTrend1;
             iTrend1 = tempReal;
@@ -1014,12 +1012,12 @@ impl Core {
             if smoothPeriod != 0.0 && (tempReal > 0.67 * 360.0 / smoothPeriod && tempReal < 1.5 * 360.0 / smoothPeriod) {
                 trend = 0;
             }
-            tempReal = *smoothPrice.as_ptr().add(smoothPrice_Idx);
+            tempReal = smoothPrice[smoothPrice_Idx];
             if trendline != 0.0 && ((tempReal - trendline) / trendline).abs() >= 0.015 {
                 trend = 1;
             }
             if today >= startIdx {
-                *outInteger.as_mut_ptr().add(outIdx) = (trend) as i32;
+                outInteger[outIdx] = (trend) as i32;
                 outIdx += 1;
             }
             smoothPrice_Idx += 1;
@@ -1028,7 +1026,6 @@ impl Core {
         }
         (*outNBElement) = outIdx;
         return RetCode::Success;
-        } // unsafe
     }
 }
 /***************/

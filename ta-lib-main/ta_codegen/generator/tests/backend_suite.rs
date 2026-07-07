@@ -975,6 +975,50 @@ fn test_wma_lookback_uses_time_period() {
 }
 
 // ---------------------------------------------------------------------------
+// 11b. Rust memmove lowering: in-place (same-buffer) move must be overlap-safe
+// ---------------------------------------------------------------------------
+
+/// Red/green guard for the Rust `memmove` lowering (issue #99 follow-up).
+///
+/// A `memmove` into the *same* backing array (an in-place, possibly overlapping
+/// move) must lower to `slice::copy_within`, not `copy_from_slice`: the latter
+/// needs a simultaneous `&mut` and `&` borrow of one slice — which does not
+/// compile — and is UB on overlap regardless. BBANDS realigns its middle-band
+/// buffer with exactly such a move. WMA copies between *distinct* buffers
+/// (`outReal` <- `inReal`), where `copy_from_slice` is correct and must stay.
+///
+/// Before the lowering fix this test is red: BBANDS emitted
+/// `tempBuffer1[..].copy_from_slice(&tempBuffer1[..])` (which fails to compile)
+/// and no `copy_within`. After the fix it is green.
+#[test]
+fn test_rust_memmove_same_buffer_uses_copy_within() {
+    let (bbands, enums) = load_indicator("bbands");
+    let rust = generate_all(&bbands, &enums).rust;
+
+    assert!(
+        rust.contains("tempBuffer1.copy_within("),
+        "BBANDS: in-place memmove must lower to copy_within (overlap-safe)"
+    );
+    assert!(
+        !rust.contains("tempBuffer1[_di.._di + _n].copy_from_slice(&tempBuffer1[_si.._si + _n])"),
+        "BBANDS: in-place memmove must NOT lower to a self-borrowing copy_from_slice"
+    );
+
+    // The fix must stay surgical: a move between distinct buffers is still a
+    // plain copy_from_slice, never copy_within.
+    let (wma, wenums) = load_indicator("wma");
+    let wrust = generate_all(&wma, &wenums).rust;
+    assert!(
+        wrust.contains("copy_from_slice("),
+        "WMA: memmove between distinct buffers should stay copy_from_slice"
+    );
+    assert!(
+        !wrust.contains(".copy_within("),
+        "WMA: distinct-buffer memmove must not use copy_within"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 12. MA has 2 optional inputs (timePeriod + MAType enum)
 // ---------------------------------------------------------------------------
 
@@ -3257,38 +3301,43 @@ fn rust_cross_indicator_lookback_with_pascal_case() {
 
 #[test]
 fn rust_private_cross_indicator_call() {
-    // EMA has explicit _private with extra params. MACD calls ema_private() for
-    // hardcoded-k path and ema() for normal path. Registry routes:
+    // EMA has explicit _private with extra params. Registry routes:
     //   ema() → ema_unguarded(), ema_private() → ema_private()
-    let (func, enums) = load_indicator("macd");
+    // (MACD was the original vehicle for both paths, but its lockstep fusion
+    // removed the EMA calls.) The bare-name path is exercised by MA's dispatch;
+    // the private-name path by EMA's guarded body delegating to ema_private().
     let registry = make_registry();
     let helpers = make_helpers();
-    let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
+    let (func, enums) = load_indicator("ma");
+    let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
     assert!(
         rust_out.contains("self.ema_unguarded("),
-        "MACD Rust normal path should call self.ema_unguarded(): {rust_out}"
+        "MA Rust dispatch should call self.ema_unguarded(): {rust_out}"
     );
+
+    let (func, enums) = load_indicator("ema");
+    let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
     assert!(
         rust_out.contains("self.ema_private("),
-        "MACD Rust hardcoded-k path should call self.ema_private(): {rust_out}"
+        "EMA Rust guarded body should delegate to self.ema_private(): {rust_out}"
     );
 }
 
 #[test]
 fn rust_cross_indicator_vec_input_gets_ref() {
-    // Indicators that allocate local buffers (Vec) and pass them to cross-indicator calls
-    // should render the Vec as &name for input position
-    let (func, enums) = load_indicator("macd");
+    // Indicators that allocate a local buffer (Vec) and pass it to a cross-indicator
+    // call should render the Vec as `&name` in input position. (MACD was the original
+    // vehicle, but its lockstep fusion removed the local buffers.) STOCH builds
+    // tempBuffer and passes it into ma_unguarded as an input.
+    let (func, enums) = load_indicator("stoch");
     let registry = make_registry();
     let helpers = make_helpers();
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
-    // MACD allocates local buffers and passes them to EMA
-    // Check that the output compiles (no panic) and contains cross-indicator call patterns
     assert!(
-        rust_out.contains("self.ema") || rust_out.contains("self.sma"),
-        "MACD Rust should contain cross-indicator calls"
+        rust_out.contains("self.ma_unguarded(") && rust_out.contains("&tempBuffer"),
+        "STOCH Rust should pass &tempBuffer into self.ma_unguarded(): {rust_out}"
     );
 }
 
@@ -4638,46 +4687,53 @@ fn java_forc_single_init_renders_correctly() {
 }
 
 // ---------------------------------------------------------------------------
-// Java: MACD exercises malloc/free/memcpy/cross-indicator calls
+// Java: STOCH exercises malloc/free/memcpy; MA exercises cross-indicator calls
 // ---------------------------------------------------------------------------
 
 #[test]
-fn java_macd_malloc_renders_as_new_array() {
-    let (func, enums) = load_indicator("macd");
+fn java_stoch_malloc_renders_as_new_array() {
+    // STOCH mallocs a temp %K buffer, memcpy's it into the caller buffer, and
+    // frees it. (MACD was the original vehicle, but its lockstep fusion removed
+    // the temp buffers.)
+    let (func, enums) = load_indicator("stoch");
     let out = generate_all(&func, &enums);
     let j = &out.java;
 
     // malloc should become new double[] or new int[] in Java
     assert!(
         j.contains("new double["),
-        "Java MACD should render malloc as new double[]: {j}"
+        "Java STOCH should render malloc as new double[]: {j}"
     );
     // free should be removed (no-op in Java)
     assert!(
         !j.contains("free("),
-        "Java MACD should not contain free() calls"
+        "Java STOCH should not contain free() calls"
     );
     // memcpy should become System.arraycopy
     assert!(
         j.contains("System.arraycopy("),
-        "Java MACD should render memcpy as System.arraycopy(): {j}"
+        "Java STOCH should render memcpy as System.arraycopy(): {j}"
     );
 }
 
 #[test]
-fn java_macd_cross_indicator_calls() {
-    let (func, enums) = load_indicator("macd");
+fn java_ma_cross_indicator_calls() {
+    // MA dispatches to the per-type moving averages via the unguarded variants.
+    // (MACD was the original vehicle, but its lockstep fusion removed the EMA
+    // calls.)
+    let (func, enums) = load_indicator("ma");
     let out = generate_all(&func, &enums);
     let j = &out.java;
 
-    // MACD calls ema via emaLogic (the unguarded/logic variant)
+    // Anchor the call site so demaUnguarded(/temaUnguarded( (adjacent dispatch
+    // arms) cannot substring-shadow the EMA arm.
     assert!(
-        j.contains("emaLogic(") || j.contains("emaUnguarded(") || j.contains("ema("),
-        "Java MACD should call ema: {j}"
+        j.contains("= emaUnguarded("),
+        "Java MA should call emaUnguarded(): {j}"
     );
     assert!(
-        j.contains("emaLookback("),
-        "Java MACD should call emaLookback: {j}"
+        j.contains("= emaLookback("),
+        "Java MA should call emaLookback(): {j}"
     );
 }
 
@@ -5223,43 +5279,69 @@ fn c_t3_for_countdown_loops() {
 }
 
 // ---------------------------------------------------------------------------
-// C: MACD exercises malloc/free/memcpy/cross-indicator calls
+// C: STOCH exercises malloc/free/memcpy; MA exercises cross-indicator calls;
+//    MACD lockstep-fusion stays fused
 // ---------------------------------------------------------------------------
 
 #[test]
-fn c_macd_has_malloc_and_free() {
-    let (func, enums) = load_indicator("macd");
+fn c_stoch_has_malloc_and_free() {
+    // STOCH mallocs a temp %K buffer, memcpy's it into the caller buffer, and
+    // frees it. (MACD was the original vehicle, but its lockstep fusion removed
+    // the temp buffers.)
+    let (func, enums) = load_indicator("stoch");
     let out = generate_all(&func, &enums);
     let c = &out.c;
 
     assert!(
         c.contains("malloc("),
-        "C MACD should contain malloc calls"
+        "C STOCH should contain malloc calls"
     );
     assert!(
         c.contains("free("),
-        "C MACD should contain free calls"
+        "C STOCH should contain free calls"
     );
     assert!(
         c.contains("memcpy("),
-        "C MACD should contain memcpy calls"
+        "C STOCH should contain memcpy calls"
     );
 }
 
 #[test]
-fn c_macd_cross_indicator_calls() {
+fn c_ma_cross_indicator_calls() {
+    // MA dispatches to the per-type moving averages via the unguarded variants.
+    // (MACD was the original vehicle, but its lockstep fusion removed the EMA
+    // calls.)
+    let (func, enums) = load_indicator("ma");
+    let out = generate_all(&func, &enums);
+    let c = &out.c;
+
+    assert!(
+        c.contains("TA_INT_EMA(") || c.contains("TA_EMA(") || c.contains("TA_EMA_Unguarded("),
+        "C MA should call EMA: {c}"
+    );
+    assert!(
+        c.contains("TA_EMA_Lookback("),
+        "C MA should call TA_EMA_Lookback"
+    );
+}
+
+#[test]
+fn c_macd_lockstep_stays_fused() {
+    // Pin the MACD lockstep optimization (97b1a258/07199aa4): both EMAs, the
+    // signal EMA and the histogram are fused into one pass — no temp buffers,
+    // no cross-indicator EMA compute calls. If this fails, the optimization
+    // regressed back to the buffered form.
     let (func, enums) = load_indicator("macd");
     let out = generate_all(&func, &enums);
     let c = &out.c;
 
-    // MACD calls EMA via TA_INT_EMA (the logic/unguarded variant alias)
     assert!(
-        c.contains("TA_INT_EMA(") || c.contains("TA_EMA(") || c.contains("TA_EMA_Unguarded("),
-        "C MACD should call EMA: {c}"
+        !c.contains("malloc("),
+        "C MACD lockstep form should not allocate temp buffers"
     );
     assert!(
-        c.contains("TA_EMA_Lookback("),
-        "C MACD should call TA_EMA_Lookback"
+        !c.contains("TA_INT_EMA(") && !c.contains("TA_EMA_Unguarded("),
+        "C MACD lockstep form should not delegate to EMA compute calls"
     );
 }
 
