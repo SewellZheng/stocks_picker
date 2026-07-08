@@ -142,7 +142,10 @@ TA_LIB_API TA_RetCode TA_CMO( int    startIdx,
       *outBegIdx= startIdx;
       i = endIdx - startIdx + 1;
       *outNBElement= i;
-      memcpy(&outReal[0],&inReal[startIdx],i * sizeof(double));
+      /* memmove, not memcpy: an in-place caller (outReal == inReal) with
+       * startIdx > 0 overlaps source and destination (issue #94; matches WMA).
+       */
+      memmove(&outReal[0],&inReal[startIdx],i * sizeof(double));
       return TA_SUCCESS;
    }
    /* Accumulate Wilder's "Average Gain" and "Average Loss"
@@ -351,7 +354,7 @@ TA_LIB_API TA_RetCode TA_CMO_Unguarded( int    startIdx,
       *outBegIdx= startIdx;
       i = endIdx - startIdx + 1;
       *outNBElement= i;
-      memcpy(&outReal[0],&inReal[startIdx],i * sizeof(double));
+      memmove(&outReal[0],&inReal[startIdx],i * sizeof(double));
       return TA_SUCCESS;
    }
    today = startIdx - lookbackTotal;
@@ -527,11 +530,11 @@ TA_RetCode TA_S_CMO( int    startIdx,
       *outBegIdx= startIdx;
       i = endIdx - startIdx + 1;
       *outNBElement= i;
-      memcpy(&outReal[0],&inReal[startIdx],i * sizeof(double));
+      memmove(&outReal[0],&inReal[startIdx],i * sizeof(double));
       return TA_SUCCESS;
    }
    today = startIdx - lookbackTotal;
-   prevValue = inReal[today];
+   prevValue = (double)inReal[today];
    unstablePeriod = TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_CMO,Cmo);
    if( unstablePeriod == 0 && TA_GLOBALS_COMPATIBILITY == ENUM_VALUE(Compatibility,TA_COMPATIBILITY_METASTOCK,Metastock) )
    {
@@ -540,7 +543,7 @@ TA_RetCode TA_S_CMO( int    startIdx,
       prevLoss = 0.0;
       for( i = optInTimePeriod; i > 0; i -= 1 )
       {
-         tempValue1 = inReal[today++];
+         tempValue1 = (double)inReal[today++];
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
          if( tempValue2 < 0 )
@@ -576,7 +579,7 @@ TA_RetCode TA_S_CMO( int    startIdx,
    today += 1;
    for( i = optInTimePeriod; i > 0; i -= 1 )
    {
-      tempValue1 = inReal[today++];
+      tempValue1 = (double)inReal[today++];
       tempValue2 = tempValue1 - prevValue;
       prevValue = tempValue1;
       if( tempValue2 < 0 )
@@ -603,7 +606,7 @@ TA_RetCode TA_S_CMO( int    startIdx,
    {
       while( today < startIdx )
       {
-         tempValue1 = inReal[today];
+         tempValue1 = (double)inReal[today];
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
          prevLoss *= optInTimePeriod - 1;
@@ -622,7 +625,7 @@ TA_RetCode TA_S_CMO( int    startIdx,
    }
    while( today <= endIdx )
    {
-      tempValue1 = inReal[today++];
+      tempValue1 = (double)inReal[today++];
       tempValue2 = tempValue1 - prevValue;
       prevValue = tempValue1;
       prevLoss *= optInTimePeriod - 1;
@@ -689,11 +692,11 @@ TA_RetCode TA_S_CMO_Unguarded( int    startIdx,
       *outBegIdx= startIdx;
       i = endIdx - startIdx + 1;
       *outNBElement= i;
-      memcpy(&outReal[0],&inReal[startIdx],i * sizeof(double));
+      memmove(&outReal[0],&inReal[startIdx],i * sizeof(double));
       return TA_SUCCESS;
    }
    today = startIdx - lookbackTotal;
-   prevValue = inReal[today];
+   prevValue = (double)inReal[today];
    unstablePeriod = TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_CMO,Cmo);
    if( unstablePeriod == 0 && TA_GLOBALS_COMPATIBILITY == ENUM_VALUE(Compatibility,TA_COMPATIBILITY_METASTOCK,Metastock) )
    {
@@ -702,7 +705,7 @@ TA_RetCode TA_S_CMO_Unguarded( int    startIdx,
       prevLoss = 0.0;
       for( i = optInTimePeriod; i > 0; i -= 1 )
       {
-         tempValue1 = inReal[today++];
+         tempValue1 = (double)inReal[today++];
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
          if( tempValue2 < 0 )
@@ -738,7 +741,7 @@ TA_RetCode TA_S_CMO_Unguarded( int    startIdx,
    today += 1;
    for( i = optInTimePeriod; i > 0; i -= 1 )
    {
-      tempValue1 = inReal[today++];
+      tempValue1 = (double)inReal[today++];
       tempValue2 = tempValue1 - prevValue;
       prevValue = tempValue1;
       if( tempValue2 < 0 )
@@ -765,7 +768,7 @@ TA_RetCode TA_S_CMO_Unguarded( int    startIdx,
    {
       while( today < startIdx )
       {
-         tempValue1 = inReal[today];
+         tempValue1 = (double)inReal[today];
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
          prevLoss *= optInTimePeriod - 1;
@@ -784,7 +787,7 @@ TA_RetCode TA_S_CMO_Unguarded( int    startIdx,
    }
    while( today <= endIdx )
    {
-      tempValue1 = inReal[today++];
+      tempValue1 = (double)inReal[today++];
       tempValue2 = tempValue1 - prevValue;
       prevValue = tempValue1;
       prevLoss *= optInTimePeriod - 1;

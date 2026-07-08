@@ -261,7 +261,7 @@ int main( int argc, char **argv )
          }
          else
          {
-            printf( "  (server not available, c-ref only)\n" );
+            printf( "  (server not available, C only)\n" );
          }
       }
       retValue = test_abstract();
@@ -300,15 +300,15 @@ int main( int argc, char **argv )
          if( codegen_pipe_open(&rustAbstractPipe, rustArgv) == TA_TEST_PASS )
          {
             ErrorNumber e;
-            printf( "Testing Abstract metadata parity (Rust server vs c-ref)\n" );
+            printf( "Testing Abstract metadata parity (Rust server vs C)\n" );
             test_abstract_set_server(&rustAbstractPipe);
             e = test_abstract_server_metadata(functionFilter);
             /* Full dynamic-dispatch path (abstract_call / abstract_get_lookback /
              * TA_FunctionDescriptionXML) against the Rust server, comparing output
-             * VALUES to the c-ref for every function. */
+             * VALUES to the C for every function. */
             if( e == TA_TEST_PASS )
             {
-               printf( "Testing Abstract dynamic dispatch (Rust server vs c-ref)\n" );
+               printf( "Testing Abstract dynamic dispatch (Rust server vs C)\n" );
                e = test_abstract();
             }
             test_abstract_set_server(NULL);
@@ -579,6 +579,7 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_avgdev,   "AVGDEV" );
    DO_TEST( test_func_bbands,   "BBANDS" );
    DO_TEST( test_func_period_boundary, "PERIOD1/BOUNDARY" );
+   DO_TEST( test_func_s_overflow, "MATH,ADD,SUB,MULT,DIV" );
    DO_TEST( test_candlestick,   "All Candlesticks" );
 
    return TA_TEST_PASS; /* All tests succeeded. */

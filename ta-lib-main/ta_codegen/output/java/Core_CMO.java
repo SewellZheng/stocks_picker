@@ -91,6 +91,9 @@
          outBegIdx.value = startIdx;
          i = endIdx - startIdx + 1;
          outNBElement.value = i;
+         /* memmove, not memcpy: an in-place caller (outReal == inReal) with
+          * startIdx > 0 overlaps source and destination (issue #94; matches WMA).
+          */
          System.arraycopy(inReal, startIdx, outReal, 0, i * 1);
          return RetCode.Success ;
       }
@@ -423,14 +426,14 @@
          return RetCode.Success ;
       }
       today = startIdx - lookbackTotal;
-      prevValue = inReal[today];
+      prevValue = (double)inReal[today];
       unstablePeriod = this.unstablePeriod[FuncUnstId.Cmo.ordinal()];
       if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
          savePrevValue = prevValue;
          prevGain = 0.0;
          prevLoss = 0.0;
          for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = inReal[today++];
+            tempValue1 = (double)inReal[today++];
             tempValue2 = tempValue1 - prevValue;
             prevValue = tempValue1;
             if( tempValue2 < 0 ) {
@@ -460,7 +463,7 @@
       prevLoss = 0.0;
       today += 1;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
-         tempValue1 = inReal[today++];
+         tempValue1 = (double)inReal[today++];
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
          if( tempValue2 < 0 ) {
@@ -480,7 +483,7 @@
          }
       } else {
          while( today < startIdx ) {
-            tempValue1 = inReal[today];
+            tempValue1 = (double)inReal[today];
             tempValue2 = tempValue1 - prevValue;
             prevValue = tempValue1;
             prevLoss *= optInTimePeriod - 1;
@@ -496,7 +499,7 @@
          }
       }
       while( today <= endIdx ) {
-         tempValue1 = inReal[today++];
+         tempValue1 = (double)inReal[today++];
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
          prevLoss *= optInTimePeriod - 1;
@@ -558,14 +561,14 @@
          return RetCode.Success ;
       }
       today = startIdx - lookbackTotal;
-      prevValue = inReal[today];
+      prevValue = (double)inReal[today];
       unstablePeriod = this.unstablePeriod[FuncUnstId.Cmo.ordinal()];
       if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
          savePrevValue = prevValue;
          prevGain = 0.0;
          prevLoss = 0.0;
          for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = inReal[today++];
+            tempValue1 = (double)inReal[today++];
             tempValue2 = tempValue1 - prevValue;
             prevValue = tempValue1;
             if( tempValue2 < 0 ) {
@@ -595,7 +598,7 @@
       prevLoss = 0.0;
       today += 1;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
-         tempValue1 = inReal[today++];
+         tempValue1 = (double)inReal[today++];
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
          if( tempValue2 < 0 ) {
@@ -615,7 +618,7 @@
          }
       } else {
          while( today < startIdx ) {
-            tempValue1 = inReal[today];
+            tempValue1 = (double)inReal[today];
             tempValue2 = tempValue1 - prevValue;
             prevValue = tempValue1;
             prevLoss *= optInTimePeriod - 1;
@@ -631,7 +634,7 @@
          }
       }
       while( today <= endIdx ) {
-         tempValue1 = inReal[today++];
+         tempValue1 = (double)inReal[today++];
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
          prevLoss *= optInTimePeriod - 1;
