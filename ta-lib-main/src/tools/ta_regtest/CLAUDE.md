@@ -43,7 +43,10 @@ Examples:
 `doRangeTest()` is what makes ta_regtest thorough. It calls a `RangeTestFunction` callback hundreds of times with every possible `startIdx`/`endIdx` combination, verifying:
 - Output coherency across different ranges (same data regardless of range selection)
 - Lookback function consistency
-- Unstable period handling (via tolerance: `TA_DO_NOT_COMPARE` to skip)
+- Value comparison across ranges at a tolerance set by the function's
+  `TA_RangeStability` class — exact / epsilon / converging / skip (see
+  "Range-test tolerance is an explicit stability class" below). `doRangeTestEx`
+  takes the class explicitly; the legacy `doRangeTest` derives it.
 
 ### RangeTestFunction Callback Interface
 
@@ -90,6 +93,31 @@ exceptions that keep `TA_DO_NOT_COMPARE` (legitimate, non-converging range
 dependence): running accumulations seeded at `startIdx` (AD, OBV, ADOSC) and
 path-dependent state machines (SAR, SAREXT) — see `get_integer_tolerance()`.
 
+#### Range-test tolerance is an explicit stability class, not `unstId == NONE`
+
+The cross-range value comparison (`dataWithinReasonableRange`) picks its tolerance
+from an explicit `TA_RangeStability` class (`ta_test_priv.h`), **decoupled** from
+whether a function carries an unstable-period id. This exists because the old
+"`unstId == NONE ? tight : loose`" inference let a *vestigial* unstable-period flag
+hand a finite-window function the loose convergence tolerance and hide a real bug
+(IMI #14, MFI #4). The four classes:
+
+| Class | Tolerance | Who |
+|-------|-----------|-----|
+| `TA_STABLE_EXACT` | bit-exact (`==`) | fresh-recomputed finite window (IMI, price transforms, MOM/ROC, MIN/MAX/MIDPOINT/WILLR/AROON, LINEARREG/TSF/AVGDEV, vector math) |
+| `TA_STABLE_EPSILON` | `1e-9` relative | running-accumulator finite window + **default** (SMA, WMA, STDDEV, CORREL, CCI, ULTOSC, MFI, …) |
+| `TA_STABLE_CONVERGING` | warm-up envelope (`0.5/temp`, ignore-first-N) | recursive/IIR — anything in `UNSTABLE_MAP` |
+| `TA_STABLE_SKIP` | not compared | `get_integer_tolerance() == TA_DO_NOT_COMPARE` (AD, ADOSC, OBV, SAR, SAREXT) |
+
+`stability_class()` (`test_codegen.c`) assigns the generic-gate class per function
+(explicit `exact[]` list from a source audit, `SKIP` **derived** from
+`get_integer_tolerance` so it never desyncs from the integer-output skip,
+`CONVERGING` from `UNSTABLE_MAP`, else `EPSILON`). `doRangeTestEx` **guards** the
+invariant: `CONVERGING` must carry an unstId; `EXACT`/`EPSILON` must not (that's the
+vestigial-flag trap); `SKIP` is exempt (ADOSC legitimately sweeps an internal EMA).
+The legacy `doRangeTest(unstId, integerTolerance)` is a wrapper that derives the
+class (never `EXACT`, a safe superset) for the hand-written per-function tests.
+
 After all functions run, ta_regtest prints:
 - A **cross-language timing comparison table** (wall-clock ns per call, speedup vs C)
 - A **CLI summary** with pass/fail counts and average timing per language
@@ -135,8 +163,18 @@ Integer outputs use exact match comparison (or tolerance via `TA_DO_NOT_COMPARE`
 
 ### Unstable Period Functions
 
-24 functions have unstable periods that affect output. Must send `unstablePeriod` param to servers:
-ADX, ADXR, ATR, CMO, DX, EMA, HT_DCPERIOD, HT_DCPHASE, HT_PHASOR, HT_SINE, HT_TRENDLINE, HT_TRENDMODE, IMI, KAMA, MAMA, MFI, MINUS_DI, MINUS_DM, NATR, PLUS_DI, PLUS_DM, RSI, STOCHRSI, T3
+22 functions have a genuine unstable period that affects output (recursive /
+converging — Wilder smoothing, EMA/adaptive-EMA, Hilbert IIR). Must send
+`unstablePeriod` param to servers:
+ADX, ADXR, ATR, CMO, DX, EMA, HT_DCPERIOD, HT_DCPHASE, HT_PHASOR, HT_SINE, HT_TRENDLINE, HT_TRENDMODE, KAMA, MAMA, MINUS_DI, MINUS_DM, NATR, PLUS_DI, PLUS_DM, RSI, STOCHRSI, T3
+
+The `TA_FuncUnstId` enum still has 24 entries: **IMI** and **MFI** keep their
+`TA_FUNC_UNST_*` id (removing it would renumber the enum → ABI break) but are
+*not* unstable — both are finite sliding-window indicators (IMI recomputes its
+window fresh each bar → bit-exact; MFI carries a running accumulator → ~1e-13
+drift only). They no longer carry the `unstable_period` abstract flag and are
+excluded from `UNSTABLE_MAP` so their range sweeps use the tight
+`TA_FUNC_UNST_NONE` tolerance rather than the loose convergence envelope.
 
 ## Buffer Sizes
 
@@ -200,10 +238,12 @@ Scope rules (deliberate):
 - **#98 exceptions:** TRIX/NATR `startIdx > lookback` cases are skipped
   (mislabeled / wrong-close output through 0.6.4, fixed in 0.7.2), plus NATR
   cases with a zero close in the output range (old code clobbered
-  `outReal[0]`). The ref differential sweep skips IMI's unstable-period
-  variant (its unstable no longer grows the window). Comparing these against
-  frozen oracles would diff the bug fixes themselves. The fixed
-  behavior is validated instead by the (now value-comparing) range tests.
+  `outReal[0]`). Comparing these against frozen oracles would diff the bug
+  fixes themselves. The fixed behavior is validated instead by the (now
+  value-comparing) range tests. (IMI and MFI no longer need an unstable-period
+  carve-out here: both are reclassified as stable finite-window indicators —
+  no `TA_FUNC_FLG_UNST_PER`, lookback ignores the unstable period — so the ref
+  sweep never runs a u&gt;0 variant for them.)
   Reported in the summary as a `skipped:` line; everything else remains
   waiver-free at period ≥ 2.
 - The oracle is reopened-and-retried once if it dies (latent 0.6.4 crash) so one

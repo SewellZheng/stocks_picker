@@ -203,8 +203,10 @@ static int json_is_error(const char *json)
 
 /* ---- Unstable period lookup ---- */
 
-/* Map function name to TA_FuncUnstId. Only the 24 functions with
- * TA_FUNC_FLG_UNST_PER have entries here.
+/* Map function name to TA_FuncUnstId for range-sweep tolerance selection.
+ * Entries are the 22 functions that carry TA_FUNC_FLG_UNST_PER, plus the 6
+ * EMA-derived functions (DEMA/TEMA/TRIX/MACD/MACDEXT/MACDFIX) that converge
+ * like EMA. IMI and MFI are deliberately excluded (finite-window, stable).
  */
 typedef struct {
     const char   *name;
@@ -224,10 +226,15 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     {"HT_SINE",      TA_FUNC_UNST_HT_SINE},
     {"HT_TRENDLINE", TA_FUNC_UNST_HT_TRENDLINE},
     {"HT_TRENDMODE", TA_FUNC_UNST_HT_TRENDMODE},
-    {"IMI",          TA_FUNC_UNST_IMI},
+    /* IMI and MFI are NOT listed here on purpose. Both are finite
+     * sliding-window indicators, not recursive/converging ones, so their
+     * range sweep must use the tight TA_FUNC_UNST_NONE tolerance (IMI is
+     * bit-exact; MFI drifts only ~1e-13 via its running accumulator), not
+     * the loose convergence envelope this map selects. Their TA_FUNC_UNST_*
+     * enum entries are retained for ABI but no longer advertise instability.
+     */
     {"KAMA",         TA_FUNC_UNST_KAMA},
     {"MAMA",         TA_FUNC_UNST_MAMA},
-    {"MFI",          TA_FUNC_UNST_MFI},
     {"MINUS_DI",     TA_FUNC_UNST_MINUS_DI},
     {"MINUS_DM",     TA_FUNC_UNST_MINUS_DM},
     {"NATR",         TA_FUNC_UNST_NATR},
@@ -965,6 +972,86 @@ static unsigned int get_integer_tolerance(const TA_FuncInfo *funcInfo)
     return 0;
 }
 
+/* ---- Determine range-stability class for doRangeTestEx ---- */
+
+/* Explicit per-function range-test tolerance class (see TA_RangeStability).
+ * This REPLACES the old implicit "unstId == NONE ? tight : loose" inference:
+ * the tolerance now follows each function's numerical nature, not merely whether
+ * it carries an unstable-period id.
+ *
+ *   SKIP       - accumulation seeded at startIdx / path-dependent state machine
+ *                (derived from get_integer_tolerance()==DO_NOT_COMPARE, the same
+ *                single source the integer-output skip uses -- never a 2nd list).
+ *   EXACT      - fresh-recomputed finite window; bit-exact across ranges.
+ *   EPSILON    - finite window with running-accumulator / reorder FP drift, and
+ *                the default for anything without an unstable period.
+ *   CONVERGING - carries an unstable-period id (recursive / IIR).
+ *
+ * SKIP, then the explicit EXACT/EPSILON entries, are checked BEFORE the
+ * unstId-derived CONVERGING, so a vestigial unstable-period id (the IMI/MFI trap)
+ * trips the guard in doRangeTestEx instead of silently drawing the loose
+ * tolerance. */
+static TA_RangeStability stability_class(const TA_FuncInfo *funcInfo)
+{
+    /* SKIP is NOT maintained as a second list here: it is exactly the set that
+     * get_integer_tolerance() marks TA_DO_NOT_COMPARE (accumulations seeded at
+     * startIdx and path-dependent state machines -- AD, ADOSC, OBV, SAR, SAREXT).
+     * Deriving it from that single source guarantees the real-output skip (this
+     * class, via dataWithinReasonableRange) and the integer-output skip
+     * (doRangeTestFixSize, keyed on the same DO_NOT_COMPARE) can never drift
+     * apart. Checked first: a skipped function is skipped whatever else it is. */
+    if( get_integer_tolerance(funcInfo) == TA_DO_NOT_COMPARE )
+        return TA_STABLE_SKIP;
+
+    /* Fresh-recomputed finite window -> bit-exact across ranges: every output bar
+     * rebuilds its result from the raw input window (or one input element) with
+     * NO floating-point total carried across bars, so the value is independent of
+     * startIdx. Audited function-by-function from the input .c sources and then
+     * confirmed by this range gate running at the strict TA_STABLE_EXACT (==)
+     * tolerance. (IMI is the archetype, issue #14.) */
+    static const char *exact[] = {
+        /* per-element vector math / unary transforms */
+        "ACOS", "ASIN", "ATAN", "CEIL", "COS", "COSH", "EXP", "FLOOR", "LN",
+        "LOG10", "SIN", "SINH", "SQRT", "TAN", "TANH", "ADD", "SUB", "MULT", "DIV",
+        /* per-bar price transforms */
+        "AVGPRICE", "MEDPRICE", "TYPPRICE", "WCLPRICE", "BOP", "TRANGE",
+        /* per-bar momentum (difference / ratio of two bars) */
+        "MOM", "ROC", "ROCP", "ROCR", "ROCR100",
+        /* comparison-selected window extrema (cached min/max, no FP accumulation) */
+        "MIN", "MAX", "MINMAX", "MIDPOINT", "MIDPRICE", "WILLR", "AROON", "AROONOSC",
+        /* fresh per-bar rescan (window re-summed in bar-absolute order each output) */
+        "AVGDEV", "LINEARREG", "LINEARREG_ANGLE", "LINEARREG_INTERCEPT",
+        "LINEARREG_SLOPE", "TSF",
+        /* fresh sliding window, no accumulator */
+        "IMI",
+    };
+
+    /* Finite window carried in a RUNNING ACCUMULATOR (running sum/total updated
+     * add-head/subtract-trailing, or MA-based at the default SMA type) -> differs
+     * only by ~1e-9 FP rounding across ranges. This is also the default for any
+     * function not listed above, so the array need only carry MFI (issue #4) as a
+     * documented archetype. Audited running-accumulator functions that rely on
+     * that default: ACCBANDS, APO, BBANDS, BETA, CCI, CORREL, MA, MAVP, PPO, SMA,
+     * STDDEV, STOCH, STOCHF, SUM, TRIMA, ULTOSC, VAR, WMA. MACDEXT stays
+     * CONVERGING (it is EPSILON only at the default SMA type, but carries the EMA
+     * unstable-period id for its EMA-type parameterisations). */
+    static const char *epsilon[] = { "MFI" };
+
+    for( unsigned int i = 0; i < sizeof(exact)/sizeof(exact[0]); i++ )
+        if( strcmp(funcInfo->name, exact[i]) == 0 )
+            return TA_STABLE_EXACT;
+    for( unsigned int i = 0; i < sizeof(epsilon)/sizeof(epsilon[0]); i++ )
+        if( strcmp(funcInfo->name, epsilon[i]) == 0 )
+            return TA_STABLE_EPSILON;
+
+    if( get_range_unst_id(funcInfo->name) != TA_FUNC_UNST_NONE )
+        return TA_STABLE_CONVERGING;
+
+    /* Default: a finite-window function without an unstable period compares at
+     * the tight epsilon tolerance (identical to the pre-explicit behaviour). */
+    return TA_STABLE_EPSILON;
+}
+
 
 /* ---- Filter helper ---- */
 
@@ -1278,8 +1365,9 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     ErrorNumber errNb = TA_TEST_PASS;
     if( nbElem > 0 && params.codegenError == TA_TEST_PASS )
     {
-        errNb = doRangeTest(
+        errNb = doRangeTestEx(
             codegen_range_generic,
+            stability_class(funcInfo),
             get_range_unst_id(funcInfo->name),
             (void *)&params,
             funcInfo->nbOutput,
@@ -1716,11 +1804,15 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         sweep_set_compat(params.cp,    0, params.responseBuf);
     }
 
-    /* Unstable-period pass at defaults (sent per-call to both servers). */
+    /* Unstable-period pass at defaults (sent per-call to both servers).
+     * Only genuinely recursive functions still carry TA_FUNC_FLG_UNST_PER and
+     * a mapped unstId, so IMI and MFI (finite-window, reclassified stable) are
+     * naturally excluded here. That also retires the former explicit IMI
+     * carve-out: IMI's u>0 output diverges from the frozen ref due to fix #98,
+     * but with no unstable flag this variant no longer runs for it at all. */
     if( params.codegenError == TA_TEST_PASS &&
         (funcInfo->flags & TA_FUNC_FLG_UNST_PER) &&
-        params.unstId != TA_FUNC_UNST_NONE &&
-        strcmp(funcInfo->name, "IMI") != 0 )   /* #98: IMI unstable semantics fixed vs frozen ref */
+        params.unstId != TA_FUNC_UNST_NONE )
     {
         TA_SetUnstablePeriod(params.unstId, 3);
         variants += sweep_run_variant(&params);
