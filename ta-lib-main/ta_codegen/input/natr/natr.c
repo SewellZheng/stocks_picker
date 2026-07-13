@@ -16,7 +16,7 @@
  *                single pass (bit-exact, no temporary buffer).
  */
 
-int natr_lookback(int           optInTimePeriod)
+int natr_lookback(int optInTimePeriod)
 {
    /* The ATR lookback is the sum of:
     *    1 + (optInTimePeriod - 1)
@@ -28,7 +28,13 @@ int natr_lookback(int           optInTimePeriod)
    return optInTimePeriod + TA_GetUnstablePeriod(TA_FUNC_UNST_NATR);
 }
 
-TA_RetCode natr(int startIdx, int endIdx, const double inHigh[], const double inLow[], const double inClose[], int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[])
+TA_RetCode natr(int startIdx, int endIdx,
+   const double inHigh[],
+   const double inLow[],
+   const double inClose[],
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double outReal[])
 {
    int i, outIdx, today, lookbackTotal;
    int nbATR;

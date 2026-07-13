@@ -4,14 +4,18 @@
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
  *  EKO      echo999@ifrance.com
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  010802 MF   Template creation.
- *  051103 EKO  Found bug and fix related to outFastD.
- *  052603 MF   Adapt code to compile with .NET Managed C++
+ *  010802 MF    Template creation.
+ *  051103 EKO   Found bug and fix related to outFastD.
+ *  052603 MF    Adapt code to compile with .NET Managed C++
+ *  071026 MF,CC Fix #107. Guard the Fast-K division with TA_IS_ZERO, not an
+ *               exact `diff != 0.0`, so a machine-flat window yields 0 instead
+ *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
  */
 
    public int stochFLookback( int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
@@ -78,6 +82,9 @@
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( outFastK == outFastD ) {
+         return RetCode.BadParam ;
       }
       /* With stochastic, there is a total of 4 different lines that
        * are defined: FASTK, FASTD, SLOWK and SLOWD.
@@ -206,8 +213,11 @@
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. */
-         if( diff != 0.0 ) {
+         /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
+          * a machine-flat window leaves a sub-epsilon residue that an exact check
+          * would divide into [0,100] noise (issue #107 / STOCHRSI).
+          */
+         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
             tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;
@@ -345,7 +355,7 @@
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         if( diff != 0.0 ) {
+         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
             tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;
@@ -417,6 +427,9 @@
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return RetCode.BadParam;
       }
+      if( outFastK == outFastD ) {
+         return RetCode.BadParam ;
+      }
       lookbackK = optInFastK_Period - 1;
       lookbackFastD = movingAverageLookback(optInFastD_Period, optInFastD_MAType);
       lookbackTotal = lookbackK + lookbackFastD;
@@ -482,7 +495,7 @@
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         if( diff != 0.0 ) {
+         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
             tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;
@@ -603,7 +616,7 @@
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         if( diff != 0.0 ) {
+         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
             tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;

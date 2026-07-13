@@ -92,6 +92,10 @@ fn main() {
             let check_only = args.iter().any(|a| a == "--check");
             std::process::exit(format(func_filter.as_deref(), check_only));
         }
+        "stream-census" => {
+            let seed = args.iter().any(|a| a == "--seed-yaml");
+            std::process::exit(stream_census(seed));
+        }
         _ => {
             eprintln!("Usage: ta_codegen <command> [options]");
             eprintln!();
@@ -102,6 +106,8 @@ fn main() {
             eprintln!("  build            Compile generated server source into executables");
             eprintln!("  extract          Extract indicators from C source to ta_codegen/input/");
             eprintln!("  format           Re-indent the ta_codegen/input/ C source of truth");
+            eprintln!("  stream-census    Report the IR-derived streamability per function");
+            eprintln!("                   (--seed-yaml writes `streaming: true` for clean functions)");
             eprintln!();
             eprintln!("Options for 'format':");
             eprintln!("  --func=NAME[,NAME,...]       Only format matching indicators (default: all)");
@@ -126,54 +132,10 @@ fn main() {
 }
 
 /// Wire parsed C source (guarded + optional private) into a FuncDef.
+/// Thin alias for the shared implementation in `parser::c_source` (also used
+/// by integration tests so fixtures wire exactly like production loads).
 fn wire_parsed_source(func_def: &mut ir::FuncDef, parsed: &parser::c_source::ParsedCSource) {
-    let guarded = parsed
-        .functions
-        .iter()
-        .find(|f| !f.name.ends_with("_private"))
-        .expect("C source must contain at least one function");
-    func_def.body = guarded.body.clone();
-    func_def.lookback = Some(ir::LookbackExpr::Code(parsed.lookback_body.clone()));
-    func_def.header_comments = parsed.header_comments.clone();
-
-    let private_fn = parsed
-        .functions
-        .iter()
-        .find(|f| f.name.ends_with("_private"));
-    if let Some(priv_fn) = private_fn {
-        func_def.private_body = priv_fn.body.clone();
-        func_def.has_explicit_private = true;
-        let guarded_param_names: std::collections::HashSet<_> =
-            guarded.params.iter().map(|(name, _)| name.clone()).collect();
-        func_def.private_extra_params = priv_fn
-            .params
-            .iter()
-            .filter(|(name, _)| !guarded_param_names.contains(name))
-            .cloned()
-            .collect();
-        // Extract init expressions for extra params from the guarded body's VarDecls.
-        // Used by backends to generate S_ variants (which inline the private body
-        // with extra params as local variables instead of function params).
-        let extra_names: std::collections::HashSet<_> = func_def
-            .private_extra_params
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect();
-        func_def.private_param_init = guarded
-            .body
-            .iter()
-            .filter_map(|stmt| {
-                if let ir::Statement::VarDecl { name, init: Some(expr), .. } = stmt {
-                    if extra_names.contains(name.as_str()) {
-                        return Some((name.clone(), expr.clone()));
-                    }
-                }
-                None
-            })
-            .collect();
-    } else {
-        func_def.private_body = func_def.body.clone();
-    }
+    parser::c_source::wire_parsed_source(func_def, parsed);
 }
 
 /// Look up a `--flag=value` argument, accepting any of the given flag spellings
@@ -298,6 +260,143 @@ fn format(func_filter: Option<&str>, check_only: bool) -> i32 {
     }
 }
 
+/// `stream-census`: print each function's IR-derived streamability (tier,
+/// state size — all derived, never authored) and audit the `streaming: true`
+/// declarations. This is the stage-0 tool from docs/streaming-api-proposal.md
+/// and the audit trail when a batch rewrite changes a function's shape.
+///
+/// `--seed-yaml` inserts `streaming: true` (before the `inputs:` key) into
+/// the YAML of every function that analyzes clean and has no declaration
+/// yet. Exit code 1 when any declared function is no longer streamable.
+fn stream_census(seed_yaml: bool) -> i32 {
+    let root = repo_root();
+    let funcs = load_func_defs(None, &root);
+    let lookup = ta_codegen_lib::streaming::FuncsLookup(&funcs);
+    let mut derived_t1 = 0usize;
+    let mut derived_t2 = 0usize;
+    let mut derived_t3 = 0usize;
+    let mut derived_t4 = 0usize;
+    let mut derived_tc = 0usize;
+    let mut mismatches = 0usize;
+    let mut seeded = 0usize;
+
+    for func in &funcs {
+        // Full validation (analysis + transition build) — the same gate
+        // generate() enforces, so census can never seed a function the
+        // emitter cannot actually build.
+        match ta_codegen_lib::streaming::validate_streamable(func, &lookup) {
+            Ok(plan) => {
+                let status = if func.streaming { "streamed" } else { "candidate" };
+                match &plan {
+                    ta_codegen_lib::streaming::StreamPlan::Loop(m) => {
+                        match m.tier {
+                            ir::StreamTier::T1 => derived_t1 += 1,
+                            ir::StreamTier::T2 => derived_t2 += 1,
+                            ir::StreamTier::T3 => derived_t3 += 1,
+                            ir::StreamTier::T4 => derived_t4 += 1,
+                        }
+                        println!(
+                            "{:<10} {:<14} {} state={} lags={} outs={}",
+                            status,
+                            func.name,
+                            m.tier.as_str(),
+                            m.state.len(),
+                            m.lags.len(),
+                            m.outputs.len()
+                        );
+                    }
+                    ta_codegen_lib::streaming::StreamPlan::Dispatch(dp) => {
+                        derived_tc += 1;
+                        println!(
+                            "{:<10} {:<14} TC dispatch({}) arms={}/{} identity={}",
+                            status,
+                            func.name,
+                            dp.param,
+                            dp.arms.iter().filter(|a| a.supported).count(),
+                            dp.arms.len(),
+                            if dp.identity.is_some() { "yes" } else { "no" }
+                        );
+                    }
+                    ta_codegen_lib::streaming::StreamPlan::Composed(cmp) => {
+                        derived_tc += 1;
+                        let producer = cmp
+                            .producer
+                            .as_ref()
+                            .map_or("loopless".to_string(), |m| {
+                                format!("loop/{}", m.tier.as_str())
+                            });
+                        let series = cmp.series.as_deref().unwrap_or("-");
+                        println!(
+                            "{:<10} {:<14} TC composed({series}) producer={producer} subs={} inter={}",
+                            status,
+                            func.name,
+                            cmp.subs.len(),
+                            cmp.intermediates.len()
+                        );
+                    }
+                }
+                if seed_yaml && !func.streaming {
+                    let yaml_path = root
+                        .join("ta_codegen/input")
+                        .join(func.name.to_lowercase())
+                        .join(format!("{}.yaml", func.name.to_lowercase()));
+                    match seed_streaming_flag(&yaml_path) {
+                        Ok(()) => seeded += 1,
+                        Err(e) => {
+                            eprintln!("error: cannot seed {}: {e}", yaml_path.display());
+                            return 1;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if func.streaming {
+                    mismatches += 1;
+                    println!("MISMATCH {:<14} declared streaming but: {e}", func.name);
+                } else {
+                    println!("none       {:<14} -- {e}", func.name);
+                }
+            }
+        }
+    }
+    println!(
+        "\n{} functions: {derived_t1} derive T1, {derived_t2} derive T2, {derived_t3} derive T3, {derived_t4} derive T4, {derived_tc} derive TC dispatch, {mismatches} declaration mismatch(es){}",
+        funcs.len(),
+        if seed_yaml { std::format!(", {seeded} YAML(s) seeded") } else { String::new() }
+    );
+    i32::from(mismatches > 0)
+}
+
+/// Append `stream` to the single-line `flags: [...]` list of a function
+/// YAML (the flag maps to TA_FUNC_FLG_STREAM like every other entry).
+fn seed_streaming_flag(yaml_path: &Path) -> Result<(), String> {
+    let content = std::fs::read_to_string(yaml_path).map_err(|e| e.to_string())?;
+    let start = content
+        .find("\nflags: [")
+        .map(|p| p + 1)
+        .or_else(|| content.starts_with("flags: [").then_some(0))
+        .ok_or_else(|| "no single-line `flags: [...]` found".to_string())?;
+    let line_end = content[start..]
+        .find(']')
+        .map(|p| start + p)
+        .ok_or_else(|| "unterminated flags list".to_string())?;
+    let inner = &content[start + "flags: [".len()..line_end];
+    if inner.split(',').any(|f| f.trim() == "stream") {
+        return Ok(()); // already flagged
+    }
+    let new_inner = if inner.trim().is_empty() {
+        "stream".to_string()
+    } else {
+        format!("{inner}, stream")
+    };
+    let mut out = String::with_capacity(content.len() + 16);
+    out.push_str(&content[..start]);
+    out.push_str("flags: [");
+    out.push_str(&new_inner);
+    out.push_str(&content[line_end..]);
+    std::fs::write(yaml_path, out).map_err(|e| e.to_string())
+}
+
 fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     let root = repo_root();
     let base = root.join("ta_codegen/input");
@@ -336,7 +435,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     // notably the Rust crate enum template. Fail loudly here rather than let a
     // rename half-propagate (e.g. the MFI/IMI -> UNUSED reclassification, which
     // otherwise broke the Rust server build against a stale variant name).
-    verify_hand_maintained_funcunstid(&enums, &base);
+    verify_hand_maintained_funcunstid(&enums, &root);
 
     // Discover all function definition directories
     let mut func_dirs: Vec<_> = std::fs::read_dir(&base)
@@ -401,6 +500,17 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         let parsed = parser::c_source::parse_c_source(&c_path);
         wire_parsed_source(&mut func_def, &parsed);
 
+        // Streaming maintenance-coupling gate (docs/streaming-api-proposal.md):
+        // a YAML-declared tier must match the IR-derived shape, so a batch
+        // rewrite that breaks stream analyzability fails HERE, not at release.
+        if func_def.streaming {
+            if let Err(e) = ta_codegen_lib::streaming::validate_streamable(&func_def, &registry) {
+                eprintln!("error: {e}");
+                eprintln!("       (run `ta_codegen stream-census` for the full audit)");
+                std::process::exit(1);
+            }
+        }
+
         // Canonical documentation (third sibling input file) — feeds the rustdoc
         // backend; the website backend reads the .md itself.
         let doc_path = dir.join(format!("{}.md", func_name_lower));
@@ -434,7 +544,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     // `--func=X` run cannot rewrite mod.rs down to the filtered subset and
     // break the crate.
     if backends_to_run.contains(&"rust") {
-        let types_src = root.join("ta_codegen/input/lib/rust/types.rs");
+        let types_src = root.join("ta_codegen/generator/templates/rust/types.rs");
         generate_rust_crate_scaffolding(&out_base, all_funcs, &types_src);
     }
 
@@ -455,7 +565,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         backends::makefile_am::generate(all_funcs, &root.join("src/ta_func/Makefile.am"), &root);
         backends::cmake_lists::generate(all_funcs, &root.join("CMakeLists.txt"), &root);
 
-        let c_lib_src = root.join("ta_codegen/input/lib/c");
+        let c_lib_src = root.join("ta_codegen/generator/templates/c");
         let c_dir = root.join("ta_codegen/output/c");
         std::fs::create_dir_all(&c_dir).unwrap();
         // Single-entry file list, kept as a loop to match the sibling copy loops below.
@@ -494,7 +604,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         //   - the TA_SetRetCodeInfo table in ta_common/ta_retcode.c (from the csv)
         backends::ta_defs::generate(&enums, &root.join("include/ta_defs.h"));
         backends::retcode::generate(
-            &root.join("ta_codegen/input/lib/c/ta_retcode.c.template"),
+            &root.join("ta_codegen/generator/templates/c/ta_retcode.c.template"),
             &root.join("src/ta_common/ta_retcode.csv"),
             &root.join("src/ta_common/ta_retcode.c"),
         );
@@ -695,13 +805,13 @@ const COMMON_GCC_FLAGS: &[&str] = &["-lm", "-O3", "-flto", "-DNDEBUG", "-Wno-par
 ///
 /// enums.yaml is the source of truth for `FuncUnstId`; the C enum (`ta_defs.h`)
 /// and the shipped Java enum are regenerated from it, but the Rust crate enum
-/// lives in the hand-written template `input/lib/rust/types.rs` and is copied
-/// verbatim. If it drifts, the Rust server references a variant that no longer
-/// exists (build failure) and the shipped Rust crate's enum diverges from the C
+/// lives in the hand-written template `ta_codegen/generator/templates/rust/types.rs`
+/// and is copied verbatim. If it drifts, the Rust server references a variant that no
+/// longer exists (build failure) and the shipped Rust crate's enum diverges from the C
 /// header. Fail loudly at generate time rather than let a rename half-propagate.
 fn verify_hand_maintained_funcunstid(
     enums: &HashMap<String, ir::EnumDef>,
-    base: &std::path::Path,
+    root: &std::path::Path,
 ) {
     let Some(fu) = enums.get("FuncUnstId") else {
         return;
@@ -712,7 +822,7 @@ fn verify_hand_maintained_funcunstid(
     let mut expected: Vec<&str> = fu.variants.iter().map(|v| v.pascal_name.as_str()).collect();
     expected.push("FuncUnstAll");
 
-    let path = base.join("lib/rust/types.rs");
+    let path = root.join("ta_codegen/generator/templates/rust/types.rs");
     let src = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => return, // template absent in this checkout -- nothing to verify
@@ -798,7 +908,9 @@ fn build_servers(backend_filter: Option<&str>) {
                 let ta_common_dir = src_dir.join("ta_common");
                 let ta_abstract_dir = src_dir.join("ta_abstract");
                 let ta_frames_dir = ta_abstract_dir.join("frames");
-                let ta_abstract_serve_dir = root.join("ta_codegen/input/lib/c");
+                let ta_abstract_serve_dir = root.join("ta_codegen/generator/templates/c");
+                // fuzz_data.h (shared seed-generator/hasher) for stream_verify.
+                let ta_regtest_dir = src_dir.join("tools/ta_regtest");
                 let src = c_dir.join("ta_codegen_serve.c");
                 let dst = bin_dir.join("ta_codegen_serve_c");
                 match std::process::Command::new("gcc")
@@ -814,6 +926,7 @@ fn build_servers(backend_filter: Option<&str>) {
                         &format!("-I{}", ta_func_dir.to_str().unwrap()),
                         &format!("-I{}", ta_common_dir.to_str().unwrap()),
                         &format!("-I{}", ta_abstract_serve_dir.to_str().unwrap()),
+                        &format!("-I{}", ta_regtest_dir.to_str().unwrap()),
                     ])
                     .args(COMMON_GCC_FLAGS)
                     .status()
@@ -1423,9 +1536,22 @@ codegen-units = 1
 //! * Every call returns a [`RetCode`]; anything other than [`RetCode::Success`]
 //!   means no output was produced.
 //!
-//! Per-instance settings on [`Core`] control the unstable period
-//! ([`Core::set_unstable_period`]), Metastock compatibility
-//! ([`Core::set_compatibility`]), and candlestick thresholds.
+//! [`Core`] is immutable after construction: its per-instance settings — unstable
+//! period, Metastock [`Compatibility`], and candlestick thresholds — are chosen up
+//! front with [`Core::builder()`] and then frozen, so a `Core` is `Send + Sync` and
+//! can be shared read-only across threads (e.g. via `Arc`) with no locking:
+//!
+//! ```
+//! use ta_lib::{Core, Compatibility, FuncUnstId};
+//!
+//! let core = Core::builder()
+//!     .compatibility(Compatibility::Metastock)
+//!     .unstable_period(FuncUnstId::Ema, 10)
+//!     .build();
+//! ```
+//!
+//! To change a setting, build a new `Core` (cloning is cheap); [`Core::to_builder()`]
+//! seeds a builder from an existing instance.
 //!
 //! Every indicator also has an `*_unguarded` variant that skips parameter
 //! validation for internal cross-indicator calls — prefer the checked methods.
@@ -1493,6 +1619,25 @@ input slices, a `startIdx..=endIdx` range, caller-provided output slices, and a
 `RetCode` result. `outBegIdx` reports the input index of the first output value;
 `*_lookback` methods return how many leading values an indicator consumes.
 
+## Configuration
+
+`Core` is immutable after construction. The value-affecting settings — unstable
+period, Metastock compatibility, and candlestick thresholds — are chosen up front
+with a builder and then frozen:
+
+```rust
+use ta_lib::{Core, Compatibility, FuncUnstId};
+
+let core = Core::builder()
+    .compatibility(Compatibility::Metastock)
+    .unstable_period(FuncUnstId::Ema, 10)
+    .build();
+```
+
+Because a configured `Core` only ever reads its settings, it is `Send + Sync` and
+can be shared read-only across threads (e.g. an `Arc<Core>` with concurrent
+indicator calls) without locking. To change a setting, build a new `Core`.
+
 ## Documentation
 
 - API reference: <https://docs.rs/ta-lib>
@@ -1507,7 +1652,7 @@ BSD-3-Clause — see [LICENSE](https://github.com/TA-Lib/ta-lib/blob/main/LICENS
     std::fs::write(&readme_path, readme).unwrap();
     println!("  Scaffolding -> {}", readme_path.display());
 
-    // --- Copy hand-written types.rs from ta_codegen/input/lib/rust/ ---
+    // --- Copy hand-written types.rs from ta_codegen/generator/templates/rust/ ---
     if types_src.exists() {
         let types_dest = ta_func_dir.join("types.rs");
         std::fs::copy(types_src, &types_dest).unwrap();

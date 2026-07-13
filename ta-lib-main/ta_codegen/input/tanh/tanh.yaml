@@ -2,7 +2,7 @@ name: TANH
 camel_case: Tanh
 group: Math Transform
 hint: Vector Trigonometric Tanh
-flags: []
+flags: [stream]
 inputs:
   - name: inReal
     type: real

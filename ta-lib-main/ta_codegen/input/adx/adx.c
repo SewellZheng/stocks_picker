@@ -18,12 +18,18 @@
  *  082206 MF   Fix #1544555. Div by zero bug reported by GC.
  */
 
-int adx_lookback(int           optInTimePeriod)
+int adx_lookback(int optInTimePeriod)
 {
    return (2 * optInTimePeriod) + TA_GetUnstablePeriod(TA_FUNC_UNST_ADX) - 1;
 }
 
-TA_RetCode adx(int startIdx, int endIdx, const double inHigh[], const double inLow[], const double inClose[], int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[])
+TA_RetCode adx(int startIdx, int endIdx,
+   const double inHigh[],
+   const double inLow[],
+   const double inClose[],
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double outReal[])
 {
    int today, lookbackTotal, outIdx;
    double prevHigh, prevLow, prevClose;

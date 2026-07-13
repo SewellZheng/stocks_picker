@@ -14,7 +14,7 @@
  *  062804 MF   Resolve div by zero bug on limit case.
  */
 
-int rsi_lookback(int           optInTimePeriod)
+int rsi_lookback(int optInTimePeriod)
 {
    int retValue;
 
@@ -27,7 +27,11 @@ int rsi_lookback(int           optInTimePeriod)
    return retValue;
 }
 
-TA_RetCode rsi(int startIdx, int endIdx, const double inReal[], int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[])
+TA_RetCode rsi(int startIdx, int endIdx,
+   const double inReal[],
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double outReal[])
 {
    size_t outIdx;
    size_t today;

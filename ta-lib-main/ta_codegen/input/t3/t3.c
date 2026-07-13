@@ -23,13 +23,18 @@
  *                floating point (~1e-14 drift), so the copy is explicit.
  */
 
-int t3_lookback(int           optInTimePeriod,                                           double        optInVFactor)
+int t3_lookback(int optInTimePeriod, double optInVFactor)
 {
    (void)optInVFactor;
    return 6 * (optInTimePeriod-1) + TA_GetUnstablePeriod(TA_FUNC_UNST_T3);
 }
 
-TA_RetCode t3(int startIdx, int endIdx, const double inReal[], int optInTimePeriod, double optInVFactor, int *outBegIdx, int *outNBElement, double outReal[])
+TA_RetCode t3(int startIdx, int endIdx,
+   const double inReal[],
+   int optInTimePeriod,
+   double optInVFactor,
+   int *outBegIdx, int *outNBElement,
+   double outReal[])
 {
    int outIdx, lookbackTotal;
    int today, i;

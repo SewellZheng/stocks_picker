@@ -14,14 +14,18 @@
  *  052603 MF   Adapt code to compile with .NET Managed C++
  */
 
-int var_lookback(int           optInTimePeriod,                                            double        optInNbDev)
+int var_lookback(int optInTimePeriod, double optInNbDev)
 {
    (void)optInNbDev;
 
    return optInTimePeriod-1;
 }
 
-TA_RetCode var(int startIdx, int endIdx, const double *inReal, int optInTimePeriod, int *outBegIdx, int *outNBElement, double *outReal)
+TA_RetCode var(int startIdx, int endIdx,
+   const double *inReal,
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double *outReal)
 {
    double tempReal, periodTotal1, periodTotal2, meanValue1, meanValue2;
    int i, outIdx, trailingIdx, nbInitialElementNeeded;

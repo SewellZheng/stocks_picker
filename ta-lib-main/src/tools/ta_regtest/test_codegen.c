@@ -38,6 +38,7 @@ int g_hideUnguarded = 0;
 
 #include "ta_libc.h"
 #include "ta_abstract.h"
+#include "ta_utility.h"  /* TA_IS_ZERO / TA_IS_ZERO_SCALED / TA_IS_ZERO_OR_NEG (predicate parity truth) */
 #include "fuzz_data.h"   /* shared, byte-identical input generator + output hasher */
 
 /* Timing now comes from each server's JSON-RPC timing_ns field (the reference
@@ -568,6 +569,24 @@ static int build_json_request(CodegenRangeTestParam *p,
 
 /* ---- Generic output comparison (Task 8) ---- */
 
+/* Functions whose OUTPUT VALUES intentionally diverge from the frozen pre-cutover
+ * reference (ta_ref_serve) and are pinned by hand-written tests instead.
+ * STOCHRSI (issue #107): its internal STOCHF now guards the divide with
+ * TA_IS_ZERO where the reference divided a sub-epsilon flat-RSI-window residue
+ * into full-scale [0,100] noise — so ta_ref_serve is the wrong value oracle for
+ * it (same reason it is excluded from --fuzz-064). STOCHRSI's structural parity
+ * (retCode/outBegIdx/outNBElement) stays strict on every backend, and its values
+ * are pinned by test_stoch.c (test_stochrsi_epsilon_issue107). Standalone STOCH/
+ * STOCHF keep the same guard but do NOT diverge from the reference on raw OHLC
+ * (a flat raw window has highest==lowest exactly, diff==0), so they stay strictly
+ * value-compared. This exemption applies ONLY to comparisons whose baseline is
+ * the frozen reference — NOT the float leg, whose baseline is the current double
+ * variant (a self-consistency check, see the widenFloatInputs guard at callsite). */
+static int codegen_ref_value_exempt(const char *name)
+{
+    return strcmp(name, "STOCHRSI") == 0;
+}
+
 static void compare_codegen_output_generic(
     CodegenRangeTestParam *p,
     unsigned int outputNb)
@@ -617,6 +636,13 @@ static void compare_codegen_output_generic(
         p->codegenError = TA_CODEGEN_NBELEMENT_MISMATCH;
         return;
     }
+
+    /* Structural parity verified above; skip the VALUE diff for functions that
+     * intentionally diverge from the frozen reference (issue #107 STOCHRSI).
+     * NOT in the float leg (widenFloatInputs): there the baseline is the current
+     * double variant, so TA_S_ vs TA_ self-consistency must stay strictly checked. */
+    if( !p->widenFloatInputs && codegen_ref_value_exempt(p->funcInfo->name) )
+        return;
 
     /* Compare output values for the requested outputNb */
     if( p->outputIsInteger[outputNb] )
@@ -1131,6 +1157,11 @@ typedef struct {
     /* Ref differential sweep counters */
     int               sweepVariants;
     int               sweepFunctions;
+    /* Stream verification counters */
+    int               streamFunctions;
+    int               streamLegs;
+    int               streamSkipped;
+    int               streamRejectArms;
 } ForEachFuncContext;
 
 static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
@@ -1530,6 +1561,11 @@ static void sweep_compare_guarded(CodegenRangeTestParam *p)
         return;
     }
 
+    /* Structural parity verified above; skip the VALUE diff for functions that
+     * intentionally diverge from the frozen reference (issue #107 STOCHRSI). */
+    if( codegen_ref_value_exempt(p->funcInfo->name) )
+        return;
+
     for( i = 0; i < p->funcInfo->nbOutput && i < MAX_OUTPUTS; i++ )
     {
         int j;
@@ -1848,7 +1884,446 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     free_outputs(&params);
 }
 
+/* ---- Stream verification pass (batch-vs-stream, in-server bitwise) ----
+ *
+ * For each function the server sends stream_verify: it generates the input
+ * series from a seed (fuzz_data.h), runs BOTH the batch function (startIdx=0)
+ * and the stream trajectory (Open on a warm-up prefix, Update per remaining
+ * bar, Peek spot-asserted equal to the following Update) fully in-process,
+ * and compares BITWISE per bar. The driver only reads the match flags, so
+ * bit-exactness never rides the lossy JSON float path. Non-streamable
+ * functions (and servers without the method) answer with an error and are
+ * counted as skips. See docs/streaming-api-proposal.md, Verification. */
+
+#define STREAM_MAX_OPT 8
+#define STREAM_MAX_VEC 64
+#define STREAM_N       240
+
+static int stream_flag(const char *resp, const char *key)
+{
+    const char *p = strstr(resp, key);
+    if( !p ) return -1;
+    return atoi(p + strlen(key));
+}
+
+static void stream_build_request(char *buf, const TA_FuncInfo *fi,
+                                 const double *optVals,
+                                 int shape, int seed, int n,
+                                 int unstablePeriod, int compat)
+{
+    int pos = sprintf(buf,
+        "{\"method\":\"stream_verify\",\"params\":{\"funcName\":\"TA_%s\","
+        "\"gen_shape\":%d,\"gen_seed\":%d,\"gen_n\":%d,"
+        "\"unstablePeriod\":%d,\"compatibility\":%d",
+        fi->name, shape, seed, n, unstablePeriod, compat);
+    /* Candle functions: ask the server for the settings-variation rounds
+     * (avgPeriods bumped, then zeroed) on top of the default-settings legs. */
+    if( fi->flags & TA_FUNC_FLG_CANDLESTICK )
+        pos += sprintf(buf + pos, ",\"candleLegs\":1");
+    unsigned int i;
+    for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
+    {
+        const TA_OptInputParameterInfo *oi;
+        TA_GetOptInputParameterInfo(fi->handle, i, &oi);
+        if( oi->type == TA_OptInput_RealRange || oi->type == TA_OptInput_RealList )
+            pos += sprintf(buf + pos, ",\"%s\":%.15g", oi->paramName, optVals[i]);
+        else
+            pos += sprintf(buf + pos, ",\"%s\":%d", oi->paramName, (int)optVals[i]);
+    }
+    sprintf(buf + pos, "}}");
+}
+
+/* Param vectors: defaults, integer params at their true minimum (period==1
+ * territory, issues #93/#94 — deliberately NOT floored at 2 like the 0.6.4
+ * fuzz), and min+1. Real params stay at their defaults. Then one extra
+ * vector per non-default enum (MAType) list value, everything else at
+ * defaults: dispatch streams (MA) select their sub-stream by these values,
+ * so every arm gets its own bit-exact legs; arms without a sub-stream are
+ * verified as documented Open rejects server-side ("unsupportedArm").
+ * vecIsEnum marks the sweep vectors so the variant loop can add K and
+ * Metastock legs (the selected arm may be unstable — EMA/KAMA/T3 — or
+ * compatibility-seeded — EMA). */
+static int stream_build_vectors(const TA_FuncInfo *fi,
+                                double vec[STREAM_MAX_VEC][STREAM_MAX_OPT],
+                                int vecIsEnum[STREAM_MAX_VEC],
+                                int *overflow)
+{
+    unsigned int i, e;
+    int hasMin = 0, hasMinPlus1 = 0, nvec, v;
+    for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
+    {
+        const TA_OptInputParameterInfo *oi;
+        TA_GetOptInputParameterInfo(fi->handle, i, &oi);
+        vec[0][i] = vec[1][i] = vec[2][i] = oi->defaultValue;
+        if( oi->type == TA_OptInput_IntegerRange )
+        {
+            const TA_IntegerRange *r = (const TA_IntegerRange *)oi->dataSet;
+            if( r )
+            {
+                if( (int)r->min != (int)oi->defaultValue )
+                {
+                    vec[1][i] = (double)(int)r->min;
+                    hasMin = 1;
+                }
+                if( (int)r->min + 1 <= (int)r->max &&
+                    (int)r->min + 1 != (int)oi->defaultValue )
+                {
+                    vec[2][i] = (double)((int)r->min + 1);
+                    hasMinPlus1 = 1;
+                }
+            }
+        }
+    }
+    if( hasMin && hasMinPlus1 ) nvec = 3;
+    else if( hasMin ) nvec = 2;
+    else if( hasMinPlus1 )
+    {
+        for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
+            vec[1][i] = vec[2][i];
+        nvec = 2;
+    }
+    else nvec = 1;
+    for( v = 0; v < nvec; v++ ) vecIsEnum[v] = 0;
+
+    /* Enum (MAType) sweep vectors: each non-default list value crossed with
+     * (a) the defaults vector AND (b) the boundary vector when one exists
+     * (period==1 x MAType covers the identity-beats-unsupported-arm ordering
+     * — TA_MA_Open(1, MAMA) must stream — and min-period x arm covers the
+     * selected sub-stream's own boundary seeding). Plus one OUT-OF-LIST
+     * value per enum param: batch rejects it (the dispatch default arm), so
+     * the stream must reject too — reject-parity for the default arm.
+     * *overflow reports values silently dropped by the STREAM_MAX_VEC cap
+     * (the caller fails the run loudly: silent truncation would quietly
+     * stop testing arms). */
+    {
+        int baseVecs = nvec;
+        *overflow = 0;
+        for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
+        {
+            const TA_OptInputParameterInfo *oi;
+            TA_GetOptInputParameterInfo(fi->handle, i, &oi);
+            if( oi->type == TA_OptInput_IntegerList )
+            {
+                const TA_IntegerList *l = (const TA_IntegerList *)oi->dataSet;
+                int b, maxList = 0;
+                unsigned int j;
+                if( !l ) continue;
+                for( b = 0; b < baseVecs && b < 2; b++ )
+                {
+                    for( e = 0; e < l->nbElement; e++ )
+                    {
+                        if( l->data[e].value == (int)oi->defaultValue ) continue;
+                        if( nvec >= STREAM_MAX_VEC ) { (*overflow)++; continue; }
+                        for( j = 0; j < fi->nbOptInput && j < STREAM_MAX_OPT; j++ )
+                            vec[nvec][j] = vec[b][j];
+                        vec[nvec][i] = (double)l->data[e].value;
+                        vecIsEnum[nvec] = 1;
+                        nvec++;
+                    }
+                }
+                for( e = 0; e < l->nbElement; e++ )
+                    if( l->data[e].value > maxList ) maxList = l->data[e].value;
+                if( nvec >= STREAM_MAX_VEC ) { (*overflow)++; }
+                else
+                {
+                    for( j = 0; j < fi->nbOptInput && j < STREAM_MAX_OPT; j++ )
+                        vec[nvec][j] = vec[0][j];
+                    vec[nvec][i] = (double)(maxList + 91); /* out of list */
+                    vecIsEnum[nvec] = 1;
+                    nvec++;
+                }
+            }
+        }
+    }
+
+    /* Real-param sweep: one extra vector with every RealRange optional param
+     * moved to a non-default suggested value. Without it STDDEV/VAR's
+     * `optInNbDev != 1.0` scaling branch of the sqrt combine map is verified
+     * VACUOUSLY (every stream leg runs the default 1.0 branch only). Kept off
+     * the enum cross above so it stays a single default-shape leg
+     * (vecIsEnum == 0 -> variant 0 only). Non-default value comes from the
+     * abstract suggested_start/end (the same source the guarded sweep uses),
+     * filtered to a finite, in-range, non-default candidate. */
+    {
+        unsigned int j;
+        int haveReal = 0;
+        double rvec[STREAM_MAX_OPT];
+        for( j = 0; j < fi->nbOptInput && j < STREAM_MAX_OPT; j++ )
+            rvec[j] = vec[0][j];
+        for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
+        {
+            const TA_OptInputParameterInfo *oi;
+            TA_GetOptInputParameterInfo(fi->handle, i, &oi);
+            if( oi->type == TA_OptInput_RealRange )
+            {
+                const TA_RealRange *r = (const TA_RealRange *)oi->dataSet;
+                double sugg[2];
+                int b;
+                if( !r ) continue;
+                sugg[0] = r->suggested_start;
+                sugg[1] = r->suggested_end;
+                for( b = 0; b < 2; b++ )
+                {
+                    double vv = sugg[b];
+                    if( fabs(vv) > 1e30 ) continue;          /* unbounded sentinel */
+                    if( vv < r->min || vv > r->max ) continue;
+                    if( vv == oi->defaultValue ) continue;
+                    rvec[i] = vv;
+                    haveReal = 1;
+                    break;
+                }
+            }
+        }
+        if( haveReal )
+        {
+            if( nvec >= STREAM_MAX_VEC ) { (*overflow)++; }
+            else
+            {
+                for( j = 0; j < fi->nbOptInput && j < STREAM_MAX_OPT; j++ )
+                    vec[nvec][j] = rvec[j];
+                vecIsEnum[nvec] = 0;
+                nvec++;
+            }
+        }
+    }
+    return nvec;
+}
+
+static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
+{
+    ForEachFuncContext *ctx = (ForEachFuncContext *)opaqueData;
+    double vec[STREAM_MAX_VEC][STREAM_MAX_OPT];
+    int vecIsEnum[STREAM_MAX_VEC];
+    int nvec, v, variant, legs = 0, rejArms = 0, vecOverflow = 0;
+    int isUnstable;
+
+    if( ctx->error != TA_TEST_PASS ) return;
+    if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) ) return;
+
+    /* K-leg eligibility: the function's own unstable flag, or an internal
+     * unstable dependency (DEMA/TEMA/TRIX/MACD map to EMA in UNSTABLE_MAP —
+     * their stream values depend on EMA's ambient K). */
+    isUnstable = (funcInfo->flags & TA_FUNC_FLG_UNST_PER) != 0 ||
+                 get_unst_id(funcInfo->name) != TA_FUNC_UNST_NONE;
+    nvec = stream_build_vectors(funcInfo, vec, vecIsEnum, &vecOverflow);
+
+    /* Silent truncation would quietly stop testing params beyond the cap. */
+    if( funcInfo->nbOptInput > STREAM_MAX_OPT )
+    {
+        printf("STREAM PARAM OVERFLOW [TA_%s]: %u opt params > STREAM_MAX_OPT\n",
+               funcInfo->name, funcInfo->nbOptInput);
+        ctx->failed++;
+        ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+        return;
+    }
+    if( vecOverflow > 0 )
+    {
+        printf("STREAM VECTOR OVERFLOW [TA_%s]: %d enum value(s) dropped by "
+               "STREAM_MAX_VEC — arms would go unverified\n",
+               funcInfo->name, vecOverflow);
+        ctx->failed++;
+        ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+        return;
+    }
+
+    for( v = 0; v < nvec; v++ )
+    {
+        /* Variants: ambient defaults; plus (defaults vector only) one
+         * unstable-period leg, one Metastock-compatibility leg, and the
+         * remaining data shapes so all 7 fuzz shapes (incl. CONSTANT and
+         * TIE_HEAVY) are exercised every run. */
+        for( variant = 0; variant < 7; variant++ )
+        {
+            int K = 0, compat = 0, shape;
+            ErrorNumber pipeErr;
+            if( variant == 1 )
+            {
+                /* K-leg: defaults vector when the function is unstable, plus
+                 * every enum-sweep vector — the selected sub-stream may be
+                 * unstable (MA dispatching to EMA/KAMA/T3) even when the
+                 * dispatcher itself carries no unstable flag. */
+                if( !( (v == 0 && isUnstable) || vecIsEnum[v] ) ) continue;
+                K = 3;
+            }
+            else if( variant == 2 )
+            {
+                /* Metastock leg: defaults vector + enum-sweep vectors (an
+                 * EMA-family arm seeds differently under Metastock). */
+                if( v != 0 && !vecIsEnum[v] ) continue;
+                compat = 1;
+            }
+            else if( variant >= 3 )
+            {
+                if( v != 0 ) continue; /* extra shapes: defaults vector only */
+            }
+            shape = (variant >= 3) ? variant : (v + variant) % 7;
+            stream_build_request(ctx->requestBuf, funcInfo, vec[v],
+                                 shape, 1234 + v * 7 + variant, STREAM_N,
+                                 K, compat);
+            pipeErr = codegen_pipe_call(ctx->cp, ctx->requestBuf,
+                                        ctx->responseBuf, JSON_BUF_SIZE);
+            if( pipeErr != TA_TEST_PASS )
+            {
+                printf("STREAM PIPE FAIL [TA_%s]\n", funcInfo->name);
+                ctx->error = pipeErr;
+                return;
+            }
+            if( json_is_error(ctx->responseBuf) ||
+                stream_flag(ctx->responseBuf, "\"ok\":") < 0 )
+            {
+                /* No stream on the server side. The ta_abstract flag is the
+                 * public contract: a TA_FUNC_FLG_STREAM function without a
+                 * server stream (or vice versa below) is a set mismatch. */
+                if( funcInfo->flags & TA_FUNC_FLG_STREAM )
+                {
+                    printf("STREAM SET MISMATCH [TA_%s]: TA_FUNC_FLG_STREAM is set "
+                           "but the server has no stream for it\n", funcInfo->name);
+                    ctx->failed++;
+                    ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                    return;
+                }
+                ctx->streamSkipped++;
+                return;
+            }
+            if( !(funcInfo->flags & TA_FUNC_FLG_STREAM) )
+            {
+                printf("STREAM SET MISMATCH [TA_%s]: server streams it but "
+                       "TA_FUNC_FLG_STREAM is not set in ta_abstract\n", funcInfo->name);
+                ctx->failed++;
+                ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                return;
+            }
+            if( stream_flag(ctx->responseBuf, "\"ok\":") != 1 ||
+                stream_flag(ctx->responseBuf, "\"peek_ok\":") != 1 )
+            {
+                printf("STREAM MISMATCH [TA_%s] vector=%d K=%d compat=%d\n"
+                       "  request:  %s\n  response: %s\n",
+                       funcInfo->name, v, K, compat,
+                       ctx->requestBuf, ctx->responseBuf);
+                ctx->failed++;
+                ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                return;
+            }
+            {
+                int l = stream_flag(ctx->responseBuf, "\"legs\":");
+                if( l > 0 ) legs += l;
+                if( stream_flag(ctx->responseBuf, "\"unsupportedArm\":") == 1 )
+                    rejArms++;
+            }
+        }
+    }
+    /* Verified-leg floor: every stream-flagged function must contribute at
+     * least one bit-exact leg. Expected-reject arms (unsupportedArm) answer
+     * ok:1/legs:0 by design, so without this floor a plan-derivation
+     * regression that marks every arm unsupported — making Open reject AND
+     * the precheck bless the reject — would pass with zero comparisons. */
+    if( legs <= 0 )
+    {
+        printf("STREAM VACUOUS [TA_%s]: 0 verified legs (%d expected-reject "
+               "probes)\n", funcInfo->name, rejArms);
+        ctx->failed++;
+        ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+        return;
+    }
+    ctx->streamFunctions++;
+    ctx->streamLegs += legs;
+    ctx->streamRejectArms += rejArms;
+}
+
 /* ---- Test orchestration (Task 9) ---- */
+
+/* Cross-language parity for the boolean near-zero builtins (issue #107 follow-up).
+ * IS_ZERO / IS_ZERO_SCALED / IS_ZERO_OR_NEG are emitted as different but
+ * semantically-equal forms per backend (C two-sided macro, Rust `.abs() < eps`,
+ * Java two-sided). The eval_predicate server method evaluates the SAME form the
+ * indicators use; here we drive a finite boundary-input table through one
+ * language server and require every 0/1 result to match the in-process C macro.
+ * This is the only place IS_ZERO_SCALED's firing branch is exercised across
+ * languages (MFI never fires it on the --codegen history data). */
+static ErrorNumber test_predicate_parity(CodegenPipe *cp, const CodegenLanguage *lang,
+                                         char *reqBuf, char *respBuf)
+{
+    /* .NET P/Invokes the C library and does not re-implement these builtins, so
+     * eval_predicate is a C/Rust/Java check only. */
+    if( strcmp(lang->name, "dotnet") == 0 )
+        return TA_TEST_PASS;
+
+    /* Finite boundary table (NaN/inf excluded: the servers parse them
+     * inconsistently and TA-Lib does not define NaN behaviour). Values are sent
+     * with %.17g. The forms are semantically identical, so the goal is to catch a
+     * *form* divergence (wrong epsilon, missing abs, wrong operator, un-applied
+     * scale) — NOT sub-ULP JSON-transport differences. We therefore test values
+     * comfortably inside/outside the band (0.5x/0.9x vs 1.1x/2x the threshold),
+     * plus the exact boundary only at CLEAN values (0, +/-E, E*1.0) that strtod,
+     * serde and Double.parseDouble all parse to the identical double. */
+    double vals[160], scales[160];
+    int n = 0;
+    const double E = 1e-14;   /* TA_EPSILON */
+    const double b1[] = {
+        0.0, -0.0, E, -E,                        /* clean exact boundary (E is 1e-14) */
+        0.5 * E, 0.9 * E, -0.5 * E, -0.9 * E,    /* inside the |v| < E band */
+        1.1 * E, 2.0 * E, -1.1 * E, -2.0 * E,    /* outside */
+        1.0, -1.0, 100.0, -100.0, 1e-300, -1e-300, 5e-324, -5e-324
+    };
+    for( unsigned k = 0; k < sizeof(b1) / sizeof(b1[0]) && n < 160; k++ )
+    { vals[n] = b1[k]; scales[n] = 1.0; n++; }
+    const double scaleSet[] = { 0.0, 1e-6, 1.0, 100.0, 1e6, 1e12 };
+    for( unsigned k = 0; k < sizeof(scaleSet) / sizeof(scaleSet[0]); k++ )
+    {
+        double sc = scaleSet[k], thr = E * sc;
+        /* Fractional offsets only — robust to a sub-ULP parse of the ugly E*sc
+         * product; the clean scale==1 case above already exercises v==E exactly. */
+        double around[] = { 0.5 * thr, 0.9 * thr, 1.1 * thr, 2.0 * thr,
+                            -0.5 * thr, -1.1 * thr };
+        for( unsigned j = 0; j < sizeof(around) / sizeof(around[0]) && n < 160; j++ )
+        { vals[n] = around[j]; scales[n] = sc; n++; }
+    }
+
+    for( int which = 0; which <= 2; which++ )
+    {
+        int pos = snprintf(reqBuf, JSON_BUF_SIZE,
+            "{\"method\":\"eval_predicate\",\"params\":{\"which\":%d,\"values\":[", which);
+        for( int i = 0; i < n; i++ )
+            pos += snprintf(reqBuf + pos, JSON_BUF_SIZE - pos, "%s%.17g", i ? "," : "", vals[i]);
+        pos += snprintf(reqBuf + pos, JSON_BUF_SIZE - pos, "],\"scale\":[");
+        for( int i = 0; i < n; i++ )
+            pos += snprintf(reqBuf + pos, JSON_BUF_SIZE - pos, "%s%.17g", i ? "," : "", scales[i]);
+        snprintf(reqBuf + pos, JSON_BUF_SIZE - pos, "]}}");
+
+        if( codegen_pipe_call(cp, reqBuf, respBuf, JSON_BUF_SIZE) != TA_TEST_PASS
+            || json_is_error(respBuf) )
+        {
+            printf("  PREDICATE PARITY [%s]: eval_predicate call failed (which=%d)\n",
+                   lang->display, which);
+            return TA_PREDICATE_PARITY_CALL_FAILED;
+        }
+        int got[160];
+        int parsed = json_get_int_array(respBuf, "outInteger", got, 160);
+        if( parsed != n )
+        {
+            printf("  PREDICATE PARITY [%s]: expected %d results, got %d (which=%d)\n",
+                   lang->display, n, parsed, which);
+            return TA_PREDICATE_PARITY_MISMATCH;
+        }
+        for( int i = 0; i < n; i++ )
+        {
+            double v = vals[i], s = scales[i];
+            int truth = ( which == 1 ) ? ( TA_IS_ZERO_SCALED(v, s) ? 1 : 0 )
+                      : ( which == 2 ) ? ( TA_IS_ZERO_OR_NEG(v)    ? 1 : 0 )
+                      :                  ( TA_IS_ZERO(v)           ? 1 : 0 );
+            if( got[i] != truth )
+            {
+                const char *pn = ( which == 1 ) ? "IS_ZERO_SCALED"
+                               : ( which == 2 ) ? "IS_ZERO_OR_NEG" : "IS_ZERO";
+                printf("  PREDICATE PARITY [%s]: %s(v=%.17g, scale=%.17g) = %d but C macro = %d\n",
+                       lang->display, pn, v, s, got[i], truth);
+                return TA_PREDICATE_PARITY_MISMATCH;
+            }
+        }
+    }
+    printf("  Predicate parity (IS_ZERO family): %d values x 3 builtins match the C macro\n", n);
+    return TA_TEST_PASS;
+}
 
 static ErrorNumber test_codegen_for_language(
     const CodegenLanguage *lang,
@@ -1906,6 +2381,19 @@ static ErrorNumber test_codegen_for_language(
 
     TA_ForEachFunc(test_one_function, &ctx);
 
+    /* Cross-language boolean-builtin parity (IS_ZERO family) vs the in-process
+     * C macro. Independent of the frozen reference (ta_ref_serve predates the
+     * eval_predicate method), so it runs against the current language server. */
+    if( ctx.error == TA_TEST_PASS )
+    {
+        ErrorNumber predErr = test_predicate_parity(&cp, lang, requestBuf, responseBuf);
+        if( predErr != TA_TEST_PASS )
+        {
+            ctx.error = predErr;
+            ctx.failed++;
+        }
+    }
+
     /* Ref differential sweep: broaden the ta_ref_serve comparison beyond the
      * default and large-period points (see sweep_one_function). */
     if( ctx.error == TA_TEST_PASS && refCp )
@@ -1916,6 +2404,40 @@ static ErrorNumber test_codegen_for_language(
         printf("  Ref differential sweep: %d variants across %d functions%s\n",
                ctx.sweepVariants, ctx.sweepFunctions,
                ctx.error == TA_TEST_PASS ? ", all match ta_ref_serve" : "");
+    }
+
+    /* Stream verification: batch-vs-stream bitwise, computed in-server.
+     * Capability probe first: only a server implementing stream_verify
+     * answers an unknown-function probe with "not_streamable"; anything
+     * else (unknown method, loose foreign dispatch) would misfire on the
+     * real requests, so the pass is skipped for that server. */
+    if( ctx.error == TA_TEST_PASS )
+    {
+        ErrorNumber probeErr;
+        sprintf(requestBuf,
+                "{\"method\":\"stream_verify\",\"params\":{\"funcName\":\"TA_STREAM_PROBE\","
+                "\"gen_shape\":0,\"gen_seed\":1,\"gen_n\":2,\"unstablePeriod\":0,\"compatibility\":0}}");
+        probeErr = codegen_pipe_call(&cp, requestBuf, responseBuf, JSON_BUF_SIZE);
+        if( probeErr == TA_TEST_PASS && strstr(responseBuf, "not_streamable") )
+        {
+            ctx.streamFunctions   = 0;
+            ctx.streamLegs        = 0;
+            ctx.streamSkipped     = 0;
+            ctx.streamRejectArms  = 0;
+            TA_ForEachFunc(stream_one_function, &ctx);
+            printf("  Stream verify: %d functions, %d legs bit-exact vs batch, "
+                   "%d expected-reject probes, %d without a stream\n",
+                   ctx.streamFunctions, ctx.streamLegs, ctx.streamRejectArms,
+                   ctx.streamSkipped);
+        }
+        else if( probeErr == TA_TEST_PASS )
+        {
+            printf("  Stream verify: not supported by this server (stage 1 is C-only)\n");
+        }
+        else
+        {
+            ctx.error = probeErr;
+        }
     }
 
     free(requestBuf);
@@ -2323,6 +2845,7 @@ typedef struct {
     long long    comparisons, matches, benign, failures;
     long long    skipped98;   /* TRIX startIdx>lookback cases (issue #98 fix) */
     long long    cciTol;      /* CCI near-zero cases tolerated vs 0.6.4 (issue #7 fix) */
+    long long    stochRsiSkipped; /* STOCHRSI cases skipped: intentionally diverges from 0.6.4 (issue #107) */
     int          reportedThisFunc;
     int          funcsWithFailures, funcsBenign, funcsSkipped;
     int          serverRestarts;
@@ -2580,6 +3103,14 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         if( !strstr(ctx->funcList, needle) ) { ctx->funcsSkipped++; return; }
     }
 
+    /* STOCHRSI intentionally diverges from 0.6.4 (issue #107): its internal
+     * STOCHF now guards the divide with TA_IS_ZERO where 0.6.4 divided a sub-
+     * epsilon flat-RSI-window residue into full-scale [0,100] noise. That makes
+     * 0.6.4 the wrong oracle for STOCHRSI, so it is excluded from the differential
+     * fuzz; the new behaviour is pinned by hardcoded tests in test_stoch.c.
+     * (STOCH/STOCHF on raw OHLC do NOT diverge and stay strictly compared.) */
+    if( strcmp(funcInfo->name, "STOCHRSI") == 0 ) { ctx->stochRsiSkipped++; return; }
+
     for( i = 0; i < funcInfo->nbInput; i++ )
     {
         const TA_InputParameterInfo *ii;
@@ -2785,6 +3316,9 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     if( ctx.cciTol > 0 )
         printf("cci-tolerated: %lld CCI near-zero case(s) within %g vs 0.6.4 (issue #7 zero-value fix)\n",
                ctx.cciTol, (double)FUZZ_CCI_064_TOL);
+    if( ctx.stochRsiSkipped > 0 )
+        printf("stochrsi-skipped: %lld STOCHRSI case(s) — intentionally diverges from 0.6.4 (issue #107); pinned by test_stoch.c\n",
+               ctx.stochRsiSkipped);
     if( ctx.serverRestarts )
         printf("oracle restarts (recovered crashes): %d\n", ctx.serverRestarts);
     if( ctx.comparisons == 0 )
@@ -2795,7 +3329,7 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     if( ctx.failures == 0 && ctx.error == TA_TEST_PASS )
     {
         printf("PASS — current library is bit-identical to v0.6.4 at period>=2"
-               " (benign signed-zero and CCI issue-#7 near-zero tolerance aside).\n");
+               " (benign signed-zero and CCI issue-#7 tolerance aside; STOCHRSI excluded, issue #107).\n");
         return TA_TEST_PASS;
     }
     printf("FAIL — %lld real divergence(s) across %d function(s).\n",

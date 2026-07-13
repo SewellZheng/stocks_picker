@@ -117,6 +117,26 @@ TA_LIB_API TA_RetCode TA_S_ACOS( int    startIdx,
 TA_LIB_API int TA_ACOS_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_ACOS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ACOS_Stream TA_ACOS_Stream;
+
+TA_LIB_API TA_RetCode TA_ACOS_Open( const double inReal[], int historyLen, TA_ACOS_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ACOS_Update( TA_ACOS_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ACOS_Peek( const TA_ACOS_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ACOS_Close( TA_ACOS_Stream *stream );
+
 /*
  * TA_AD - Chaikin A/D Line
  * 
@@ -147,6 +167,26 @@ TA_LIB_API TA_RetCode TA_S_AD( int    startIdx,
 TA_LIB_API int TA_AD_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_AD — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_AD_Stream TA_AD_Stream;
+
+TA_LIB_API TA_RetCode TA_AD_Open( const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int historyLen, TA_AD_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AD_Update( TA_AD_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AD_Peek( const TA_AD_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AD_Close( TA_AD_Stream *stream );
+
 /*
  * TA_ADD - Vector Arithmetic Add
  * 
@@ -172,6 +212,26 @@ TA_LIB_API TA_RetCode TA_S_ADD( int    startIdx,
 
 TA_LIB_API int TA_ADD_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_ADD — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ADD_Stream TA_ADD_Stream;
+
+TA_LIB_API TA_RetCode TA_ADD_Open( const double inReal0[], const double inReal1[], int historyLen, TA_ADD_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADD_Update( TA_ADD_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADD_Peek( const TA_ADD_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADD_Close( TA_ADD_Stream *stream );
 
 /*
  * TA_ADOSC - Chaikin A/D Oscillator
@@ -217,6 +277,26 @@ TA_LIB_API int TA_ADOSC_Lookback( int           optInFastPeriod, /* From 2 to 10
                                            int           optInSlowPeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_ADOSC — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ADOSC_Stream TA_ADOSC_Stream;
+
+TA_LIB_API TA_RetCode TA_ADOSC_Open( int optInFastPeriod, int optInSlowPeriod, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int historyLen, TA_ADOSC_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADOSC_Update( TA_ADOSC_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADOSC_Peek( const TA_ADOSC_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADOSC_Close( TA_ADOSC_Stream *stream );
+
 /*
  * TA_ADX - Average Directional Movement Index
  * 
@@ -253,6 +333,26 @@ TA_LIB_API TA_RetCode TA_S_ADX( int    startIdx,
 TA_LIB_API int TA_ADX_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_ADX — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ADX_Stream TA_ADX_Stream;
+
+TA_LIB_API TA_RetCode TA_ADX_Open( int optInTimePeriod, const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_ADX_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADX_Update( TA_ADX_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADX_Peek( const TA_ADX_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADX_Close( TA_ADX_Stream *stream );
+
 /*
  * TA_ADXR - Average Directional Movement Index Rating
  * 
@@ -288,6 +388,26 @@ TA_LIB_API TA_RetCode TA_S_ADXR( int    startIdx,
 
 TA_LIB_API int TA_ADXR_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_ADXR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ADXR_Stream TA_ADXR_Stream;
+
+TA_LIB_API TA_RetCode TA_ADXR_Open( int optInTimePeriod, const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_ADXR_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADXR_Update( TA_ADXR_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADXR_Peek( const TA_ADXR_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADXR_Close( TA_ADXR_Stream *stream );
 
 /*
  * TA_APO - Absolute Price Oscillator
@@ -332,6 +452,26 @@ TA_LIB_API int TA_APO_Lookback( int           optInFastPeriod, /* From 2 to 1000
                                          int           optInSlowPeriod, /* From 2 to 100000 */
                                          TA_MAType     optInMAType );
 
+
+/*
+ * Streaming API for TA_APO — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_APO_Stream TA_APO_Stream;
+
+TA_LIB_API TA_RetCode TA_APO_Open( int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, const double inReal[], int historyLen, TA_APO_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_APO_Update( TA_APO_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_APO_Peek( const TA_APO_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_APO_Close( TA_APO_Stream *stream );
+
 /*
  * TA_AROON - Aroon
  * 
@@ -368,6 +508,26 @@ TA_LIB_API TA_RetCode TA_S_AROON( int    startIdx,
 TA_LIB_API int TA_AROON_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_AROON — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_AROON_Stream TA_AROON_Stream;
+
+TA_LIB_API TA_RetCode TA_AROON_Open( int optInTimePeriod, const double inHigh[], const double inLow[], int historyLen, TA_AROON_Stream **stream, double *outAroonDown, double *outAroonUp );
+
+TA_LIB_API TA_RetCode TA_AROON_Update( TA_AROON_Stream *stream, double inHigh, double inLow, double *outAroonDown, double *outAroonUp );
+
+TA_LIB_API TA_RetCode TA_AROON_Peek( const TA_AROON_Stream *stream, double inHigh, double inLow, double *outAroonDown, double *outAroonUp );
+
+TA_LIB_API TA_RetCode TA_AROON_Close( TA_AROON_Stream *stream );
+
 /*
  * TA_AROONOSC - Aroon Oscillator
  * 
@@ -402,6 +562,26 @@ TA_LIB_API TA_RetCode TA_S_AROONOSC( int    startIdx,
 TA_LIB_API int TA_AROONOSC_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_AROONOSC — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_AROONOSC_Stream TA_AROONOSC_Stream;
+
+TA_LIB_API TA_RetCode TA_AROONOSC_Open( int optInTimePeriod, const double inHigh[], const double inLow[], int historyLen, TA_AROONOSC_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AROONOSC_Update( TA_AROONOSC_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AROONOSC_Peek( const TA_AROONOSC_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AROONOSC_Close( TA_AROONOSC_Stream *stream );
+
 /*
  * TA_ASIN - Vector Trigonometric ASin
  * 
@@ -426,6 +606,26 @@ TA_LIB_API TA_RetCode TA_S_ASIN( int    startIdx,
 TA_LIB_API int TA_ASIN_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_ASIN — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ASIN_Stream TA_ASIN_Stream;
+
+TA_LIB_API TA_RetCode TA_ASIN_Open( const double inReal[], int historyLen, TA_ASIN_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ASIN_Update( TA_ASIN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ASIN_Peek( const TA_ASIN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ASIN_Close( TA_ASIN_Stream *stream );
+
 /*
  * TA_ATAN - Vector Trigonometric ATan
  * 
@@ -449,6 +649,26 @@ TA_LIB_API TA_RetCode TA_S_ATAN( int    startIdx,
 
 TA_LIB_API int TA_ATAN_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_ATAN — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ATAN_Stream TA_ATAN_Stream;
+
+TA_LIB_API TA_RetCode TA_ATAN_Open( const double inReal[], int historyLen, TA_ATAN_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ATAN_Update( TA_ATAN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ATAN_Peek( const TA_ATAN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ATAN_Close( TA_ATAN_Stream *stream );
 
 /*
  * TA_ATR - Average True Range
@@ -518,6 +738,26 @@ TA_LIB_API TA_RetCode TA_S_AVGDEV( int    startIdx,
 TA_LIB_API int TA_AVGDEV_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_AVGDEV — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_AVGDEV_Stream TA_AVGDEV_Stream;
+
+TA_LIB_API TA_RetCode TA_AVGDEV_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_AVGDEV_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AVGDEV_Update( TA_AVGDEV_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AVGDEV_Peek( const TA_AVGDEV_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AVGDEV_Close( TA_AVGDEV_Stream *stream );
+
 /*
  * TA_AVGPRICE - Average Price
  * 
@@ -547,6 +787,26 @@ TA_LIB_API TA_RetCode TA_S_AVGPRICE( int    startIdx,
 
 TA_LIB_API int TA_AVGPRICE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_AVGPRICE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_AVGPRICE_Stream TA_AVGPRICE_Stream;
+
+TA_LIB_API TA_RetCode TA_AVGPRICE_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_AVGPRICE_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AVGPRICE_Update( TA_AVGPRICE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AVGPRICE_Peek( const TA_AVGPRICE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_AVGPRICE_Close( TA_AVGPRICE_Stream *stream );
 
 /*
  * TA_BBANDS - Bollinger Bands
@@ -601,6 +861,26 @@ TA_LIB_API int TA_BBANDS_Lookback( int           optInTimePeriod, /* From 2 to 1
                                             double        optInNbDevDn, /* From TA_REAL_MIN to TA_REAL_MAX */
                                             TA_MAType     optInMAType );
 
+
+/*
+ * Streaming API for TA_BBANDS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_BBANDS_Stream TA_BBANDS_Stream;
+
+TA_LIB_API TA_RetCode TA_BBANDS_Open( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType, const double inReal[], int historyLen, TA_BBANDS_Stream **stream, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+TA_LIB_API TA_RetCode TA_BBANDS_Update( TA_BBANDS_Stream *stream, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+TA_LIB_API TA_RetCode TA_BBANDS_Peek( const TA_BBANDS_Stream *stream, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+TA_LIB_API TA_RetCode TA_BBANDS_Close( TA_BBANDS_Stream *stream );
+
 /*
  * TA_BETA - Beta
  * 
@@ -635,6 +915,26 @@ TA_LIB_API TA_RetCode TA_S_BETA( int    startIdx,
 TA_LIB_API int TA_BETA_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_BETA — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_BETA_Stream TA_BETA_Stream;
+
+TA_LIB_API TA_RetCode TA_BETA_Open( int optInTimePeriod, const double inReal0[], const double inReal1[], int historyLen, TA_BETA_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_BETA_Update( TA_BETA_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_BETA_Close( TA_BETA_Stream *stream );
+
 /*
  * TA_BOP - Balance Of Power
  * 
@@ -664,6 +964,26 @@ TA_LIB_API TA_RetCode TA_S_BOP( int    startIdx,
 
 TA_LIB_API int TA_BOP_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_BOP — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_BOP_Stream TA_BOP_Stream;
+
+TA_LIB_API TA_RetCode TA_BOP_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_BOP_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_BOP_Update( TA_BOP_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_BOP_Peek( const TA_BOP_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_BOP_Close( TA_BOP_Stream *stream );
 
 /*
  * TA_CCI - Commodity Channel Index
@@ -701,6 +1021,26 @@ TA_LIB_API TA_RetCode TA_S_CCI( int    startIdx,
 TA_LIB_API int TA_CCI_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_CCI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CCI_Stream TA_CCI_Stream;
+
+TA_LIB_API TA_RetCode TA_CCI_Open( int optInTimePeriod, const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CCI_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CCI_Update( TA_CCI_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CCI_Peek( const TA_CCI_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CCI_Close( TA_CCI_Stream *stream );
+
 /*
  * TA_CDL2CROWS - Two Crows
  * 
@@ -730,6 +1070,26 @@ TA_LIB_API TA_RetCode TA_S_CDL2CROWS( int    startIdx,
 
 TA_LIB_API int TA_CDL2CROWS_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDL2CROWS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDL2CROWS_Stream TA_CDL2CROWS_Stream;
+
+TA_LIB_API TA_RetCode TA_CDL2CROWS_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDL2CROWS_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL2CROWS_Update( TA_CDL2CROWS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL2CROWS_Peek( const TA_CDL2CROWS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL2CROWS_Close( TA_CDL2CROWS_Stream *stream );
 
 /*
  * TA_CDL3BLACKCROWS - Three Black Crows
@@ -761,6 +1121,26 @@ TA_LIB_API TA_RetCode TA_S_CDL3BLACKCROWS( int    startIdx,
 TA_LIB_API int TA_CDL3BLACKCROWS_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDL3BLACKCROWS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDL3BLACKCROWS_Stream TA_CDL3BLACKCROWS_Stream;
+
+TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDL3BLACKCROWS_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS_Update( TA_CDL3BLACKCROWS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS_Peek( const TA_CDL3BLACKCROWS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS_Close( TA_CDL3BLACKCROWS_Stream *stream );
+
 /*
  * TA_CDL3INSIDE - Three Inside Up/Down
  * 
@@ -790,6 +1170,26 @@ TA_LIB_API TA_RetCode TA_S_CDL3INSIDE( int    startIdx,
 
 TA_LIB_API int TA_CDL3INSIDE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDL3INSIDE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDL3INSIDE_Stream TA_CDL3INSIDE_Stream;
+
+TA_LIB_API TA_RetCode TA_CDL3INSIDE_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDL3INSIDE_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3INSIDE_Update( TA_CDL3INSIDE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3INSIDE_Peek( const TA_CDL3INSIDE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3INSIDE_Close( TA_CDL3INSIDE_Stream *stream );
 
 /*
  * TA_CDL3LINESTRIKE - Three-Line Strike
@@ -821,6 +1221,26 @@ TA_LIB_API TA_RetCode TA_S_CDL3LINESTRIKE( int    startIdx,
 TA_LIB_API int TA_CDL3LINESTRIKE_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDL3LINESTRIKE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDL3LINESTRIKE_Stream TA_CDL3LINESTRIKE_Stream;
+
+TA_LIB_API TA_RetCode TA_CDL3LINESTRIKE_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDL3LINESTRIKE_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3LINESTRIKE_Update( TA_CDL3LINESTRIKE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3LINESTRIKE_Peek( const TA_CDL3LINESTRIKE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3LINESTRIKE_Close( TA_CDL3LINESTRIKE_Stream *stream );
+
 /*
  * TA_CDL3OUTSIDE - Three Outside Up/Down
  * 
@@ -850,6 +1270,26 @@ TA_LIB_API TA_RetCode TA_S_CDL3OUTSIDE( int    startIdx,
 
 TA_LIB_API int TA_CDL3OUTSIDE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDL3OUTSIDE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDL3OUTSIDE_Stream TA_CDL3OUTSIDE_Stream;
+
+TA_LIB_API TA_RetCode TA_CDL3OUTSIDE_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDL3OUTSIDE_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3OUTSIDE_Update( TA_CDL3OUTSIDE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3OUTSIDE_Peek( const TA_CDL3OUTSIDE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3OUTSIDE_Close( TA_CDL3OUTSIDE_Stream *stream );
 
 /*
  * TA_CDL3STARSINSOUTH - Three Stars In The South
@@ -881,6 +1321,26 @@ TA_LIB_API TA_RetCode TA_S_CDL3STARSINSOUTH( int    startIdx,
 TA_LIB_API int TA_CDL3STARSINSOUTH_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDL3STARSINSOUTH — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDL3STARSINSOUTH_Stream TA_CDL3STARSINSOUTH_Stream;
+
+TA_LIB_API TA_RetCode TA_CDL3STARSINSOUTH_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDL3STARSINSOUTH_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3STARSINSOUTH_Update( TA_CDL3STARSINSOUTH_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3STARSINSOUTH_Peek( const TA_CDL3STARSINSOUTH_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3STARSINSOUTH_Close( TA_CDL3STARSINSOUTH_Stream *stream );
+
 /*
  * TA_CDL3WHITESOLDIERS - Three Advancing White Soldiers
  * 
@@ -910,6 +1370,26 @@ TA_LIB_API TA_RetCode TA_S_CDL3WHITESOLDIERS( int    startIdx,
 
 TA_LIB_API int TA_CDL3WHITESOLDIERS_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDL3WHITESOLDIERS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDL3WHITESOLDIERS_Stream TA_CDL3WHITESOLDIERS_Stream;
+
+TA_LIB_API TA_RetCode TA_CDL3WHITESOLDIERS_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDL3WHITESOLDIERS_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3WHITESOLDIERS_Update( TA_CDL3WHITESOLDIERS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3WHITESOLDIERS_Peek( const TA_CDL3WHITESOLDIERS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDL3WHITESOLDIERS_Close( TA_CDL3WHITESOLDIERS_Stream *stream );
 
 /*
  * TA_CDLABANDONEDBABY - Abandoned Baby
@@ -949,6 +1429,26 @@ TA_LIB_API TA_RetCode TA_S_CDLABANDONEDBABY( int    startIdx,
 TA_LIB_API int TA_CDLABANDONEDBABY_Lookback( double        optInPenetration );  /* From 0 to TA_REAL_MAX */
 
 
+
+/*
+ * Streaming API for TA_CDLABANDONEDBABY — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLABANDONEDBABY_Stream TA_CDLABANDONEDBABY_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLABANDONEDBABY_Open( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLABANDONEDBABY_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLABANDONEDBABY_Update( TA_CDLABANDONEDBABY_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLABANDONEDBABY_Peek( const TA_CDLABANDONEDBABY_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLABANDONEDBABY_Close( TA_CDLABANDONEDBABY_Stream *stream );
+
 /*
  * TA_CDLADVANCEBLOCK - Advance Block
  * 
@@ -978,6 +1478,26 @@ TA_LIB_API TA_RetCode TA_S_CDLADVANCEBLOCK( int    startIdx,
 
 TA_LIB_API int TA_CDLADVANCEBLOCK_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLADVANCEBLOCK — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLADVANCEBLOCK_Stream TA_CDLADVANCEBLOCK_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLADVANCEBLOCK_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Update( TA_CDLADVANCEBLOCK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Peek( const TA_CDLADVANCEBLOCK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Close( TA_CDLADVANCEBLOCK_Stream *stream );
 
 /*
  * TA_CDLBELTHOLD - Belt-hold
@@ -1009,6 +1529,26 @@ TA_LIB_API TA_RetCode TA_S_CDLBELTHOLD( int    startIdx,
 TA_LIB_API int TA_CDLBELTHOLD_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLBELTHOLD — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLBELTHOLD_Stream TA_CDLBELTHOLD_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLBELTHOLD_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLBELTHOLD_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLBELTHOLD_Update( TA_CDLBELTHOLD_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLBELTHOLD_Peek( const TA_CDLBELTHOLD_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLBELTHOLD_Close( TA_CDLBELTHOLD_Stream *stream );
+
 /*
  * TA_CDLBREAKAWAY - Breakaway
  * 
@@ -1038,6 +1578,26 @@ TA_LIB_API TA_RetCode TA_S_CDLBREAKAWAY( int    startIdx,
 
 TA_LIB_API int TA_CDLBREAKAWAY_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLBREAKAWAY — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLBREAKAWAY_Stream TA_CDLBREAKAWAY_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLBREAKAWAY_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLBREAKAWAY_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLBREAKAWAY_Update( TA_CDLBREAKAWAY_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLBREAKAWAY_Peek( const TA_CDLBREAKAWAY_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLBREAKAWAY_Close( TA_CDLBREAKAWAY_Stream *stream );
 
 /*
  * TA_CDLCLOSINGMARUBOZU - Closing Marubozu
@@ -1069,6 +1629,26 @@ TA_LIB_API TA_RetCode TA_S_CDLCLOSINGMARUBOZU( int    startIdx,
 TA_LIB_API int TA_CDLCLOSINGMARUBOZU_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLCLOSINGMARUBOZU — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLCLOSINGMARUBOZU_Stream TA_CDLCLOSINGMARUBOZU_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLCLOSINGMARUBOZU_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLCLOSINGMARUBOZU_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLCLOSINGMARUBOZU_Update( TA_CDLCLOSINGMARUBOZU_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLCLOSINGMARUBOZU_Peek( const TA_CDLCLOSINGMARUBOZU_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLCLOSINGMARUBOZU_Close( TA_CDLCLOSINGMARUBOZU_Stream *stream );
+
 /*
  * TA_CDLCONCEALBABYSWALL - Concealing Baby Swallow
  * 
@@ -1099,6 +1679,26 @@ TA_LIB_API TA_RetCode TA_S_CDLCONCEALBABYSWALL( int    startIdx,
 TA_LIB_API int TA_CDLCONCEALBABYSWALL_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLCONCEALBABYSWALL — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLCONCEALBABYSWALL_Stream TA_CDLCONCEALBABYSWALL_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLCONCEALBABYSWALL_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_Update( TA_CDLCONCEALBABYSWALL_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_Peek( const TA_CDLCONCEALBABYSWALL_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_Close( TA_CDLCONCEALBABYSWALL_Stream *stream );
+
 /*
  * TA_CDLCOUNTERATTACK - Counterattack
  * 
@@ -1128,6 +1728,26 @@ TA_LIB_API TA_RetCode TA_S_CDLCOUNTERATTACK( int    startIdx,
 
 TA_LIB_API int TA_CDLCOUNTERATTACK_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLCOUNTERATTACK — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLCOUNTERATTACK_Stream TA_CDLCOUNTERATTACK_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLCOUNTERATTACK_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLCOUNTERATTACK_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLCOUNTERATTACK_Update( TA_CDLCOUNTERATTACK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLCOUNTERATTACK_Peek( const TA_CDLCOUNTERATTACK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLCOUNTERATTACK_Close( TA_CDLCOUNTERATTACK_Stream *stream );
 
 /*
  * TA_CDLDARKCLOUDCOVER - Dark Cloud Cover
@@ -1167,6 +1787,26 @@ TA_LIB_API TA_RetCode TA_S_CDLDARKCLOUDCOVER( int    startIdx,
 TA_LIB_API int TA_CDLDARKCLOUDCOVER_Lookback( double        optInPenetration );  /* From 0 to TA_REAL_MAX */
 
 
+
+/*
+ * Streaming API for TA_CDLDARKCLOUDCOVER — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLDARKCLOUDCOVER_Stream TA_CDLDARKCLOUDCOVER_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLDARKCLOUDCOVER_Open( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLDARKCLOUDCOVER_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDARKCLOUDCOVER_Update( TA_CDLDARKCLOUDCOVER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDARKCLOUDCOVER_Peek( const TA_CDLDARKCLOUDCOVER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDARKCLOUDCOVER_Close( TA_CDLDARKCLOUDCOVER_Stream *stream );
+
 /*
  * TA_CDLDOJI - Doji
  * 
@@ -1196,6 +1836,26 @@ TA_LIB_API TA_RetCode TA_S_CDLDOJI( int    startIdx,
 
 TA_LIB_API int TA_CDLDOJI_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLDOJI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLDOJI_Stream TA_CDLDOJI_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLDOJI_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLDOJI_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDOJI_Update( TA_CDLDOJI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDOJI_Peek( const TA_CDLDOJI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDOJI_Close( TA_CDLDOJI_Stream *stream );
 
 /*
  * TA_CDLDOJISTAR - Doji Star
@@ -1227,6 +1887,26 @@ TA_LIB_API TA_RetCode TA_S_CDLDOJISTAR( int    startIdx,
 TA_LIB_API int TA_CDLDOJISTAR_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLDOJISTAR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLDOJISTAR_Stream TA_CDLDOJISTAR_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLDOJISTAR_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLDOJISTAR_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDOJISTAR_Update( TA_CDLDOJISTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDOJISTAR_Peek( const TA_CDLDOJISTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDOJISTAR_Close( TA_CDLDOJISTAR_Stream *stream );
+
 /*
  * TA_CDLDRAGONFLYDOJI - Dragonfly Doji
  * 
@@ -1257,6 +1937,26 @@ TA_LIB_API TA_RetCode TA_S_CDLDRAGONFLYDOJI( int    startIdx,
 TA_LIB_API int TA_CDLDRAGONFLYDOJI_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLDRAGONFLYDOJI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLDRAGONFLYDOJI_Stream TA_CDLDRAGONFLYDOJI_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLDRAGONFLYDOJI_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLDRAGONFLYDOJI_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDRAGONFLYDOJI_Update( TA_CDLDRAGONFLYDOJI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDRAGONFLYDOJI_Peek( const TA_CDLDRAGONFLYDOJI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLDRAGONFLYDOJI_Close( TA_CDLDRAGONFLYDOJI_Stream *stream );
+
 /*
  * TA_CDLENGULFING - Engulfing Pattern
  * 
@@ -1286,6 +1986,26 @@ TA_LIB_API TA_RetCode TA_S_CDLENGULFING( int    startIdx,
 
 TA_LIB_API int TA_CDLENGULFING_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLENGULFING — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLENGULFING_Stream TA_CDLENGULFING_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLENGULFING_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLENGULFING_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLENGULFING_Update( TA_CDLENGULFING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLENGULFING_Peek( const TA_CDLENGULFING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLENGULFING_Close( TA_CDLENGULFING_Stream *stream );
 
 /*
  * TA_CDLEVENINGDOJISTAR - Evening Doji Star
@@ -1325,6 +2045,26 @@ TA_LIB_API TA_RetCode TA_S_CDLEVENINGDOJISTAR( int    startIdx,
 TA_LIB_API int TA_CDLEVENINGDOJISTAR_Lookback( double        optInPenetration );  /* From 0 to TA_REAL_MAX */
 
 
+
+/*
+ * Streaming API for TA_CDLEVENINGDOJISTAR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLEVENINGDOJISTAR_Stream TA_CDLEVENINGDOJISTAR_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGDOJISTAR_Open( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLEVENINGDOJISTAR_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGDOJISTAR_Update( TA_CDLEVENINGDOJISTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGDOJISTAR_Peek( const TA_CDLEVENINGDOJISTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGDOJISTAR_Close( TA_CDLEVENINGDOJISTAR_Stream *stream );
+
 /*
  * TA_CDLEVENINGSTAR - Evening Star
  * 
@@ -1363,6 +2103,26 @@ TA_LIB_API TA_RetCode TA_S_CDLEVENINGSTAR( int    startIdx,
 TA_LIB_API int TA_CDLEVENINGSTAR_Lookback( double        optInPenetration );  /* From 0 to TA_REAL_MAX */
 
 
+
+/*
+ * Streaming API for TA_CDLEVENINGSTAR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLEVENINGSTAR_Stream TA_CDLEVENINGSTAR_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_Open( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLEVENINGSTAR_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_Update( TA_CDLEVENINGSTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_Peek( const TA_CDLEVENINGSTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_Close( TA_CDLEVENINGSTAR_Stream *stream );
+
 /*
  * TA_CDLGAPSIDESIDEWHITE - Up/Down-gap side-by-side white lines
  * 
@@ -1392,6 +2152,26 @@ TA_LIB_API TA_RetCode TA_S_CDLGAPSIDESIDEWHITE( int    startIdx,
 
 TA_LIB_API int TA_CDLGAPSIDESIDEWHITE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLGAPSIDESIDEWHITE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLGAPSIDESIDEWHITE_Stream TA_CDLGAPSIDESIDEWHITE_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLGAPSIDESIDEWHITE_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_Update( TA_CDLGAPSIDESIDEWHITE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_Peek( const TA_CDLGAPSIDESIDEWHITE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_Close( TA_CDLGAPSIDESIDEWHITE_Stream *stream );
 
 /*
  * TA_CDLGRAVESTONEDOJI - Gravestone Doji
@@ -1423,6 +2203,26 @@ TA_LIB_API TA_RetCode TA_S_CDLGRAVESTONEDOJI( int    startIdx,
 TA_LIB_API int TA_CDLGRAVESTONEDOJI_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLGRAVESTONEDOJI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLGRAVESTONEDOJI_Stream TA_CDLGRAVESTONEDOJI_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLGRAVESTONEDOJI_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLGRAVESTONEDOJI_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLGRAVESTONEDOJI_Update( TA_CDLGRAVESTONEDOJI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLGRAVESTONEDOJI_Peek( const TA_CDLGRAVESTONEDOJI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLGRAVESTONEDOJI_Close( TA_CDLGRAVESTONEDOJI_Stream *stream );
+
 /*
  * TA_CDLHAMMER - Hammer
  * 
@@ -1452,6 +2252,26 @@ TA_LIB_API TA_RetCode TA_S_CDLHAMMER( int    startIdx,
 
 TA_LIB_API int TA_CDLHAMMER_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLHAMMER — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLHAMMER_Stream TA_CDLHAMMER_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLHAMMER_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLHAMMER_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHAMMER_Update( TA_CDLHAMMER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHAMMER_Peek( const TA_CDLHAMMER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHAMMER_Close( TA_CDLHAMMER_Stream *stream );
 
 /*
  * TA_CDLHANGINGMAN - Hanging Man
@@ -1483,6 +2303,26 @@ TA_LIB_API TA_RetCode TA_S_CDLHANGINGMAN( int    startIdx,
 TA_LIB_API int TA_CDLHANGINGMAN_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLHANGINGMAN — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLHANGINGMAN_Stream TA_CDLHANGINGMAN_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLHANGINGMAN_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_Update( TA_CDLHANGINGMAN_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_Peek( const TA_CDLHANGINGMAN_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_Close( TA_CDLHANGINGMAN_Stream *stream );
+
 /*
  * TA_CDLHARAMI - Harami Pattern
  * 
@@ -1512,6 +2352,26 @@ TA_LIB_API TA_RetCode TA_S_CDLHARAMI( int    startIdx,
 
 TA_LIB_API int TA_CDLHARAMI_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLHARAMI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLHARAMI_Stream TA_CDLHARAMI_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLHARAMI_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLHARAMI_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHARAMI_Update( TA_CDLHARAMI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHARAMI_Peek( const TA_CDLHARAMI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHARAMI_Close( TA_CDLHARAMI_Stream *stream );
 
 /*
  * TA_CDLHARAMICROSS - Harami Cross Pattern
@@ -1543,6 +2403,26 @@ TA_LIB_API TA_RetCode TA_S_CDLHARAMICROSS( int    startIdx,
 TA_LIB_API int TA_CDLHARAMICROSS_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLHARAMICROSS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLHARAMICROSS_Stream TA_CDLHARAMICROSS_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLHARAMICROSS_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLHARAMICROSS_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHARAMICROSS_Update( TA_CDLHARAMICROSS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHARAMICROSS_Peek( const TA_CDLHARAMICROSS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHARAMICROSS_Close( TA_CDLHARAMICROSS_Stream *stream );
+
 /*
  * TA_CDLHIGHWAVE - High-Wave Candle
  * 
@@ -1572,6 +2452,26 @@ TA_LIB_API TA_RetCode TA_S_CDLHIGHWAVE( int    startIdx,
 
 TA_LIB_API int TA_CDLHIGHWAVE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLHIGHWAVE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLHIGHWAVE_Stream TA_CDLHIGHWAVE_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLHIGHWAVE_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLHIGHWAVE_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHIGHWAVE_Update( TA_CDLHIGHWAVE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHIGHWAVE_Peek( const TA_CDLHIGHWAVE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHIGHWAVE_Close( TA_CDLHIGHWAVE_Stream *stream );
 
 /*
  * TA_CDLHIKKAKE - Hikkake Pattern
@@ -1663,6 +2563,26 @@ TA_LIB_API TA_RetCode TA_S_CDLHOMINGPIGEON( int    startIdx,
 TA_LIB_API int TA_CDLHOMINGPIGEON_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLHOMINGPIGEON — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLHOMINGPIGEON_Stream TA_CDLHOMINGPIGEON_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLHOMINGPIGEON_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLHOMINGPIGEON_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHOMINGPIGEON_Update( TA_CDLHOMINGPIGEON_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHOMINGPIGEON_Peek( const TA_CDLHOMINGPIGEON_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLHOMINGPIGEON_Close( TA_CDLHOMINGPIGEON_Stream *stream );
+
 /*
  * TA_CDLIDENTICAL3CROWS - Identical Three Crows
  * 
@@ -1692,6 +2612,26 @@ TA_LIB_API TA_RetCode TA_S_CDLIDENTICAL3CROWS( int    startIdx,
 
 TA_LIB_API int TA_CDLIDENTICAL3CROWS_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLIDENTICAL3CROWS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLIDENTICAL3CROWS_Stream TA_CDLIDENTICAL3CROWS_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLIDENTICAL3CROWS_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLIDENTICAL3CROWS_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLIDENTICAL3CROWS_Update( TA_CDLIDENTICAL3CROWS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLIDENTICAL3CROWS_Peek( const TA_CDLIDENTICAL3CROWS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLIDENTICAL3CROWS_Close( TA_CDLIDENTICAL3CROWS_Stream *stream );
 
 /*
  * TA_CDLINNECK - In-Neck Pattern
@@ -1723,6 +2663,26 @@ TA_LIB_API TA_RetCode TA_S_CDLINNECK( int    startIdx,
 TA_LIB_API int TA_CDLINNECK_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLINNECK — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLINNECK_Stream TA_CDLINNECK_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLINNECK_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLINNECK_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLINNECK_Update( TA_CDLINNECK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLINNECK_Peek( const TA_CDLINNECK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLINNECK_Close( TA_CDLINNECK_Stream *stream );
+
 /*
  * TA_CDLINVERTEDHAMMER - Inverted Hammer
  * 
@@ -1752,6 +2712,26 @@ TA_LIB_API TA_RetCode TA_S_CDLINVERTEDHAMMER( int    startIdx,
 
 TA_LIB_API int TA_CDLINVERTEDHAMMER_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLINVERTEDHAMMER — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLINVERTEDHAMMER_Stream TA_CDLINVERTEDHAMMER_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLINVERTEDHAMMER_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLINVERTEDHAMMER_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLINVERTEDHAMMER_Update( TA_CDLINVERTEDHAMMER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLINVERTEDHAMMER_Peek( const TA_CDLINVERTEDHAMMER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLINVERTEDHAMMER_Close( TA_CDLINVERTEDHAMMER_Stream *stream );
 
 /*
  * TA_CDLKICKING - Kicking
@@ -1783,6 +2763,26 @@ TA_LIB_API TA_RetCode TA_S_CDLKICKING( int    startIdx,
 TA_LIB_API int TA_CDLKICKING_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLKICKING — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLKICKING_Stream TA_CDLKICKING_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLKICKING_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLKICKING_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLKICKING_Update( TA_CDLKICKING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLKICKING_Peek( const TA_CDLKICKING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLKICKING_Close( TA_CDLKICKING_Stream *stream );
+
 /*
  * TA_CDLKICKINGBYLENGTH - Kicking - bull/bear determined by the longer marubozu
  * 
@@ -1812,6 +2812,26 @@ TA_LIB_API TA_RetCode TA_S_CDLKICKINGBYLENGTH( int    startIdx,
 
 TA_LIB_API int TA_CDLKICKINGBYLENGTH_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLKICKINGBYLENGTH — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLKICKINGBYLENGTH_Stream TA_CDLKICKINGBYLENGTH_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLKICKINGBYLENGTH_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLKICKINGBYLENGTH_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLKICKINGBYLENGTH_Update( TA_CDLKICKINGBYLENGTH_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLKICKINGBYLENGTH_Peek( const TA_CDLKICKINGBYLENGTH_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLKICKINGBYLENGTH_Close( TA_CDLKICKINGBYLENGTH_Stream *stream );
 
 /*
  * TA_CDLLADDERBOTTOM - Ladder Bottom
@@ -1843,6 +2863,26 @@ TA_LIB_API TA_RetCode TA_S_CDLLADDERBOTTOM( int    startIdx,
 TA_LIB_API int TA_CDLLADDERBOTTOM_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLLADDERBOTTOM — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLLADDERBOTTOM_Stream TA_CDLLADDERBOTTOM_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLLADDERBOTTOM_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLLADDERBOTTOM_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLLADDERBOTTOM_Update( TA_CDLLADDERBOTTOM_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLLADDERBOTTOM_Peek( const TA_CDLLADDERBOTTOM_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLLADDERBOTTOM_Close( TA_CDLLADDERBOTTOM_Stream *stream );
+
 /*
  * TA_CDLLONGLEGGEDDOJI - Long Legged Doji
  * 
@@ -1872,6 +2912,26 @@ TA_LIB_API TA_RetCode TA_S_CDLLONGLEGGEDDOJI( int    startIdx,
 
 TA_LIB_API int TA_CDLLONGLEGGEDDOJI_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLLONGLEGGEDDOJI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLLONGLEGGEDDOJI_Stream TA_CDLLONGLEGGEDDOJI_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLLONGLEGGEDDOJI_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLLONGLEGGEDDOJI_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLLONGLEGGEDDOJI_Update( TA_CDLLONGLEGGEDDOJI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLLONGLEGGEDDOJI_Peek( const TA_CDLLONGLEGGEDDOJI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLLONGLEGGEDDOJI_Close( TA_CDLLONGLEGGEDDOJI_Stream *stream );
 
 /*
  * TA_CDLLONGLINE - Long Line Candle
@@ -1903,6 +2963,26 @@ TA_LIB_API TA_RetCode TA_S_CDLLONGLINE( int    startIdx,
 TA_LIB_API int TA_CDLLONGLINE_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLLONGLINE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLLONGLINE_Stream TA_CDLLONGLINE_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLLONGLINE_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLLONGLINE_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLLONGLINE_Update( TA_CDLLONGLINE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLLONGLINE_Peek( const TA_CDLLONGLINE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLLONGLINE_Close( TA_CDLLONGLINE_Stream *stream );
+
 /*
  * TA_CDLMARUBOZU - Marubozu
  * 
@@ -1933,6 +3013,26 @@ TA_LIB_API TA_RetCode TA_S_CDLMARUBOZU( int    startIdx,
 TA_LIB_API int TA_CDLMARUBOZU_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLMARUBOZU — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLMARUBOZU_Stream TA_CDLMARUBOZU_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLMARUBOZU_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLMARUBOZU_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMARUBOZU_Update( TA_CDLMARUBOZU_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMARUBOZU_Peek( const TA_CDLMARUBOZU_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMARUBOZU_Close( TA_CDLMARUBOZU_Stream *stream );
+
 /*
  * TA_CDLMATCHINGLOW - Matching Low
  * 
@@ -1962,6 +3062,26 @@ TA_LIB_API TA_RetCode TA_S_CDLMATCHINGLOW( int    startIdx,
 
 TA_LIB_API int TA_CDLMATCHINGLOW_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLMATCHINGLOW — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLMATCHINGLOW_Stream TA_CDLMATCHINGLOW_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLMATCHINGLOW_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLMATCHINGLOW_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMATCHINGLOW_Update( TA_CDLMATCHINGLOW_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMATCHINGLOW_Peek( const TA_CDLMATCHINGLOW_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMATCHINGLOW_Close( TA_CDLMATCHINGLOW_Stream *stream );
 
 /*
  * TA_CDLMATHOLD - Mat Hold
@@ -2001,6 +3121,26 @@ TA_LIB_API TA_RetCode TA_S_CDLMATHOLD( int    startIdx,
 TA_LIB_API int TA_CDLMATHOLD_Lookback( double        optInPenetration );  /* From 0 to TA_REAL_MAX */
 
 
+
+/*
+ * Streaming API for TA_CDLMATHOLD — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLMATHOLD_Stream TA_CDLMATHOLD_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLMATHOLD_Open( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLMATHOLD_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMATHOLD_Update( TA_CDLMATHOLD_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMATHOLD_Peek( const TA_CDLMATHOLD_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMATHOLD_Close( TA_CDLMATHOLD_Stream *stream );
+
 /*
  * TA_CDLMORNINGDOJISTAR - Morning Doji Star
  * 
@@ -2038,6 +3178,26 @@ TA_LIB_API TA_RetCode TA_S_CDLMORNINGDOJISTAR( int    startIdx,
 
 TA_LIB_API int TA_CDLMORNINGDOJISTAR_Lookback( double        optInPenetration );  /* From 0 to TA_REAL_MAX */
 
+
+
+/*
+ * Streaming API for TA_CDLMORNINGDOJISTAR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLMORNINGDOJISTAR_Stream TA_CDLMORNINGDOJISTAR_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLMORNINGDOJISTAR_Open( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLMORNINGDOJISTAR_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMORNINGDOJISTAR_Update( TA_CDLMORNINGDOJISTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMORNINGDOJISTAR_Peek( const TA_CDLMORNINGDOJISTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMORNINGDOJISTAR_Close( TA_CDLMORNINGDOJISTAR_Stream *stream );
 
 /*
  * TA_CDLMORNINGSTAR - Morning Star
@@ -2077,6 +3237,26 @@ TA_LIB_API TA_RetCode TA_S_CDLMORNINGSTAR( int    startIdx,
 TA_LIB_API int TA_CDLMORNINGSTAR_Lookback( double        optInPenetration );  /* From 0 to TA_REAL_MAX */
 
 
+
+/*
+ * Streaming API for TA_CDLMORNINGSTAR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLMORNINGSTAR_Stream TA_CDLMORNINGSTAR_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_Open( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLMORNINGSTAR_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_Update( TA_CDLMORNINGSTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_Peek( const TA_CDLMORNINGSTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_Close( TA_CDLMORNINGSTAR_Stream *stream );
+
 /*
  * TA_CDLONNECK - On-Neck Pattern
  * 
@@ -2106,6 +3286,26 @@ TA_LIB_API TA_RetCode TA_S_CDLONNECK( int    startIdx,
 
 TA_LIB_API int TA_CDLONNECK_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLONNECK — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLONNECK_Stream TA_CDLONNECK_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLONNECK_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLONNECK_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLONNECK_Update( TA_CDLONNECK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLONNECK_Peek( const TA_CDLONNECK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLONNECK_Close( TA_CDLONNECK_Stream *stream );
 
 /*
  * TA_CDLPIERCING - Piercing Pattern
@@ -2137,6 +3337,26 @@ TA_LIB_API TA_RetCode TA_S_CDLPIERCING( int    startIdx,
 TA_LIB_API int TA_CDLPIERCING_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLPIERCING — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLPIERCING_Stream TA_CDLPIERCING_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLPIERCING_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLPIERCING_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLPIERCING_Update( TA_CDLPIERCING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLPIERCING_Peek( const TA_CDLPIERCING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLPIERCING_Close( TA_CDLPIERCING_Stream *stream );
+
 /*
  * TA_CDLRICKSHAWMAN - Rickshaw Man
  * 
@@ -2166,6 +3386,26 @@ TA_LIB_API TA_RetCode TA_S_CDLRICKSHAWMAN( int    startIdx,
 
 TA_LIB_API int TA_CDLRICKSHAWMAN_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLRICKSHAWMAN — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLRICKSHAWMAN_Stream TA_CDLRICKSHAWMAN_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLRICKSHAWMAN_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLRICKSHAWMAN_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLRICKSHAWMAN_Update( TA_CDLRICKSHAWMAN_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLRICKSHAWMAN_Peek( const TA_CDLRICKSHAWMAN_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLRICKSHAWMAN_Close( TA_CDLRICKSHAWMAN_Stream *stream );
 
 /*
  * TA_CDLRISEFALL3METHODS - Rising/Falling Three Methods
@@ -2197,6 +3437,26 @@ TA_LIB_API TA_RetCode TA_S_CDLRISEFALL3METHODS( int    startIdx,
 TA_LIB_API int TA_CDLRISEFALL3METHODS_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLRISEFALL3METHODS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLRISEFALL3METHODS_Stream TA_CDLRISEFALL3METHODS_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLRISEFALL3METHODS_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS_Update( TA_CDLRISEFALL3METHODS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS_Peek( const TA_CDLRISEFALL3METHODS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS_Close( TA_CDLRISEFALL3METHODS_Stream *stream );
+
 /*
  * TA_CDLSEPARATINGLINES - Separating Lines
  * 
@@ -2226,6 +3486,26 @@ TA_LIB_API TA_RetCode TA_S_CDLSEPARATINGLINES( int    startIdx,
 
 TA_LIB_API int TA_CDLSEPARATINGLINES_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLSEPARATINGLINES — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLSEPARATINGLINES_Stream TA_CDLSEPARATINGLINES_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLSEPARATINGLINES_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLSEPARATINGLINES_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSEPARATINGLINES_Update( TA_CDLSEPARATINGLINES_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSEPARATINGLINES_Peek( const TA_CDLSEPARATINGLINES_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSEPARATINGLINES_Close( TA_CDLSEPARATINGLINES_Stream *stream );
 
 /*
  * TA_CDLSHOOTINGSTAR - Shooting Star
@@ -2257,6 +3537,26 @@ TA_LIB_API TA_RetCode TA_S_CDLSHOOTINGSTAR( int    startIdx,
 TA_LIB_API int TA_CDLSHOOTINGSTAR_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLSHOOTINGSTAR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLSHOOTINGSTAR_Stream TA_CDLSHOOTINGSTAR_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLSHOOTINGSTAR_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLSHOOTINGSTAR_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSHOOTINGSTAR_Update( TA_CDLSHOOTINGSTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSHOOTINGSTAR_Peek( const TA_CDLSHOOTINGSTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSHOOTINGSTAR_Close( TA_CDLSHOOTINGSTAR_Stream *stream );
+
 /*
  * TA_CDLSHORTLINE - Short Line Candle
  * 
@@ -2286,6 +3586,26 @@ TA_LIB_API TA_RetCode TA_S_CDLSHORTLINE( int    startIdx,
 
 TA_LIB_API int TA_CDLSHORTLINE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLSHORTLINE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLSHORTLINE_Stream TA_CDLSHORTLINE_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLSHORTLINE_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLSHORTLINE_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSHORTLINE_Update( TA_CDLSHORTLINE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSHORTLINE_Peek( const TA_CDLSHORTLINE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSHORTLINE_Close( TA_CDLSHORTLINE_Stream *stream );
 
 /*
  * TA_CDLSPINNINGTOP - Spinning Top
@@ -2317,6 +3637,26 @@ TA_LIB_API TA_RetCode TA_S_CDLSPINNINGTOP( int    startIdx,
 TA_LIB_API int TA_CDLSPINNINGTOP_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLSPINNINGTOP — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLSPINNINGTOP_Stream TA_CDLSPINNINGTOP_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLSPINNINGTOP_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_Update( TA_CDLSPINNINGTOP_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_Peek( const TA_CDLSPINNINGTOP_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_Close( TA_CDLSPINNINGTOP_Stream *stream );
+
 /*
  * TA_CDLSTALLEDPATTERN - Stalled Pattern
  * 
@@ -2346,6 +3686,26 @@ TA_LIB_API TA_RetCode TA_S_CDLSTALLEDPATTERN( int    startIdx,
 
 TA_LIB_API int TA_CDLSTALLEDPATTERN_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLSTALLEDPATTERN — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLSTALLEDPATTERN_Stream TA_CDLSTALLEDPATTERN_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLSTALLEDPATTERN_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLSTALLEDPATTERN_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSTALLEDPATTERN_Update( TA_CDLSTALLEDPATTERN_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSTALLEDPATTERN_Peek( const TA_CDLSTALLEDPATTERN_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSTALLEDPATTERN_Close( TA_CDLSTALLEDPATTERN_Stream *stream );
 
 /*
  * TA_CDLSTICKSANDWICH - Stick Sandwich
@@ -2377,6 +3737,26 @@ TA_LIB_API TA_RetCode TA_S_CDLSTICKSANDWICH( int    startIdx,
 TA_LIB_API int TA_CDLSTICKSANDWICH_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLSTICKSANDWICH — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLSTICKSANDWICH_Stream TA_CDLSTICKSANDWICH_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLSTICKSANDWICH_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLSTICKSANDWICH_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSTICKSANDWICH_Update( TA_CDLSTICKSANDWICH_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSTICKSANDWICH_Peek( const TA_CDLSTICKSANDWICH_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLSTICKSANDWICH_Close( TA_CDLSTICKSANDWICH_Stream *stream );
+
 /*
  * TA_CDLTAKURI - Takuri (Dragonfly Doji with very long lower shadow)
  * 
@@ -2406,6 +3786,26 @@ TA_LIB_API TA_RetCode TA_S_CDLTAKURI( int    startIdx,
 
 TA_LIB_API int TA_CDLTAKURI_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLTAKURI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLTAKURI_Stream TA_CDLTAKURI_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLTAKURI_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLTAKURI_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTAKURI_Update( TA_CDLTAKURI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTAKURI_Peek( const TA_CDLTAKURI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTAKURI_Close( TA_CDLTAKURI_Stream *stream );
 
 /*
  * TA_CDLTASUKIGAP - Tasuki Gap
@@ -2437,6 +3837,26 @@ TA_LIB_API TA_RetCode TA_S_CDLTASUKIGAP( int    startIdx,
 TA_LIB_API int TA_CDLTASUKIGAP_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLTASUKIGAP — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLTASUKIGAP_Stream TA_CDLTASUKIGAP_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLTASUKIGAP_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLTASUKIGAP_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTASUKIGAP_Update( TA_CDLTASUKIGAP_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTASUKIGAP_Peek( const TA_CDLTASUKIGAP_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTASUKIGAP_Close( TA_CDLTASUKIGAP_Stream *stream );
+
 /*
  * TA_CDLTHRUSTING - Thrusting Pattern
  * 
@@ -2466,6 +3886,26 @@ TA_LIB_API TA_RetCode TA_S_CDLTHRUSTING( int    startIdx,
 
 TA_LIB_API int TA_CDLTHRUSTING_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLTHRUSTING — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLTHRUSTING_Stream TA_CDLTHRUSTING_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLTHRUSTING_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLTHRUSTING_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTHRUSTING_Update( TA_CDLTHRUSTING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTHRUSTING_Peek( const TA_CDLTHRUSTING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTHRUSTING_Close( TA_CDLTHRUSTING_Stream *stream );
 
 /*
  * TA_CDLTRISTAR - Tristar Pattern
@@ -2497,6 +3937,26 @@ TA_LIB_API TA_RetCode TA_S_CDLTRISTAR( int    startIdx,
 TA_LIB_API int TA_CDLTRISTAR_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLTRISTAR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLTRISTAR_Stream TA_CDLTRISTAR_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLTRISTAR_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLTRISTAR_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTRISTAR_Update( TA_CDLTRISTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTRISTAR_Peek( const TA_CDLTRISTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLTRISTAR_Close( TA_CDLTRISTAR_Stream *stream );
+
 /*
  * TA_CDLUNIQUE3RIVER - Unique 3 River
  * 
@@ -2526,6 +3986,26 @@ TA_LIB_API TA_RetCode TA_S_CDLUNIQUE3RIVER( int    startIdx,
 
 TA_LIB_API int TA_CDLUNIQUE3RIVER_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CDLUNIQUE3RIVER — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLUNIQUE3RIVER_Stream TA_CDLUNIQUE3RIVER_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLUNIQUE3RIVER_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLUNIQUE3RIVER_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLUNIQUE3RIVER_Update( TA_CDLUNIQUE3RIVER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLUNIQUE3RIVER_Peek( const TA_CDLUNIQUE3RIVER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLUNIQUE3RIVER_Close( TA_CDLUNIQUE3RIVER_Stream *stream );
 
 /*
  * TA_CDLUPSIDEGAP2CROWS - Upside Gap Two Crows
@@ -2557,6 +4037,26 @@ TA_LIB_API TA_RetCode TA_S_CDLUPSIDEGAP2CROWS( int    startIdx,
 TA_LIB_API int TA_CDLUPSIDEGAP2CROWS_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLUPSIDEGAP2CROWS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLUPSIDEGAP2CROWS_Stream TA_CDLUPSIDEGAP2CROWS_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLUPSIDEGAP2CROWS_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLUPSIDEGAP2CROWS_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLUPSIDEGAP2CROWS_Update( TA_CDLUPSIDEGAP2CROWS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLUPSIDEGAP2CROWS_Peek( const TA_CDLUPSIDEGAP2CROWS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLUPSIDEGAP2CROWS_Close( TA_CDLUPSIDEGAP2CROWS_Stream *stream );
+
 /*
  * TA_CDLXSIDEGAP3METHODS - Upside/Downside Gap Three Methods
  * 
@@ -2587,6 +4087,26 @@ TA_LIB_API TA_RetCode TA_S_CDLXSIDEGAP3METHODS( int    startIdx,
 TA_LIB_API int TA_CDLXSIDEGAP3METHODS_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_CDLXSIDEGAP3METHODS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CDLXSIDEGAP3METHODS_Stream TA_CDLXSIDEGAP3METHODS_Stream;
+
+TA_LIB_API TA_RetCode TA_CDLXSIDEGAP3METHODS_Open( const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLXSIDEGAP3METHODS_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLXSIDEGAP3METHODS_Update( TA_CDLXSIDEGAP3METHODS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLXSIDEGAP3METHODS_Peek( const TA_CDLXSIDEGAP3METHODS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_CDLXSIDEGAP3METHODS_Close( TA_CDLXSIDEGAP3METHODS_Stream *stream );
+
 /*
  * TA_CEIL - Vector Ceil
  * 
@@ -2610,6 +4130,26 @@ TA_LIB_API TA_RetCode TA_S_CEIL( int    startIdx,
 
 TA_LIB_API int TA_CEIL_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_CEIL — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CEIL_Stream TA_CEIL_Stream;
+
+TA_LIB_API TA_RetCode TA_CEIL_Open( const double inReal[], int historyLen, TA_CEIL_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CEIL_Update( TA_CEIL_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CEIL_Peek( const TA_CEIL_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CEIL_Close( TA_CEIL_Stream *stream );
 
 /*
  * TA_CMO - Chande Momentum Oscillator
@@ -2642,6 +4182,26 @@ TA_LIB_API TA_RetCode TA_S_CMO( int    startIdx,
 
 TA_LIB_API int TA_CMO_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_CMO — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CMO_Stream TA_CMO_Stream;
+
+TA_LIB_API TA_RetCode TA_CMO_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_CMO_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CMO_Update( TA_CMO_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CMO_Peek( const TA_CMO_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CMO_Close( TA_CMO_Stream *stream );
 
 /*
  * TA_CORREL - Pearson's Correlation Coefficient (r)
@@ -2677,6 +4237,26 @@ TA_LIB_API TA_RetCode TA_S_CORREL( int    startIdx,
 TA_LIB_API int TA_CORREL_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_CORREL — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_CORREL_Stream TA_CORREL_Stream;
+
+TA_LIB_API TA_RetCode TA_CORREL_Open( int optInTimePeriod, const double inReal0[], const double inReal1[], int historyLen, TA_CORREL_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CORREL_Update( TA_CORREL_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CORREL_Close( TA_CORREL_Stream *stream );
+
 /*
  * TA_COS - Vector Trigonometric Cos
  * 
@@ -2701,6 +4281,26 @@ TA_LIB_API TA_RetCode TA_S_COS( int    startIdx,
 TA_LIB_API int TA_COS_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_COS — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_COS_Stream TA_COS_Stream;
+
+TA_LIB_API TA_RetCode TA_COS_Open( const double inReal[], int historyLen, TA_COS_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_COS_Update( TA_COS_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_COS_Peek( const TA_COS_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_COS_Close( TA_COS_Stream *stream );
+
 /*
  * TA_COSH - Vector Trigonometric Cosh
  * 
@@ -2724,6 +4324,26 @@ TA_LIB_API TA_RetCode TA_S_COSH( int    startIdx,
 
 TA_LIB_API int TA_COSH_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_COSH — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_COSH_Stream TA_COSH_Stream;
+
+TA_LIB_API TA_RetCode TA_COSH_Open( const double inReal[], int historyLen, TA_COSH_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_COSH_Update( TA_COSH_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_COSH_Peek( const TA_COSH_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_COSH_Close( TA_COSH_Stream *stream );
 
 /*
  * TA_DEMA - Double Exponential Moving Average
@@ -2757,6 +4377,26 @@ TA_LIB_API TA_RetCode TA_S_DEMA( int    startIdx,
 TA_LIB_API int TA_DEMA_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_DEMA — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_DEMA_Stream TA_DEMA_Stream;
+
+TA_LIB_API TA_RetCode TA_DEMA_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_DEMA_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DEMA_Update( TA_DEMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DEMA_Peek( const TA_DEMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DEMA_Close( TA_DEMA_Stream *stream );
+
 /*
  * TA_DIV - Vector Arithmetic Div
  * 
@@ -2782,6 +4422,26 @@ TA_LIB_API TA_RetCode TA_S_DIV( int    startIdx,
 
 TA_LIB_API int TA_DIV_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_DIV — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_DIV_Stream TA_DIV_Stream;
+
+TA_LIB_API TA_RetCode TA_DIV_Open( const double inReal0[], const double inReal1[], int historyLen, TA_DIV_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DIV_Update( TA_DIV_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DIV_Peek( const TA_DIV_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DIV_Close( TA_DIV_Stream *stream );
 
 /*
  * TA_DX - Directional Movement Index
@@ -2819,6 +4479,26 @@ TA_LIB_API TA_RetCode TA_S_DX( int    startIdx,
 TA_LIB_API int TA_DX_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_DX — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_DX_Stream TA_DX_Stream;
+
+TA_LIB_API TA_RetCode TA_DX_Open( int optInTimePeriod, const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_DX_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DX_Update( TA_DX_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DX_Peek( const TA_DX_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DX_Close( TA_DX_Stream *stream );
+
 /*
  * TA_EMA - Exponential Moving Average
  * 
@@ -2851,6 +4531,26 @@ TA_LIB_API TA_RetCode TA_S_EMA( int    startIdx,
 TA_LIB_API int TA_EMA_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_EMA — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_EMA_Stream TA_EMA_Stream;
+
+TA_LIB_API TA_RetCode TA_EMA_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_EMA_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_EMA_Update( TA_EMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_EMA_Peek( const TA_EMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_EMA_Close( TA_EMA_Stream *stream );
+
 /*
  * TA_EXP - Vector Arithmetic Exp
  * 
@@ -2875,6 +4575,26 @@ TA_LIB_API TA_RetCode TA_S_EXP( int    startIdx,
 TA_LIB_API int TA_EXP_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_EXP — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_EXP_Stream TA_EXP_Stream;
+
+TA_LIB_API TA_RetCode TA_EXP_Open( const double inReal[], int historyLen, TA_EXP_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_EXP_Update( TA_EXP_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_EXP_Peek( const TA_EXP_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_EXP_Close( TA_EXP_Stream *stream );
+
 /*
  * TA_FLOOR - Vector Floor
  * 
@@ -2898,6 +4618,26 @@ TA_LIB_API TA_RetCode TA_S_FLOOR( int    startIdx,
 
 TA_LIB_API int TA_FLOOR_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_FLOOR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_FLOOR_Stream TA_FLOOR_Stream;
+
+TA_LIB_API TA_RetCode TA_FLOOR_Open( const double inReal[], int historyLen, TA_FLOOR_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_FLOOR_Update( TA_FLOOR_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_FLOOR_Peek( const TA_FLOOR_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_FLOOR_Close( TA_FLOOR_Stream *stream );
 
 /*
  * TA_HT_DCPERIOD - Hilbert Transform - Dominant Cycle Period
@@ -3081,6 +4821,26 @@ TA_LIB_API TA_RetCode TA_S_IMI( int    startIdx,
 TA_LIB_API int TA_IMI_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_IMI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_IMI_Stream TA_IMI_Stream;
+
+TA_LIB_API TA_RetCode TA_IMI_Open( int optInTimePeriod, const double inOpen[], const double inClose[], int historyLen, TA_IMI_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_IMI_Update( TA_IMI_Stream *stream, double inOpen, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_IMI_Peek( const TA_IMI_Stream *stream, double inOpen, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_IMI_Close( TA_IMI_Stream *stream );
+
 /*
  * TA_KAMA - Kaufman Adaptive Moving Average
  * 
@@ -3112,6 +4872,26 @@ TA_LIB_API TA_RetCode TA_S_KAMA( int    startIdx,
 
 TA_LIB_API int TA_KAMA_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_KAMA — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_KAMA_Stream TA_KAMA_Stream;
+
+TA_LIB_API TA_RetCode TA_KAMA_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_KAMA_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_KAMA_Update( TA_KAMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_KAMA_Peek( const TA_KAMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_KAMA_Close( TA_KAMA_Stream *stream );
 
 /*
  * TA_LINEARREG - Linear Regression
@@ -3145,6 +4925,26 @@ TA_LIB_API TA_RetCode TA_S_LINEARREG( int    startIdx,
 TA_LIB_API int TA_LINEARREG_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_LINEARREG — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_LINEARREG_Stream TA_LINEARREG_Stream;
+
+TA_LIB_API TA_RetCode TA_LINEARREG_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_LINEARREG_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_Update( TA_LINEARREG_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_Peek( const TA_LINEARREG_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_Close( TA_LINEARREG_Stream *stream );
+
 /*
  * TA_LINEARREG_ANGLE - Linear Regression Angle
  * 
@@ -3176,6 +4976,26 @@ TA_LIB_API TA_RetCode TA_S_LINEARREG_ANGLE( int    startIdx,
 
 TA_LIB_API int TA_LINEARREG_ANGLE_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_LINEARREG_ANGLE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_LINEARREG_ANGLE_Stream TA_LINEARREG_ANGLE_Stream;
+
+TA_LIB_API TA_RetCode TA_LINEARREG_ANGLE_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_LINEARREG_ANGLE_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_ANGLE_Update( TA_LINEARREG_ANGLE_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_ANGLE_Peek( const TA_LINEARREG_ANGLE_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_ANGLE_Close( TA_LINEARREG_ANGLE_Stream *stream );
 
 /*
  * TA_LINEARREG_INTERCEPT - Linear Regression Intercept
@@ -3209,6 +5029,26 @@ TA_LIB_API TA_RetCode TA_S_LINEARREG_INTERCEPT( int    startIdx,
 TA_LIB_API int TA_LINEARREG_INTERCEPT_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_LINEARREG_INTERCEPT — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_LINEARREG_INTERCEPT_Stream TA_LINEARREG_INTERCEPT_Stream;
+
+TA_LIB_API TA_RetCode TA_LINEARREG_INTERCEPT_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_LINEARREG_INTERCEPT_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_INTERCEPT_Update( TA_LINEARREG_INTERCEPT_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_INTERCEPT_Peek( const TA_LINEARREG_INTERCEPT_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_INTERCEPT_Close( TA_LINEARREG_INTERCEPT_Stream *stream );
+
 /*
  * TA_LINEARREG_SLOPE - Linear Regression Slope
  * 
@@ -3241,6 +5081,26 @@ TA_LIB_API TA_RetCode TA_S_LINEARREG_SLOPE( int    startIdx,
 TA_LIB_API int TA_LINEARREG_SLOPE_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_LINEARREG_SLOPE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_LINEARREG_SLOPE_Stream TA_LINEARREG_SLOPE_Stream;
+
+TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_LINEARREG_SLOPE_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_Update( TA_LINEARREG_SLOPE_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_Peek( const TA_LINEARREG_SLOPE_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_Close( TA_LINEARREG_SLOPE_Stream *stream );
+
 /*
  * TA_LN - Vector Log Natural
  * 
@@ -3265,6 +5125,26 @@ TA_LIB_API TA_RetCode TA_S_LN( int    startIdx,
 TA_LIB_API int TA_LN_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_LN — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_LN_Stream TA_LN_Stream;
+
+TA_LIB_API TA_RetCode TA_LN_Open( const double inReal[], int historyLen, TA_LN_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LN_Update( TA_LN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LN_Peek( const TA_LN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LN_Close( TA_LN_Stream *stream );
+
 /*
  * TA_LOG10 - Vector Log10
  * 
@@ -3288,6 +5168,26 @@ TA_LIB_API TA_RetCode TA_S_LOG10( int    startIdx,
 
 TA_LIB_API int TA_LOG10_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_LOG10 — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_LOG10_Stream TA_LOG10_Stream;
+
+TA_LIB_API TA_RetCode TA_LOG10_Open( const double inReal[], int historyLen, TA_LOG10_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LOG10_Update( TA_LOG10_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LOG10_Peek( const TA_LOG10_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_LOG10_Close( TA_LOG10_Stream *stream );
 
 /*
  * TA_MA - Moving average
@@ -3325,6 +5225,30 @@ TA_LIB_API TA_RetCode TA_S_MA( int    startIdx,
 
 TA_LIB_API int TA_MA_Lookback( int           optInTimePeriod, /* From 1 to 100000 */
                                         TA_MAType     optInMAType );
+
+
+/*
+ * Streaming API for TA_MA — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * Note: optInMAType values whose underlying function has no stream yet
+ * (TA_MAType_TRIMA, TA_MAType_MAMA) are rejected at Open with TA_BAD_PARAM; they gain
+ * streams automatically when the underlying function does.
+ * The optInTimePeriod == 1 identity path streams for every optInMAType value.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MA_Stream TA_MA_Stream;
+
+TA_LIB_API TA_RetCode TA_MA_Open( int optInTimePeriod, TA_MAType optInMAType, const double inReal[], int historyLen, TA_MA_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MA_Update( TA_MA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MA_Peek( const TA_MA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MA_Close( TA_MA_Stream *stream );
 
 /*
  * TA_MACD - Moving Average Convergence/Divergence
@@ -3373,6 +5297,26 @@ TA_LIB_API int TA_MACD_Lookback( int           optInFastPeriod, /* From 2 to 100
                                           int           optInSlowPeriod, /* From 2 to 100000 */
                                           int           optInSignalPeriod );  /* From 1 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_MACD — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MACD_Stream TA_MACD_Stream;
+
+TA_LIB_API TA_RetCode TA_MACD_Open( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, const double inReal[], int historyLen, TA_MACD_Stream **stream, double *outMACD, double *outMACDSignal, double *outMACDHist );
+
+TA_LIB_API TA_RetCode TA_MACD_Update( TA_MACD_Stream *stream, double inReal, double *outMACD, double *outMACDSignal, double *outMACDHist );
+
+TA_LIB_API TA_RetCode TA_MACD_Peek( const TA_MACD_Stream *stream, double inReal, double *outMACD, double *outMACDSignal, double *outMACDHist );
+
+TA_LIB_API TA_RetCode TA_MACD_Close( TA_MACD_Stream *stream );
 
 /*
  * TA_MACDEXT - MACD with controllable MA type
@@ -3592,6 +5536,26 @@ TA_LIB_API TA_RetCode TA_S_MAX( int    startIdx,
 TA_LIB_API int TA_MAX_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_MAX — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MAX_Stream TA_MAX_Stream;
+
+TA_LIB_API TA_RetCode TA_MAX_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_MAX_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MAX_Update( TA_MAX_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MAX_Peek( const TA_MAX_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MAX_Close( TA_MAX_Stream *stream );
+
 /*
  * TA_MAXINDEX - Index of highest value over a specified period
  * 
@@ -3624,6 +5588,26 @@ TA_LIB_API TA_RetCode TA_S_MAXINDEX( int    startIdx,
 TA_LIB_API int TA_MAXINDEX_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_MAXINDEX — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MAXINDEX_Stream TA_MAXINDEX_Stream;
+
+TA_LIB_API TA_RetCode TA_MAXINDEX_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_MAXINDEX_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_MAXINDEX_Update( TA_MAXINDEX_Stream *stream, double inReal, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_MAXINDEX_Peek( const TA_MAXINDEX_Stream *stream, double inReal, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_MAXINDEX_Close( TA_MAXINDEX_Stream *stream );
+
 /*
  * TA_MEDPRICE - Median Price
  * 
@@ -3649,6 +5633,26 @@ TA_LIB_API TA_RetCode TA_S_MEDPRICE( int    startIdx,
 
 TA_LIB_API int TA_MEDPRICE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_MEDPRICE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MEDPRICE_Stream TA_MEDPRICE_Stream;
+
+TA_LIB_API TA_RetCode TA_MEDPRICE_Open( const double inHigh[], const double inLow[], int historyLen, TA_MEDPRICE_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MEDPRICE_Update( TA_MEDPRICE_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MEDPRICE_Peek( const TA_MEDPRICE_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MEDPRICE_Close( TA_MEDPRICE_Stream *stream );
 
 /*
  * TA_MFI - Money Flow Index
@@ -3688,6 +5692,26 @@ TA_LIB_API TA_RetCode TA_S_MFI( int    startIdx,
 TA_LIB_API int TA_MFI_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_MFI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MFI_Stream TA_MFI_Stream;
+
+TA_LIB_API TA_RetCode TA_MFI_Open( int optInTimePeriod, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int historyLen, TA_MFI_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MFI_Update( TA_MFI_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MFI_Peek( const TA_MFI_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MFI_Close( TA_MFI_Stream *stream );
+
 /*
  * TA_MIDPOINT - MidPoint over period
  * 
@@ -3719,6 +5743,26 @@ TA_LIB_API TA_RetCode TA_S_MIDPOINT( int    startIdx,
 
 TA_LIB_API int TA_MIDPOINT_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_MIDPOINT — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MIDPOINT_Stream TA_MIDPOINT_Stream;
+
+TA_LIB_API TA_RetCode TA_MIDPOINT_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_MIDPOINT_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MIDPOINT_Update( TA_MIDPOINT_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MIDPOINT_Peek( const TA_MIDPOINT_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MIDPOINT_Close( TA_MIDPOINT_Stream *stream );
 
 /*
  * TA_MIDPRICE - Midpoint Price over period
@@ -3786,6 +5830,26 @@ TA_LIB_API TA_RetCode TA_S_MIN( int    startIdx,
 TA_LIB_API int TA_MIN_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_MIN — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MIN_Stream TA_MIN_Stream;
+
+TA_LIB_API TA_RetCode TA_MIN_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_MIN_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MIN_Update( TA_MIN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MIN_Peek( const TA_MIN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MIN_Close( TA_MIN_Stream *stream );
+
 /*
  * TA_MININDEX - Index of lowest value over a specified period
  * 
@@ -3817,6 +5881,26 @@ TA_LIB_API TA_RetCode TA_S_MININDEX( int    startIdx,
 
 TA_LIB_API int TA_MININDEX_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_MININDEX — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MININDEX_Stream TA_MININDEX_Stream;
+
+TA_LIB_API TA_RetCode TA_MININDEX_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_MININDEX_Stream **stream, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_MININDEX_Update( TA_MININDEX_Stream *stream, double inReal, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_MININDEX_Peek( const TA_MININDEX_Stream *stream, double inReal, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_MININDEX_Close( TA_MININDEX_Stream *stream );
 
 /*
  * TA_MINMAX - Lowest and highest values over a specified period
@@ -3852,6 +5936,26 @@ TA_LIB_API TA_RetCode TA_S_MINMAX( int    startIdx,
 TA_LIB_API int TA_MINMAX_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_MINMAX — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MINMAX_Stream TA_MINMAX_Stream;
+
+TA_LIB_API TA_RetCode TA_MINMAX_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_MINMAX_Stream **stream, double *outMin, double *outMax );
+
+TA_LIB_API TA_RetCode TA_MINMAX_Update( TA_MINMAX_Stream *stream, double inReal, double *outMin, double *outMax );
+
+TA_LIB_API TA_RetCode TA_MINMAX_Peek( const TA_MINMAX_Stream *stream, double inReal, double *outMin, double *outMax );
+
+TA_LIB_API TA_RetCode TA_MINMAX_Close( TA_MINMAX_Stream *stream );
+
 /*
  * TA_MINMAXINDEX - Indexes of lowest and highest values over a specified period
  * 
@@ -3885,6 +5989,26 @@ TA_LIB_API TA_RetCode TA_S_MINMAXINDEX( int    startIdx,
 
 TA_LIB_API int TA_MINMAXINDEX_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_MINMAXINDEX — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MINMAXINDEX_Stream TA_MINMAXINDEX_Stream;
+
+TA_LIB_API TA_RetCode TA_MINMAXINDEX_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_MINMAXINDEX_Stream **stream, int *outMinIdx, int *outMaxIdx );
+
+TA_LIB_API TA_RetCode TA_MINMAXINDEX_Update( TA_MINMAXINDEX_Stream *stream, double inReal, int *outMinIdx, int *outMaxIdx );
+
+TA_LIB_API TA_RetCode TA_MINMAXINDEX_Peek( const TA_MINMAXINDEX_Stream *stream, double inReal, int *outMinIdx, int *outMaxIdx );
+
+TA_LIB_API TA_RetCode TA_MINMAXINDEX_Close( TA_MINMAXINDEX_Stream *stream );
 
 /*
  * TA_MINUS_DI - Minus Directional Indicator
@@ -3988,6 +6112,26 @@ TA_LIB_API TA_RetCode TA_S_MOM( int    startIdx,
 TA_LIB_API int TA_MOM_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_MOM — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MOM_Stream TA_MOM_Stream;
+
+TA_LIB_API TA_RetCode TA_MOM_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_MOM_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MOM_Update( TA_MOM_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MOM_Peek( const TA_MOM_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MOM_Close( TA_MOM_Stream *stream );
+
 /*
  * TA_MULT - Vector Arithmetic Mult
  * 
@@ -4013,6 +6157,26 @@ TA_LIB_API TA_RetCode TA_S_MULT( int    startIdx,
 
 TA_LIB_API int TA_MULT_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_MULT — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_MULT_Stream TA_MULT_Stream;
+
+TA_LIB_API TA_RetCode TA_MULT_Open( const double inReal0[], const double inReal1[], int historyLen, TA_MULT_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MULT_Update( TA_MULT_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MULT_Peek( const TA_MULT_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MULT_Close( TA_MULT_Stream *stream );
 
 /*
  * TA_NATR - Normalized Average True Range
@@ -4075,6 +6239,26 @@ TA_LIB_API TA_RetCode TA_S_OBV( int    startIdx,
 
 TA_LIB_API int TA_OBV_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_OBV — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_OBV_Stream TA_OBV_Stream;
+
+TA_LIB_API TA_RetCode TA_OBV_Open( const double inReal[], const double inVolume[], int historyLen, TA_OBV_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_OBV_Update( TA_OBV_Stream *stream, double inReal, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_OBV_Peek( const TA_OBV_Stream *stream, double inReal, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_OBV_Close( TA_OBV_Stream *stream );
 
 /*
  * TA_PLUS_DI - Plus Directional Indicator
@@ -4189,6 +6373,26 @@ TA_LIB_API int TA_PPO_Lookback( int           optInFastPeriod, /* From 2 to 1000
                                          int           optInSlowPeriod, /* From 2 to 100000 */
                                          TA_MAType     optInMAType );
 
+
+/*
+ * Streaming API for TA_PPO — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_PPO_Stream TA_PPO_Stream;
+
+TA_LIB_API TA_RetCode TA_PPO_Open( int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, const double inReal[], int historyLen, TA_PPO_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PPO_Update( TA_PPO_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PPO_Peek( const TA_PPO_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PPO_Close( TA_PPO_Stream *stream );
+
 /*
  * TA_ROC - Rate of change : ((price/prevPrice)-1)*100
  * 
@@ -4220,6 +6424,26 @@ TA_LIB_API TA_RetCode TA_S_ROC( int    startIdx,
 
 TA_LIB_API int TA_ROC_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_ROC — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ROC_Stream TA_ROC_Stream;
+
+TA_LIB_API TA_RetCode TA_ROC_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_ROC_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROC_Update( TA_ROC_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROC_Peek( const TA_ROC_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROC_Close( TA_ROC_Stream *stream );
 
 /*
  * TA_ROCP - Rate of change Percentage: (price-prevPrice)/prevPrice
@@ -4253,6 +6477,26 @@ TA_LIB_API TA_RetCode TA_S_ROCP( int    startIdx,
 TA_LIB_API int TA_ROCP_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_ROCP — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ROCP_Stream TA_ROCP_Stream;
+
+TA_LIB_API TA_RetCode TA_ROCP_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_ROCP_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROCP_Update( TA_ROCP_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROCP_Peek( const TA_ROCP_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROCP_Close( TA_ROCP_Stream *stream );
+
 /*
  * TA_ROCR - Rate of change ratio: (price/prevPrice)
  * 
@@ -4284,6 +6528,26 @@ TA_LIB_API TA_RetCode TA_S_ROCR( int    startIdx,
 
 TA_LIB_API int TA_ROCR_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_ROCR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ROCR_Stream TA_ROCR_Stream;
+
+TA_LIB_API TA_RetCode TA_ROCR_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_ROCR_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROCR_Update( TA_ROCR_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROCR_Peek( const TA_ROCR_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROCR_Close( TA_ROCR_Stream *stream );
 
 /*
  * TA_ROCR100 - Rate of change ratio 100 scale: (price/prevPrice)*100
@@ -4317,6 +6581,26 @@ TA_LIB_API TA_RetCode TA_S_ROCR100( int    startIdx,
 TA_LIB_API int TA_ROCR100_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_ROCR100 — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ROCR100_Stream TA_ROCR100_Stream;
+
+TA_LIB_API TA_RetCode TA_ROCR100_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_ROCR100_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROCR100_Update( TA_ROCR100_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROCR100_Peek( const TA_ROCR100_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ROCR100_Close( TA_ROCR100_Stream *stream );
+
 /*
  * TA_RSI - Relative Strength Index
  * 
@@ -4348,6 +6632,26 @@ TA_LIB_API TA_RetCode TA_S_RSI( int    startIdx,
 
 TA_LIB_API int TA_RSI_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_RSI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_RSI_Stream TA_RSI_Stream;
+
+TA_LIB_API TA_RetCode TA_RSI_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_RSI_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RSI_Update( TA_RSI_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RSI_Peek( const TA_RSI_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RSI_Close( TA_RSI_Stream *stream );
 
 /*
  * TA_SAR - Parabolic SAR
@@ -4388,6 +6692,26 @@ TA_LIB_API TA_RetCode TA_S_SAR( int    startIdx,
 TA_LIB_API int TA_SAR_Lookback( double        optInAcceleration, /* From 0 to TA_REAL_MAX */
                                          double        optInMaximum );  /* From 0 to TA_REAL_MAX */
 
+
+
+/*
+ * Streaming API for TA_SAR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_SAR_Stream TA_SAR_Stream;
+
+TA_LIB_API TA_RetCode TA_SAR_Open( double optInAcceleration, double optInMaximum, const double inHigh[], const double inLow[], int historyLen, TA_SAR_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SAR_Update( TA_SAR_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SAR_Peek( const TA_SAR_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SAR_Close( TA_SAR_Stream *stream );
 
 /*
  * TA_SAREXT - Parabolic SAR - Extended
@@ -4465,6 +6789,26 @@ TA_LIB_API int TA_SAREXT_Lookback( double        optInStartValue, /* From TA_REA
                                             double        optInAccelerationMaxShort );  /* From 0 to TA_REAL_MAX */
 
 
+
+/*
+ * Streaming API for TA_SAREXT — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_SAREXT_Stream TA_SAREXT_Stream;
+
+TA_LIB_API TA_RetCode TA_SAREXT_Open( double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort, const double inHigh[], const double inLow[], int historyLen, TA_SAREXT_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SAREXT_Update( TA_SAREXT_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SAREXT_Peek( const TA_SAREXT_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SAREXT_Close( TA_SAREXT_Stream *stream );
+
 /*
  * TA_SIN - Vector Trigonometric Sin
  * 
@@ -4489,6 +6833,26 @@ TA_LIB_API TA_RetCode TA_S_SIN( int    startIdx,
 TA_LIB_API int TA_SIN_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_SIN — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_SIN_Stream TA_SIN_Stream;
+
+TA_LIB_API TA_RetCode TA_SIN_Open( const double inReal[], int historyLen, TA_SIN_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SIN_Update( TA_SIN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SIN_Peek( const TA_SIN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SIN_Close( TA_SIN_Stream *stream );
+
 /*
  * TA_SINH - Vector Trigonometric Sinh
  * 
@@ -4512,6 +6876,26 @@ TA_LIB_API TA_RetCode TA_S_SINH( int    startIdx,
 
 TA_LIB_API int TA_SINH_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_SINH — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_SINH_Stream TA_SINH_Stream;
+
+TA_LIB_API TA_RetCode TA_SINH_Open( const double inReal[], int historyLen, TA_SINH_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SINH_Update( TA_SINH_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SINH_Peek( const TA_SINH_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SINH_Close( TA_SINH_Stream *stream );
 
 /*
  * TA_SMA - Simple Moving Average
@@ -4545,6 +6929,26 @@ TA_LIB_API TA_RetCode TA_S_SMA( int    startIdx,
 TA_LIB_API int TA_SMA_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_SMA — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_SMA_Stream TA_SMA_Stream;
+
+TA_LIB_API TA_RetCode TA_SMA_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_SMA_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SMA_Update( TA_SMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SMA_Peek( const TA_SMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SMA_Close( TA_SMA_Stream *stream );
+
 /*
  * TA_SQRT - Vector Square Root
  * 
@@ -4568,6 +6972,26 @@ TA_LIB_API TA_RetCode TA_S_SQRT( int    startIdx,
 
 TA_LIB_API int TA_SQRT_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_SQRT — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_SQRT_Stream TA_SQRT_Stream;
+
+TA_LIB_API TA_RetCode TA_SQRT_Open( const double inReal[], int historyLen, TA_SQRT_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SQRT_Update( TA_SQRT_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SQRT_Peek( const TA_SQRT_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SQRT_Close( TA_SQRT_Stream *stream );
 
 /*
  * TA_STDDEV - Standard Deviation
@@ -4606,6 +7030,26 @@ TA_LIB_API TA_RetCode TA_S_STDDEV( int    startIdx,
 TA_LIB_API int TA_STDDEV_Lookback( int           optInTimePeriod, /* From 2 to 100000 */
                                             double        optInNbDev );  /* From TA_REAL_MIN to TA_REAL_MAX */
 
+
+
+/*
+ * Streaming API for TA_STDDEV — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_STDDEV_Stream TA_STDDEV_Stream;
+
+TA_LIB_API TA_RetCode TA_STDDEV_Open( int optInTimePeriod, double optInNbDev, const double inReal[], int historyLen, TA_STDDEV_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_STDDEV_Update( TA_STDDEV_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_STDDEV_Peek( const TA_STDDEV_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_STDDEV_Close( TA_STDDEV_Stream *stream );
 
 /*
  * TA_STOCH - Stochastic
@@ -4668,6 +7112,26 @@ TA_LIB_API int TA_STOCH_Lookback( int           optInFastK_Period, /* From 1 to 
                                            int           optInSlowD_Period, /* From 1 to 100000 */
                                            TA_MAType     optInSlowD_MAType );
 
+
+/*
+ * Streaming API for TA_STOCH — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_STOCH_Stream TA_STOCH_Stream;
+
+TA_LIB_API TA_RetCode TA_STOCH_Open( int optInFastK_Period, int optInSlowK_Period, TA_MAType optInSlowK_MAType, int optInSlowD_Period, TA_MAType optInSlowD_MAType, const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_STOCH_Stream **stream, double *outSlowK, double *outSlowD );
+
+TA_LIB_API TA_RetCode TA_STOCH_Update( TA_STOCH_Stream *stream, double inHigh, double inLow, double inClose, double *outSlowK, double *outSlowD );
+
+TA_LIB_API TA_RetCode TA_STOCH_Peek( const TA_STOCH_Stream *stream, double inHigh, double inLow, double inClose, double *outSlowK, double *outSlowD );
+
+TA_LIB_API TA_RetCode TA_STOCH_Close( TA_STOCH_Stream *stream );
+
 /*
  * TA_STOCHF - Stochastic Fast
  * 
@@ -4716,6 +7180,26 @@ TA_LIB_API TA_RetCode TA_S_STOCHF( int    startIdx,
 TA_LIB_API int TA_STOCHF_Lookback( int           optInFastK_Period, /* From 1 to 100000 */
                                             int           optInFastD_Period, /* From 1 to 100000 */
                                             TA_MAType     optInFastD_MAType );
+
+
+/*
+ * Streaming API for TA_STOCHF — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_STOCHF_Stream TA_STOCHF_Stream;
+
+TA_LIB_API TA_RetCode TA_STOCHF_Open( int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_STOCHF_Stream **stream, double *outFastK, double *outFastD );
+
+TA_LIB_API TA_RetCode TA_STOCHF_Update( TA_STOCHF_Stream *stream, double inHigh, double inLow, double inClose, double *outFastK, double *outFastD );
+
+TA_LIB_API TA_RetCode TA_STOCHF_Peek( const TA_STOCHF_Stream *stream, double inHigh, double inLow, double inClose, double *outFastK, double *outFastD );
+
+TA_LIB_API TA_RetCode TA_STOCHF_Close( TA_STOCHF_Stream *stream );
 
 /*
  * TA_STOCHRSI - Stochastic Relative Strength Index
@@ -4768,6 +7252,26 @@ TA_LIB_API int TA_STOCHRSI_Lookback( int           optInTimePeriod, /* From 2 to
                                               int           optInFastD_Period, /* From 1 to 100000 */
                                               TA_MAType     optInFastD_MAType );
 
+
+/*
+ * Streaming API for TA_STOCHRSI — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_STOCHRSI_Stream TA_STOCHRSI_Stream;
+
+TA_LIB_API TA_RetCode TA_STOCHRSI_Open( int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, const double inReal[], int historyLen, TA_STOCHRSI_Stream **stream, double *outFastK, double *outFastD );
+
+TA_LIB_API TA_RetCode TA_STOCHRSI_Update( TA_STOCHRSI_Stream *stream, double inReal, double *outFastK, double *outFastD );
+
+TA_LIB_API TA_RetCode TA_STOCHRSI_Peek( const TA_STOCHRSI_Stream *stream, double inReal, double *outFastK, double *outFastD );
+
+TA_LIB_API TA_RetCode TA_STOCHRSI_Close( TA_STOCHRSI_Stream *stream );
+
 /*
  * TA_SUB - Vector Arithmetic Subtraction
  * 
@@ -4793,6 +7297,26 @@ TA_LIB_API TA_RetCode TA_S_SUB( int    startIdx,
 
 TA_LIB_API int TA_SUB_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_SUB — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_SUB_Stream TA_SUB_Stream;
+
+TA_LIB_API TA_RetCode TA_SUB_Open( const double inReal0[], const double inReal1[], int historyLen, TA_SUB_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SUB_Update( TA_SUB_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SUB_Peek( const TA_SUB_Stream *stream, double inReal0, double inReal1, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SUB_Close( TA_SUB_Stream *stream );
 
 /*
  * TA_SUM - Summation
@@ -4825,6 +7349,26 @@ TA_LIB_API TA_RetCode TA_S_SUM( int    startIdx,
 
 TA_LIB_API int TA_SUM_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_SUM — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_SUM_Stream TA_SUM_Stream;
+
+TA_LIB_API TA_RetCode TA_SUM_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_SUM_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SUM_Update( TA_SUM_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SUM_Peek( const TA_SUM_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_SUM_Close( TA_SUM_Stream *stream );
 
 /*
  * TA_T3 - Triple Exponential Moving Average (T3)
@@ -4864,6 +7408,26 @@ TA_LIB_API int TA_T3_Lookback( int           optInTimePeriod, /* From 1 to 10000
                                         double        optInVFactor );  /* From 0 to 1 */
 
 
+
+/*
+ * Streaming API for TA_T3 — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_T3_Stream TA_T3_Stream;
+
+TA_LIB_API TA_RetCode TA_T3_Open( int optInTimePeriod, double optInVFactor, const double inReal[], int historyLen, TA_T3_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_T3_Update( TA_T3_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_T3_Peek( const TA_T3_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_T3_Close( TA_T3_Stream *stream );
+
 /*
  * TA_TAN - Vector Trigonometric Tan
  * 
@@ -4888,6 +7452,26 @@ TA_LIB_API TA_RetCode TA_S_TAN( int    startIdx,
 TA_LIB_API int TA_TAN_Lookback( void );
 
 
+
+/*
+ * Streaming API for TA_TAN — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_TAN_Stream TA_TAN_Stream;
+
+TA_LIB_API TA_RetCode TA_TAN_Open( const double inReal[], int historyLen, TA_TAN_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TAN_Update( TA_TAN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TAN_Peek( const TA_TAN_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TAN_Close( TA_TAN_Stream *stream );
+
 /*
  * TA_TANH - Vector Trigonometric Tanh
  * 
@@ -4911,6 +7495,26 @@ TA_LIB_API TA_RetCode TA_S_TANH( int    startIdx,
 
 TA_LIB_API int TA_TANH_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_TANH — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_TANH_Stream TA_TANH_Stream;
+
+TA_LIB_API TA_RetCode TA_TANH_Open( const double inReal[], int historyLen, TA_TANH_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TANH_Update( TA_TANH_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TANH_Peek( const TA_TANH_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TANH_Close( TA_TANH_Stream *stream );
 
 /*
  * TA_TEMA - Triple Exponential Moving Average
@@ -4944,6 +7548,26 @@ TA_LIB_API TA_RetCode TA_S_TEMA( int    startIdx,
 TA_LIB_API int TA_TEMA_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_TEMA — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_TEMA_Stream TA_TEMA_Stream;
+
+TA_LIB_API TA_RetCode TA_TEMA_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_TEMA_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TEMA_Update( TA_TEMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TEMA_Peek( const TA_TEMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TEMA_Close( TA_TEMA_Stream *stream );
+
 /*
  * TA_TRANGE - True Range
  * 
@@ -4971,6 +7595,26 @@ TA_LIB_API TA_RetCode TA_S_TRANGE( int    startIdx,
 
 TA_LIB_API int TA_TRANGE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_TRANGE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_TRANGE_Stream TA_TRANGE_Stream;
+
+TA_LIB_API TA_RetCode TA_TRANGE_Open( const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_TRANGE_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TRANGE_Update( TA_TRANGE_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TRANGE_Peek( const TA_TRANGE_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TRANGE_Close( TA_TRANGE_Stream *stream );
 
 /*
  * TA_TRIMA - Triangular Moving Average
@@ -5036,6 +7680,26 @@ TA_LIB_API TA_RetCode TA_S_TRIX( int    startIdx,
 TA_LIB_API int TA_TRIX_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_TRIX — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_TRIX_Stream TA_TRIX_Stream;
+
+TA_LIB_API TA_RetCode TA_TRIX_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_TRIX_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TRIX_Update( TA_TRIX_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TRIX_Peek( const TA_TRIX_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TRIX_Close( TA_TRIX_Stream *stream );
+
 /*
  * TA_TSF - Time Series Forecast
  * 
@@ -5068,6 +7732,26 @@ TA_LIB_API TA_RetCode TA_S_TSF( int    startIdx,
 TA_LIB_API int TA_TSF_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_TSF — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_TSF_Stream TA_TSF_Stream;
+
+TA_LIB_API TA_RetCode TA_TSF_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_TSF_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TSF_Update( TA_TSF_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TSF_Peek( const TA_TSF_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TSF_Close( TA_TSF_Stream *stream );
+
 /*
  * TA_TYPPRICE - Typical Price
  * 
@@ -5095,6 +7779,26 @@ TA_LIB_API TA_RetCode TA_S_TYPPRICE( int    startIdx,
 
 TA_LIB_API int TA_TYPPRICE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_TYPPRICE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_TYPPRICE_Stream TA_TYPPRICE_Stream;
+
+TA_LIB_API TA_RetCode TA_TYPPRICE_Open( const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_TYPPRICE_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TYPPRICE_Update( TA_TYPPRICE_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TYPPRICE_Peek( const TA_TYPPRICE_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TYPPRICE_Close( TA_TYPPRICE_Stream *stream );
 
 /*
  * TA_ULTOSC - Ultimate Oscillator
@@ -5144,6 +7848,26 @@ TA_LIB_API int TA_ULTOSC_Lookback( int           optInTimePeriod1, /* From 1 to 
                                             int           optInTimePeriod3 );  /* From 1 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_ULTOSC — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_ULTOSC_Stream TA_ULTOSC_Stream;
+
+TA_LIB_API TA_RetCode TA_ULTOSC_Open( int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_ULTOSC_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ULTOSC_Update( TA_ULTOSC_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ULTOSC_Peek( const TA_ULTOSC_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ULTOSC_Close( TA_ULTOSC_Stream *stream );
+
 /*
  * TA_VAR - Variance
  * 
@@ -5182,6 +7906,26 @@ TA_LIB_API int TA_VAR_Lookback( int           optInTimePeriod, /* From 1 to 1000
                                          double        optInNbDev );  /* From TA_REAL_MIN to TA_REAL_MAX */
 
 
+
+/*
+ * Streaming API for TA_VAR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_VAR_Stream TA_VAR_Stream;
+
+TA_LIB_API TA_RetCode TA_VAR_Open( int optInTimePeriod, double optInNbDev, const double inReal[], int historyLen, TA_VAR_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_VAR_Update( TA_VAR_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_VAR_Peek( const TA_VAR_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_VAR_Close( TA_VAR_Stream *stream );
+
 /*
  * TA_WCLPRICE - Weighted Close Price
  * 
@@ -5209,6 +7953,26 @@ TA_LIB_API TA_RetCode TA_S_WCLPRICE( int    startIdx,
 
 TA_LIB_API int TA_WCLPRICE_Lookback( void );
 
+
+
+/*
+ * Streaming API for TA_WCLPRICE — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_WCLPRICE_Stream TA_WCLPRICE_Stream;
+
+TA_LIB_API TA_RetCode TA_WCLPRICE_Open( const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_WCLPRICE_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WCLPRICE_Update( TA_WCLPRICE_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WCLPRICE_Peek( const TA_WCLPRICE_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WCLPRICE_Close( TA_WCLPRICE_Stream *stream );
 
 /*
  * TA_WILLR - Williams' %R
@@ -5246,6 +8010,26 @@ TA_LIB_API TA_RetCode TA_S_WILLR( int    startIdx,
 TA_LIB_API int TA_WILLR_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
 
 
+
+/*
+ * Streaming API for TA_WILLR — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_WILLR_Stream TA_WILLR_Stream;
+
+TA_LIB_API TA_RetCode TA_WILLR_Open( int optInTimePeriod, const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_WILLR_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WILLR_Update( TA_WILLR_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WILLR_Peek( const TA_WILLR_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WILLR_Close( TA_WILLR_Stream *stream );
+
 /*
  * TA_WMA - Weighted Moving Average
  * 
@@ -5277,6 +8061,26 @@ TA_LIB_API TA_RetCode TA_S_WMA( int    startIdx,
 
 TA_LIB_API int TA_WMA_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
 
+
+
+/*
+ * Streaming API for TA_WMA — incremental per-bar evaluation.
+ * Open consumes the warm-up history; Update commits one closed bar;
+ * Peek evaluates a forming bar without committing; Close frees the handle.
+ * A handle is single-writer: driving one handle from two threads
+ * concurrently — Update or Peek, despite the latter's const — is
+ * undefined behavior. Distinct handles are fully independent.
+ * See docs/streaming-api-proposal.md.
+ */
+typedef struct TA_WMA_Stream TA_WMA_Stream;
+
+TA_LIB_API TA_RetCode TA_WMA_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_WMA_Stream **stream, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WMA_Update( TA_WMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WMA_Peek( const TA_WMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WMA_Close( TA_WMA_Stream *stream );
 
 /* Some TA functions takes a certain amount of input data
  * before stabilizing and outputing meaningful data. This is

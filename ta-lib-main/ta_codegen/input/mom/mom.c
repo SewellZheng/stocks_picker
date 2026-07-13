@@ -14,12 +14,16 @@
  *
  */
 
-int mom_lookback(int           optInTimePeriod)
+int mom_lookback(int optInTimePeriod)
 {
    return optInTimePeriod;
 }
 
-TA_RetCode mom(int startIdx, int endIdx, const double inReal[], int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[])
+TA_RetCode mom(int startIdx, int endIdx,
+   const double inReal[],
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double outReal[])
 {
    int inIdx, outIdx, trailingIdx;
 

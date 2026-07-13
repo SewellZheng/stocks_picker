@@ -122,7 +122,7 @@ DEF_FUNCTION( BBANDS,
               TA_GroupId_OverlapStudies,
               "Bollinger Bands",
               "Bbands",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* BBANDS END */
 
@@ -149,7 +149,7 @@ DEF_FUNCTION( BETA,
               TA_GroupId_Statistic,
               "Beta",
               "Beta",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* BETA END */
 
@@ -173,7 +173,7 @@ DEF_FUNCTION( BOP,
               TA_GroupId_MomentumIndicators,
               "Balance Of Power",
               "Bop",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* BOP END */
 

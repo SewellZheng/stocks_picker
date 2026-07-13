@@ -13,7 +13,7 @@
  *  021806 MF,BT   Fix #1434450 reported by BT.
  */
 
-int cmo_lookback(int           optInTimePeriod)
+int cmo_lookback(int optInTimePeriod)
 {
    int retValue;
 
@@ -24,7 +24,11 @@ int cmo_lookback(int           optInTimePeriod)
    return retValue;
 }
 
-TA_RetCode cmo(int startIdx, int endIdx, const double inReal[], int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[])
+TA_RetCode cmo(int startIdx, int endIdx,
+   const double inReal[],
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double outReal[])
 {
    int outIdx;
 

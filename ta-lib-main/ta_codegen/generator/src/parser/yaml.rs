@@ -165,13 +165,18 @@ pub fn parse_yaml(path: &Path) -> FuncDef {
         })
         .collect();
 
+    let flags = yaml.flags.into_vec();
+    // `stream` in the flags list opts the function into the generated
+    // streaming API (it maps to TA_FUNC_FLG_STREAM like every other flag).
+    let streaming = flags.iter().any(|f| f == "stream");
+
     FuncDef {
         name: yaml.name,
         group: yaml.group,
         description: yaml.description,
         camel_case: yaml.camel_case,
         hint: yaml.hint,
-        flags: yaml.flags.into_vec(),
+        flags,
         inputs,
         optional_inputs: opt_inputs,
         outputs,
@@ -183,5 +188,6 @@ pub fn parse_yaml(path: &Path) -> FuncDef {
         has_explicit_private: false,
         header_comments: vec![],
         doc: None,
+        streaming,
     }
 }

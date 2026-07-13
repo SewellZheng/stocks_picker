@@ -58,7 +58,7 @@ DEF_FUNCTION( WCLPRICE,
               TA_GroupId_PriceTransform,
               "Weighted Close Price",
               "WclPrice",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* WCLPRICE END */
 
@@ -84,7 +84,7 @@ DEF_FUNCTION( WILLR,
               TA_GroupId_MomentumIndicators,
               "Williams' %R",
               "WillR",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* WILLR END */
 
@@ -110,7 +110,7 @@ DEF_FUNCTION( WMA,
               TA_GroupId_OverlapStudies,
               "Weighted Moving Average",
               "Wma",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* WMA END */
 

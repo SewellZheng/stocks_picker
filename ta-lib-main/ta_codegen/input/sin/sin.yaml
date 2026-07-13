@@ -2,7 +2,7 @@ name: SIN
 camel_case: Sin
 group: Math Transform
 hint: Vector Trigonometric Sin
-flags: []
+flags: [stream]
 inputs:
   - name: inReal
     type: real

@@ -4,10 +4,20 @@
 //! the generated TA function implementations, and writes JSON responses to stdout.
 //! All servers speak the same protocol as the existing Rust server in server.rs.
 
+use crate::backends::builtins::SpecialBuiltin;
+use crate::backends::c::c_predicate_expr;
+use crate::backends::java::java_predicate_expr;
 use crate::backends::java::to_java_method_name;
+use crate::backends::rust_lang::rust_predicate_expr;
 use crate::ir::{EnumDef, FuncDef, Input, OptInput, Output, ParamType};
 use std::collections::HashMap;
 use std::path::Path;
+
+// The three boolean near-zero builtins exposed by the `eval_predicate` JSON-RPC
+// method (integer `which` selector: 0=IS_ZERO, 1=IS_ZERO_SCALED, 2=IS_ZERO_OR_NEG).
+// IS_ZERO_SCALED consumes a parallel `scale` array; the other two ignore it.
+// The per-backend expression for each is produced by the same `*_predicate_expr`
+// the indicator code path uses, so this test verifies the real emitted form.
 
 /// The comma-separated `FuncUnstId` variant names from enums.yaml (the source of
 /// truth), in ordinal order. Empty if the enum is somehow missing.
@@ -213,7 +223,7 @@ fn build_full_param_str(func: &FuncDef) -> String {
             ParamType::Real => params.push(format!("const double {}[]", input.name)),
             ParamType::Price(components) => {
                 for comp in components {
-                    let name = format!("in{}{}", &comp[..1].to_uppercase(), &comp[1..]);
+                    let name = format!("in{}{}", comp[..1].to_uppercase(), &comp[1..]);
                     params.push(format!("const double {name}[]"));
                 }
             }
@@ -450,6 +460,14 @@ pub fn generate_c_server(funcs: &[FuncDef]) -> String {
     // Generic ta_abstract handlers (abstract_call, abstract_get_lookback, abstract_for_each_func)
     s.push_str(&generate_c_abstract_handlers());
 
+    // stream_verify: in-process bitwise batch-vs-stream comparison
+    // (docs/streaming-api-proposal.md, Verification). fuzz_data.h is included
+    // HERE — after the indicator code — because its file-scope
+    // `#pragma STDC FP_CONTRACT OFF` must not alter indicator contraction.
+    // Absent entirely under TA_REF_SERVE (frozen libs have no stream symbols).
+    s.push_str("#ifndef TA_REF_SERVE\n#include \"fuzz_data.h\"\n#endif\n\n");
+    s.push_str(&generate_c_stream_verify(funcs));
+
     // Dispatch function
     s.push_str(&generate_c_dispatch(funcs));
 
@@ -632,10 +650,651 @@ fn generate_c_global_buffers() -> String {
     s
 }
 
-/// The abstract handler C code lives in ta_codegen/input/lib/c/ta_abstract_serve.c
+/// The abstract handler C code lives in ta_codegen/generator/templates/c/ta_abstract_serve.c
 /// (native C, not generated). The server just #includes it.
 fn generate_c_abstract_handlers() -> String {
     "#include \"ta_abstract_serve.c\"\n\n".to_string()
+}
+
+/// Emit the per-output bitwise (double) / exact (int) comparison lines of a
+/// stream_verify leg.
+fn emit_sv_compare(
+    s: &mut String,
+    out_is_int: &[bool],
+    bbuf: &[String],
+    pad: &str,
+    idx: &str,
+    bar: &str,
+    pre: &str,
+) {
+    for (i, is_int) in out_is_int.iter().enumerate() {
+        let b = &bbuf[i];
+        if *is_int {
+            let _ = std::fmt::Write::write_fmt(s, format_args!(
+                "{pad}if( {pre} v{i} != {b}[{idx}] ) {{ ok = 0; badBar = {bar}; badOut = {i}; bv = (double){b}[{idx}]; sv = (double)v{i}; }}\n"
+            ));
+        } else {
+            let _ = std::fmt::Write::write_fmt(s, format_args!(
+                "{pad}if( {pre} sv_bitne(v{i}, {b}[{idx}]) ) {{ ok = 0; badBar = {bar}; badOut = {i}; bv = {b}[{idx}]; sv = v{i}; }}\n"
+            ));
+        }
+    }
+}
+
+/// The fuzz-convention input array for one expanded input name: price
+/// components map to their OHLCV series; generic reals map real0→close,
+/// real1→volume (matches abstract_call/fuzz-064 and the driver).
+fn sv_input_array(name: &str, generic_idx: &mut usize) -> &'static str {
+    match name {
+        "inOpen" => "sv_o",
+        "inHigh" => "sv_h",
+        "inLow" => "sv_l",
+        "inClose" => "sv_c",
+        "inVolume" => "sv_v",
+        "inOpenInterest" => "sv_oi",
+        _ => {
+            let arr = if *generic_idx == 0 { "sv_c" } else { "sv_v" };
+            *generic_idx += 1;
+            arr
+        }
+    }
+}
+
+/// Emit `handle_stream_verify`: for each streamable function, run batch
+/// (startIdx=0) and the stream trajectory in-process on identical seeded
+/// inputs, compare BITWISE per bar (memcmp on doubles), spot-assert
+/// peek == update, and answer flat JSON (`ok`, per-leg match flags, first
+/// divergence as %a on mismatch). See docs/streaming-api-proposal.md,
+/// Verification. The whole handler is compiled out under TA_REF_SERVE
+/// (frozen reference libraries have no stream symbols).
+/// Tail of the batch-failure branch: candle functions record the outcome and
+/// continue to the next settings round (a failed round must not truncate the
+/// sweep); non-candle functions respond and return as before.
+fn emit_sv_batch_fail_tail(s: &mut String, candle: bool) {
+    // Reject parity: whenever the batch leg produced nothing — an error
+    // (bad params, e.g. an out-of-list enum hitting a dispatch default arm)
+    // or an empty range — the stream's Open must reject too. Open mirrors
+    // the batch validation and min-history by construction, so a stream
+    // that opens where batch fails is always a contract break; forcing
+    // ok=1 on batch errors (the old behavior) shielded exactly that.
+    if candle {
+        s.push_str("            if( !openRejects ) allOk = 0;\n");
+        s.push_str("            if( rd + 1 < rounds ) continue;\n");
+        s.push_str("            TA_SetCompatibility((TA_Compatibility)savedCompat);\n");
+        s.push_str("            TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );\n");
+        s.push_str("            pos += snprintf(resp + pos, resp_size - pos, \",\\\"rrc\\\":%d,\\\"legs\\\":%d,\\\"nb\\\":%d,\\\"openRejects\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);\n");
+    } else {
+        s.push_str("            TA_SetCompatibility((TA_Compatibility)savedCompat);\n");
+        s.push_str("            snprintf(resp, resp_size, \"{\\\"retCode\\\":%d,\\\"legs\\\":0,\\\"nb\\\":%d,\\\"openRejects\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":1}\", (int)rc, svNb, openRejects, openRejects);\n");
+    }
+    s.push_str("            return;\n");
+    s.push_str("        }\n");
+}
+
+/// Dispatch functions (MA): enum values whose arm has no sub-stream reject
+/// at Open — a DOCUMENTED capability limitation, verified loudly here
+/// (never a silent vacuous pass). The identity path (period==1) is exempt:
+/// it streams for every arm value, exactly as the batch checks it before
+/// dispatching. The unsupported set is derived from the callees' stream
+/// flags at generation time, so a callee gaining the flag (TRIMA) flips its
+/// legs from expect-reject to verified automatically on the next generate.
+fn emit_sv_dispatch_precheck(
+    s: &mut String,
+    func: &FuncDef,
+    funcs: &[FuncDef],
+    input_arrays: &[&str],
+    n_outs: usize,
+    name: &str,
+) {
+    let Some(guard) = sv_reject_condition(func, funcs, None) else {
+        return;
+    };
+    let mut pre_opt_args = String::new();
+    for o in &func.optional_inputs {
+        let _ = std::fmt::Write::write_fmt(&mut pre_opt_args, format_args!("{}, ", o.name));
+    }
+    let mut pre_in_args = String::new();
+    for a in input_arrays {
+        let _ = std::fmt::Write::write_fmt(&mut pre_in_args, format_args!("{a}, "));
+    }
+    let decls: String = func
+        .outputs
+        .iter()
+        .enumerate()
+        .map(|(i, ou)| {
+            if ou.param_type == ParamType::Integer {
+                format!("int v{i} = 0;")
+            } else {
+                format!("double v{i} = 0.0;")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let addrs = (0..n_outs)
+        .map(|i| format!("&v{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    s.push_str(&format!(
+        "        if( {guard} )\n        {{\n            TA_{name}_Stream *st = NULL; {decls} TA_RetCode orc;\n            int rejected;\n            orc = TA_{name}_Open( {pre_opt_args}{pre_in_args}svN, &st, {addrs} );\n            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;\n            if( st ) TA_{name}_Close( st );\n            TA_SetCompatibility((TA_Compatibility)savedCompat);\n            snprintf(resp, resp_size, \"{{\\\"retCode\\\":0,\\\"legs\\\":0,\\\"unsupportedArm\\\":1,\\\"ok\\\":%d,\\\"peek_ok\\\":1}}\", rejected);\n            return;\n        }}\n"
+    ));
+}
+
+/// Unstable-period ids a function's stream values depend on: its own id
+/// plus every unstable id reachable through the TRANSITIVE closure of
+/// `<base>_lookback` calls starting from its lookback body (STOCH ->
+/// ma_lookback -> ema_lookback -> EMA). Composed/dispatch functions honor
+/// ambient K only through the callees' lookbacks, so the lookback closure
+/// covers exactly the sub-stream selection space.
+fn collect_pin_ids(func: &FuncDef, funcs: &[FuncDef]) -> Vec<i32> {
+    let mut pin_ids: Vec<i32> = Vec::new();
+    let mut visited: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut queue: Vec<String> = vec![func.name.to_uppercase()];
+    while let Some(cur) = queue.pop() {
+        if !visited.insert(cur.clone()) {
+            continue;
+        }
+        if let Some(id) = func_unst_id(&cur) {
+            if !pin_ids.contains(&id) {
+                pin_ids.push(id);
+            }
+        }
+        let Some(fd) = funcs.iter().find(|f| f.name.eq_ignore_ascii_case(&cur)) else {
+            continue;
+        };
+        if let Some(crate::ir::LookbackExpr::Code(stmts)) = &fd.lookback {
+            for st in stmts {
+                crate::streaming::walk_stmt_exprs(st, &mut |e| {
+                    crate::streaming::walk_expr(e, &mut |x| {
+                        if let crate::ir::Expr::FuncCall(fname, _) = x {
+                            if let Some(base) = fname.strip_suffix("_lookback") {
+                                queue.push(base.to_uppercase());
+                            }
+                        }
+                    });
+                });
+            }
+        }
+    }
+    pin_ids
+}
+
+/// True when `func`'s stream honestly rejects Open at exactly `lookback+1`
+/// under Metastock — a seed boundary — either directly (RSI/CMO emit a seed
+/// output then rewind, so no bit-exact continuation exists from the seed exit)
+/// or through composition: a composed/dispatch function that consumes a
+/// seed-boundary callee inherits the boundary (STOCHRSI's `rsi` sub-stream
+/// cannot open at its own seed boundary, so STOCHRSI's Open rejects one bar
+/// longer). The closure is the same `<base>_lookback` transitive walk
+/// [`collect_pin_ids`] uses — every stream-composed callee appears there — so
+/// the verifier shifts the boundary leg for exactly the functions whose stream
+/// rejects it.
+fn func_has_seed_boundary(func: &FuncDef, funcs: &[FuncDef]) -> bool {
+    let mut visited: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut queue: Vec<String> = vec![func.name.to_uppercase()];
+    while let Some(cur) = queue.pop() {
+        if !visited.insert(cur.clone()) {
+            continue;
+        }
+        let Some(fd) = funcs.iter().find(|f| f.name.eq_ignore_ascii_case(&cur)) else {
+            continue;
+        };
+        // Direct (loop-tier) seed boundary. `analyze` is Err for composed /
+        // dispatch bodies — those inherit the boundary through their callees.
+        if let Ok(m) = crate::streaming::analyze(fd) {
+            if m.seed_boundary {
+                return true;
+            }
+        }
+        if let Some(crate::ir::LookbackExpr::Code(stmts)) = &fd.lookback {
+            for st in stmts {
+                crate::streaming::walk_stmt_exprs(st, &mut |e| {
+                    crate::streaming::walk_expr(e, &mut |x| {
+                        if let crate::ir::Expr::FuncCall(fname, _) = x {
+                            if let Some(base) = fname.strip_suffix("_lookback") {
+                                queue.push(base.to_uppercase());
+                            }
+                        }
+                    });
+                });
+            }
+        }
+    }
+    false
+}
+
+/// The C condition under which a function's stream Open HONESTLY rejects a
+/// param set the batch accepts (a documented capability limitation), or
+/// None when no such set exists. Composes recursively:
+/// - Dispatch (MA): `!identity && (param in unsupported labels)`.
+/// - Composed (STOCH): OR over its sub-calls, with the sub's optional
+///   argument EXPRESSIONS substituted for the callee's params — so MA's
+///   `optInTimePeriod == 1` identity exemption becomes
+///   `optInSlowK_Period == 1` at the STOCH level, and TRIMA landing later
+///   narrows every dependent precheck automatically on regenerate.
+/// - Loop tier: never (None).
+///
+/// `subst` maps the callee's param names to caller-level argument exprs
+/// (None at the top level: the function's own params are in scope).
+fn sv_reject_condition(
+    func: &FuncDef,
+    funcs: &[FuncDef],
+    subst: Option<&std::collections::BTreeMap<String, crate::ir::Expr>>,
+) -> Option<String> {
+    use crate::ir::Expr;
+    let lookup = crate::streaming::FuncsLookup(funcs);
+    let render_arg = |e: &Expr| -> String {
+        let mapped = match (e, subst) {
+            (Expr::Var(v), Some(m)) => m.get(v).cloned().unwrap_or_else(|| e.clone()),
+            _ => e.clone(),
+        };
+        sv_render_scalar(&mapped)
+    };
+    match crate::streaming::validate_streamable(func, &lookup) {
+        Ok(crate::streaming::StreamPlan::Dispatch(dp)) => {
+            let unsupported = dp.unsupported_labels();
+            if unsupported.is_empty() {
+                return None;
+            }
+            let param_c = render_arg(&Expr::Var(dp.param.clone()));
+            let arm_match = unsupported
+                .iter()
+                .map(|l| {
+                    let c_const = if l.starts_with("TA_") {
+                        (*l).to_string()
+                    } else {
+                        format!("TA_{l}")
+                    };
+                    format!("{param_c} == {c_const}")
+                })
+                .collect::<Vec<_>>()
+                .join(" || ");
+            match dp.identity.as_ref().and_then(|i| {
+                sv_identity_guard_subst(&i.condition, &render_arg)
+            }) {
+                Some(g) => Some(format!("( !({g}) && ( {arm_match} ) )")),
+                None => Some(format!("( {arm_match} )")),
+            }
+        }
+        Ok(crate::streaming::StreamPlan::Composed(cp)) => {
+            let mut parts: Vec<String> = Vec::new();
+            for sub in &cp.subs {
+                let callee = funcs
+                    .iter()
+                    .find(|f| f.name.eq_ignore_ascii_case(&sub.callee))?;
+                // Map the callee's params to the sub-call's argument exprs,
+                // resolved through the CURRENT substitution.
+                let mut m = std::collections::BTreeMap::new();
+                for (p, a) in callee.optional_inputs.iter().zip(sub.opt_args.iter()) {
+                    let resolved = match (a, subst) {
+                        (Expr::Var(v), Some(outer)) => {
+                            outer.get(v).cloned().unwrap_or_else(|| a.clone())
+                        }
+                        _ => a.clone(),
+                    };
+                    m.insert(p.name.clone(), resolved);
+                }
+                if let Some(cond) = sv_reject_condition(callee, funcs, Some(&m)) {
+                    parts.push(cond);
+                }
+            }
+            if parts.is_empty() {
+                None
+            } else {
+                Some(format!("( {} )", parts.join(" || ")))
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Render a param-pure scalar expression for the verify precheck (the
+/// analyzer guarantees purity; anything else is a generate-time panic so a
+/// silently-omitted precheck can never ship).
+fn sv_render_scalar(e: &crate::ir::Expr) -> String {
+    use crate::ir::Expr;
+    match e {
+        Expr::Var(v) => v.clone(),
+        Expr::IntLiteral(k) => k.to_string(),
+        Expr::Literal(x) => format!("{x:?}"),
+        _ => panic!("stream_verify precheck: unrenderable sub-call argument {e:?}"),
+    }
+}
+
+/// The identity guard with the callee's params substituted through
+/// `render_arg` (`optInTimePeriod == 1` -> `optInSlowK_Period == 1`).
+fn sv_identity_guard_subst(
+    cond: &crate::ir::Expr,
+    render_arg: &dyn Fn(&crate::ir::Expr) -> String,
+) -> Option<String> {
+    use crate::ir::{BinOp, Expr};
+    if let Expr::BinOp(l, op, r) = cond {
+        if let (Expr::Var(_), Expr::IntLiteral(k)) = (l.as_ref(), r.as_ref()) {
+            let op_s = match op {
+                BinOp::Eq => "==",
+                BinOp::LessEq => "<=",
+                _ => return None,
+            };
+            let lhs = render_arg(l);
+            return Some(format!("{lhs} {op_s} {k}"));
+        }
+    }
+    None
+}
+
+#[allow(clippy::too_many_lines)]
+fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
+    let mut s = String::new();
+    s.push_str("/* ---- stream_verify: bitwise batch-vs-stream comparison ---- */\n");
+    s.push_str("#ifndef TA_REF_SERVE\n");
+    s.push_str("#define SV_MAXN 256\n");
+    s.push_str("#define SV_PEEK_EVERY 7\n");
+    s.push_str("static double sv_o[SV_MAXN], sv_h[SV_MAXN], sv_l[SV_MAXN];\n");
+    s.push_str("static double sv_c[SV_MAXN], sv_v[SV_MAXN], sv_oi[SV_MAXN];\n");
+    s.push_str("static double sv_b0[SV_MAXN], sv_b1[SV_MAXN], sv_b2[SV_MAXN];\n");
+    s.push_str("static int sv_ib0[SV_MAXN], sv_ib1[SV_MAXN];\n");
+    s.push_str("static int sv_bitne(double a, double b) { return memcmp(&a, &b, sizeof(double)) != 0; }\n");
+    // Candle-settings variation for CDL streams: rounds 1/2 re-run the
+    // batch-vs-stream comparison with every setting's avgPeriod bumped (+3)
+    // or zeroed (the instant-candle degenerate, runtime trailing lag 0).
+    // mode 0: avgPeriod += 3; mode 1: avgPeriod = 0 (instant candle, runtime
+    // trailing lag 0); mode 2: rangeType = Shadows everywhere (gates the
+    // TA_STREAM Shadows arithmetic, which no default setting exercises).
+    s.push_str("static void sv_candle_avg(int mode) {\n");
+    s.push_str("    int i;\n");
+    s.push_str("    for( i = 0; i < (int)TA_AllCandleSettings; i++ )\n");
+    s.push_str("        TA_SetCandleSettings( (TA_CandleSettingType)i,\n");
+    s.push_str("                              mode == 2 ? TA_RangeType_Shadows : TA_Globals->candleSettings[i].rangeType,\n");
+    s.push_str("                              mode == 1 ? 0 : (mode == 0 ? TA_Globals->candleSettings[i].avgPeriod + 3 : TA_Globals->candleSettings[i].avgPeriod),\n");
+    s.push_str("                              TA_Globals->candleSettings[i].factor );\n");
+    s.push_str("}\n\n");
+    s.push_str("static void handle_stream_verify(const char *json, char *resp, int resp_size) {\n");
+    s.push_str("    int fnLen = 0;\n");
+    s.push_str("    const char *fn = json_find_string(json, \"funcName\", &fnLen);\n");
+    s.push_str("    int svShape  = json_find_int(json, \"gen_shape\");\n");
+    s.push_str("    int svSeed   = json_find_int(json, \"gen_seed\");\n");
+    s.push_str("    int svN      = json_find_int(json, \"gen_n\");\n");
+    s.push_str("    int svK      = json_find_int(json, \"unstablePeriod\");\n");
+    s.push_str("    int svCompat = json_find_int(json, \"compatibility\");\n");
+    s.push_str("    int svCandle = json_find_int(json, \"candleLegs\");\n");
+    s.push_str("    (void)svCandle;\n");
+    s.push_str("    int savedCompat = (int)TA_GetCompatibility();\n");
+    s.push_str("    (void)svK;\n");
+    s.push_str("    if( !fn ) { snprintf(resp, resp_size, \"{\\\"error\\\":\\\"missing funcName\\\"}\"); return; }\n");
+    s.push_str("    if( svN < 2 ) svN = 2;\n");
+    s.push_str("    if( svN > SV_MAXN ) svN = SV_MAXN;\n");
+    s.push_str("    fuzz_gen(svShape, svSeed, svN, sv_o, sv_h, sv_l, sv_c, sv_v, sv_oi);\n");
+    s.push_str("    TA_SetCompatibility((TA_Compatibility)svCompat);\n\n");
+
+    let mut first = true;
+    for func in funcs.iter().filter(|f| f.streaming) {
+        let name = &func.name;
+        let method = format!("TA_{name}");
+        let cond = if first { "if" } else { "else if" };
+        first = false;
+
+        // Input arrays in fuzz convention, in signature order.
+        let input_names = expand_input_names(&func.inputs);
+        let mut generic_idx = 0usize;
+        let input_arrays: Vec<&str> = input_names
+            .iter()
+            .map(|n| sv_input_array(n, &mut generic_idx))
+            .collect();
+        let n_outs = func.outputs.len();
+        // Unstable ids to pin: the function's own, plus any unstable
+        // dependency reachable TRANSITIVELY through its lookback body
+        // (DEMA/TEMA/TRIX/MACD call ema_lookback directly; STOCH/STOCHF
+        // reach EMA/KAMA/T3 only through ma_lookback — a non-transitive
+        // scan left their K-legs running vacuously at ambient K=0).
+        let pin_ids: Vec<i32> = collect_pin_ids(func, funcs);
+
+
+        s.push_str(&format!(
+            "    {cond}( fnLen == {} && strncmp(fn, \"{method}\", {}) == 0 ) {{\n",
+            method.len(),
+            method.len()
+        ));
+
+        // Optional params from the request.
+        for opt in &func.optional_inputs {
+            if opt.param_type == ParamType::Real {
+                s.push_str(&format!(
+                    "        double {0} = json_find_double(json, \"{0}\");\n",
+                    opt.name
+                ));
+            } else if matches!(&opt.param_type, ParamType::Enum(_)) {
+                s.push_str(&format!(
+                    "        TA_MAType {0} = (TA_MAType)json_find_int(json, \"{0}\");\n",
+                    opt.name
+                ));
+            } else {
+                s.push_str(&format!(
+                    "        int {0} = json_find_int(json, \"{0}\");\n",
+                    opt.name
+                ));
+            }
+        }
+
+        emit_sv_dispatch_precheck(&mut s, func, funcs, &input_arrays, n_outs, name);
+
+        let candle = func.flags.iter().any(|f| f == "candlestick");
+        s.push_str("        TA_RetCode rc;\n");
+        s.push_str("        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;\n");
+        s.push_str("        int pref[4]; int pc[4];\n");
+        if candle {
+            // Candle functions honor "candleLegs": re-run the whole sweep
+            // under bumped and zeroed avgPeriods (settings-stability rule:
+            // settings are fixed per round; each round reopens its streams).
+            s.push_str("        int rounds = svCandle ? 4 : 1; int rd, lgi = 0;\n");
+        }
+        for id in &pin_ids {
+            s.push_str(&format!(
+                "        TA_SetUnstablePeriod({id}, (unsigned int)svK);\n"
+            ));
+        }
+
+        // Batch leg (startIdx=0, full range) + intrinsic-in-ambient-K lookback.
+        let mut opt_args = String::new();
+        for o in &func.optional_inputs {
+            let _ = std::fmt::Write::write_fmt(&mut opt_args, format_args!("{}, ", o.name));
+        }
+        let mut in_args = String::new();
+        for a in &input_arrays {
+            let _ = std::fmt::Write::write_fmt(&mut in_args, format_args!("{a}, "));
+        }
+        let out_is_int: Vec<bool> = func
+            .outputs
+            .iter()
+            .map(|ou| ou.param_type == ParamType::Integer)
+            .collect();
+        let mut out_args = String::new();
+        {
+            let (mut ri, mut ii) = (0usize, 0usize);
+            for is_int in &out_is_int {
+                if *is_int {
+                    let _ = std::fmt::Write::write_fmt(&mut out_args, format_args!(", sv_ib{ii}"));
+                    ii += 1;
+                } else {
+                    let _ = std::fmt::Write::write_fmt(&mut out_args, format_args!(", sv_b{ri}"));
+                    ri += 1;
+                }
+            }
+        }
+        // Per-output batch buffer expression (indexed by output position).
+        let bbuf: Vec<String> = {
+            let (mut ri, mut ii) = (0usize, 0usize);
+            out_is_int
+                .iter()
+                .map(|is_int| {
+                    if *is_int {
+                        let e = format!("sv_ib{ii}");
+                        ii += 1;
+                        e
+                    } else {
+                        let e = format!("sv_b{ri}");
+                        ri += 1;
+                        e
+                    }
+                })
+                .collect()
+        };
+        if candle {
+            s.push_str("        pos = snprintf(resp, resp_size, \"{\\\"retCode\\\":0\");\n");
+            s.push_str("        for( rd = 0; rd < rounds; rd++ ) {\n");
+            s.push_str("        if( rd > 0 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );\n");
+            s.push_str("        if( rd > 0 ) sv_candle_avg(rd - 1);\n");
+        }
+        s.push_str(&format!(
+            "        rc = {method}(0, svN - 1, {in_args}{opt_args}&svBeg, &svNb{out_args});\n"
+        ));
+        s.push_str(&format!("        lb = {method}_Lookback({});\n", {
+            let a: Vec<String> = func.optional_inputs.iter().map(|o| o.name.clone()).collect();
+            a.join(", ")
+        }));
+        // Batch failed or produced nothing: report and restore (a valid
+        // stream cannot exist either — driver checks openRejects).
+        s.push_str("        if( rc != TA_SUCCESS || svNb <= 0 ) {\n");
+        s.push_str("            int openRejects = 0;\n");
+        s.push_str(&format!(
+            "            {{ TA_{name}_Stream *st = NULL; {} TA_RetCode orc = TA_{name}_Open({opt_args}{in_args}svN, &st, {});\n",
+            out_is_int
+                .iter()
+                .enumerate()
+                .map(|(i, is_int)| if *is_int {
+                    format!("int v{i} = 0;")
+                } else {
+                    format!("double v{i} = 0.0;")
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+            (0..n_outs).map(|i| format!("&v{i}")).collect::<Vec<_>>().join(", ")
+        ));
+        s.push_str(&format!(
+            "              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_{name}_Close(st); }}\n"
+        ));
+        for id in &pin_ids {
+            s.push_str(&format!("            TA_SetUnstablePeriod({id}, 0);\n"));
+        }
+        emit_sv_batch_fail_tail(&mut s, candle);
+
+        // Prefix sweep candidates (dedup, clamped to [lb+1, svN-1]).
+        // Seed-boundary functions (RSI/CMO under Metastock) honestly reject
+        // Open at exactly lookback+1 — the batch would rewind past that
+        // state — so the boundary leg starts one bar later there.
+        let seed_shift = func_has_seed_boundary(func, funcs);
+        s.push_str("        npref = 0;\n");
+        if seed_shift {
+            s.push_str("        pc[0] = lb + 1 + ((svCompat == 1) ? 1 : 0); pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;\n");
+        } else {
+            s.push_str("        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;\n");
+        }
+        s.push_str("        for( li = 0; li < 4; li++ ) {\n");
+        s.push_str("            int P = pc[li]; int seen = 0, k;\n");
+        s.push_str("            if( P < lb + 1 ) P = lb + 1;\n");
+        s.push_str("            if( P > svN - 1 ) P = svN - 1;\n");
+        s.push_str("            if( P < 1 ) continue;\n");
+        s.push_str("            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;\n");
+        s.push_str("            if( !seen ) pref[npref++] = P;\n");
+        s.push_str("        }\n");
+        if !candle {
+            s.push_str("        pos = snprintf(resp, resp_size, \"{\\\"retCode\\\":0,\\\"beg\\\":%d,\\\"nb\\\":%d,\\\"legs\\\":%d\", svBeg, svNb, npref);\n");
+        }
+
+        // Per-leg: open on prefix, update the rest, peek spot-asserts,
+        // bitwise compare against the batch outputs at every bar.
+        s.push_str("        for( li = 0; li < npref; li++ ) {\n");
+        s.push_str("            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;\n");
+        s.push_str("            double bv = 0.0, sv = 0.0;\n");
+        s.push_str(&format!("            TA_{name}_Stream *st = NULL;\n"));
+        for (i, is_int) in out_is_int.iter().enumerate() {
+            if *is_int {
+                s.push_str(&format!("            int v{i} = 0, pk{i} = 0;\n"));
+            } else {
+                s.push_str(&format!("            double v{i} = 0.0, pk{i} = 0.0;\n"));
+            }
+        }
+        let vout_args: String = (0..n_outs)
+            .map(|i| format!("&v{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let pkout_args: String = (0..n_outs)
+            .map(|i| format!("&pk{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        s.push_str(&format!(
+            "            rc = TA_{name}_Open({opt_args}{in_args}P, &st, {vout_args});\n"
+        ));
+        s.push_str("            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }\n");
+        // Compare the open value (bar P-1).
+        emit_sv_compare(&mut s, &out_is_int, &bbuf, "            ", "(P - 1) - svBeg", "P - 1", "ok &&");
+        // Update the remaining bars.
+        let mut bar_args = String::new();
+        for a in &input_arrays {
+            let _ = std::fmt::Write::write_fmt(&mut bar_args, format_args!("{a}[t], "));
+        }
+        s.push_str("            for( t = P; ok && t < svN; t++ ) {\n");
+        s.push_str("                int doPeek = ((t % SV_PEEK_EVERY) == 0);\n");
+        s.push_str(&format!(
+            "                if( doPeek ) TA_{name}_Peek(st, {bar_args}{pkout_args});\n"
+        ));
+        s.push_str(&format!(
+            "                TA_{name}_Update(st, {bar_args}{vout_args});\n"
+        ));
+        let peek_ne: Vec<String> = (0..n_outs)
+            .map(|i| {
+                if out_is_int[i] {
+                    format!("(pk{i} != v{i})")
+                } else {
+                    format!("sv_bitne(pk{i}, v{i})")
+                }
+            })
+            .collect();
+        s.push_str(&format!(
+            "                if( doPeek && ({}) ) pkOk = 0;\n",
+            peek_ne.join(" || ")
+        ));
+        emit_sv_compare(&mut s, &out_is_int, &bbuf, "                ", "t - svBeg", "t", "");
+        s.push_str("            }\n");
+        s.push_str(&format!("            if( st ) TA_{name}_Close(st);\n"));
+        if candle {
+            s.push_str("            pos += snprintf(resp + pos, resp_size - pos, \",\\\"p%d\\\":%d,\\\"match%d\\\":%d,\\\"peek%d\\\":%d\", lgi, P, lgi, ok, lgi, pkOk);\n");
+            s.push_str("            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, \",\\\"bar%d\\\":%d,\\\"out%d\\\":%d,\\\"batchv%d\\\":\\\"%a\\\",\\\"streamv%d\\\":\\\"%a\\\"\", lgi, badBar, lgi, badOut, lgi, bv, lgi, sv); }\n");
+            s.push_str("            if( !pkOk ) peekAll = 0;\n");
+            s.push_str("            lgi++;\n");
+            s.push_str("        }\n");
+        } else {
+            s.push_str("            pos += snprintf(resp + pos, resp_size - pos, \",\\\"p%d\\\":%d,\\\"match%d\\\":%d,\\\"peek%d\\\":%d\", li, P, li, ok, li, pkOk);\n");
+            s.push_str("            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, \",\\\"bar%d\\\":%d,\\\"out%d\\\":%d,\\\"batchv%d\\\":\\\"%a\\\",\\\"streamv%d\\\":\\\"%a\\\"\", li, badBar, li, badOut, li, bv, li, sv); }\n");
+            s.push_str("            if( !pkOk ) peekAll = 0;\n");
+            s.push_str("        }\n");
+        }
+        if candle {
+            s.push_str("        }\n");
+            s.push_str("        if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );\n");
+        }
+        for id in &pin_ids {
+            s.push_str(&format!("        TA_SetUnstablePeriod({id}, 0);\n"));
+        }
+        s.push_str("        TA_SetCompatibility((TA_Compatibility)savedCompat);\n");
+        if candle {
+            s.push_str("        pos += snprintf(resp + pos, resp_size - pos, \",\\\"beg\\\":%d,\\\"nb\\\":%d,\\\"legs\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", svBeg, svNb, lgi, allOk, peekAll);\n");
+        } else {
+            s.push_str("        pos += snprintf(resp + pos, resp_size - pos, \",\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", allOk, peekAll);\n");
+        }
+        s.push_str("        return;\n");
+        s.push_str("    }\n");
+    }
+
+    // Unknown / non-streamable function.
+    s.push_str("    TA_SetCompatibility((TA_Compatibility)savedCompat);\n");
+    s.push_str("    snprintf(resp, resp_size, \"{\\\"error\\\":\\\"not_streamable\\\"}\");\n");
+    s.push_str("}\n");
+    s.push_str("#else /* TA_REF_SERVE: frozen libs have no stream symbols */\n");
+    s.push_str("static void handle_stream_verify(const char *json, char *resp, int resp_size) {\n");
+    s.push_str("    (void)json;\n");
+    s.push_str("    snprintf(resp, resp_size, \"{\\\"error\\\":\\\"not supported\\\"}\");\n");
+    s.push_str("}\n");
+    s.push_str("#endif /* TA_REF_SERVE */\n\n");
+    s
 }
 
 #[allow(clippy::too_many_lines)]
@@ -665,6 +1324,12 @@ fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
     s.push_str("        json_find_double_array(json, \"volume\",        g_refVolume, MAX_ARRAY_SIZE);\n");
     s.push_str("        json_find_double_array(json, \"openInterest\",  g_refOI,     MAX_ARRAY_SIZE);\n");
     s.push_str("        snprintf(resp, resp_size, \"{\\\"status\\\":\\\"ok\\\",\\\"n\\\":%d}\", g_refN);\n");
+    s.push_str("        return;\n");
+    s.push_str("    }\n\n");
+
+    // stream_verify: batch-vs-stream bitwise comparison, computed in-process.
+    s.push_str("    if ( methodLen == 13 && strncmp(method, \"stream_verify\", 13) == 0 ) {\n");
+    s.push_str("        handle_stream_verify(json, resp, resp_size);\n");
     s.push_str("        return;\n");
     s.push_str("    }\n\n");
 
@@ -979,6 +1644,34 @@ fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
     s.push_str("        snprintf(resp, resp_size, \"{\\\"status\\\":\\\"ok\\\"}\");\n");
     s.push_str("    }\n");
 
+    // eval_predicate — evaluate a boolean near-zero builtin on each input value,
+    // returning a 0/1 int array. Uses the SAME rendered form the indicators use.
+    s.push_str("    else if ( methodLen == 14 && strncmp(method, \"eval_predicate\", 14) == 0 ) {\n");
+    s.push_str("        double _pv[512]; double _ps[512]; int _pr[512];\n");
+    s.push_str("        int _pw  = json_find_int(json, \"which\");\n");
+    s.push_str("        int _pn  = json_find_double_array(json, \"values\", _pv, 512);\n");
+    s.push_str("        int _pns = json_find_double_array(json, \"scale\", _ps, 512);\n");
+    s.push_str("        for( int i = 0; i < _pn; i++ ) {\n");
+    s.push_str("            double v = _pv[i];\n");
+    s.push_str("            double s = ( i < _pns ) ? _ps[i] : 0.0;\n");
+    s.push_str(&format!(
+        "            if( _pw == 1 )      _pr[i] = ( {} ) ? 1 : 0;\n",
+        c_predicate_expr(SpecialBuiltin::IsZeroScaled, &["v".to_string(), "s".to_string()])
+    ));
+    s.push_str(&format!(
+        "            else if( _pw == 2 ) _pr[i] = ( {} ) ? 1 : 0;\n",
+        c_predicate_expr(SpecialBuiltin::IsZeroOrNeg, &["v".to_string()])
+    ));
+    s.push_str(&format!(
+        "            else                _pr[i] = ( {} ) ? 1 : 0;\n",
+        c_predicate_expr(SpecialBuiltin::IsZero, &["v".to_string()])
+    ));
+    s.push_str("        }\n");
+    s.push_str("        int _pp = snprintf(resp, resp_size, \"{\\\"outInteger\\\":\");\n");
+    s.push_str("        _pp += json_write_int_array(resp + _pp, resp_size - _pp, _pr, _pn);\n");
+    s.push_str("        snprintf(resp + _pp, resp_size - _pp, \"}\");\n");
+    s.push_str("    }\n");
+
     // abstract_call — generic function call via ta_abstract
     s.push_str("    else if ( methodLen == 13 && strncmp(method, \"abstract_call\", 13) == 0 ) {\n");
     s.push_str("        handle_abstract_call(json, resp, resp_size);\n");
@@ -1269,6 +1962,34 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            int mode = jsonInt(json, \"mode\");\n");
     s.push_str("            core.compatibility = (mode == 1) ? Compatibility.Metastock : Compatibility.Default;\n");
     s.push_str("            return \"{\\\"status\\\":\\\"ok\\\"}\";\n");
+    s.push_str("        }\n");
+
+    // eval_predicate method — boolean near-zero builtin on each input value.
+    s.push_str("        else if (json.contains(\"\\\"eval_predicate\\\"\")) {\n");
+    s.push_str("            int which = jsonInt(json, \"which\");\n");
+    s.push_str("            double[] values = jsonDoubleArray(json, \"values\");\n");
+    s.push_str("            double[] scale = jsonDoubleArray(json, \"scale\");\n");
+    s.push_str("            int n = values.length;\n");
+    s.push_str("            int[] out = new int[n];\n");
+    s.push_str("            for (int i = 0; i < n; i++) {\n");
+    s.push_str("                double v = values[i];\n");
+    s.push_str("                double s = (i < scale.length) ? scale[i] : 0.0;\n");
+    s.push_str("                boolean r;\n");
+    s.push_str(&format!(
+        "                if (which == 1) r = {};\n",
+        java_predicate_expr(SpecialBuiltin::IsZeroScaled, &["v".to_string(), "s".to_string()])
+    ));
+    s.push_str(&format!(
+        "                else if (which == 2) r = {};\n",
+        java_predicate_expr(SpecialBuiltin::IsZeroOrNeg, &["v".to_string()])
+    ));
+    s.push_str(&format!(
+        "                else r = {};\n",
+        java_predicate_expr(SpecialBuiltin::IsZero, &["v".to_string()])
+    ));
+    s.push_str("                out[i] = r ? 1 : 0;\n");
+    s.push_str("            }\n");
+    s.push_str("            return \"{\\\"outInteger\\\":\" + intArrayToJson(out, n) + \"}\";\n");
     s.push_str("        }\n");
 
     s.push_str("        else {\n");
@@ -1854,7 +2575,9 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
     // File-level attributes
     s.push_str("#![forbid(unsafe_code)]\n");
-    s.push_str("#![allow(non_snake_case, unused_variables, dead_code, clippy::all)]\n\n");
+    s.push_str(
+        "#![allow(non_snake_case, unused_variables, dead_code, unused_parens, clippy::all)]\n\n",
+    );
 
     // Imports
     s.push_str("use serde_json::{self, Value};\n");
@@ -1949,6 +2672,23 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         s.push_str(&format!("        {i} => Some(FuncUnstId::{name}),\n"));
     }
     s.push_str("        _ => None,\n");
+    s.push_str("    }\n");
+    s.push_str("}\n\n");
+
+    // apply_unstable_period — rebuild the immutable `*core` with one function's
+    // unstable period changed, going through the public builder API (`Core` has no
+    // setters). Handles the FuncUnstAll "set all" wildcard (id == FuncUnstAll as
+    // usize); returns false on an out-of-range id. Shared by the `set_unstable_period`
+    // RPC and the inline per-function `unstablePeriod` override.
+    s.push_str("fn apply_unstable_period(core: &mut Core, id: usize, period: i32) -> bool {\n");
+    s.push_str("    if id == FuncUnstId::FuncUnstAll as usize {\n");
+    s.push_str("        *core = core.to_builder().unstable_period(FuncUnstId::FuncUnstAll, period).build();\n");
+    s.push_str("        true\n");
+    s.push_str("    } else if let Some(uid) = func_unst_id_from_int(id) {\n");
+    s.push_str("        *core = core.to_builder().unstable_period(uid, period).build();\n");
+    s.push_str("        true\n");
+    s.push_str("    } else {\n");
+    s.push_str("        false\n");
     s.push_str("    }\n");
     s.push_str("}\n\n");
 
@@ -2077,7 +2817,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         if let Some(id) = func_unst_id(&func.name) {
             s.push_str("            if let Some(period) = params[\"unstablePeriod\"].as_i64() {\n");
             s.push_str(&format!(
-                "                core.unstable_period[{id}] = period as i32;\n"
+                "                apply_unstable_period(core, {id}, period as i32);\n"
             ));
             s.push_str("            }\n");
         }
@@ -2230,16 +2970,9 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str(
         "            let period = params[\"period\"].as_i64().unwrap_or(0) as i32;\n",
     );
-    // id == FuncUnstAll is the "set all" sentinel (matches C TA_SetUnstablePeriod).
-    s.push_str(
-        "            if id == FuncUnstId::FuncUnstAll as usize {\n",
-    );
-    s.push_str("                for i in 0..(FuncUnstId::FuncUnstAll as usize) { core.unstable_period[i] = period; }\n");
-    s.push_str(
-        "                \"{\\\"status\\\":\\\"ok\\\"}\".to_string()\n",
-    );
-    s.push_str("            } else if id < FuncUnstId::FuncUnstAll as usize {\n");
-    s.push_str("                core.unstable_period[id] = period;\n");
+    // apply_unstable_period rebuilds the immutable Core via the builder and handles
+    // the FuncUnstAll "set all" sentinel (matches C TA_SetUnstablePeriod).
+    s.push_str("            if apply_unstable_period(core, id, period) {\n");
     s.push_str(
         "                \"{\\\"status\\\":\\\"ok\\\"}\".to_string()\n",
     );
@@ -2255,13 +2988,40 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str(
         "            let mode = params[\"mode\"].as_u64().unwrap_or(0);\n",
     );
-    s.push_str("            core.compatibility = match mode {\n");
+    s.push_str("            let compat = match mode {\n");
     s.push_str("                1 => Compatibility::Metastock,\n");
     s.push_str("                _ => Compatibility::Default,\n");
     s.push_str("            };\n");
+    s.push_str("            *core = core.to_builder().compatibility(compat).build();\n");
     s.push_str(
         "            \"{\\\"status\\\":\\\"ok\\\"}\".to_string()\n",
     );
+    s.push_str("        }\n");
+
+    // eval_predicate method — boolean near-zero builtin on each input value.
+    s.push_str("        \"eval_predicate\" => {\n");
+    s.push_str("            let which = params[\"which\"].as_i64().unwrap_or(0);\n");
+    s.push_str("            let values = parse_f64_array(&params[\"values\"]);\n");
+    s.push_str("            let scale = parse_f64_array(&params[\"scale\"]);\n");
+    s.push_str("            let out: Vec<i32> = values.iter().enumerate().map(|(i, &v)| {\n");
+    s.push_str("                let s = *scale.get(i).unwrap_or(&0.0);\n");
+    s.push_str("                let r = match which {\n");
+    s.push_str(&format!(
+        "                    1 => {},\n",
+        rust_predicate_expr(SpecialBuiltin::IsZeroScaled, &["v".to_string(), "s".to_string()])
+    ));
+    s.push_str(&format!(
+        "                    2 => {},\n",
+        rust_predicate_expr(SpecialBuiltin::IsZeroOrNeg, &["v".to_string()])
+    ));
+    s.push_str(&format!(
+        "                    _ => {},\n",
+        rust_predicate_expr(SpecialBuiltin::IsZero, &["v".to_string()])
+    ));
+    s.push_str("                };\n");
+    s.push_str("                i32::from(r)\n");
+    s.push_str("            }).collect();\n");
+    s.push_str("            format!(\"{{\\\"outInteger\\\":{}}}\", json_i32_array(&out))\n");
     s.push_str("        }\n");
 
     // Abstract/introspection metadata handlers (mirror ta_abstract_serve.c),
@@ -2514,3 +3274,36 @@ const RUST_ABSTRACT_DYNAMIC_HANDLERS: &str = r#"        "abstract_call" => {
             format!("{{\"length\":{},\"checksum\":{}}}", length, checksum)
         }
 "#;
+
+#[cfg(test)]
+mod predicate_form_tests {
+    use super::{c_predicate_expr, java_predicate_expr, rust_predicate_expr, SpecialBuiltin};
+
+    /// Pin the exact per-backend form of the boolean near-zero builtins. These are
+    /// the single source shared by the indicator code path AND the eval_predicate
+    /// server handler, so any drift here is caught fast (and the runtime
+    /// cross-language predicate-parity test in ta_regtest re-verifies equivalence).
+    #[test]
+    fn predicate_forms_are_stable() {
+        let v = &["v".to_string()];
+        let vs = &["v".to_string(), "s".to_string()];
+
+        assert_eq!(c_predicate_expr(SpecialBuiltin::IsZero, v), "TA_IS_ZERO(v)");
+        assert_eq!(c_predicate_expr(SpecialBuiltin::IsZeroScaled, vs), "TA_IS_ZERO_SCALED(v, s)");
+        assert_eq!(c_predicate_expr(SpecialBuiltin::IsZeroOrNeg, v), "TA_IS_ZERO_OR_NEG(v)");
+
+        assert_eq!(rust_predicate_expr(SpecialBuiltin::IsZero, v), "(v).abs() < 1e-14");
+        assert_eq!(rust_predicate_expr(SpecialBuiltin::IsZeroScaled, vs), "((v).abs() <= 1e-14 * (s))");
+        assert_eq!(rust_predicate_expr(SpecialBuiltin::IsZeroOrNeg, v), "(v) < 1e-14");
+
+        assert_eq!(
+            java_predicate_expr(SpecialBuiltin::IsZero, v),
+            "((-0.00000000000001 < v) && (v < 0.00000000000001))"
+        );
+        assert_eq!(
+            java_predicate_expr(SpecialBuiltin::IsZeroScaled, vs),
+            "(Math.abs(v) <= 0.00000000000001 * (s))"
+        );
+        assert_eq!(java_predicate_expr(SpecialBuiltin::IsZeroOrNeg, v), "(v < 0.00000000000001)");
+    }
+}

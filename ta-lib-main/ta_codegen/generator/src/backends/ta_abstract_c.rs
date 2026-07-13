@@ -141,7 +141,8 @@ pub fn generate(
     write_if_changed_silent(&base.join("ta_func_api.c"), &gen_ta_func_api_c(repo_root));
 
     // Generate include/ta_func.h — this replaces gen_code's role.
-    // The output MUST be identical to the original (backward compatibility).
+    // Batch prototypes MUST stay byte-identical to the pre-cutover original
+    // (backward compatibility); the streaming declarations are additive.
     write_if_changed_silent(
         &repo_root.join("include").join("ta_func.h"),
         &gen_ta_func_h(&sorted),
@@ -1524,15 +1525,15 @@ fn opt_input_flags_c(flags: &[String]) -> String {
     }
 }
 
-/// Build the C flags string for function flags.
+/// Build the C flags string for function flags. `stream` marks functions
+/// with a generated streaming API (TA_FUNC_FLG_STREAM) so wrappers can
+/// discover the stream surface through ta_abstract.
 fn func_flags_string(flags: &[String]) -> String {
-    if flags.is_empty() {
-        return "0".to_string();
-    }
     let mapped: Vec<&str> = flags
         .iter()
         .filter_map(|f| match f.as_str() {
             "overlap" => Some("TA_FUNC_FLG_OVERLAP"),
+            "stream" => Some("TA_FUNC_FLG_STREAM"),
             "volume" => Some("TA_FUNC_FLG_VOLUME"),
             "unstable_period" => Some("TA_FUNC_FLG_UNST_PER"),
             "candlestick" => Some("TA_FUNC_FLG_CANDLESTICK"),
@@ -2783,8 +2784,9 @@ fn gen_ta_func_h(funcs: &[&FuncDef]) -> String {
     );
 
     // Emit all function prototypes.
+    let ref_lookup = RefFuncsLookup(funcs);
     for func in funcs {
-        emit_func_h_block(&mut o, func);
+        emit_func_h_block(&mut o, func, &ref_lookup);
     }
 
     // Utility function section (unstable period, compatibility, candle settings).
@@ -2860,7 +2862,20 @@ fn gen_ta_func_h(funcs: &[&FuncDef]) -> String {
 }
 
 /// Emit the comment block + double/single/lookback prototypes for one function.
-fn emit_func_h_block(o: &mut String, func: &FuncDef) {
+/// [`crate::streaming::CalleeLookup`] over the borrowed FuncDef list this
+/// backend already carries (dispatch capability notes in the header).
+struct RefFuncsLookup<'a>(&'a [&'a FuncDef]);
+
+impl crate::streaming::CalleeLookup for RefFuncsLookup<'_> {
+    fn callee(&self, name: &str) -> Option<crate::streaming::CalleeSig> {
+        self.0
+            .iter()
+            .find(|f| f.name.eq_ignore_ascii_case(name))
+            .map(|f| crate::streaming::callee_sig_of(f))
+    }
+}
+
+fn emit_func_h_block(o: &mut String, func: &FuncDef, lookup: &dyn crate::streaming::CalleeLookup) {
     let name = &func.name;
     let hint = func.hint.as_deref().unwrap_or(name);
 
@@ -2943,6 +2958,12 @@ fn emit_func_h_block(o: &mut String, func: &FuncDef) {
         o.push('\n');
     } else {
         o.push_str("\n\n");
+    }
+
+    // --- Streaming API declarations (only for YAML-declared functions) ---
+    if func.streaming {
+        o.push_str(&crate::backends::c_stream::header_decls(func, lookup));
+        o.push('\n');
     }
 }
 

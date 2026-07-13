@@ -128,6 +128,9 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
+             return RetCode.BadParam ;
+          }
           /* Identify the minimum number of price bar needed
            * to calculate at least one output.
            */
@@ -293,6 +296,9 @@ class Core {
              optInTimePeriod = 20;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
+             return RetCode.BadParam ;
           }
           lookbackTotal = smaLookback(optInTimePeriod);
           if( startIdx < lookbackTotal ) {
@@ -2281,14 +2287,19 @@ class Core {
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
      *  AM       Adrian Michel
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  010802 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
-     *  082303 MF   Fix #792298. Remove rounding. Bug reported by AM.
+     *  010802 MF     Template creation.
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  082303 MF     Fix #792298. Remove rounding. Bug reported by AM.
+     *  071126 MF,CC  Rewrite the ADX combine as a single cursor: outReal[k] =
+     *                (adx[k+(period-1)] + adx[k])/2 (current ADX + ADX lagged by
+     *                period-1). Bit-identical to the two-cursor form, and the
+     *                streamable-source form (a sub-output lag ring).
      */
 
        public int adxrLookback( int optInTimePeriod )
@@ -2317,8 +2328,6 @@ class Core {
        {
           double[] adx;
           int adxrLookback = 0;
-          int i = 0;
-          int j = 0;
           int outIdx = 0;
           int nbElement = 0;
           RetCode retCode;
@@ -2360,19 +2369,23 @@ class Core {
              return RetCode.Success ;
           }
           adx = new double[(int)((endIdx - startIdx + optInTimePeriod) * 1)];
+          /* Compute ADX over a range that starts (period-1) bars earlier, so each
+           * ADXR bar can pair the current ADX with the ADX from (period-1) bars ago.
+           */
           retCode = adxUnguarded(startIdx - (optInTimePeriod - 1), endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, adx);
           if( retCode != RetCode.Success ) {
              return retCode ;
           }
-          i = optInTimePeriod - 1;
-          j = 0;
-          outIdx = 0;
-          nbElement = endIdx - startIdx + 2;
-          while( --nbElement != 0 ) {
-             outReal[outIdx++] = ((adx[i++] + adx[j++]) / 2.0);
+          /* ADXR[k] = (ADX[k] + ADX[k-(period-1)]) / 2. Walking a single cursor over
+           * the ADXR output, the current ADX is adx[k+(period-1)] and the lagged one
+           * is adx[k]; the ADX range holds (period-1) more elements than the output.
+           */
+          nbElement = outNBElement.value - (optInTimePeriod - 1);
+          for( outIdx = 0; outIdx < nbElement; outIdx += 1 ) {
+             outReal[outIdx] = ((adx[outIdx + (optInTimePeriod - 1)] + adx[outIdx]) / 2.0);
           }
           outBegIdx.value = startIdx;
-          outNBElement.value = outIdx;
+          outNBElement.value = nbElement;
           return RetCode.Success ;
        }
        public RetCode adxrUnguarded( int startIdx,
@@ -2387,8 +2400,6 @@ class Core {
        {
           double[] adx;
           int adxrLookback = 0;
-          int i = 0;
-          int j = 0;
           int outIdx = 0;
           int nbElement = 0;
           RetCode retCode;
@@ -2406,15 +2417,12 @@ class Core {
           if( retCode != RetCode.Success ) {
              return retCode ;
           }
-          i = optInTimePeriod - 1;
-          j = 0;
-          outIdx = 0;
-          nbElement = endIdx - startIdx + 2;
-          while( --nbElement != 0 ) {
-             outReal[outIdx++] = ((adx[i++] + adx[j++]) / 2.0);
+          nbElement = outNBElement.value - (optInTimePeriod - 1);
+          for( outIdx = 0; outIdx < nbElement; outIdx += 1 ) {
+             outReal[outIdx] = ((adx[outIdx + (optInTimePeriod - 1)] + adx[outIdx]) / 2.0);
           }
           outBegIdx.value = startIdx;
-          outNBElement.value = outIdx;
+          outNBElement.value = nbElement;
           return RetCode.Success ;
        }
        public RetCode adxr( int startIdx,
@@ -2429,8 +2437,6 @@ class Core {
        {
           double[] adx;
           int adxrLookback = 0;
-          int i = 0;
-          int j = 0;
           int outIdx = 0;
           int nbElement = 0;
           RetCode retCode;
@@ -2459,15 +2465,12 @@ class Core {
           if( retCode != RetCode.Success ) {
              return retCode ;
           }
-          i = optInTimePeriod - 1;
-          j = 0;
-          outIdx = 0;
-          nbElement = endIdx - startIdx + 2;
-          while( --nbElement != 0 ) {
-             outReal[outIdx++] = ((adx[i++] + adx[j++]) / 2.0);
+          nbElement = outNBElement.value - (optInTimePeriod - 1);
+          for( outIdx = 0; outIdx < nbElement; outIdx += 1 ) {
+             outReal[outIdx] = ((adx[outIdx + (optInTimePeriod - 1)] + adx[outIdx]) / 2.0);
           }
           outBegIdx.value = startIdx;
-          outNBElement.value = outIdx;
+          outNBElement.value = nbElement;
           return RetCode.Success ;
        }
        public RetCode adxrUnguarded( int startIdx,
@@ -2482,8 +2485,6 @@ class Core {
        {
           double[] adx;
           int adxrLookback = 0;
-          int i = 0;
-          int j = 0;
           int outIdx = 0;
           int nbElement = 0;
           RetCode retCode;
@@ -2501,15 +2502,12 @@ class Core {
           if( retCode != RetCode.Success ) {
              return retCode ;
           }
-          i = optInTimePeriod - 1;
-          j = 0;
-          outIdx = 0;
-          nbElement = endIdx - startIdx + 2;
-          while( --nbElement != 0 ) {
-             outReal[outIdx++] = ((adx[i++] + adx[j++]) / 2.0);
+          nbElement = outNBElement.value - (optInTimePeriod - 1);
+          for( outIdx = 0; outIdx < nbElement; outIdx += 1 ) {
+             outReal[outIdx] = ((adx[outIdx + (optInTimePeriod - 1)] + adx[outIdx]) / 2.0);
           }
           outBegIdx.value = startIdx;
-          outNBElement.value = outIdx;
+          outNBElement.value = nbElement;
           return RetCode.Success ;
        }
     /* List of contributors:
@@ -2518,15 +2516,19 @@ class Core {
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
      *  AA       Andrew Atkinson
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  112400 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
-     *  062804 MF   Resolve div by zero bug on limit case.
-     *  020605 AA   Fix #1117666 Lookback & out-of-bound bug.
+     *  112400 MF     Template creation.
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  062804 MF     Resolve div by zero bug on limit case.
+     *  020605 AA     Fix #1117666 Lookback & out-of-bound bug.
+     *  071126 MF,CC  Rewrite the combine into flat error-guards and a single-cursor
+     *                offset index (offset = fastNb - *outNBElement). Bit-identical,
+     *                streamable, and index-safe.
      */
 
        public int apoLookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
@@ -2558,12 +2560,10 @@ class Core {
           double[] tempBuffer;
           RetCode retCode;
           int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          MInteger fastBeg = new MInteger();
+          MInteger fastNb = new MInteger();
+          int offset = 0;
           int i = 0;
-          int j = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -2592,27 +2592,25 @@ class Core {
              optInFastPeriod = tempInteger;
           }
           /* Calculate the fast MA into the tempBuffer. */
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, outBegIdx2, outNbElement2, tempBuffer);
-          if( retCode == RetCode.Success ) {
-             /* Calculate the slow MA into the output. */
-             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
-             if( retCode == RetCode.Success ) {
-                /* The slow MA begins at or after the fast MA, so the offset is
-                 * valid whenever the slow MA produced output. Guard it so the empty
-                 * case leaves the difference loop untouched.
-                 */
-                if( outNbElement1.value > 0 ) {
-                   tempInteger = outBegIdx1.value - outBegIdx2.value;
-                   /* Calculate (fast MA)-(slow MA) in the output. */
-                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                      outReal[i] = tempBuffer[j] - outReal[i];
-                   }
-                }
-                outBegIdx.value = outBegIdx1.value;
-                outNBElement.value = outNbElement1.value;
-             }
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
           }
-          return retCode ;
+          /* Calculate the slow MA into the output. */
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          /* fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
+           * many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
+           * outReal[i], with a non-negative index. An empty slow MA skips the loop.
+           */
+          offset = fastNb.value - outNBElement.value;
+          /* Calculate (fast MA)-(slow MA) in the output. */
+          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+             outReal[i] = tempBuffer[i + offset] - outReal[i];
+          }
+          return RetCode.Success ;
        }
        public RetCode apoUnguarded( int startIdx,
                                     int endIdx,
@@ -2627,33 +2625,29 @@ class Core {
           double[] tempBuffer;
           RetCode retCode;
           int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          MInteger fastBeg = new MInteger();
+          MInteger fastNb = new MInteger();
+          int offset = 0;
           int i = 0;
-          int j = 0;
           tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
              optInFastPeriod = tempInteger;
           }
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, outBegIdx2, outNbElement2, tempBuffer);
-          if( retCode == RetCode.Success ) {
-             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
-             if( retCode == RetCode.Success ) {
-                if( outNbElement1.value > 0 ) {
-                   tempInteger = outBegIdx1.value - outBegIdx2.value;
-                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                      outReal[i] = tempBuffer[j] - outReal[i];
-                   }
-                }
-                outBegIdx.value = outBegIdx1.value;
-                outNBElement.value = outNbElement1.value;
-             }
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
           }
-          return retCode ;
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          offset = fastNb.value - outNBElement.value;
+          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+             outReal[i] = tempBuffer[i + offset] - outReal[i];
+          }
+          return RetCode.Success ;
        }
        public RetCode apo( int startIdx,
                            int endIdx,
@@ -2668,12 +2662,10 @@ class Core {
           double[] tempBuffer;
           RetCode retCode;
           int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          MInteger fastBeg = new MInteger();
+          MInteger fastNb = new MInteger();
+          int offset = 0;
           int i = 0;
-          int j = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -2696,21 +2688,19 @@ class Core {
              optInSlowPeriod = optInFastPeriod;
              optInFastPeriod = tempInteger;
           }
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, outBegIdx2, outNbElement2, tempBuffer);
-          if( retCode == RetCode.Success ) {
-             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
-             if( retCode == RetCode.Success ) {
-                if( outNbElement1.value > 0 ) {
-                   tempInteger = outBegIdx1.value - outBegIdx2.value;
-                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                      outReal[i] = tempBuffer[j] - outReal[i];
-                   }
-                }
-                outBegIdx.value = outBegIdx1.value;
-                outNBElement.value = outNbElement1.value;
-             }
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
           }
-          return retCode ;
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          offset = fastNb.value - outNBElement.value;
+          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+             outReal[i] = tempBuffer[i + offset] - outReal[i];
+          }
+          return RetCode.Success ;
        }
        public RetCode apoUnguarded( int startIdx,
                                     int endIdx,
@@ -2725,33 +2715,29 @@ class Core {
           double[] tempBuffer;
           RetCode retCode;
           int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          MInteger fastBeg = new MInteger();
+          MInteger fastNb = new MInteger();
+          int offset = 0;
           int i = 0;
-          int j = 0;
           tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
              optInFastPeriod = tempInteger;
           }
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, outBegIdx2, outNbElement2, tempBuffer);
-          if( retCode == RetCode.Success ) {
-             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
-             if( retCode == RetCode.Success ) {
-                if( outNbElement1.value > 0 ) {
-                   tempInteger = outBegIdx1.value - outBegIdx2.value;
-                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                      outReal[i] = tempBuffer[j] - outReal[i];
-                   }
-                }
-                outBegIdx.value = outBegIdx1.value;
-                outNBElement.value = outNbElement1.value;
-             }
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
           }
-          return retCode ;
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          offset = fastNb.value - outNBElement.value;
+          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+             outReal[i] = tempBuffer[i + offset] - outReal[i];
+          }
+          return RetCode.Success ;
        }
     /* List of contributors:
      *
@@ -2809,6 +2795,9 @@ class Core {
              optInTimePeriod = 14;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outAroonDown == outAroonUp ) {
+             return RetCode.BadParam ;
           }
           /* This function is using a speed optimized algorithm
            * for the min/max logic.
@@ -3000,6 +2989,9 @@ class Core {
              optInTimePeriod = 14;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outAroonDown == outAroonUp ) {
+             return RetCode.BadParam ;
           }
           if( startIdx < optInTimePeriod ) {
              startIdx = optInTimePeriod;
@@ -4594,6 +4586,9 @@ class Core {
      *                deviation clamps to a later begIdx than the
      *                (period-independent) MAMA lookback, for
      *                optInTimePeriod >= 34.
+     *  071126 MF,CC  Split into an SMA fast path (reuses the moving average as the
+     *                mean) and a general MA + STDDEV path, so BBANDS streams as a
+     *                composition of the TA_MA and TA_STDDEV streams. Bit-identical.
      */
 
        public int bbandsLookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
@@ -4657,50 +4652,46 @@ class Core {
           if( optInNbDevDn == -4e37 ) {
              optInNbDevDn = 2e0;
           }
-          /* Identify TWO temporary buffer among the outputs.
-           *
-           * These temporary buffers allows to perform the
-           * calculation without any memory allocation.
-           *
-           * Whenever possible, make the tempBuffer1 be the
-           * middle band output. This will save one copy operation.
-           */
-          if( inReal == outRealUpperBand ) {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealLowerBand;
-          } else if( inReal == outRealLowerBand ) {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealUpperBand;
-          } else if( inReal == outRealMiddleBand ) {
-             tempBuffer1 = outRealLowerBand;
-             tempBuffer2 = outRealUpperBand;
-          } else {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealUpperBand;
-          }
-          /* Check that the caller is not doing tricky things.
-           * (like using the input buffer in two output!)
-           */
-          if( tempBuffer1 == inReal || tempBuffer2 == inReal ) {
+          if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
              return RetCode.BadParam ;
           }
-          /* Calculate the middle band, which is a moving average.
-           * The other two bands will simply add/substract the
-           * standard deviation from this middle band.
-           */
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
-          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          /* Remember where the moving average begins, to realign it below. */
-          maBegIdx = outBegIdx.value;
-          /* Calculate the standard deviation into tempBuffer2. */
           if( optInMAType == MAType.Sma ) {
-             /* A small speed optimization by re-using the
-              * already calculated SMA.
+             /* SMA fast path: the middle band is a simple moving average, which is
+              * also the mean the standard deviation is measured against - so the SMA
+              * is reused instead of recomputing the mean. Bit-identical to the general
+              * MA + STDDEV path below (which the stream composes for every MA type).
+              *
+              * Identify TWO temporary buffers among the outputs so the calculation
+              * needs no memory allocation; whenever possible make tempBuffer1 be the
+              * middle band output, saving one copy operation.
               */
-             /* Inline stddev_using_precalc_ma */
+             if( inReal == outRealUpperBand ) {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealLowerBand;
+             } else if( inReal == outRealLowerBand ) {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealUpperBand;
+             } else if( inReal == outRealMiddleBand ) {
+                tempBuffer1 = outRealLowerBand;
+                tempBuffer2 = outRealUpperBand;
+             } else {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealUpperBand;
+             }
+             /* Check that the caller is not doing tricky things.
+              * (like using the input buffer in two output!)
+              */
+             if( tempBuffer1 == inReal || tempBuffer2 == inReal ) {
+                return RetCode.BadParam ;
+             }
+             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+             if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+                outNBElement.value = 0;
+                return retCode ;
+             }
+             /* Calculate the standard deviation into tempBuffer2, re-using the
+              * already calculated SMA (Inline stddev_using_precalc_ma).
+              */
              double _tempReal;
              double _periodTotal2;
              double _meanValue2;
@@ -4732,78 +4723,79 @@ class Core {
                    tempBuffer2[_outIdx] = 0.0;
                 }
              }
-          } else {
-             /* Calculate the Standard Deviation */
-             retCode = stdDevUnguarded((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
-             if( retCode != RetCode.Success ) {
-                outNBElement.value = 0;
-                return retCode ;
+             /* Copy the MA calculation into the middle band ouput, unless
+              * the calculation was done into it already!
+              */
+             if( tempBuffer1 != outRealMiddleBand ) {
+                System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
              }
-          }
-          /* When the standard deviation (lookback optInTimePeriod-1) clamps to a later
-           * begIdx than the moving average did - as with TA_MAType_MAMA (constant
-           * lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
-           * at the earlier maBegIdx. Shift it forward so each band value pairs the
-           * moving average and standard deviation of the same bar.
-           */
-          if( outBegIdx.value > maBegIdx ) {
-             shiftIdx = outBegIdx.value - maBegIdx;
-             System.arraycopy(tempBuffer1, shiftIdx, tempBuffer1, 0, outNBElement.value * 1);
-          }
-          /* Copy the MA calculation into the middle band ouput, unless
-           * the calculation was done into it already!
-           */
-          if( tempBuffer1 != outRealMiddleBand ) {
-             System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
-          }
-          /* Now do a tight loop to calculate the upper/lower band at
-           * the same time.
-           *
-           * All the following 5 loops are doing the same, except there
-           * is an attempt to speed optimize by eliminating uneeded
-           * multiplication.
-           */
-          if( optInNbDevUp == optInNbDevDn ) {
-             if( optInNbDevUp == 1.0 ) {
-                /* No standard deviation multiplier needed. */
-                for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                   tempReal = tempBuffer2[i];
-                   tempReal2 = outRealMiddleBand[i];
-                   outRealUpperBand[i] = tempReal2 + tempReal;
-                   outRealLowerBand[i] = tempReal2 - tempReal;
-                }
-             } else {
-                /* Upper/lower band use the same standard deviation multiplier. */
+             /* Now do a tight loop to calculate the upper/lower band at the same time. */
+             if( optInNbDevUp == optInNbDevDn ) {
                 for( i = 0; i < (int)outNBElement.value; i += 1 ) {
                    tempReal = tempBuffer2[i] * optInNbDevUp;
                    tempReal2 = outRealMiddleBand[i];
                    outRealUpperBand[i] = tempReal2 + tempReal;
                    outRealLowerBand[i] = tempReal2 - tempReal;
                 }
+             } else {
+                for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+                   tempReal = tempBuffer2[i];
+                   tempReal2 = outRealMiddleBand[i];
+                   outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
+                   outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
+                }
              }
-          } else if( optInNbDevUp == 1.0 ) {
-             /* Only lower band has a standard deviation multiplier. */
+             return RetCode.Success ;
+          }
+          /* General path (every MA type other than SMA): the middle band is the moving
+           * average and the deviation is the standard deviation of the input, combined
+           * at the same bar. Two intermediate buffers are allocated so the input may
+           * safely alias an output (it is only read here).
+           */
+          tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
+          tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
+          /* Calculate the middle band moving average. */
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+             outNBElement.value = 0;
+             return retCode ;
+          }
+          /* Remember where the moving average begins, to realign it below. */
+          maBegIdx = (int)outBegIdx.value;
+          /* Calculate the Standard Deviation into tempBuffer2. */
+          retCode = stdDevUnguarded((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
+          if( retCode != RetCode.Success ) {
+             outNBElement.value = 0;
+             return retCode ;
+          }
+          /* When the standard deviation (lookback optInTimePeriod-1) clamps to a later
+           * begIdx than the moving average did - as with TA_MAType_MAMA (constant
+           * lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
+           * at the earlier maBegIdx. Copy it forward from that shift into the middle
+           * band so each band value pairs the moving average and standard deviation of
+           * the same bar. The guarded subtraction keeps shiftIdx non-negative even when
+           * the standard deviation produced no output (an empty range leaves *outBegIdx
+           * at 0), which the unconditional copy below then handles as a zero-length move.
+           */
+          if( (int)outBegIdx.value > maBegIdx ) {
+             shiftIdx = (int)outBegIdx.value - maBegIdx;
+          } else {
+             shiftIdx = 0;
+          }
+          System.arraycopy(tempBuffer1, shiftIdx, outRealMiddleBand, 0, outNBElement.value * 1);
+          /* Now do a tight loop to calculate the upper/lower band at the same time. */
+          if( optInNbDevUp == optInNbDevDn ) {
              for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
+                tempReal = tempBuffer2[i] * optInNbDevUp;
                 tempReal2 = outRealMiddleBand[i];
                 outRealUpperBand[i] = tempReal2 + tempReal;
-                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
-             }
-          } else if( optInNbDevDn == 1.0 ) {
-             /* Only upper band has a standard deviation multiplier. */
-             for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
-                tempReal2 = outRealMiddleBand[i];
                 outRealLowerBand[i] = tempReal2 - tempReal;
-                outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
              }
           } else {
-             /* Upper/lower band have distinctive standard deviation multiplier. */
              for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
                 tempReal2 = outRealMiddleBand[i];
-                outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
-                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
+                outRealUpperBand[i] = tempReal2 + tempBuffer2[i] * optInNbDevUp;
+                outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
              }
           }
           return RetCode.Success ;
@@ -4829,29 +4821,28 @@ class Core {
           double tempReal2 = 0;
           double[] tempBuffer1;
           double[] tempBuffer2;
-          if( inReal == outRealUpperBand ) {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealLowerBand;
-          } else if( inReal == outRealLowerBand ) {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealUpperBand;
-          } else if( inReal == outRealMiddleBand ) {
-             tempBuffer1 = outRealLowerBand;
-             tempBuffer2 = outRealUpperBand;
-          } else {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealUpperBand;
-          }
-          if( tempBuffer1 == inReal || tempBuffer2 == inReal ) {
-             return RetCode.BadParam ;
-          }
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
-          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          maBegIdx = outBegIdx.value;
           if( optInMAType == MAType.Sma ) {
+             if( inReal == outRealUpperBand ) {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealLowerBand;
+             } else if( inReal == outRealLowerBand ) {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealUpperBand;
+             } else if( inReal == outRealMiddleBand ) {
+                tempBuffer1 = outRealLowerBand;
+                tempBuffer2 = outRealUpperBand;
+             } else {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealUpperBand;
+             }
+             if( tempBuffer1 == inReal || tempBuffer2 == inReal ) {
+                return RetCode.BadParam ;
+             }
+             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+             if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+                outNBElement.value = 0;
+                return retCode ;
+             }
              double _tempReal;
              double _periodTotal2;
              double _meanValue2;
@@ -4883,56 +4874,57 @@ class Core {
                    tempBuffer2[_outIdx] = 0.0;
                 }
              }
-          } else {
-             retCode = stdDevUnguarded((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
-             if( retCode != RetCode.Success ) {
-                outNBElement.value = 0;
-                return retCode ;
+             if( tempBuffer1 != outRealMiddleBand ) {
+                System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
              }
-          }
-          if( outBegIdx.value > maBegIdx ) {
-             shiftIdx = outBegIdx.value - maBegIdx;
-             System.arraycopy(tempBuffer1, shiftIdx, tempBuffer1, 0, outNBElement.value * 1);
-          }
-          if( tempBuffer1 != outRealMiddleBand ) {
-             System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
-          }
-          if( optInNbDevUp == optInNbDevDn ) {
-             if( optInNbDevUp == 1.0 ) {
-                for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                   tempReal = tempBuffer2[i];
-                   tempReal2 = outRealMiddleBand[i];
-                   outRealUpperBand[i] = tempReal2 + tempReal;
-                   outRealLowerBand[i] = tempReal2 - tempReal;
-                }
-             } else {
+             if( optInNbDevUp == optInNbDevDn ) {
                 for( i = 0; i < (int)outNBElement.value; i += 1 ) {
                    tempReal = tempBuffer2[i] * optInNbDevUp;
                    tempReal2 = outRealMiddleBand[i];
                    outRealUpperBand[i] = tempReal2 + tempReal;
                    outRealLowerBand[i] = tempReal2 - tempReal;
                 }
+             } else {
+                for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+                   tempReal = tempBuffer2[i];
+                   tempReal2 = outRealMiddleBand[i];
+                   outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
+                   outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
+                }
              }
-          } else if( optInNbDevUp == 1.0 ) {
+             return RetCode.Success ;
+          }
+          tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
+          tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+             outNBElement.value = 0;
+             return retCode ;
+          }
+          maBegIdx = (int)outBegIdx.value;
+          retCode = stdDevUnguarded((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
+          if( retCode != RetCode.Success ) {
+             outNBElement.value = 0;
+             return retCode ;
+          }
+          if( (int)outBegIdx.value > maBegIdx ) {
+             shiftIdx = (int)outBegIdx.value - maBegIdx;
+          } else {
+             shiftIdx = 0;
+          }
+          System.arraycopy(tempBuffer1, shiftIdx, outRealMiddleBand, 0, outNBElement.value * 1);
+          if( optInNbDevUp == optInNbDevDn ) {
              for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
+                tempReal = tempBuffer2[i] * optInNbDevUp;
                 tempReal2 = outRealMiddleBand[i];
                 outRealUpperBand[i] = tempReal2 + tempReal;
-                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
-             }
-          } else if( optInNbDevDn == 1.0 ) {
-             for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
-                tempReal2 = outRealMiddleBand[i];
                 outRealLowerBand[i] = tempReal2 - tempReal;
-                outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
              }
           } else {
              for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
                 tempReal2 = outRealMiddleBand[i];
-                outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
-                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
+                outRealUpperBand[i] = tempReal2 + tempBuffer2[i] * optInNbDevUp;
+                outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
              }
           }
           return RetCode.Success ;
@@ -4975,29 +4967,31 @@ class Core {
           if( optInNbDevDn == -4e37 ) {
              optInNbDevDn = 2e0;
           }
-          if( false ) {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealLowerBand;
-          } else if( false ) {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealUpperBand;
-          } else if( false ) {
-             tempBuffer1 = outRealLowerBand;
-             tempBuffer2 = outRealUpperBand;
-          } else {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealUpperBand;
-          }
-          if( false || false ) {
+          if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
              return RetCode.BadParam ;
           }
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
-          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          maBegIdx = outBegIdx.value;
           if( optInMAType == MAType.Sma ) {
+             if( false ) {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealLowerBand;
+             } else if( false ) {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealUpperBand;
+             } else if( false ) {
+                tempBuffer1 = outRealLowerBand;
+                tempBuffer2 = outRealUpperBand;
+             } else {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealUpperBand;
+             }
+             if( false || false ) {
+                return RetCode.BadParam ;
+             }
+             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+             if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+                outNBElement.value = 0;
+                return retCode ;
+             }
              double _tempReal;
              double _periodTotal2;
              double _meanValue2;
@@ -5029,56 +5023,57 @@ class Core {
                    tempBuffer2[_outIdx] = 0.0;
                 }
              }
-          } else {
-             retCode = stdDevUnguarded((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
-             if( retCode != RetCode.Success ) {
-                outNBElement.value = 0;
-                return retCode ;
+             if( tempBuffer1 != outRealMiddleBand ) {
+                System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
              }
-          }
-          if( outBegIdx.value > maBegIdx ) {
-             shiftIdx = outBegIdx.value - maBegIdx;
-             System.arraycopy(tempBuffer1, shiftIdx, tempBuffer1, 0, outNBElement.value * 1);
-          }
-          if( tempBuffer1 != outRealMiddleBand ) {
-             System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
-          }
-          if( optInNbDevUp == optInNbDevDn ) {
-             if( optInNbDevUp == 1.0 ) {
-                for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                   tempReal = tempBuffer2[i];
-                   tempReal2 = outRealMiddleBand[i];
-                   outRealUpperBand[i] = tempReal2 + tempReal;
-                   outRealLowerBand[i] = tempReal2 - tempReal;
-                }
-             } else {
+             if( optInNbDevUp == optInNbDevDn ) {
                 for( i = 0; i < (int)outNBElement.value; i += 1 ) {
                    tempReal = tempBuffer2[i] * optInNbDevUp;
                    tempReal2 = outRealMiddleBand[i];
                    outRealUpperBand[i] = tempReal2 + tempReal;
                    outRealLowerBand[i] = tempReal2 - tempReal;
                 }
+             } else {
+                for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+                   tempReal = tempBuffer2[i];
+                   tempReal2 = outRealMiddleBand[i];
+                   outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
+                   outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
+                }
              }
-          } else if( optInNbDevUp == 1.0 ) {
+             return RetCode.Success ;
+          }
+          tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
+          tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+             outNBElement.value = 0;
+             return retCode ;
+          }
+          maBegIdx = (int)outBegIdx.value;
+          retCode = stdDevUnguarded((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
+          if( retCode != RetCode.Success ) {
+             outNBElement.value = 0;
+             return retCode ;
+          }
+          if( (int)outBegIdx.value > maBegIdx ) {
+             shiftIdx = (int)outBegIdx.value - maBegIdx;
+          } else {
+             shiftIdx = 0;
+          }
+          System.arraycopy(tempBuffer1, shiftIdx, outRealMiddleBand, 0, outNBElement.value * 1);
+          if( optInNbDevUp == optInNbDevDn ) {
              for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
+                tempReal = tempBuffer2[i] * optInNbDevUp;
                 tempReal2 = outRealMiddleBand[i];
                 outRealUpperBand[i] = tempReal2 + tempReal;
-                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
-             }
-          } else if( optInNbDevDn == 1.0 ) {
-             for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
-                tempReal2 = outRealMiddleBand[i];
                 outRealLowerBand[i] = tempReal2 - tempReal;
-                outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
              }
           } else {
              for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
                 tempReal2 = outRealMiddleBand[i];
-                outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
-                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
+                outRealUpperBand[i] = tempReal2 + tempBuffer2[i] * optInNbDevUp;
+                outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
              }
           }
           return RetCode.Success ;
@@ -5104,29 +5099,28 @@ class Core {
           double tempReal2 = 0;
           double[] tempBuffer1;
           double[] tempBuffer2;
-          if( false ) {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealLowerBand;
-          } else if( false ) {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealUpperBand;
-          } else if( false ) {
-             tempBuffer1 = outRealLowerBand;
-             tempBuffer2 = outRealUpperBand;
-          } else {
-             tempBuffer1 = outRealMiddleBand;
-             tempBuffer2 = outRealUpperBand;
-          }
-          if( false || false ) {
-             return RetCode.BadParam ;
-          }
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
-          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-             outNBElement.value = 0;
-             return retCode ;
-          }
-          maBegIdx = outBegIdx.value;
           if( optInMAType == MAType.Sma ) {
+             if( false ) {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealLowerBand;
+             } else if( false ) {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealUpperBand;
+             } else if( false ) {
+                tempBuffer1 = outRealLowerBand;
+                tempBuffer2 = outRealUpperBand;
+             } else {
+                tempBuffer1 = outRealMiddleBand;
+                tempBuffer2 = outRealUpperBand;
+             }
+             if( false || false ) {
+                return RetCode.BadParam ;
+             }
+             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+             if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+                outNBElement.value = 0;
+                return retCode ;
+             }
              double _tempReal;
              double _periodTotal2;
              double _meanValue2;
@@ -5158,56 +5152,57 @@ class Core {
                    tempBuffer2[_outIdx] = 0.0;
                 }
              }
-          } else {
-             retCode = stdDevUnguarded((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
-             if( retCode != RetCode.Success ) {
-                outNBElement.value = 0;
-                return retCode ;
+             if( tempBuffer1 != outRealMiddleBand ) {
+                System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
              }
-          }
-          if( outBegIdx.value > maBegIdx ) {
-             shiftIdx = outBegIdx.value - maBegIdx;
-             System.arraycopy(tempBuffer1, shiftIdx, tempBuffer1, 0, outNBElement.value * 1);
-          }
-          if( tempBuffer1 != outRealMiddleBand ) {
-             System.arraycopy(tempBuffer1, 0, outRealMiddleBand, 0, outNBElement.value * 1);
-          }
-          if( optInNbDevUp == optInNbDevDn ) {
-             if( optInNbDevUp == 1.0 ) {
-                for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                   tempReal = tempBuffer2[i];
-                   tempReal2 = outRealMiddleBand[i];
-                   outRealUpperBand[i] = tempReal2 + tempReal;
-                   outRealLowerBand[i] = tempReal2 - tempReal;
-                }
-             } else {
+             if( optInNbDevUp == optInNbDevDn ) {
                 for( i = 0; i < (int)outNBElement.value; i += 1 ) {
                    tempReal = tempBuffer2[i] * optInNbDevUp;
                    tempReal2 = outRealMiddleBand[i];
                    outRealUpperBand[i] = tempReal2 + tempReal;
                    outRealLowerBand[i] = tempReal2 - tempReal;
                 }
+             } else {
+                for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+                   tempReal = tempBuffer2[i];
+                   tempReal2 = outRealMiddleBand[i];
+                   outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
+                   outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
+                }
              }
-          } else if( optInNbDevUp == 1.0 ) {
+             return RetCode.Success ;
+          }
+          tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
+          tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+          if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+             outNBElement.value = 0;
+             return retCode ;
+          }
+          maBegIdx = (int)outBegIdx.value;
+          retCode = stdDevUnguarded((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
+          if( retCode != RetCode.Success ) {
+             outNBElement.value = 0;
+             return retCode ;
+          }
+          if( (int)outBegIdx.value > maBegIdx ) {
+             shiftIdx = (int)outBegIdx.value - maBegIdx;
+          } else {
+             shiftIdx = 0;
+          }
+          System.arraycopy(tempBuffer1, shiftIdx, outRealMiddleBand, 0, outNBElement.value * 1);
+          if( optInNbDevUp == optInNbDevDn ) {
              for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
+                tempReal = tempBuffer2[i] * optInNbDevUp;
                 tempReal2 = outRealMiddleBand[i];
                 outRealUpperBand[i] = tempReal2 + tempReal;
-                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
-             }
-          } else if( optInNbDevDn == 1.0 ) {
-             for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
-                tempReal2 = outRealMiddleBand[i];
                 outRealLowerBand[i] = tempReal2 - tempReal;
-                outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
              }
           } else {
              for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-                tempReal = tempBuffer2[i];
                 tempReal2 = outRealMiddleBand[i];
-                outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
-                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
+                outRealUpperBand[i] = tempReal2 + tempBuffer2[i] * optInNbDevUp;
+                outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
              }
           }
           return RetCode.Success ;
@@ -32647,6 +32642,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
+          if( outInPhase == outQuadrature ) {
+             return RetCode.BadParam ;
+          }
           a = 0.0962;
           b = 0.5769;
           /* Variable used for the price smoother (a weighted moving average). */
@@ -33276,6 +33274,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
+          if( outInPhase == outQuadrature ) {
+             return RetCode.BadParam ;
+          }
           a = 0.0962;
           b = 0.5769;
           rad2Deg = 180.0 / (4.0 * Math.atan(1));
@@ -33891,6 +33892,9 @@ class Core {
           }
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
+          }
+          if( outSine == outLeadSine ) {
+             return RetCode.BadParam ;
           }
           a = 0.0962;
           b = 0.5769;
@@ -34643,6 +34647,9 @@ class Core {
           }
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
+          }
+          if( outSine == outLeadSine ) {
+             return RetCode.BadParam ;
           }
           a = 0.0962;
           b = 0.5769;
@@ -40726,6 +40733,9 @@ class Core {
           } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outMACD == outMACDSignal || outMACD == outMACDHist || outMACDSignal == outMACDHist ) {
+             return RetCode.BadParam ;
+          }
           /* Make sure slow is really slower than
            * the fast period! if not, swap...
            */
@@ -41057,6 +41067,9 @@ class Core {
           } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outMACD == outMACDSignal || outMACD == outMACDHist || outMACDSignal == outMACDHist ) {
+             return RetCode.BadParam ;
+          }
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
@@ -41376,6 +41389,9 @@ class Core {
           } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outMACD == outMACDSignal || outMACD == outMACDHist || outMACDSignal == outMACDHist ) {
+             return RetCode.BadParam ;
+          }
           /* An all-EMA MACDEXT computes exactly what MACD computes. Delegate
            * to its single-pass implementation. Period 1 stays on the generic
            * path: ma() copies the input for it instead of running an EMA
@@ -41615,6 +41631,9 @@ class Core {
           } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outMACD == outMACDSignal || outMACD == outMACDHist || outMACDSignal == outMACDHist ) {
+             return RetCode.BadParam ;
+          }
           if( optInFastMAType == MAType.Ema && optInSlowMAType == MAType.Ema && optInSignalMAType == MAType.Ema && optInFastPeriod >= 2 && optInSlowPeriod >= 2 && optInSignalPeriod >= 2 ) {
              return macdUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist) ;
           }
@@ -41822,6 +41841,9 @@ class Core {
           } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outMACD == outMACDSignal || outMACD == outMACDHist || outMACDSignal == outMACDHist ) {
+             return RetCode.BadParam ;
+          }
           return macdUnguarded(startIdx, endIdx, inReal, 0, 0, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist) ;
           /* 0 indicate fix 12 == 0.15  for optInFastPeriod */
           /* 0 indicate fix 26 == 0.075 for optInSlowPeriod */
@@ -41858,6 +41880,9 @@ class Core {
              optInSignalPeriod = 9;
           } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outMACD == outMACDSignal || outMACD == outMACDHist || outMACDSignal == outMACDHist ) {
+             return RetCode.BadParam ;
           }
           return macdUnguarded(startIdx, endIdx, inReal, 0, 0, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist) ;
        }
@@ -42009,6 +42034,9 @@ class Core {
              optInSlowLimit = 5e-2;
           } else if( optInSlowLimit < 1e-2 || optInSlowLimit > 9.9e-1 ) {
              return RetCode.BadParam;
+          }
+          if( outMAMA == outFAMA ) {
+             return RetCode.BadParam ;
           }
           a = 0.0962;
           b = 0.5769;
@@ -42713,6 +42741,9 @@ class Core {
              optInSlowLimit = 5e-2;
           } else if( optInSlowLimit < 1e-2 || optInSlowLimit > 9.9e-1 ) {
              return RetCode.BadParam;
+          }
+          if( outMAMA == outFAMA ) {
+             return RetCode.BadParam ;
           }
           a = 0.0962;
           b = 0.5769;
@@ -44384,6 +44415,9 @@ class Core {
      *  070726 MW,CC Fix #4. MFI has no unstable period; drop the unstable-period
      *               term (and the now-dead unstable-skip loop) so
      *               TA_SetUnstablePeriod is a no-op for it.
+     *  071026 MF,CC Fix #107. Classify money-flow direction with a magnitude-scaled
+     *               dead-zone (TA_IS_ZERO_SCALED), not an exact sign test, so an
+     *               epsilon-flat typical price is "no movement", not a spurious move.
      */
 
        public int mfiLookback( int optInTimePeriod )
@@ -44412,6 +44446,7 @@ class Core {
           double prevValue = 0;
           double tempValue1 = 0;
           double tempValue2 = 0;
+          double tempValue3 = 0;
           int lookbackTotal = 0;
           int outIdx = 0;
           int i = 0;
@@ -44461,18 +44496,22 @@ class Core {
           for( i = optInTimePeriod; i > 0; i -= 1 ) {
              tempValue1 = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
              tempValue2 = tempValue1 - prevValue;
+             /* Dead-zone scaled to the two typical prices being compared (issue #107).
+              * Captured before prevValue/tempValue1 are repurposed below.
+              */
+             tempValue3 = Math.abs(tempValue1) + Math.abs(prevValue);
              prevValue = tempValue1;
              tempValue1 *= inVolume[today++];
-             if( tempValue2 < 0 ) {
+             if( (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+                mflow_positive[mflow_Idx] = 0.0;
+                mflow_negative[mflow_Idx] = 0.0;
+             } else if( tempValue2 < 0 ) {
                 mflow_negative[mflow_Idx] = tempValue1;
                 negSumMF += tempValue1;
                 mflow_positive[mflow_Idx] = 0.0;
-             } else if( tempValue2 > 0 ) {
+             } else {
                 mflow_positive[mflow_Idx] = tempValue1;
                 posSumMF += tempValue1;
-                mflow_negative[mflow_Idx] = 0.0;
-             } else {
-                mflow_positive[mflow_Idx] = 0.0;
                 mflow_negative[mflow_Idx] = 0.0;
              }
              mflow_Idx++;
@@ -44498,18 +44537,22 @@ class Core {
              negSumMF -= mflow_negative[mflow_Idx];
              tempValue1 = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
              tempValue2 = tempValue1 - prevValue;
+             /* Dead-zone scaled to the two typical prices being compared (issue #107).
+              * Captured before prevValue/tempValue1 are repurposed below.
+              */
+             tempValue3 = Math.abs(tempValue1) + Math.abs(prevValue);
              prevValue = tempValue1;
              tempValue1 *= inVolume[today++];
-             if( tempValue2 < 0 ) {
+             if( (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+                mflow_positive[mflow_Idx] = 0.0;
+                mflow_negative[mflow_Idx] = 0.0;
+             } else if( tempValue2 < 0 ) {
                 mflow_negative[mflow_Idx] = tempValue1;
                 negSumMF += tempValue1;
                 mflow_positive[mflow_Idx] = 0.0;
-             } else if( tempValue2 > 0 ) {
+             } else {
                 mflow_positive[mflow_Idx] = tempValue1;
                 posSumMF += tempValue1;
-                mflow_negative[mflow_Idx] = 0.0;
-             } else {
-                mflow_positive[mflow_Idx] = 0.0;
                 mflow_negative[mflow_Idx] = 0.0;
              }
              tempValue1 = posSumMF + negSumMF;
@@ -44541,6 +44584,7 @@ class Core {
           double prevValue = 0;
           double tempValue1 = 0;
           double tempValue2 = 0;
+          double tempValue3 = 0;
           int lookbackTotal = 0;
           int outIdx = 0;
           int i = 0;
@@ -44572,18 +44616,19 @@ class Core {
           for( i = optInTimePeriod; i > 0; i -= 1 ) {
              tempValue1 = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
              tempValue2 = tempValue1 - prevValue;
+             tempValue3 = Math.abs(tempValue1) + Math.abs(prevValue);
              prevValue = tempValue1;
              tempValue1 *= inVolume[today++];
-             if( tempValue2 < 0 ) {
+             if( (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+                mflow_positive[mflow_Idx] = 0.0;
+                mflow_negative[mflow_Idx] = 0.0;
+             } else if( tempValue2 < 0 ) {
                 mflow_negative[mflow_Idx] = tempValue1;
                 negSumMF += tempValue1;
                 mflow_positive[mflow_Idx] = 0.0;
-             } else if( tempValue2 > 0 ) {
+             } else {
                 mflow_positive[mflow_Idx] = tempValue1;
                 posSumMF += tempValue1;
-                mflow_negative[mflow_Idx] = 0.0;
-             } else {
-                mflow_positive[mflow_Idx] = 0.0;
                 mflow_negative[mflow_Idx] = 0.0;
              }
              mflow_Idx++;
@@ -44600,18 +44645,19 @@ class Core {
              negSumMF -= mflow_negative[mflow_Idx];
              tempValue1 = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
              tempValue2 = tempValue1 - prevValue;
+             tempValue3 = Math.abs(tempValue1) + Math.abs(prevValue);
              prevValue = tempValue1;
              tempValue1 *= inVolume[today++];
-             if( tempValue2 < 0 ) {
+             if( (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+                mflow_positive[mflow_Idx] = 0.0;
+                mflow_negative[mflow_Idx] = 0.0;
+             } else if( tempValue2 < 0 ) {
                 mflow_negative[mflow_Idx] = tempValue1;
                 negSumMF += tempValue1;
                 mflow_positive[mflow_Idx] = 0.0;
-             } else if( tempValue2 > 0 ) {
+             } else {
                 mflow_positive[mflow_Idx] = tempValue1;
                 posSumMF += tempValue1;
-                mflow_negative[mflow_Idx] = 0.0;
-             } else {
-                mflow_positive[mflow_Idx] = 0.0;
                 mflow_negative[mflow_Idx] = 0.0;
              }
              tempValue1 = posSumMF + negSumMF;
@@ -44643,6 +44689,7 @@ class Core {
           double prevValue = 0;
           double tempValue1 = 0;
           double tempValue2 = 0;
+          double tempValue3 = 0;
           int lookbackTotal = 0;
           int outIdx = 0;
           int i = 0;
@@ -44685,18 +44732,19 @@ class Core {
           for( i = optInTimePeriod; i > 0; i -= 1 ) {
              tempValue1 = ((double)inHigh[today] + (double)inLow[today] + (double)inClose[today]) / 3.0;
              tempValue2 = tempValue1 - prevValue;
+             tempValue3 = Math.abs(tempValue1) + Math.abs(prevValue);
              prevValue = tempValue1;
              tempValue1 *= (double)inVolume[today++];
-             if( tempValue2 < 0 ) {
+             if( (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+                mflow_positive[mflow_Idx] = 0.0;
+                mflow_negative[mflow_Idx] = 0.0;
+             } else if( tempValue2 < 0 ) {
                 mflow_negative[mflow_Idx] = tempValue1;
                 negSumMF += tempValue1;
                 mflow_positive[mflow_Idx] = 0.0;
-             } else if( tempValue2 > 0 ) {
+             } else {
                 mflow_positive[mflow_Idx] = tempValue1;
                 posSumMF += tempValue1;
-                mflow_negative[mflow_Idx] = 0.0;
-             } else {
-                mflow_positive[mflow_Idx] = 0.0;
                 mflow_negative[mflow_Idx] = 0.0;
              }
              mflow_Idx++;
@@ -44713,18 +44761,19 @@ class Core {
              negSumMF -= mflow_negative[mflow_Idx];
              tempValue1 = ((double)inHigh[today] + (double)inLow[today] + (double)inClose[today]) / 3.0;
              tempValue2 = tempValue1 - prevValue;
+             tempValue3 = Math.abs(tempValue1) + Math.abs(prevValue);
              prevValue = tempValue1;
              tempValue1 *= (double)inVolume[today++];
-             if( tempValue2 < 0 ) {
+             if( (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+                mflow_positive[mflow_Idx] = 0.0;
+                mflow_negative[mflow_Idx] = 0.0;
+             } else if( tempValue2 < 0 ) {
                 mflow_negative[mflow_Idx] = tempValue1;
                 negSumMF += tempValue1;
                 mflow_positive[mflow_Idx] = 0.0;
-             } else if( tempValue2 > 0 ) {
+             } else {
                 mflow_positive[mflow_Idx] = tempValue1;
                 posSumMF += tempValue1;
-                mflow_negative[mflow_Idx] = 0.0;
-             } else {
-                mflow_positive[mflow_Idx] = 0.0;
                 mflow_negative[mflow_Idx] = 0.0;
              }
              tempValue1 = posSumMF + negSumMF;
@@ -44756,6 +44805,7 @@ class Core {
           double prevValue = 0;
           double tempValue1 = 0;
           double tempValue2 = 0;
+          double tempValue3 = 0;
           int lookbackTotal = 0;
           int outIdx = 0;
           int i = 0;
@@ -44787,18 +44837,19 @@ class Core {
           for( i = optInTimePeriod; i > 0; i -= 1 ) {
              tempValue1 = ((double)inHigh[today] + (double)inLow[today] + (double)inClose[today]) / 3.0;
              tempValue2 = tempValue1 - prevValue;
+             tempValue3 = Math.abs(tempValue1) + Math.abs(prevValue);
              prevValue = tempValue1;
              tempValue1 *= (double)inVolume[today++];
-             if( tempValue2 < 0 ) {
+             if( (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+                mflow_positive[mflow_Idx] = 0.0;
+                mflow_negative[mflow_Idx] = 0.0;
+             } else if( tempValue2 < 0 ) {
                 mflow_negative[mflow_Idx] = tempValue1;
                 negSumMF += tempValue1;
                 mflow_positive[mflow_Idx] = 0.0;
-             } else if( tempValue2 > 0 ) {
+             } else {
                 mflow_positive[mflow_Idx] = tempValue1;
                 posSumMF += tempValue1;
-                mflow_negative[mflow_Idx] = 0.0;
-             } else {
-                mflow_positive[mflow_Idx] = 0.0;
                 mflow_negative[mflow_Idx] = 0.0;
              }
              mflow_Idx++;
@@ -44815,18 +44866,19 @@ class Core {
              negSumMF -= mflow_negative[mflow_Idx];
              tempValue1 = ((double)inHigh[today] + (double)inLow[today] + (double)inClose[today]) / 3.0;
              tempValue2 = tempValue1 - prevValue;
+             tempValue3 = Math.abs(tempValue1) + Math.abs(prevValue);
              prevValue = tempValue1;
              tempValue1 *= (double)inVolume[today++];
-             if( tempValue2 < 0 ) {
+             if( (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+                mflow_positive[mflow_Idx] = 0.0;
+                mflow_negative[mflow_Idx] = 0.0;
+             } else if( tempValue2 < 0 ) {
                 mflow_negative[mflow_Idx] = tempValue1;
                 negSumMF += tempValue1;
                 mflow_positive[mflow_Idx] = 0.0;
-             } else if( tempValue2 > 0 ) {
+             } else {
                 mflow_positive[mflow_Idx] = tempValue1;
                 posSumMF += tempValue1;
-                mflow_negative[mflow_Idx] = 0.0;
-             } else {
-                mflow_positive[mflow_Idx] = 0.0;
                 mflow_negative[mflow_Idx] = 0.0;
              }
              tempValue1 = posSumMF + negSumMF;
@@ -46316,6 +46368,9 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outMin == outMax ) {
+             return RetCode.BadParam ;
+          }
           /* Identify the minimum number of price bar needed
            * to identify at least one output over the specified
            * period.
@@ -46499,6 +46554,9 @@ class Core {
              optInTimePeriod = 30;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outMin == outMax ) {
+             return RetCode.BadParam ;
           }
           nbInitialElementNeeded = optInTimePeriod - 1;
           if( startIdx < nbInitialElementNeeded ) {
@@ -46692,6 +46750,9 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outMinIdx == outMaxIdx ) {
+             return RetCode.BadParam ;
+          }
           /* Identify the minimum number of price bar needed
            * to identify at least one output over the specified
            * period.
@@ -46875,6 +46936,9 @@ class Core {
              optInTimePeriod = 30;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outMinIdx == outMaxIdx ) {
+             return RetCode.BadParam ;
           }
           nbInitialElementNeeded = optInTimePeriod - 1;
           if( startIdx < nbInitialElementNeeded ) {
@@ -51067,14 +51131,18 @@ class Core {
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
      *  AA       Andrew Atkinson
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
-     *  112400 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
-     *  020605 AA   Fix #1117666 Lookback bug.
+     *  112400 MF     Template creation.
+     *  052603 MF     Adapt code to compile with .NET Managed C++
+     *  020605 AA     Fix #1117666 Lookback bug.
+     *  071126 MF,CC  Rewrite the combine into flat error-guards and a single-cursor
+     *                offset index (offset = fastNb - *outNBElement). Bit-identical,
+     *                streamable, and index-safe; the TA_IS_ZERO guard is unchanged.
      */
 
        public int ppoLookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
@@ -51107,12 +51175,10 @@ class Core {
           RetCode retCode;
           double tempReal = 0;
           int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          MInteger fastBeg = new MInteger();
+          MInteger fastNb = new MInteger();
+          int offset = 0;
           int i = 0;
-          int j = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -51141,32 +51207,30 @@ class Core {
              optInFastPeriod = tempInteger;
           }
           /* Calculate the fast MA into the tempBuffer. */
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, outBegIdx2, outNbElement2, tempBuffer);
-          if( retCode == RetCode.Success ) {
-             /* Calculate the slow MA into the output. */
-             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
-             if( retCode == RetCode.Success ) {
-                /* The slow MA begins at or after the fast MA, so the offset is
-                 * valid whenever the slow MA produced output. Guard it so the empty
-                 * case leaves the difference loop untouched.
-                 */
-                if( outNbElement1.value > 0 ) {
-                   tempInteger = outBegIdx1.value - outBegIdx2.value;
-                   /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
-                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                      tempReal = outReal[i];
-                      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-                         outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
-                      } else {
-                         outReal[i] = 0.0;
-                      }
-                   }
-                }
-                outBegIdx.value = outBegIdx1.value;
-                outNBElement.value = outNbElement1.value;
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          /* Calculate the slow MA into the output. */
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          /* fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
+           * many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
+           * outReal[i], with a non-negative index. An empty slow MA skips the loop.
+           */
+          offset = fastNb.value - outNBElement.value;
+          /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
+          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+             tempReal = outReal[i];
+             if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+                outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+             } else {
+                outReal[i] = 0.0;
              }
           }
-          return retCode ;
+          return RetCode.Success ;
        }
        public RetCode ppoUnguarded( int startIdx,
                                     int endIdx,
@@ -51182,38 +51246,34 @@ class Core {
           RetCode retCode;
           double tempReal = 0;
           int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          MInteger fastBeg = new MInteger();
+          MInteger fastNb = new MInteger();
+          int offset = 0;
           int i = 0;
-          int j = 0;
           tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
              optInFastPeriod = tempInteger;
           }
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, outBegIdx2, outNbElement2, tempBuffer);
-          if( retCode == RetCode.Success ) {
-             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
-             if( retCode == RetCode.Success ) {
-                if( outNbElement1.value > 0 ) {
-                   tempInteger = outBegIdx1.value - outBegIdx2.value;
-                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                      tempReal = outReal[i];
-                      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-                         outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
-                      } else {
-                         outReal[i] = 0.0;
-                      }
-                   }
-                }
-                outBegIdx.value = outBegIdx1.value;
-                outNBElement.value = outNbElement1.value;
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          offset = fastNb.value - outNBElement.value;
+          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+             tempReal = outReal[i];
+             if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+                outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+             } else {
+                outReal[i] = 0.0;
              }
           }
-          return retCode ;
+          return RetCode.Success ;
        }
        public RetCode ppo( int startIdx,
                            int endIdx,
@@ -51229,12 +51289,10 @@ class Core {
           RetCode retCode;
           double tempReal = 0;
           int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          MInteger fastBeg = new MInteger();
+          MInteger fastNb = new MInteger();
+          int offset = 0;
           int i = 0;
-          int j = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -51257,26 +51315,24 @@ class Core {
              optInSlowPeriod = optInFastPeriod;
              optInFastPeriod = tempInteger;
           }
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, outBegIdx2, outNbElement2, tempBuffer);
-          if( retCode == RetCode.Success ) {
-             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
-             if( retCode == RetCode.Success ) {
-                if( outNbElement1.value > 0 ) {
-                   tempInteger = outBegIdx1.value - outBegIdx2.value;
-                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                      tempReal = outReal[i];
-                      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-                         outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
-                      } else {
-                         outReal[i] = 0.0;
-                      }
-                   }
-                }
-                outBegIdx.value = outBegIdx1.value;
-                outNBElement.value = outNbElement1.value;
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          offset = fastNb.value - outNBElement.value;
+          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+             tempReal = outReal[i];
+             if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+                outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+             } else {
+                outReal[i] = 0.0;
              }
           }
-          return retCode ;
+          return RetCode.Success ;
        }
        public RetCode ppoUnguarded( int startIdx,
                                     int endIdx,
@@ -51292,38 +51348,34 @@ class Core {
           RetCode retCode;
           double tempReal = 0;
           int tempInteger = 0;
-          MInteger outBegIdx1 = new MInteger();
-          MInteger outNbElement1 = new MInteger();
-          MInteger outBegIdx2 = new MInteger();
-          MInteger outNbElement2 = new MInteger();
+          MInteger fastBeg = new MInteger();
+          MInteger fastNb = new MInteger();
+          int offset = 0;
           int i = 0;
-          int j = 0;
           tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
           if( optInSlowPeriod < optInFastPeriod ) {
              tempInteger = optInSlowPeriod;
              optInSlowPeriod = optInFastPeriod;
              optInFastPeriod = tempInteger;
           }
-          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, outBegIdx2, outNbElement2, tempBuffer);
-          if( retCode == RetCode.Success ) {
-             retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx1, outNbElement1, outReal);
-             if( retCode == RetCode.Success ) {
-                if( outNbElement1.value > 0 ) {
-                   tempInteger = outBegIdx1.value - outBegIdx2.value;
-                   for( i = 0, j = tempInteger; i < outNbElement1.value; i += 1, j += 1 ) {
-                      tempReal = outReal[i];
-                      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-                         outReal[i] = (tempBuffer[j] - tempReal) / tempReal * 100.0;
-                      } else {
-                         outReal[i] = 0.0;
-                      }
-                   }
-                }
-                outBegIdx.value = outBegIdx1.value;
-                outNBElement.value = outNbElement1.value;
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          retCode = movingAverageUnguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+          if( retCode != RetCode.Success ) {
+             return retCode ;
+          }
+          offset = fastNb.value - outNBElement.value;
+          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+             tempReal = outReal[i];
+             if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+                outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+             } else {
+                outReal[i] = 0.0;
              }
           }
-          return retCode ;
+          return RetCode.Success ;
        }
     /* List of contributors:
      *
@@ -55408,14 +55460,17 @@ class Core {
      *  Initial  Name/description
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
-     *
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY    Description
      *  -------------------------------------------------------------------
-     *  112400 MF   Template creation.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
+     *  112400 MF    Template creation.
+     *  052603 MF    Adapt code to compile with .NET Managed C++
+     *  071026 MF,CC Fix #107. Guard the Fast-K division with TA_IS_ZERO, not an
+     *               exact `diff != 0.0`, so a machine-flat window yields 0 instead
+     *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
      */
 
        public int stochLookback( int optInFastK_Period, int optInSlowK_Period, MAType optInSlowK_MAType, int optInSlowD_Period, MAType optInSlowD_MAType )
@@ -55497,6 +55552,9 @@ class Core {
              optInSlowD_Period = 3;
           } else if( optInSlowD_Period < 1 || optInSlowD_Period > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outSlowK == outSlowD ) {
+             return RetCode.BadParam ;
           }
           /* With stochastic, there is a total of 4 different lines that
            * are defined: FASTK, FASTD, SLOWK and SLOWD.
@@ -55626,8 +55684,11 @@ class Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
              }
-             /* Calculate stochastic. */
-             if( diff != 0.0 ) {
+             /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
+              * a machine-flat window leaves a sub-epsilon residue that an exact check
+              * would divide into [0,100] noise (issue #107 / STOCHRSI).
+              */
+             if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
                 tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
              } else {
                 tempBuffer[outIdx++] = 0.0;
@@ -55775,7 +55836,7 @@ class Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
              }
-             if( diff != 0.0 ) {
+             if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
                 tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
              } else {
                 tempBuffer[outIdx++] = 0.0;
@@ -55856,6 +55917,9 @@ class Core {
           } else if( optInSlowD_Period < 1 || optInSlowD_Period > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outSlowK == outSlowD ) {
+             return RetCode.BadParam ;
+          }
           lookbackK = optInFastK_Period - 1;
           lookbackKSlow = movingAverageLookback(optInSlowK_Period, optInSlowK_MAType);
           lookbackDSlow = movingAverageLookback(optInSlowD_Period, optInSlowD_MAType);
@@ -55922,7 +55986,7 @@ class Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
              }
-             if( diff != 0.0 ) {
+             if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
                 tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
              } else {
                 tempBuffer[outIdx++] = 0.0;
@@ -56048,7 +56112,7 @@ class Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
              }
-             if( diff != 0.0 ) {
+             if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
                 tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
              } else {
                 tempBuffer[outIdx++] = 0.0;
@@ -56082,14 +56146,18 @@ class Core {
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
      *  EKO      echo999@ifrance.com
+     *  CC       Claude Code (AI assistant)
      *
      * Change history:
      *
-     *  MMDDYY BY   Description
+     *  MMDDYY BY    Description
      *  -------------------------------------------------------------------
-     *  010802 MF   Template creation.
-     *  051103 EKO  Found bug and fix related to outFastD.
-     *  052603 MF   Adapt code to compile with .NET Managed C++
+     *  010802 MF    Template creation.
+     *  051103 EKO   Found bug and fix related to outFastD.
+     *  052603 MF    Adapt code to compile with .NET Managed C++
+     *  071026 MF,CC Fix #107. Guard the Fast-K division with TA_IS_ZERO, not an
+     *               exact `diff != 0.0`, so a machine-flat window yields 0 instead
+     *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
      */
 
        public int stochFLookback( int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
@@ -56156,6 +56224,9 @@ class Core {
              optInFastD_Period = 3;
           } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outFastK == outFastD ) {
+             return RetCode.BadParam ;
           }
           /* With stochastic, there is a total of 4 different lines that
            * are defined: FASTK, FASTD, SLOWK and SLOWD.
@@ -56284,8 +56355,11 @@ class Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
              }
-             /* Calculate stochastic. */
-             if( diff != 0.0 ) {
+             /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
+              * a machine-flat window leaves a sub-epsilon residue that an exact check
+              * would divide into [0,100] noise (issue #107 / STOCHRSI).
+              */
+             if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
                 tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
              } else {
                 tempBuffer[outIdx++] = 0.0;
@@ -56423,7 +56497,7 @@ class Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
              }
-             if( diff != 0.0 ) {
+             if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
                 tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
              } else {
                 tempBuffer[outIdx++] = 0.0;
@@ -56495,6 +56569,9 @@ class Core {
           } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
              return RetCode.BadParam;
           }
+          if( outFastK == outFastD ) {
+             return RetCode.BadParam ;
+          }
           lookbackK = optInFastK_Period - 1;
           lookbackFastD = movingAverageLookback(optInFastD_Period, optInFastD_MAType);
           lookbackTotal = lookbackK + lookbackFastD;
@@ -56560,7 +56637,7 @@ class Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
              }
-             if( diff != 0.0 ) {
+             if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
                 tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
              } else {
                 tempBuffer[outIdx++] = 0.0;
@@ -56681,7 +56758,7 @@ class Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
              }
-             if( diff != 0.0 ) {
+             if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
                 tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
              } else {
                 tempBuffer[outIdx++] = 0.0;
@@ -56788,6 +56865,9 @@ class Core {
              optInFastD_Period = 3;
           } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outFastK == outFastD ) {
+             return RetCode.BadParam ;
           }
           /* Stochastic RSI
            *
@@ -56933,6 +57013,9 @@ class Core {
              optInFastD_Period = 3;
           } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
              return RetCode.BadParam;
+          }
+          if( outFastK == outFastD ) {
+             return RetCode.BadParam ;
           }
           outBegIdx.value = 0;
           outNBElement.value = 0;
@@ -63149,6 +63232,23 @@ public class TaCodegenServe {
             int mode = jsonInt(json, "mode");
             core.compatibility = (mode == 1) ? Compatibility.Metastock : Compatibility.Default;
             return "{\"status\":\"ok\"}";
+        }
+        else if (json.contains("\"eval_predicate\"")) {
+            int which = jsonInt(json, "which");
+            double[] values = jsonDoubleArray(json, "values");
+            double[] scale = jsonDoubleArray(json, "scale");
+            int n = values.length;
+            int[] out = new int[n];
+            for (int i = 0; i < n; i++) {
+                double v = values[i];
+                double s = (i < scale.length) ? scale[i] : 0.0;
+                boolean r;
+                if (which == 1) r = (Math.abs(v) <= 0.00000000000001 * (s));
+                else if (which == 2) r = (v < 0.00000000000001);
+                else r = ((-0.00000000000001 < v) && (v < 0.00000000000001));
+                out[i] = r ? 1 : 0;
+            }
+            return "{\"outInteger\":" + intArrayToJson(out, n) + "}";
         }
         else {
             return "{\"error\":\"Unknown method\"}";

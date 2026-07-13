@@ -109,7 +109,7 @@ DEF_FUNCTION( SAR,
               TA_GroupId_OverlapStudies,
               "Parabolic SAR",
               "Sar",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* SAR END */
 
@@ -334,7 +334,7 @@ DEF_FUNCTION( SAREXT,
               TA_GroupId_OverlapStudies,
               "Parabolic SAR - Extended",
               "SarExt",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* SAREXT END */
 
@@ -358,7 +358,7 @@ DEF_FUNCTION( SIN,
               TA_GroupId_MathTransform,
               "Vector Trigonometric Sin",
               "Sin",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* SIN END */
 
@@ -382,7 +382,7 @@ DEF_FUNCTION( SINH,
               TA_GroupId_MathTransform,
               "Vector Trigonometric Sinh",
               "Sinh",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* SINH END */
 
@@ -408,7 +408,7 @@ DEF_FUNCTION( SMA,
               TA_GroupId_OverlapStudies,
               "Simple Moving Average",
               "Sma",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* SMA END */
 
@@ -432,7 +432,7 @@ DEF_FUNCTION( SQRT,
               TA_GroupId_MathTransform,
               "Vector Square Root",
               "Sqrt",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* SQRT END */
 
@@ -459,7 +459,7 @@ DEF_FUNCTION( STDDEV,
               TA_GroupId_Statistic,
               "Standard Deviation",
               "StdDev",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* STDDEV END */
 
@@ -566,7 +566,7 @@ DEF_FUNCTION( STOCH,
               TA_GroupId_MomentumIndicators,
               "Stochastic",
               "Stoch",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* STOCH END */
 
@@ -643,7 +643,7 @@ DEF_FUNCTION( STOCHF,
               TA_GroupId_MomentumIndicators,
               "Stochastic Fast",
               "StochF",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* STOCHF END */
 
@@ -721,7 +721,7 @@ DEF_FUNCTION( STOCHRSI,
               TA_GroupId_MomentumIndicators,
               "Stochastic Relative Strength Index",
               "StochRsi",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* STOCHRSI END */
 
@@ -746,7 +746,7 @@ DEF_FUNCTION( SUB,
               TA_GroupId_MathOperators,
               "Vector Arithmetic Subtraction",
               "Sub",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* SUB END */
 
@@ -772,7 +772,7 @@ DEF_FUNCTION( SUM,
               TA_GroupId_MathOperators,
               "Summation",
               "Sum",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* SUM END */
 

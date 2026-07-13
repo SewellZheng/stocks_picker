@@ -145,7 +145,7 @@ public int acosLookback(
 @FuncInfo(
         name  = "ACOS",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -186,7 +186,7 @@ public int adLookback(
 @FuncInfo(
         name  = "AD",
         group = "Volume Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -233,7 +233,7 @@ public int addLookback(
 @FuncInfo(
         name  = "ADD",
         group = "Math Operators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 2,
         nbOptInput = 0,
         nbOutput   = 1
@@ -283,7 +283,7 @@ public int adOscLookback(
 @FuncInfo(
         name  = "ADOSC",
         group = "Volume Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 2,
         nbOutput   = 1
@@ -366,7 +366,7 @@ public int adxLookback(
 @FuncInfo(
         name  = "ADX",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -429,7 +429,7 @@ public int adxrLookback(
 @FuncInfo(
         name  = "ADXR",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -496,7 +496,7 @@ public int apoLookback(
 @FuncInfo(
         name  = "APO",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 3,
         nbOutput   = 1
@@ -588,7 +588,7 @@ public int aroonLookback(
 @FuncInfo(
         name  = "AROON",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 2
@@ -656,7 +656,7 @@ public int aroonOscLookback(
 @FuncInfo(
         name  = "AROONOSC",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -717,7 +717,7 @@ public int asinLookback(
 @FuncInfo(
         name  = "ASIN",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -758,7 +758,7 @@ public int atanLookback(
 @FuncInfo(
         name  = "ATAN",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -862,7 +862,7 @@ public int avgDevLookback(
 @FuncInfo(
         name  = "AVGDEV",
         group = "Price Transform",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -921,7 +921,7 @@ public int avgPriceLookback(
 @FuncInfo(
         name  = "AVGPRICE",
         group = "Price Transform",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -974,7 +974,7 @@ public int bbandsLookback(
 @FuncInfo(
         name  = "BBANDS",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 4,
         nbOutput   = 3
@@ -1100,7 +1100,7 @@ public int betaLookback(
 @FuncInfo(
         name  = "BETA",
         group = "Statistic Functions",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 2,
         nbOptInput = 1,
         nbOutput   = 1
@@ -1166,7 +1166,7 @@ public int bopLookback(
 @FuncInfo(
         name  = "BOP",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1213,7 +1213,7 @@ public int cciLookback(
 @FuncInfo(
         name  = "CCI",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -1276,7 +1276,7 @@ public int cdl2CrowsLookback(
 @FuncInfo(
         name  = "CDL2CROWS",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1324,7 +1324,7 @@ public int cdl3BlackCrowsLookback(
 @FuncInfo(
         name  = "CDL3BLACKCROWS",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1372,7 +1372,7 @@ public int cdl3InsideLookback(
 @FuncInfo(
         name  = "CDL3INSIDE",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1420,7 +1420,7 @@ public int cdl3LineStrikeLookback(
 @FuncInfo(
         name  = "CDL3LINESTRIKE",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1468,7 +1468,7 @@ public int cdl3OutsideLookback(
 @FuncInfo(
         name  = "CDL3OUTSIDE",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1516,7 +1516,7 @@ public int cdl3StarsInSouthLookback(
 @FuncInfo(
         name  = "CDL3STARSINSOUTH",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1564,7 +1564,7 @@ public int cdl3WhiteSoldiersLookback(
 @FuncInfo(
         name  = "CDL3WHITESOLDIERS",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1612,7 +1612,7 @@ public int cdlAbandonedBabyLookback(
 @FuncInfo(
         name  = "CDLABANDONEDBABY",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -1679,7 +1679,7 @@ public int cdlAdvanceBlockLookback(
 @FuncInfo(
         name  = "CDLADVANCEBLOCK",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1727,7 +1727,7 @@ public int cdlBeltHoldLookback(
 @FuncInfo(
         name  = "CDLBELTHOLD",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1775,7 +1775,7 @@ public int cdlBreakawayLookback(
 @FuncInfo(
         name  = "CDLBREAKAWAY",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1823,7 +1823,7 @@ public int cdlClosingMarubozuLookback(
 @FuncInfo(
         name  = "CDLCLOSINGMARUBOZU",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1871,7 +1871,7 @@ public int cdlConcealBabysWallLookback(
 @FuncInfo(
         name  = "CDLCONCEALBABYSWALL",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1919,7 +1919,7 @@ public int cdlCounterAttackLookback(
 @FuncInfo(
         name  = "CDLCOUNTERATTACK",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -1967,7 +1967,7 @@ public int cdlDarkCloudCoverLookback(
 @FuncInfo(
         name  = "CDLDARKCLOUDCOVER",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -2034,7 +2034,7 @@ public int cdlDojiLookback(
 @FuncInfo(
         name  = "CDLDOJI",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2082,7 +2082,7 @@ public int cdlDojiStarLookback(
 @FuncInfo(
         name  = "CDLDOJISTAR",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2130,7 +2130,7 @@ public int cdlDragonflyDojiLookback(
 @FuncInfo(
         name  = "CDLDRAGONFLYDOJI",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2178,7 +2178,7 @@ public int cdlEngulfingLookback(
 @FuncInfo(
         name  = "CDLENGULFING",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2226,7 +2226,7 @@ public int cdlEveningDojiStarLookback(
 @FuncInfo(
         name  = "CDLEVENINGDOJISTAR",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -2293,7 +2293,7 @@ public int cdlEveningStarLookback(
 @FuncInfo(
         name  = "CDLEVENINGSTAR",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -2360,7 +2360,7 @@ public int cdlGapSideSideWhiteLookback(
 @FuncInfo(
         name  = "CDLGAPSIDESIDEWHITE",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2408,7 +2408,7 @@ public int cdlGravestoneDojiLookback(
 @FuncInfo(
         name  = "CDLGRAVESTONEDOJI",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2456,7 +2456,7 @@ public int cdlHammerLookback(
 @FuncInfo(
         name  = "CDLHAMMER",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2504,7 +2504,7 @@ public int cdlHangingManLookback(
 @FuncInfo(
         name  = "CDLHANGINGMAN",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2552,7 +2552,7 @@ public int cdlHaramiLookback(
 @FuncInfo(
         name  = "CDLHARAMI",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2600,7 +2600,7 @@ public int cdlHaramiCrossLookback(
 @FuncInfo(
         name  = "CDLHARAMICROSS",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2648,7 +2648,7 @@ public int cdlHignWaveLookback(
 @FuncInfo(
         name  = "CDLHIGHWAVE",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2792,7 +2792,7 @@ public int cdlHomingPigeonLookback(
 @FuncInfo(
         name  = "CDLHOMINGPIGEON",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2840,7 +2840,7 @@ public int cdlIdentical3CrowsLookback(
 @FuncInfo(
         name  = "CDLIDENTICAL3CROWS",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2888,7 +2888,7 @@ public int cdlInNeckLookback(
 @FuncInfo(
         name  = "CDLINNECK",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2936,7 +2936,7 @@ public int cdlInvertedHammerLookback(
 @FuncInfo(
         name  = "CDLINVERTEDHAMMER",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2984,7 +2984,7 @@ public int cdlKickingLookback(
 @FuncInfo(
         name  = "CDLKICKING",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3032,7 +3032,7 @@ public int cdlKickingByLengthLookback(
 @FuncInfo(
         name  = "CDLKICKINGBYLENGTH",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3080,7 +3080,7 @@ public int cdlLadderBottomLookback(
 @FuncInfo(
         name  = "CDLLADDERBOTTOM",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3128,7 +3128,7 @@ public int cdlLongLeggedDojiLookback(
 @FuncInfo(
         name  = "CDLLONGLEGGEDDOJI",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3176,7 +3176,7 @@ public int cdlLongLineLookback(
 @FuncInfo(
         name  = "CDLLONGLINE",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3224,7 +3224,7 @@ public int cdlMarubozuLookback(
 @FuncInfo(
         name  = "CDLMARUBOZU",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3272,7 +3272,7 @@ public int cdlMatchingLowLookback(
 @FuncInfo(
         name  = "CDLMATCHINGLOW",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3320,7 +3320,7 @@ public int cdlMatHoldLookback(
 @FuncInfo(
         name  = "CDLMATHOLD",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -3387,7 +3387,7 @@ public int cdlMorningDojiStarLookback(
 @FuncInfo(
         name  = "CDLMORNINGDOJISTAR",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -3454,7 +3454,7 @@ public int cdlMorningStarLookback(
 @FuncInfo(
         name  = "CDLMORNINGSTAR",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -3521,7 +3521,7 @@ public int cdlOnNeckLookback(
 @FuncInfo(
         name  = "CDLONNECK",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3569,7 +3569,7 @@ public int cdlPiercingLookback(
 @FuncInfo(
         name  = "CDLPIERCING",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3617,7 +3617,7 @@ public int cdlRickshawManLookback(
 @FuncInfo(
         name  = "CDLRICKSHAWMAN",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3665,7 +3665,7 @@ public int cdlRiseFall3MethodsLookback(
 @FuncInfo(
         name  = "CDLRISEFALL3METHODS",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3713,7 +3713,7 @@ public int cdlSeperatingLinesLookback(
 @FuncInfo(
         name  = "CDLSEPARATINGLINES",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3761,7 +3761,7 @@ public int cdlShootingStarLookback(
 @FuncInfo(
         name  = "CDLSHOOTINGSTAR",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3809,7 +3809,7 @@ public int cdlShortLineLookback(
 @FuncInfo(
         name  = "CDLSHORTLINE",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3857,7 +3857,7 @@ public int cdlSpinningTopLookback(
 @FuncInfo(
         name  = "CDLSPINNINGTOP",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3905,7 +3905,7 @@ public int cdlStalledPatternLookback(
 @FuncInfo(
         name  = "CDLSTALLEDPATTERN",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -3953,7 +3953,7 @@ public int cdlStickSandwichLookback(
 @FuncInfo(
         name  = "CDLSTICKSANDWICH",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4001,7 +4001,7 @@ public int cdlTakuriLookback(
 @FuncInfo(
         name  = "CDLTAKURI",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4049,7 +4049,7 @@ public int cdlTasukiGapLookback(
 @FuncInfo(
         name  = "CDLTASUKIGAP",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4097,7 +4097,7 @@ public int cdlThrustingLookback(
 @FuncInfo(
         name  = "CDLTHRUSTING",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4145,7 +4145,7 @@ public int cdlTristarLookback(
 @FuncInfo(
         name  = "CDLTRISTAR",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4193,7 +4193,7 @@ public int cdlUnique3RiverLookback(
 @FuncInfo(
         name  = "CDLUNIQUE3RIVER",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4241,7 +4241,7 @@ public int cdlUpsideGap2CrowsLookback(
 @FuncInfo(
         name  = "CDLUPSIDEGAP2CROWS",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4289,7 +4289,7 @@ public int cdlXSideGap3MethodsLookback(
 @FuncInfo(
         name  = "CDLXSIDEGAP3METHODS",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4337,7 +4337,7 @@ public int ceilLookback(
 @FuncInfo(
         name  = "CEIL",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4378,7 +4378,7 @@ public int cmoLookback(
 @FuncInfo(
         name  = "CMO",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -4437,7 +4437,7 @@ public int correlLookback(
 @FuncInfo(
         name  = "CORREL",
         group = "Statistic Functions",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 2,
         nbOptInput = 1,
         nbOutput   = 1
@@ -4503,7 +4503,7 @@ public int cosLookback(
 @FuncInfo(
         name  = "COS",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4544,7 +4544,7 @@ public int coshLookback(
 @FuncInfo(
         name  = "COSH",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4585,7 +4585,7 @@ public int demaLookback(
 @FuncInfo(
         name  = "DEMA",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -4644,7 +4644,7 @@ public int divLookback(
 @FuncInfo(
         name  = "DIV",
         group = "Math Operators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 2,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4692,7 +4692,7 @@ public int dxLookback(
 @FuncInfo(
         name  = "DX",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -4755,7 +4755,7 @@ public int emaLookback(
 @FuncInfo(
         name  = "EMA",
         group = "Overlap Studies",
-        flags = 150994944,
+        flags = 184549376,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -4814,7 +4814,7 @@ public int expLookback(
 @FuncInfo(
         name  = "EXP",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4855,7 +4855,7 @@ public int floorLookback(
 @FuncInfo(
         name  = "FLOOR",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -5157,7 +5157,7 @@ public int imiLookback(
 @FuncInfo(
         name  = "IMI",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -5218,7 +5218,7 @@ public int kamaLookback(
 @FuncInfo(
         name  = "KAMA",
         group = "Overlap Studies",
-        flags = 150994944,
+        flags = 184549376,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -5277,7 +5277,7 @@ public int linearRegLookback(
 @FuncInfo(
         name  = "LINEARREG",
         group = "Statistic Functions",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -5336,7 +5336,7 @@ public int linearRegAngleLookback(
 @FuncInfo(
         name  = "LINEARREG_ANGLE",
         group = "Statistic Functions",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -5395,7 +5395,7 @@ public int linearRegInterceptLookback(
 @FuncInfo(
         name  = "LINEARREG_INTERCEPT",
         group = "Statistic Functions",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -5454,7 +5454,7 @@ public int linearRegSlopeLookback(
 @FuncInfo(
         name  = "LINEARREG_SLOPE",
         group = "Statistic Functions",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -5513,7 +5513,7 @@ public int lnLookback(
 @FuncInfo(
         name  = "LN",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -5554,7 +5554,7 @@ public int log10Lookback(
 @FuncInfo(
         name  = "LOG10",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -5597,7 +5597,7 @@ public int movingAverageLookback(
 @FuncInfo(
         name  = "MA",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 2,
         nbOutput   = 1
@@ -5675,7 +5675,7 @@ public int macdLookback(
 @FuncInfo(
         name  = "MACD",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 3,
         nbOutput   = 3
@@ -6212,7 +6212,7 @@ public int maxLookback(
 @FuncInfo(
         name  = "MAX",
         group = "Math Operators",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -6271,7 +6271,7 @@ public int maxIndexLookback(
 @FuncInfo(
         name  = "MAXINDEX",
         group = "Math Operators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -6331,7 +6331,7 @@ public int medPriceLookback(
 @FuncInfo(
         name  = "MEDPRICE",
         group = "Price Transform",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -6374,7 +6374,7 @@ public int mfiLookback(
 @FuncInfo(
         name  = "MFI",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -6439,7 +6439,7 @@ public int midPointLookback(
 @FuncInfo(
         name  = "MIDPOINT",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -6559,7 +6559,7 @@ public int minLookback(
 @FuncInfo(
         name  = "MIN",
         group = "Math Operators",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -6618,7 +6618,7 @@ public int minIndexLookback(
 @FuncInfo(
         name  = "MININDEX",
         group = "Math Operators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -6678,7 +6678,7 @@ public int minMaxLookback(
 @FuncInfo(
         name  = "MINMAX",
         group = "Math Operators",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 2
@@ -6744,7 +6744,7 @@ public int minMaxIndexLookback(
 @FuncInfo(
         name  = "MINMAXINDEX",
         group = "Math Operators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 2
@@ -6936,7 +6936,7 @@ public int momLookback(
 @FuncInfo(
         name  = "MOM",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -6995,7 +6995,7 @@ public int multLookback(
 @FuncInfo(
         name  = "MULT",
         group = "Math Operators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 2,
         nbOptInput = 0,
         nbOutput   = 1
@@ -7106,7 +7106,7 @@ public int obvLookback(
 @FuncInfo(
         name  = "OBV",
         group = "Volume Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 2,
         nbOptInput = 0,
         nbOutput   = 1
@@ -7282,7 +7282,7 @@ public int ppoLookback(
 @FuncInfo(
         name  = "PPO",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 3,
         nbOutput   = 1
@@ -7374,7 +7374,7 @@ public int rocLookback(
 @FuncInfo(
         name  = "ROC",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -7433,7 +7433,7 @@ public int rocPLookback(
 @FuncInfo(
         name  = "ROCP",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -7492,7 +7492,7 @@ public int rocRLookback(
 @FuncInfo(
         name  = "ROCR",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -7551,7 +7551,7 @@ public int rocR100Lookback(
 @FuncInfo(
         name  = "ROCR100",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -7610,7 +7610,7 @@ public int rsiLookback(
 @FuncInfo(
         name  = "RSI",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -7671,7 +7671,7 @@ public int sarLookback(
 @FuncInfo(
         name  = "SAR",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 2,
         nbOutput   = 1
@@ -7766,7 +7766,7 @@ public int sarExtLookback(
 @FuncInfo(
         name  = "SAREXT",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 8,
         nbOutput   = 1
@@ -7961,7 +7961,7 @@ public int sinLookback(
 @FuncInfo(
         name  = "SIN",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -8002,7 +8002,7 @@ public int sinhLookback(
 @FuncInfo(
         name  = "SINH",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -8043,7 +8043,7 @@ public int smaLookback(
 @FuncInfo(
         name  = "SMA",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -8102,7 +8102,7 @@ public int sqrtLookback(
 @FuncInfo(
         name  = "SQRT",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -8145,7 +8145,7 @@ public int stdDevLookback(
 @FuncInfo(
         name  = "STDDEV",
         group = "Statistic Functions",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 2,
         nbOutput   = 1
@@ -8231,7 +8231,7 @@ public int stochLookback(
 @FuncInfo(
         name  = "STOCH",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 5,
         nbOutput   = 2
@@ -8371,7 +8371,7 @@ public int stochFLookback(
 @FuncInfo(
         name  = "STOCHF",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 3,
         nbOutput   = 2
@@ -8480,7 +8480,7 @@ public int stochRsiLookback(
 @FuncInfo(
         name  = "STOCHRSI",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 4,
         nbOutput   = 2
@@ -8597,7 +8597,7 @@ public int subLookback(
 @FuncInfo(
         name  = "SUB",
         group = "Math Operators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 2,
         nbOptInput = 0,
         nbOutput   = 1
@@ -8645,7 +8645,7 @@ public int sumLookback(
 @FuncInfo(
         name  = "SUM",
         group = "Math Operators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -8706,7 +8706,7 @@ public int t3Lookback(
 @FuncInfo(
         name  = "T3",
         group = "Overlap Studies",
-        flags = 150994944,
+        flags = 184549376,
         nbInput    = 1,
         nbOptInput = 2,
         nbOutput   = 1
@@ -8784,7 +8784,7 @@ public int tanLookback(
 @FuncInfo(
         name  = "TAN",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -8825,7 +8825,7 @@ public int tanhLookback(
 @FuncInfo(
         name  = "TANH",
         group = "Math Transform",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -8866,7 +8866,7 @@ public int temaLookback(
 @FuncInfo(
         name  = "TEMA",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -8925,7 +8925,7 @@ public int trueRangeLookback(
 @FuncInfo(
         name  = "TRANGE",
         group = "Volatility Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -9029,7 +9029,7 @@ public int trixLookback(
 @FuncInfo(
         name  = "TRIX",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -9088,7 +9088,7 @@ public int tsfLookback(
 @FuncInfo(
         name  = "TSF",
         group = "Statistic Functions",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -9147,7 +9147,7 @@ public int typPriceLookback(
 @FuncInfo(
         name  = "TYPPRICE",
         group = "Price Transform",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -9196,7 +9196,7 @@ public int ultOscLookback(
 @FuncInfo(
         name  = "ULTOSC",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 3,
         nbOutput   = 1
@@ -9297,7 +9297,7 @@ public int varianceLookback(
 @FuncInfo(
         name  = "VAR",
         group = "Statistic Functions",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 2,
         nbOutput   = 1
@@ -9375,7 +9375,7 @@ public int wclPriceLookback(
 @FuncInfo(
         name  = "WCLPRICE",
         group = "Price Transform",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -9420,7 +9420,7 @@ public int willRLookback(
 @FuncInfo(
         name  = "WILLR",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -9483,7 +9483,7 @@ public int wmaLookback(
 @FuncInfo(
         name  = "WMA",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1

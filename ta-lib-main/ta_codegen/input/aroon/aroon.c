@@ -14,12 +14,18 @@
  *  050703 MF   Fix algorithm base on Adrian Michel bug report #748163
  */
 
-int aroon_lookback(int           optInTimePeriod)
+int aroon_lookback(int optInTimePeriod)
 {
    return optInTimePeriod;
 }
 
-TA_RetCode aroon(int startIdx, int endIdx, const double inHigh[], const double inLow[], int optInTimePeriod, int *outBegIdx, int *outNBElement, double outAroonDown[], double outAroonUp[])
+TA_RetCode aroon(int startIdx, int endIdx,
+   const double inHigh[],
+   const double inLow[],
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double outAroonDown[],
+   double outAroonUp[])
 {
    double lowest, highest, tmp, factor;
    int outIdx;

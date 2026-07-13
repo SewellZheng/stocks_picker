@@ -13,12 +13,20 @@
  *  120907 MF     Handling of a few limit cases
  */
 
-int accbands_lookback(int           optInTimePeriod)
+int accbands_lookback(int optInTimePeriod)
 {
    return sma_lookback( optInTimePeriod );
 }
 
-TA_RetCode accbands(int startIdx, int endIdx, const double inHigh[], const double inLow[], const double inClose[], int optInTimePeriod, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[])
+TA_RetCode accbands(int startIdx, int endIdx,
+   const double inHigh[],
+   const double inLow[],
+   const double inClose[],
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double outRealUpperBand[],
+   double outRealMiddleBand[],
+   double outRealLowerBand[])
 {
    TA_RetCode retCode;
    double *tempBuffer1;

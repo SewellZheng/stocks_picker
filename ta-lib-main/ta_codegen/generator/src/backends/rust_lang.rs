@@ -335,6 +335,26 @@ fn gen_guarded_func(
         out.push_str(&gen_opt_param_validation(opt, "        ", false));
     }
 
+    // Output-distinctness (issue #108): aliasing two different output buffers has
+    // no correct result. The borrow checker already forbids a safe caller from
+    // passing the same `&mut` slice twice, so this only guards the unsafe/FFI
+    // boundary; it is kept for parity with the C/Java/.NET backends. Input ==
+    // output aliasing stays allowed.
+    if func.outputs.len() >= 2 {
+        let mut pairs: Vec<String> = Vec::new();
+        for i in 0..func.outputs.len() {
+            for j in (i + 1)..func.outputs.len() {
+                pairs.push(format!(
+                    "{}.as_ptr() == {}.as_ptr()",
+                    func.outputs[i].name, func.outputs[j].name
+                ));
+            }
+        }
+        out.push_str(&format!("        if {} {{\n", pairs.join(" || ")));
+        out.push_str("            return RetCode::BadParam;\n");
+        out.push_str("        }\n");
+    }
+
     if func.has_explicit_private {
         // The guarded body already contains delegation to _unguarded with extra params.
         // Render it directly (it includes pre-computation + delegation call).
@@ -3024,6 +3044,29 @@ fn render_expr(
     RustExpr { ctx, opt_real_params, registry, helpers }.walk(expr)
 }
 
+/// Render one of the boolean near-zero builtins (IS_ZERO / IS_ZERO_SCALED /
+/// IS_ZERO_OR_NEG) in Rust from already-rendered argument strings. Single source
+/// of the Rust form for these predicates — used by both the indicator render path
+/// and the `eval_predicate` server handler (see the C backend for the rationale).
+pub(crate) fn rust_predicate_expr(which: SpecialBuiltin, args: &[String]) -> String {
+    match which {
+        SpecialBuiltin::IsZero => args
+            .first()
+            .map_or_else(|| "false".to_string(), |x| format!("({x}).abs() < 1e-14")),
+        SpecialBuiltin::IsZeroScaled => {
+            if args.len() == 2 {
+                format!("(({}).abs() <= 1e-14 * ({}))", args[0], args[1])
+            } else {
+                "false".to_string()
+            }
+        }
+        SpecialBuiltin::IsZeroOrNeg => args
+            .first()
+            .map_or_else(|| "false".to_string(), |x| format!("({x}) < 1e-14")),
+        _ => "false".to_string(),
+    }
+}
+
 /// Check if an expression is clearly integer-typed (for Cast optimization in generic mode).
 /// When true, `T::ta_from_i32(expr as i32)` will be used instead of `T::ta_from_f64(expr.ta_to_f64())`.
 fn expr_is_integer(expr: &Expr) -> bool {
@@ -3520,19 +3563,17 @@ fn render_func_call(
                 "self.unstable_period[0]".to_string()
             }
             SpecialBuiltin::Compatibility => "self.compatibility".to_string(),
-            SpecialBuiltin::IsZero => {
-                if let Some(arg) = args.first() {
-                    let x = render_expr(arg, ctx, opt_real_params, registry, helpers);
-                    return format!("({x}).abs() < 1e-14");
-                }
-                "false".to_string()
-            }
-            SpecialBuiltin::IsZeroOrNeg => {
-                if let Some(arg) = args.first() {
-                    let x = render_expr(arg, ctx, opt_real_params, registry, helpers);
-                    return format!("({x}) < 1e-14");
-                }
-                "false".to_string()
+            pred @ (SpecialBuiltin::IsZero
+                   | SpecialBuiltin::IsZeroScaled
+                   | SpecialBuiltin::IsZeroOrNeg) => {
+                // IS_ZERO / IS_ZERO_SCALED / IS_ZERO_OR_NEG -> the Rust epsilon form.
+                // rust_predicate_expr is the single source of that form (also used by
+                // the eval_predicate server handler).
+                let rendered: Vec<String> = args
+                    .iter()
+                    .map(|a| render_expr(a, ctx, opt_real_params, registry, helpers))
+                    .collect();
+                rust_predicate_expr(pred, &rendered)
             }
             SpecialBuiltin::ArrayCopy => {
                 if args.len() == 5 {

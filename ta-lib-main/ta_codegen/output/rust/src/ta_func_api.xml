@@ -70,6 +70,9 @@
 		<CamelCaseName>Acos</CamelCaseName>
 		<ShortDescription>Vector Trigonometric ACos</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -94,6 +97,9 @@
 		<CamelCaseName>Ad</CamelCaseName>
 		<ShortDescription>Chaikin A/D Line</ShortDescription>
 		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -130,6 +136,9 @@
 		<CamelCaseName>Add</CamelCaseName>
 		<ShortDescription>Vector Arithmetic Add</ShortDescription>
 		<GroupId>Math Operators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -158,6 +167,9 @@
 		<CamelCaseName>AdOsc</CamelCaseName>
 		<ShortDescription>Chaikin A/D Oscillator</ShortDescription>
 		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -224,6 +236,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -274,6 +287,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -322,6 +336,9 @@
 		<CamelCaseName>Apo</CamelCaseName>
 		<ShortDescription>Absolute Price Oscillator</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -380,6 +397,9 @@
 		<CamelCaseName>Aroon</CamelCaseName>
 		<ShortDescription>Aroon</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -430,6 +450,9 @@
 		<CamelCaseName>AroonOsc</CamelCaseName>
 		<ShortDescription>Aroon Oscillator</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -473,6 +496,9 @@
 		<CamelCaseName>Asin</CamelCaseName>
 		<ShortDescription>Vector Trigonometric ASin</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -497,6 +523,9 @@
 		<CamelCaseName>Atan</CamelCaseName>
 		<ShortDescription>Vector Trigonometric ATan</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -573,6 +602,7 @@
 		<GroupId>Price Transform</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -615,6 +645,7 @@
 		<GroupId>Price Transform</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -654,6 +685,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -742,6 +774,9 @@
 		<CamelCaseName>Beta</CamelCaseName>
 		<ShortDescription>Beta</ShortDescription>
 		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -785,6 +820,9 @@
 		<CamelCaseName>Bop</CamelCaseName>
 		<ShortDescription>Balance Of Power</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Open</Type>
@@ -821,6 +859,9 @@
 		<CamelCaseName>Cci</CamelCaseName>
 		<ShortDescription>Commodity Channel Index</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -870,6 +911,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -909,6 +951,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -948,6 +991,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -987,6 +1031,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1026,6 +1071,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1065,6 +1111,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1104,6 +1151,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1143,6 +1191,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1198,6 +1247,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1237,6 +1287,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1276,6 +1327,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1315,6 +1367,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1354,6 +1407,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1393,6 +1447,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1432,6 +1487,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1487,6 +1543,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1526,6 +1583,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1565,6 +1623,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1604,6 +1663,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1643,6 +1703,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1698,6 +1759,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1753,6 +1815,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1792,6 +1855,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1831,6 +1895,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1870,6 +1935,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1909,6 +1975,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1948,6 +2015,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -1987,6 +2055,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2104,6 +2173,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2143,6 +2213,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2182,6 +2253,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2221,6 +2293,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2260,6 +2333,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2299,6 +2373,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2338,6 +2413,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2377,6 +2453,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2416,6 +2493,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2455,6 +2533,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2494,6 +2573,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2533,6 +2613,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2588,6 +2669,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2643,6 +2725,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2698,6 +2781,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2737,6 +2821,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2776,6 +2861,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2815,6 +2901,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2854,6 +2941,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2893,6 +2981,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2932,6 +3021,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2971,6 +3061,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3010,6 +3101,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3049,6 +3141,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3088,6 +3181,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3127,6 +3221,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3166,6 +3261,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3205,6 +3301,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3244,6 +3341,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3283,6 +3381,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3322,6 +3421,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3359,6 +3459,9 @@
 		<CamelCaseName>Ceil</CamelCaseName>
 		<ShortDescription>Vector Ceil</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -3385,6 +3488,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3425,6 +3529,9 @@
 		<CamelCaseName>Correl</CamelCaseName>
 		<ShortDescription>Pearson&apos;s Correlation Coefficient (r)</ShortDescription>
 		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -3468,6 +3575,9 @@
 		<CamelCaseName>Cos</CamelCaseName>
 		<ShortDescription>Vector Trigonometric Cos</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -3492,6 +3602,9 @@
 		<CamelCaseName>Cosh</CamelCaseName>
 		<ShortDescription>Vector Trigonometric Cosh</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -3518,6 +3631,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3558,6 +3672,9 @@
 		<CamelCaseName>Div</CamelCaseName>
 		<ShortDescription>Vector Arithmetic Div</ShortDescription>
 		<GroupId>Math Operators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -3588,6 +3705,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3639,6 +3757,7 @@
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3679,6 +3798,9 @@
 		<CamelCaseName>Exp</CamelCaseName>
 		<ShortDescription>Vector Arithmetic Exp</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -3703,6 +3825,9 @@
 		<CamelCaseName>Floor</CamelCaseName>
 		<ShortDescription>Vector Floor</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -3904,6 +4029,9 @@
 		<CamelCaseName>Imi</CamelCaseName>
 		<ShortDescription>Intraday Momentum Index</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Open</Type>
@@ -3950,6 +4078,7 @@
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3992,6 +4121,7 @@
 		<GroupId>Statistic Functions</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4032,6 +4162,9 @@
 		<CamelCaseName>LinearRegAngle</CamelCaseName>
 		<ShortDescription>Linear Regression Angle</ShortDescription>
 		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4073,6 +4206,7 @@
 		<GroupId>Statistic Functions</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4113,6 +4247,9 @@
 		<CamelCaseName>LinearRegSlope</CamelCaseName>
 		<ShortDescription>Linear Regression Slope</ShortDescription>
 		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4152,6 +4289,9 @@
 		<CamelCaseName>Ln</CamelCaseName>
 		<ShortDescription>Vector Log Natural</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4176,6 +4316,9 @@
 		<CamelCaseName>Log10</CamelCaseName>
 		<ShortDescription>Vector Log10</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4202,6 +4345,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4248,6 +4392,9 @@
 		<CamelCaseName>Macd</CamelCaseName>
 		<ShortDescription>Moving Average Convergence/Divergence</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4609,6 +4756,7 @@
 		<GroupId>Math Operators</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4649,6 +4797,9 @@
 		<CamelCaseName>MaxIndex</CamelCaseName>
 		<ShortDescription>Index of highest value over a specified period</ShortDescription>
 		<GroupId>Math Operators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4690,6 +4841,7 @@
 		<GroupId>Price Transform</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4719,6 +4871,9 @@
 		<CamelCaseName>Mfi</CamelCaseName>
 		<ShortDescription>Money Flow Index</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -4772,6 +4927,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4860,6 +5016,7 @@
 		<GroupId>Math Operators</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4900,6 +5057,9 @@
 		<CamelCaseName>MinIndex</CamelCaseName>
 		<ShortDescription>Index of lowest value over a specified period</ShortDescription>
 		<GroupId>Math Operators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4941,6 +5101,7 @@
 		<GroupId>Math Operators</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4988,6 +5149,9 @@
 		<CamelCaseName>MinMaxIndex</CamelCaseName>
 		<ShortDescription>Indexes of lowest and highest values over a specified period</ShortDescription>
 		<GroupId>Math Operators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5130,6 +5294,9 @@
 		<CamelCaseName>Mom</CamelCaseName>
 		<ShortDescription>Momentum</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5169,6 +5336,9 @@
 		<CamelCaseName>Mult</CamelCaseName>
 		<ShortDescription>Vector Arithmetic Mult</ShortDescription>
 		<GroupId>Math Operators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5247,6 +5417,9 @@
 		<CamelCaseName>Obv</CamelCaseName>
 		<ShortDescription>On Balance Volume</ShortDescription>
 		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5371,6 +5544,9 @@
 		<CamelCaseName>Ppo</CamelCaseName>
 		<ShortDescription>Percentage Price Oscillator</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5429,6 +5605,9 @@
 		<CamelCaseName>Roc</CamelCaseName>
 		<ShortDescription>Rate of change : ((price/prevPrice)-1)*100</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5468,6 +5647,9 @@
 		<CamelCaseName>RocP</CamelCaseName>
 		<ShortDescription>Rate of change Percentage: (price-prevPrice)/prevPrice</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5507,6 +5689,9 @@
 		<CamelCaseName>RocR</CamelCaseName>
 		<ShortDescription>Rate of change ratio: (price/prevPrice)</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5546,6 +5731,9 @@
 		<CamelCaseName>RocR100</CamelCaseName>
 		<ShortDescription>Rate of change ratio 100 scale: (price/prevPrice)*100</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5587,6 +5775,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5629,6 +5818,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5690,6 +5880,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5833,6 +6024,9 @@
 		<CamelCaseName>Sin</CamelCaseName>
 		<ShortDescription>Vector Trigonometric Sin</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5857,6 +6051,9 @@
 		<CamelCaseName>Sinh</CamelCaseName>
 		<ShortDescription>Vector Trigonometric Sinh</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5883,6 +6080,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5923,6 +6121,9 @@
 		<CamelCaseName>Sqrt</CamelCaseName>
 		<ShortDescription>Vector Square Root</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -5947,6 +6148,9 @@
 		<CamelCaseName>StdDev</CamelCaseName>
 		<ShortDescription>Standard Deviation</ShortDescription>
 		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -6000,6 +6204,9 @@
 		<CamelCaseName>Stoch</CamelCaseName>
 		<ShortDescription>Stochastic</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -6092,6 +6299,9 @@
 		<CamelCaseName>StochF</CamelCaseName>
 		<ShortDescription>Stochastic Fast</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -6167,6 +6377,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6246,6 +6457,9 @@
 		<CamelCaseName>Sub</CamelCaseName>
 		<ShortDescription>Vector Arithmetic Subtraction</ShortDescription>
 		<GroupId>Math Operators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -6274,6 +6488,9 @@
 		<CamelCaseName>Sum</CamelCaseName>
 		<ShortDescription>Summation</ShortDescription>
 		<GroupId>Math Operators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -6316,6 +6533,7 @@
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6370,6 +6588,9 @@
 		<CamelCaseName>Tan</CamelCaseName>
 		<ShortDescription>Vector Trigonometric Tan</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -6394,6 +6615,9 @@
 		<CamelCaseName>Tanh</CamelCaseName>
 		<ShortDescription>Vector Trigonometric Tanh</ShortDescription>
 		<GroupId>Math Transform</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -6420,6 +6644,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6460,6 +6685,9 @@
 		<CamelCaseName>TrueRange</CamelCaseName>
 		<ShortDescription>True Range</ShortDescription>
 		<GroupId>Volatility Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -6534,6 +6762,9 @@
 		<CamelCaseName>Trix</CamelCaseName>
 		<ShortDescription>1-day Rate-Of-Change (ROC) of a Triple Smooth EMA</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -6575,6 +6806,7 @@
 		<GroupId>Statistic Functions</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6617,6 +6849,7 @@
 		<GroupId>Price Transform</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6650,6 +6883,9 @@
 		<CamelCaseName>UltOsc</CamelCaseName>
 		<ShortDescription>Ultimate Oscillator</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -6723,6 +6959,9 @@
 		<CamelCaseName>Variance</CamelCaseName>
 		<ShortDescription>Variance</ShortDescription>
 		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -6778,6 +7017,7 @@
 		<GroupId>Price Transform</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6811,6 +7051,9 @@
 		<CamelCaseName>WillR</CamelCaseName>
 		<ShortDescription>Williams&apos; %R</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -6860,6 +7103,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>

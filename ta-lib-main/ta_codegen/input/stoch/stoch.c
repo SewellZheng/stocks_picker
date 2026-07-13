@@ -3,18 +3,21 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
- *
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  112400 MF   Template creation.
- *  052603 MF   Adapt code to compile with .NET Managed C++
+ *  112400 MF    Template creation.
+ *  052603 MF    Adapt code to compile with .NET Managed C++
+ *  071026 MF,CC Fix #107. Guard the Fast-K division with TA_IS_ZERO, not an
+ *               exact `diff != 0.0`, so a machine-flat window yields 0 instead
+ *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
  *
  */
 
-int stoch_lookback(int           optInFastK_Period,                                              int           optInSlowK_Period,                                              TA_MAType     optInSlowK_MAType,                                             int           optInSlowD_Period,                                              TA_MAType     optInSlowD_MAType)
+int stoch_lookback(int optInFastK_Period, int optInSlowK_Period, TA_MAType optInSlowK_MAType, int optInSlowD_Period, TA_MAType optInSlowD_MAType)
 {
    int retValue;
 
@@ -30,7 +33,18 @@ int stoch_lookback(int           optInFastK_Period,                             
    return retValue;
 }
 
-TA_RetCode stoch(int startIdx, int endIdx, const double inHigh[], const double inLow[], const double inClose[], int optInFastK_Period, int optInSlowK_Period, TA_MAType optInSlowK_MAType, int optInSlowD_Period, TA_MAType optInSlowD_MAType, int *outBegIdx, int *outNBElement, double outSlowK[], double outSlowD[])
+TA_RetCode stoch(int startIdx, int endIdx,
+   const double inHigh[],
+   const double inLow[],
+   const double inClose[],
+   int optInFastK_Period,
+   int optInSlowK_Period,
+   TA_MAType optInSlowK_MAType,
+   int optInSlowD_Period,
+   TA_MAType optInSlowD_MAType,
+   int *outBegIdx, int *outNBElement,
+   double outSlowK[],
+   double outSlowD[])
 {
    TA_RetCode retCode;
    double lowest, highest, tmp, diff;
@@ -73,8 +87,8 @@ TA_RetCode stoch(int startIdx, int endIdx, const double inHigh[], const double i
 
    /* Identify the lookback needed. */
    lookbackK      = optInFastK_Period-1;
-   lookbackKSlow  = ma_lookback( optInSlowK_Period, optInSlowK_MAType );
-   lookbackDSlow  = ma_lookback( optInSlowD_Period, optInSlowD_MAType );
+   lookbackKSlow = ma_lookback( optInSlowK_Period, optInSlowK_MAType );
+   lookbackDSlow = ma_lookback( optInSlowD_Period, optInSlowD_MAType );
    lookbackTotal  = lookbackK + lookbackDSlow + lookbackKSlow;
 
    /* Move up the start index if there is not
@@ -196,8 +210,10 @@ TA_RetCode stoch(int startIdx, int endIdx, const double inHigh[], const double i
          diff = (highest - lowest)/100.0;
       }
 
-      /* Calculate stochastic. */
-      if( diff != 0.0 )
+      /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
+       * a machine-flat window leaves a sub-epsilon residue that an exact check
+       * would divide into [0,100] noise (issue #107 / STOCHRSI). */
+      if( !TA_IS_ZERO(diff) )
          tempBuffer[outIdx++] = (inClose[today]-lowest)/diff;
       else
          tempBuffer[outIdx++] = 0.0;

@@ -60,7 +60,7 @@ DEF_FUNCTION( DEMA,
               TA_GroupId_OverlapStudies,
               "Double Exponential Moving Average",
               "Dema",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* DEMA END */
 
@@ -85,7 +85,7 @@ DEF_FUNCTION( DIV,
               TA_GroupId_MathOperators,
               "Vector Arithmetic Div",
               "Div",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* DIV END */
 
@@ -111,7 +111,7 @@ DEF_FUNCTION( DX,
               TA_GroupId_MomentumIndicators,
               "Directional Movement Index",
               "Dx",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* DX END */
 

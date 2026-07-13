@@ -400,6 +400,7 @@ fn func_flag_bits(flags: &[String]) -> u32 {
     for f in flags {
         match f.as_str() {
             "overlap" => b |= 0x0100_0000,
+            "stream" => b |= 0x0200_0000, // TA_FUNC_FLG_STREAM
             "volume" => b |= 0x0400_0000,
             "unstable_period" => b |= 0x0800_0000,
             "candlestick" => b |= 0x1000_0000,
@@ -644,6 +645,7 @@ macro_rules! flag_newtype {
 
 flag_newtype!(FuncFlags {
     OVERLAP = 0x0100_0000,
+    STREAM = 0x0200_0000,
     VOLUME = 0x0400_0000,
     UNSTABLE_PERIOD = 0x0800_0000,
     CANDLESTICK = 0x1000_0000,

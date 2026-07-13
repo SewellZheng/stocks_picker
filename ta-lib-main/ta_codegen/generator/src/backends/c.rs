@@ -25,6 +25,11 @@ const C_CANDLE_MACRO_FNS: &[&str] = &["ta_candlerange", "ta_candleaverage"];
 struct CRenderCtx<'a> {
     single_precision: bool,
     inline_counter: &'a std::cell::Cell<usize>,
+    /// Stream-transition rendering: candle helper calls take scalar bar
+    /// values, so they render as TA_STREAM_CANDLE* macros (mirroring the
+    /// batch macros' arithmetic exactly) instead of the array-indexed
+    /// TA_CANDLE* macros.
+    stream_scalar_candles: bool,
 }
 
 #[allow(clippy::implicit_hasher)]
@@ -54,13 +59,18 @@ pub fn generate(
         out.push_str(&gen_func(func, true, false, enums, registry, helpers)); // single-precision guarded
         out.push_str(&gen_func(func, true, true, enums, registry, helpers)); // single-precision logic
     }
+
+    // Streaming API section (only for YAML-declared streamable functions).
+    if func.streaming {
+        out.push_str(&super::c_stream::generate(func, enums, registry, helpers));
+    }
     out
 }
 
 /// Render a C variable declaration (`type name`, including pointer and array
 /// forms) for the given [`VarType`]. Single source for the per-statement,
 /// hoisted-block, and lookback-local declaration emitters.
-fn c_decl(var_type: &VarType, name: &str) -> String {
+pub(crate) fn c_decl(var_type: &VarType, name: &str) -> String {
     match var_type {
         VarType::Real => format!("double {name}"),
         VarType::Integer | VarType::Index => format!("int {name}"),
@@ -191,7 +201,7 @@ fn gen_header() -> String {
 // Integer optional-param defaults and ranges are stored as `f64` in the IR; casting
 // the integer-valued ones to `i32` for literal emission is exact, not truncating.
 #[allow(clippy::cast_possible_truncation)]
-fn emit_opt_param_validation(func: &FuncDef, fail: &str) -> String {
+pub(crate) fn emit_opt_param_validation(func: &FuncDef, fail: &str) -> String {
     let mut out = String::new();
     for opt in &func.optional_inputs {
         match &opt.param_type {
@@ -448,7 +458,7 @@ fn gen_func_inner(
     }
 
     let inline_counter = Cell::new(0);
-    let ctx = &CRenderCtx { single_precision, inline_counter: &inline_counter };
+    let ctx = &CRenderCtx { single_precision, inline_counter: &inline_counter, stream_scalar_candles: false };
 
     // For S_ variants with explicit _private: emit private_param_init as local VarDecls.
     // These provide the extra params (e.g., k factor) that the inlined private body needs.
@@ -494,6 +504,22 @@ fn gen_func_inner(
         // Output array NULL checks
         for output in &func.outputs {
             out.push_str(&format!("   if( !{} )\n", output.name));
+            out.push_str("      return TA_BAD_PARAM;\n");
+        }
+        // Output-distinctness check: aliasing two different output buffers has no
+        // correct result (each would clobber the other), so reject it. Input ==
+        // output in-place aliasing is deliberately left allowed. See issue #108.
+        if func.outputs.len() >= 2 {
+            let mut pairs: Vec<String> = Vec::new();
+            for i in 0..func.outputs.len() {
+                for j in (i + 1)..func.outputs.len() {
+                    pairs.push(format!(
+                        "{} == {}",
+                        func.outputs[i].name, func.outputs[j].name
+                    ));
+                }
+            }
+            out.push_str(&format!("   if( {} )\n", pairs.join(" || ")));
             out.push_str("      return TA_BAD_PARAM;\n");
         }
         out.push('\n');
@@ -675,7 +701,26 @@ pub fn render_statement(
     helpers: &HelperRegistry,
     inline_counter: &Cell<usize>,
 ) -> String {
-    let ctx = CRenderCtx { single_precision, inline_counter };
+    let ctx = CRenderCtx { single_precision, inline_counter, stream_scalar_candles: false };
+    render_stmt(stmt, indent, &ctx, enums, registry, helpers)
+}
+
+/// Like [`render_statement`], but for generated stream-transition bodies:
+/// candle helper calls render as scalar TA_STREAM_CANDLE* macros.
+#[allow(clippy::implicit_hasher)]
+pub fn render_statement_stream(
+    stmt: &Statement,
+    indent: usize,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    inline_counter: &Cell<usize>,
+) -> String {
+    let ctx = CRenderCtx {
+        single_precision: false,
+        inline_counter,
+        stream_scalar_candles: true,
+    };
     render_stmt(stmt, indent, &ctx, enums, registry, helpers)
 }
 
@@ -896,8 +941,13 @@ impl StatementEmitter for CStmt<'_> {
     fn expr_stmt(&self, e: &Expr, indent: usize) -> String {
         let pad = " ".repeat(indent);
         // Statement-level expression: render a bare call/macro for its side effects.
-        // Skip bare variable statements (no side effects — e.g. inlined identity helpers)
-        if matches!(e, Expr::Var(_)) {
+        // Skip bare variable statements (no side effects — e.g. inlined identity
+        // helpers). Exception: a Var containing whitespace is a verbatim
+        // statement escape (the stream emitter's `goto TA_stream_capture_`).
+        if let Expr::Var(v) = e {
+            if v.contains(' ') {
+                return format!("{pad}{v};\n");
+            }
             return String::new();
         }
         if let Expr::FuncCall(fname, args) = e {
@@ -1241,7 +1291,7 @@ fn try_render_switch_as_ternary(
 /// Render a switch case label for C output.
 /// Looks up the label in the enum registry to generate `ENUM_CASE(Type, C_Name, Pascal)`.
 /// Falls back to the raw label if not an enum variant.
-fn render_c_switch_label(label: &str, enums: &HashMap<String, EnumDef>) -> String {
+pub(crate) fn render_c_switch_label(label: &str, enums: &HashMap<String, EnumDef>) -> String {
     if let Some((enum_name, variant)) = lookup_variant(label, enums) {
         format!(
             "ENUM_CASE({}, {}, {})",
@@ -1478,6 +1528,39 @@ fn render_expr(
     CExpr { ctx, registry, helpers }.walk(expr)
 }
 
+/// Render one of the boolean near-zero builtins (IS_ZERO / IS_ZERO_SCALED /
+/// IS_ZERO_OR_NEG) in C from already-rendered argument strings. This is the
+/// single source of the C form for these predicates: both the indicator
+/// `render_func_call` path and the `eval_predicate` server handler call it, so
+/// the cross-language predicate test verifies exactly the form indicators use.
+pub(crate) fn c_predicate_expr(which: SpecialBuiltin, args: &[String]) -> String {
+    let a0 = args.first().map_or("0", String::as_str);
+    match which {
+        SpecialBuiltin::IsZero => format!("TA_IS_ZERO({a0})"),
+        SpecialBuiltin::IsZeroScaled => {
+            if args.len() == 2 {
+                format!("TA_IS_ZERO_SCALED({}, {})", args[0], args[1])
+            } else {
+                "TA_IS_ZERO(0)".to_string()
+            }
+        }
+        SpecialBuiltin::IsZeroOrNeg => format!("TA_IS_ZERO_OR_NEG({a0})"),
+        _ => "TA_IS_ZERO(0)".to_string(),
+    }
+}
+
+/// Crate-visible expression rendering (used by the stream emitter for
+/// private-param init expressions and identity-guard conditions).
+pub(crate) fn render_expression(
+    expr: &Expr,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    inline_counter: &std::cell::Cell<usize>,
+) -> String {
+    let ctx = CRenderCtx { single_precision: false, inline_counter, stream_scalar_candles: false };
+    render_expr(expr, &ctx, registry, helpers)
+}
+
 
 /// Check if an expression is a variable that likely holds a pointer (array param
 /// or buffer). Used to detect pointer aliasing comparisons that need void* casts.
@@ -1567,6 +1650,43 @@ fn try_render_candle_macro(
     }
 }
 
+/// Render candle range/average helper calls in stream-transition context:
+/// scalar OHLC args (bar values or ring reads) map onto the
+/// TA_STREAM_CANDLERANGE / TA_STREAM_CANDLEAVERAGE macros of ta_utility.h.
+fn try_render_stream_candle_macro(
+    fname: &str,
+    args: &[Expr],
+    ctx: &CRenderCtx,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> Option<String> {
+    match fname {
+        "ta_candlerange" if args.len() == 5 => {
+            // ta_candlerange(SET_rangeType, o, h, l, c)
+            let setting = extract_candle_setting_name(&args[0])?;
+            let ohlc: Vec<String> = args[1..5]
+                .iter()
+                .map(|a| render_expr(a, ctx, registry, helpers))
+                .collect();
+            Some(format!("TA_STREAM_CANDLERANGE({setting},{})", ohlc.join(",")))
+        }
+        "ta_candleaverage" if args.len() == 8 => {
+            // ta_candleaverage(SET_rangeType, SET_avgPeriod, SET_factor, sum, o, h, l, c)
+            let setting = extract_candle_setting_name(&args[0])?;
+            let sum_str = render_expr(&args[3], ctx, registry, helpers);
+            let ohlc: Vec<String> = args[4..8]
+                .iter()
+                .map(|a| render_expr(a, ctx, registry, helpers))
+                .collect();
+            Some(format!(
+                "TA_STREAM_CANDLEAVERAGE({setting},{sum_str},{})",
+                ohlc.join(",")
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// Extract the candle setting name from a `_rangeType` variable reference.
 /// `Expr::Var("ShadowVeryShort_rangeType")` → `Some("ShadowVeryShort")`
 fn extract_candle_setting_name(expr: &Expr) -> Option<String> {
@@ -1598,7 +1718,14 @@ fn render_func_call(
 ) -> String {
     // C candle macros: emit preprocessor macro calls instead of expanded code.
     // This enables compiler loop-unswitching, matching the reference library.
-    if let Some(macro_call) = try_render_candle_macro(fname, args, ctx, registry, helpers) {
+    // Stream transitions have scalar bars (no input arrays), so they use the
+    // scalar TA_STREAM_CANDLE* mirrors instead — and must NOT hit the batch
+    // matcher, whose array-access pattern would false-match ring reads.
+    if ctx.stream_scalar_candles {
+        if let Some(macro_call) = try_render_stream_candle_macro(fname, args, ctx, registry, helpers) {
+            return macro_call;
+        }
+    } else if let Some(macro_call) = try_render_candle_macro(fname, args, ctx, registry, helpers) {
         return macro_call;
     }
 
@@ -1633,21 +1760,18 @@ fn render_func_call(
                 // COMPATIBILITY() -> TA_GLOBALS_COMPATIBILITY
                 "TA_GLOBALS_COMPATIBILITY".to_string()
             }
-            SpecialBuiltin::IsZero => {
-                // IS_ZERO(x) -> TA_IS_ZERO(x)
-                if let Some(arg) = args.first() {
-                    let x = render_expr(arg, ctx, registry, helpers);
-                    return format!("TA_IS_ZERO({x})");
-                }
-                "TA_IS_ZERO(0)".to_string()
-            }
-            SpecialBuiltin::IsZeroOrNeg => {
-                // IS_ZERO_OR_NEG(x) -> TA_IS_ZERO_OR_NEG(x)
-                if let Some(arg) = args.first() {
-                    let x = render_expr(arg, ctx, registry, helpers);
-                    return format!("TA_IS_ZERO_OR_NEG({x})");
-                }
-                "TA_IS_ZERO_OR_NEG(0)".to_string()
+            pred @ (SpecialBuiltin::IsZero
+                   | SpecialBuiltin::IsZeroScaled
+                   | SpecialBuiltin::IsZeroOrNeg) => {
+                // IS_ZERO / IS_ZERO_SCALED / IS_ZERO_OR_NEG -> the C macro form.
+                // c_predicate_expr is the single source of that form (also used by
+                // the eval_predicate server handler), so the cross-language test
+                // exercises exactly what the indicators emit.
+                let rendered: Vec<String> = args
+                    .iter()
+                    .map(|a| render_expr(a, ctx, registry, helpers))
+                    .collect();
+                c_predicate_expr(pred, &rendered)
             }
             SpecialBuiltin::ArrayCopy => {
                 // ARRAY_COPY(dst, dstOff, src, srcOff, count)
@@ -1679,10 +1803,15 @@ fn render_func_call(
         }
     } else if let Some(mf) = MathFn::from_name(fname) {
         // Plain C math functions — remap names where needed, then emit as C function calls.
-        // max → fmax, min → fmin, fabs/ABS → fabs (all from <math.h>)
+        // fabs/ABS → fabs (from <math.h>). max/min emit the branch macros from
+        // ta_utility.h (`#define min(a,b) (((a)<(b))?(a):(b))`), NOT the C99
+        // fmin/fmax: the macros match the pre-cutover reference bit-for-bit, lower
+        // to a branchless min/max the compiler can vectorize, and keep integer args
+        // in integer arithmetic. fmin/fmax carry IEEE-754 NaN/signed-zero semantics
+        // that block that lowering (and forced int→double round-trips). See #102.
         let c_name = match mf {
-            MathFn::Max => "fmax",
-            MathFn::Min => "fmin",
+            MathFn::Max => "max",
+            MathFn::Min => "min",
             MathFn::Abs => "fabs",
             other => other.canonical(),
         };
@@ -1745,7 +1874,7 @@ fn render_lookback_code(
 ) -> String {
     let mut out = String::new();
     let inline_counter = Cell::new(0);
-    let ctx = &CRenderCtx { single_precision: false, inline_counter: &inline_counter };
+    let ctx = &CRenderCtx { single_precision: false, inline_counter: &inline_counter, stream_scalar_candles: false };
 
     // Declare local variables (deduplicated)
     let mut declared_vars: Vec<String> = Vec::new();
@@ -1982,9 +2111,12 @@ mod tests {
 
         // Logic function should NOT have range checks
         // Find end of the logic function body (before the next function)
+        // Boundary: the single-precision variants follow the logic fn (they
+        // carry no TA_LIB_API); the streaming section (TA_LIB_API-prefixed)
+        // comes after those, so prefer the TA_S_ marker.
         let logic_end = logic_body
-            .find("TA_LIB_API")
-            .or_else(|| logic_body.find("TA_RetCode TA_S_"))
+            .find("TA_RetCode TA_S_")
+            .or_else(|| logic_body.find("TA_LIB_API"))
             .unwrap_or(logic_body.len());
         let logic_section = &logic_body[..logic_end];
         assert!(

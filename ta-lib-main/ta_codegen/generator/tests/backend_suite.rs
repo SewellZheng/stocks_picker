@@ -51,34 +51,28 @@ fn load_indicator(name: &str) -> (ir::FuncDef, HashMap<String, ir::EnumDef>) {
 
     let mut func_def = parser::yaml::parse_yaml(&yaml_path);
     let parsed = parser::c_source::parse_c_source(&c_path);
-    func_def.body = parsed
-        .functions
-        .first()
-        .expect("C source must contain at least one function")
-        .body
-        .clone();
-    func_def.lookback = Some(ir::LookbackExpr::Code(parsed.lookback_body));
+    // Single source of truth: wire exactly as the production load paths do
+    // (guarded body, lookback, explicit _private variant + extra params).
+    parser::c_source::wire_parsed_source(&mut func_def, &parsed);
 
-    // Mirror main.rs: check for explicit _unguarded variant in C source.
-    // If present, use it as private_body with its extra params.
-    // Otherwise, copy body to private_body (same body for both variants).
-    let unguarded_name = format!("{}_unguarded", name);
-    if let Some(ung) = parsed.functions.iter().find(|f| f.name == unguarded_name) {
-        func_def.private_body = ung.body.clone();
-        func_def.has_explicit_private = true;
-        // Extra params = params in unguarded but not in guarded (by name)
-        let guarded_param_names: std::collections::HashSet<_> =
-            parsed.functions[0].params.iter().map(|(name, _)| name.clone()).collect();
-        func_def.private_extra_params = ung
-            .params
-            .iter()
-            .filter(|(name, _)| !guarded_param_names.contains(name))
-            .cloned()
-            .collect();
-    } else {
-        func_def.private_body = func_def.body.clone();
-    }
+    (func_def, enums)
+}
 
+/// Like [`load_indicator`], but wires a hand-written source body onto the real
+/// YAML metadata — for fixtures that no shipped `.c` provides. Mirrors the
+/// production load path (`wire_parsed_source`), matching the function by name.
+fn load_indicator_with_source(
+    name: &str,
+    source: &str,
+) -> (ir::FuncDef, HashMap<String, ir::EnumDef>) {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let enums = parser::enums::load_enums(&base.join("enums.yaml"));
+    let mut func_def = parser::yaml::parse_yaml(&base.join(format!("{name}/{name}.yaml")));
+    let parsed = parser::c_source::parse_c_source_str(source);
+    parser::c_source::wire_parsed_source(&mut func_def, &parsed);
+    // A hand-written fixture body is not a real stream target; suppress the
+    // streaming gate the borrowed YAML may otherwise trigger.
+    func_def.streaming = false;
     (func_def, enums)
 }
 
@@ -983,25 +977,51 @@ fn test_wma_lookback_uses_time_period() {
 /// A `memmove` into the *same* backing array (an in-place, possibly overlapping
 /// move) must lower to `slice::copy_within`, not `copy_from_slice`: the latter
 /// needs a simultaneous `&mut` and `&` borrow of one slice — which does not
-/// compile — and is UB on overlap regardless. BBANDS realigns its middle-band
-/// buffer with exactly such a move. WMA copies between *distinct* buffers
-/// (`outReal` <- `inReal`), where `copy_from_slice` is correct and must stay.
+/// compile — and is UB on overlap regardless. A move between *distinct* buffers
+/// stays `copy_from_slice`.
 ///
-/// Before the lowering fix this test is red: BBANDS emitted
-/// `tempBuffer1[..].copy_from_slice(&tempBuffer1[..])` (which fails to compile)
-/// and no `copy_within`. After the fix it is green.
+/// No shipped indicator carries a same-buffer memmove any more (BBANDS was
+/// restructured for streaming: its #99 realign now copies `tempBuffer1` into the
+/// *distinct* middle-band output), so a synthetic fixture pins the lowering. It
+/// carries both a same-buffer move (`tempBuffer` <- `&tempBuffer[shiftIdx]`) and
+/// a distinct-buffer move (`outReal` <- `&inReal[startIdx]`). WMA additionally
+/// covers a real distinct-buffer move.
 #[test]
 fn test_rust_memmove_same_buffer_uses_copy_within() {
-    let (bbands, enums) = load_indicator("bbands");
-    let rust = generate_all(&bbands, &enums).rust;
+    let src = r#"
+int sma_lookback( int optInTimePeriod )
+{
+   return optInTimePeriod - 1;
+}
+
+TA_RetCode sma( int startIdx, int endIdx,
+   const double inReal[],
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double outReal[] )
+{
+   double *tempBuffer;
+   int shiftIdx;
+   tempBuffer = malloc((endIdx-startIdx+1) * sizeof(double));
+   shiftIdx = optInTimePeriod;
+   memmove( tempBuffer, &tempBuffer[shiftIdx], (endIdx-startIdx+1) * sizeof(double) );
+   memmove( outReal, &inReal[startIdx], (endIdx-startIdx+1) * sizeof(double) );
+   *outBegIdx = startIdx;
+   *outNBElement = endIdx - startIdx + 1;
+   free( tempBuffer );
+   return TA_SUCCESS;
+}
+"#;
+    let (func, enums) = load_indicator_with_source("sma", src);
+    let rust = generate_all(&func, &enums).rust;
 
     assert!(
-        rust.contains("tempBuffer1.copy_within("),
-        "BBANDS: in-place memmove must lower to copy_within (overlap-safe)"
+        rust.contains("tempBuffer.copy_within("),
+        "in-place (same-buffer) memmove must lower to copy_within (overlap-safe)"
     );
     assert!(
-        !rust.contains("tempBuffer1[_di.._di + _n].copy_from_slice(&tempBuffer1[_si.._si + _n])"),
-        "BBANDS: in-place memmove must NOT lower to a self-borrowing copy_from_slice"
+        rust.contains("copy_from_slice("),
+        "distinct-buffer memmove must stay copy_from_slice"
     );
 
     // The fix must stay surgical: a move between distinct buffers is still a
@@ -1798,6 +1818,7 @@ fn backends_render_max_min_fmax_fmin_abs() {
         has_explicit_private: false,
         header_comments: vec![],
         doc: None,
+        streaming: false,
     };
 
     let enums = std::collections::HashMap::new();
@@ -1808,23 +1829,22 @@ fn backends_render_max_min_fmax_fmin_abs() {
     let java_out = backends::java::generate(&func, &enums, &registry, &helpers);
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
-    // C: max(a,b) → fmax(a,b), min(a,b) → fmin(a,b), ABS(x) → fabs(x)
+    // C: max/min → the ta_utility.h branch macros max()/min() (NOT C99 fmin/fmax);
+    // ABS(x) → fabs(x). See #102: fmin/fmax carry IEEE-754 NaN/signed-zero semantics
+    // that block a branchless (vectorizable) lowering and force int→double
+    // round-trips; the branch macros match the pre-cutover reference bit-for-bit.
     assert!(
-        c_out.contains("fmax("),
-        "C: max/fmax should render as fmax(): {c_out}"
-    );
-    assert!(
-        c_out.contains("fmin("),
-        "C: min/fmin should render as fmin(): {c_out}"
+        c_out.contains("= max(") && c_out.contains("= min("),
+        "C: max/min should render as the ta_utility.h branch macros max()/min() (#102): {c_out}"
     );
     assert!(
         c_out.contains("fabs("),
         "C: ABS should render as fabs(): {c_out}"
     );
-    // C must NOT emit bare max() or min() (which are not in C99 <math.h>)
+    // C must NOT emit the C99 fmax()/fmin() library calls (the #102 regression)
     assert!(
-        !c_out.contains("= max(") && !c_out.contains("= min("),
-        "C: must not emit bare max()/min() calls"
+        !c_out.contains("fmax(") && !c_out.contains("fmin("),
+        "C: must not emit the C99 fmax()/fmin() library calls (#102): {c_out}"
     );
     // C must NOT emit ABS() calls
     assert!(
@@ -2301,6 +2321,7 @@ fn make_func_with_helper_call(
         has_explicit_private: false,
         header_comments: vec![],
         doc: None,
+        streaming: false,
     }
 }
 
@@ -2451,6 +2472,7 @@ fn inlining_counter_avoids_name_collisions() {
         has_explicit_private: false,
         header_comments: vec![],
         doc: None,
+        streaming: false,
     };
     let enums = HashMap::new();
     let registry = make_registry();
@@ -4121,6 +4143,7 @@ fn rust_lookback_param_minus() {
         has_explicit_private: false,
         header_comments: vec![],
         doc: None,
+        streaming: false,
     };
     let enums = HashMap::new();
     let registry = make_registry();
@@ -4168,6 +4191,7 @@ fn rust_lookback_none() {
         has_explicit_private: false,
         header_comments: vec![],
         doc: None,
+        streaming: false,
     };
     let enums = HashMap::new();
     let registry = make_registry();
@@ -4373,6 +4397,7 @@ fn rust_lookback_code_renders_var_types_correctly() {
         has_explicit_private: false,
         header_comments: vec![],
         doc: None,
+        streaming: false,
     };
     let enums = HashMap::new();
     let registry = make_registry();
@@ -6355,5 +6380,204 @@ fn java_array_access() {
     assert!(
         rendered.contains("inReal[i]"),
         "Java ArrayAccess should render as arr[idx]: {rendered}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Streaming dispatch emission (TC composed tier: MA)
+// ---------------------------------------------------------------------------
+
+/// Pin the generated MA dispatch stream section: tagged handle over the
+/// callees' PUBLIC streams, batch-order ENUM_CASE arms, identity fast path,
+/// unsupported arms (TRIMA until its stream lands, MAMA) rejecting at Open.
+#[test]
+fn test_c_ma_dispatch_stream_section() {
+    let (mut func, enums) = load_indicator("ma");
+    func.streaming = true; // the YAML flag flips with this milestone
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+
+    // Handle: params + a single tagged sub pointer, no StreamStep.
+    assert!(c.contains("struct TA_MA_Stream {"), "state struct");
+    assert!(c.contains("void *sub;"), "tagged sub-stream pointer");
+    assert!(!c.contains("TA_MA_StreamStep"), "dispatch has no transition fn");
+
+    // Open: identity path first (mirrors batch order), then the dispatch.
+    assert!(
+        c.contains("if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 )"),
+        "identity min-history check"
+    );
+    for (label, callee) in [
+        ("Sma", "TA_SMA"),
+        ("Ema", "TA_EMA"),
+        ("Wma", "TA_WMA"),
+        ("Dema", "TA_DEMA"),
+        ("Tema", "TA_TEMA"),
+        ("Kama", "TA_KAMA"),
+        ("T3", "TA_T3"),
+    ] {
+        assert!(
+            c.contains(&format!("case ENUM_CASE(MAType, TA_MAType_{}, {label}):", label.to_uppercase())),
+            "supported arm case label for {label}"
+        );
+        assert!(c.contains(&format!("{callee}_Open(")), "sub open for {callee}");
+        assert!(c.contains(&format!("{callee}_Update(")), "sub update for {callee}");
+        assert!(c.contains(&format!("{callee}_Peek(")), "sub peek for {callee}");
+        assert!(c.contains(&format!("{callee}_Close(")), "sub close for {callee}");
+    }
+    // T3's fixed vfactor literal forwards positionally.
+    assert!(
+        c.contains("TA_T3_Open( optInTimePeriod, 0.7, inReal, historyLen"),
+        "T3 arm forwards the 0.7 vfactor literal"
+    );
+    // Unsupported arms reject at Open and never open a sub-stream.
+    assert!(
+        c.contains("case ENUM_CASE(MAType, TA_MAType_TRIMA, Trima): /* no trima stream */"),
+        "TRIMA reject arm"
+    );
+    assert!(
+        c.contains("case ENUM_CASE(MAType, TA_MAType_MAMA, Mama): /* no mama stream */"),
+        "MAMA reject arm"
+    );
+    assert!(!c.contains("TA_TRIMA_Open"), "no TRIMA sub open");
+    assert!(!c.contains("TA_MAMA_Open"), "no MAMA sub open");
+    // Update/Peek identity short-circuit reads the handle's params.
+    assert!(
+        c.contains("if( stream->optInTimePeriod == 1 )"),
+        "identity short-circuit on the handle"
+    );
+    // Peek keeps the handle logically const (const sub cast, no state copy).
+    assert!(
+        c.contains("(const TA_SMA_Stream *)stream->sub"),
+        "const sub cast in Peek"
+    );
+}
+
+/// Pin the generated STOCH composed stream section: producer extrema state +
+/// peekMode + typed sub handles; Open opens each sub-stream on the
+/// materialized series BEFORE the batch call that consumes it (in-place
+/// smoothing overwrites the raw %K right there — order is the contract);
+/// the step pipelines through sub Update/Peek on the peekMode flag.
+#[test]
+fn test_c_stoch_composed_stream_section() {
+    let (mut func, enums) = load_indicator("stoch");
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let stream = &c[c.find("/**** Streaming API *****/").expect("stream section")..];
+
+    // Handle: producer extrema + peek flag + typed subs.
+    assert!(stream.contains("int peekMode;"));
+    assert!(stream.contains("TA_MA_Stream *sub0;"));
+    assert!(stream.contains("TA_MA_Stream *sub1;"));
+
+    // Open: sub0 opens on the RAW series strictly BEFORE the in-place
+    // smoothing call; sub1 after it, before the %D call.
+    let sub0 = stream.find("subRc = TA_MA_Open( optInSlowK_Period, optInSlowK_MAType, &tempBuffer[subOff]").expect("sub0 open");
+    let ma1 = stream.find("retCode = TA_MA_Unguarded(0,outIdx - 1,tempBuffer").expect("in-place smoothing");
+    let sub1 = stream.find("subRc = TA_MA_Open( optInSlowD_Period, optInSlowD_MAType, &tempBuffer[subOff]").expect("sub1 open");
+    let ma2 = stream.find("optInSlowD_MAType,&dummyBegIdx,&dummyNBElement,sc_outSlowD").expect("%D call");
+    assert!(sub0 < ma1 && ma1 < sub1 && sub1 < ma2, "sub-open ordering");
+
+    // Out-meta pointers mapped to the dummies in the transcription (the
+    // Open signature has no outBegIdx/outNBElement).
+    assert!(stream.contains("&dummyBegIdx,&dummyNBElement"));
+    assert!(!stream.contains(",outBegIdx,"), "raw out-meta arg leaked");
+
+    // Step: ONE body; sub calls dispatch on the scratch copy's peekMode.
+    assert!(stream.contains("if( sp->peekMode )"));
+    assert!(stream.contains("TA_MA_Peek( (const TA_MA_Stream *)sp->sub0, cur_tempBuffer, &cur_tempBuffer );"));
+    assert!(stream.contains("TA_MA_Update( sp->sub0, cur_tempBuffer, &cur_tempBuffer );"));
+    assert!(stream.contains("TA_MA_Update( sp->sub1, cur_tempBuffer, &cur_outSlowD );"));
+    assert!(stream.contains("*outSlowK = cur_tempBuffer;"), "memmove tail-align");
+    assert!(stream.contains("*outSlowD = cur_outSlowD;"));
+
+    // Peek sets the flag on the scratch copy; Close closes subs then frees.
+    assert!(stream.contains("scratch.peekMode = 1;"));
+    assert!(stream.contains("TA_MA_Close( stream->sub0 );"));
+    assert!(stream.contains("TA_STOCH_StreamRelease( stream );"));
+}
+
+/// Pin the ADXR composed Open's allocation-failure cleanup. The intermediate
+/// `adx` buffer's free is WITHHELD from the transcribed tail (the lag ring
+/// seeds from its tail first), so it stays live through the capture epilogue —
+/// every allocation-failure return there MUST free it, or an OOM leaks the
+/// buffer. The adversarial review caught exactly this leak; this guards the
+/// fix (each malloc-failure path frees everything allocated so far — no goto,
+/// no fault-injection harness, just correct per-return cleanup).
+#[test]
+fn test_c_adxr_open_frees_withheld_buffer_on_oom_paths() {
+    let (mut func, enums) = load_indicator("adxr");
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let open = &c[c.find("TA_RetCode TA_ADXR_Open").expect("ADXR Open")..];
+    for guard in [
+        "if( dummyNBElement < 1 ) { free( adx );",
+        "if( !sp ) { free( adx );",
+        "if( !sp->lagRing_adx ) { TA_Free( sp ); free( adx );",
+        "if( !sp->lagRingMirror_adx ) { TA_Free( sp->lagRing_adx ); TA_Free( sp ); free( adx );",
+    ] {
+        assert!(
+            open.contains(guard),
+            "capture-epilogue OOM path must free the withheld adx buffer: `{guard}`"
+        );
+    }
+    // Close releases the ring buffers (the other half of leak-freedom).
+    let close = &c[c.find("TA_RetCode TA_ADXR_Close").expect("ADXR Close")..];
+    assert!(close.contains("TA_Free( stream->lagRing_adx );"));
+    assert!(close.contains("TA_Free( stream->lagRingMirror_adx );"));
+}
+
+/// Pin the BBANDS composed Open's allocation-failure cleanup. The general
+/// (non-SMA) path allocates TWO intermediates — `tempBuffer1` for the moving
+/// average, then `tempBuffer2` for the standard deviation. If `tempBuffer2`'s
+/// malloc fails, `tempBuffer1` must be freed or it leaks: the auto-injected
+/// null-check must free every intermediate allocated before it. Same OOM
+/// discipline as ADXR (each malloc-failure path frees everything allocated so
+/// far — no goto, no fault-injection), caught here at generate time.
+#[test]
+fn test_c_bbands_open_frees_prior_intermediate_on_oom() {
+    let (mut func, enums) = load_indicator("bbands");
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let open = &c[c.find("TA_RetCode TA_BBANDS_Open").expect("BBANDS Open")..];
+
+    // tempBuffer2's malloc-failure block frees the prior intermediate tempBuffer1.
+    let tb2 = &open[open.find("tempBuffer2 = malloc").expect("tempBuffer2 malloc")..];
+    let check = tb2.find("if( !tempBuffer2 )").expect("tempBuffer2 null check");
+    let ret = tb2[check..]
+        .find("return TA_ALLOC_ERR")
+        .expect("tempBuffer2 alloc-err return");
+    assert!(
+        tb2[check..check + ret].contains("free( tempBuffer1 )"),
+        "tempBuffer2 malloc-failure must free the prior intermediate tempBuffer1 (else OOM leaks it)"
+    );
+
+    // tempBuffer1's own malloc-failure block must NOT reference the
+    // not-yet-allocated tempBuffer2 (nothing prior is live at that point).
+    let tb1 = &open[open.find("tempBuffer1 = malloc").expect("tempBuffer1 malloc")..];
+    let tb1_check = tb1.find("if( !tempBuffer1 )").expect("tempBuffer1 null check");
+    let tb1_ret = tb1[tb1_check..]
+        .find("return TA_ALLOC_ERR")
+        .expect("tempBuffer1 alloc-err return");
+    assert!(
+        !tb1[tb1_check..tb1_check + tb1_ret].contains("tempBuffer2"),
+        "tempBuffer1 malloc-failure must not touch the not-yet-allocated tempBuffer2"
+    );
+
+    // The scratch output arrays clean up progressively (each failure frees the
+    // ones already allocated).
+    assert!(
+        open.contains(
+            "if( !sc_outRealLowerBand ) { TA_Free( sc_outRealUpperBand ); \
+             TA_Free( sc_outRealMiddleBand );"
+        ),
+        "scratch output arrays must clean up progressively on OOM"
     );
 }

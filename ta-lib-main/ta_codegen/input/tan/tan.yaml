@@ -2,7 +2,7 @@ name: TAN
 camel_case: Tan
 group: Math Transform
 hint: Vector Trigonometric Tan
-flags: []
+flags: [stream]
 inputs:
   - name: inReal
     type: real

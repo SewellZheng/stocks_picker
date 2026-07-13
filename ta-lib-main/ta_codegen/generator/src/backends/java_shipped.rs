@@ -403,12 +403,14 @@ fn emit_output_annotation(o: &mut String, output: &Output, last: bool) {
     o.push('\n');
 }
 
-/// `TA_FuncFlags` numeric value (OR of matched bits).
+/// `TA_FuncFlags` numeric value (OR of matched bits; `stream` =
+/// TA_FUNC_FLG_STREAM).
 fn func_flags_value(flags: &[String]) -> u32 {
     let mut v = 0;
     for f in flags {
         v |= match f.as_str() {
             "overlap" => 0x0100_0000,
+            "stream" => 0x0200_0000,
             "volume" => 0x0400_0000,
             "unstable_period" => 0x0800_0000,
             "candlestick" => 0x1000_0000,

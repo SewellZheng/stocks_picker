@@ -2,7 +2,7 @@ name: SAREXT
 camel_case: SarExt
 group: Overlap Studies
 hint: Parabolic SAR - Extended
-flags: [overlap]
+flags: [overlap, stream]
 inputs:
   - name: inPriceHL
     type: price

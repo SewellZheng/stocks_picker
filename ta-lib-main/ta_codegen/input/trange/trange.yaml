@@ -2,7 +2,7 @@ name: TRANGE
 camel_case: TrueRange
 group: Volatility Indicators
 hint: True Range
-flags: []
+flags: [stream]
 inputs:
   - name: inPriceHLC
     type: price

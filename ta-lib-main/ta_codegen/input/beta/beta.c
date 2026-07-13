@@ -12,12 +12,17 @@
  *  122006 MW   Initial Version
  */
 
-int beta_lookback(int           optInTimePeriod)
+int beta_lookback(int optInTimePeriod)
 {
    return optInTimePeriod;
 }
 
-TA_RetCode beta(int startIdx, int endIdx, const double inReal0[], const double inReal1[], int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[])
+TA_RetCode beta(int startIdx, int endIdx,
+   const double inReal0[],
+   const double inReal1[],
+   int optInTimePeriod,
+   int *outBegIdx, int *outNBElement,
+   double outReal[])
 {
    double S_xx = 0.0f; /* sum of x * x */
    double S_xy = 0.0f; /* sum of x * y */
