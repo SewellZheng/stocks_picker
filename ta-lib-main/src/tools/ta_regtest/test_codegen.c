@@ -1046,10 +1046,14 @@ static TA_RangeStability stability_class(const TA_FuncInfo *funcInfo)
         /* comparison-selected window extrema (cached min/max, no FP accumulation) */
         "MIN", "MAX", "MINMAX", "MIDPOINT", "MIDPRICE", "WILLR", "AROON", "AROONOSC",
         /* fresh per-bar rescan (window re-summed in bar-absolute order each output) */
-        "AVGDEV", "LINEARREG", "LINEARREG_ANGLE", "LINEARREG_INTERCEPT",
-        "LINEARREG_SLOPE", "TSF",
+        "AVGDEV",
         /* fresh sliding window, no accumulator */
         "IMI",
+        /* NOTE: LINEARREG / LINEARREG_ANGLE / LINEARREG_INTERCEPT / LINEARREG_SLOPE
+         * / TSF moved OUT of EXACT to the EPSILON default (perf #103): they now
+         * carry SumY/SumXY in an O(1) sliding recurrence instead of re-summing the
+         * window each bar, so their output picks up ~1e-9 running-accumulator drift
+         * across ranges -- the same class as SMA/CORREL/STDDEV. */
     };
 
     /* Finite window carried in a RUNNING ACCUMULATOR (running sum/total updated
@@ -1946,10 +1950,12 @@ static void stream_build_request(char *buf, const TA_FuncInfo *fi,
 static int stream_build_vectors(const TA_FuncInfo *fi,
                                 double vec[STREAM_MAX_VEC][STREAM_MAX_OPT],
                                 int vecIsEnum[STREAM_MAX_VEC],
+                                int vecIsMin[STREAM_MAX_VEC],
                                 int *overflow)
 {
     unsigned int i, e;
     int hasMin = 0, hasMinPlus1 = 0, nvec, v;
+    for( v = 0; v < STREAM_MAX_VEC; v++ ) vecIsMin[v] = 0;
     for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
     {
         const TA_OptInputParameterInfo *oi;
@@ -1983,7 +1989,47 @@ static int stream_build_vectors(const TA_FuncInfo *fi,
         nvec = 2;
     }
     else nvec = 1;
+    /* The below-default boundary vectors (v>=1: range.min and min+1) carry the
+     * smallest periods. For a dual-mode function (DI/DM) the min period selects
+     * the degenerate arm, which IGNORES the unstable period while the general
+     * arm honors it — so the K-leg (variant 1) must run on these vectors too,
+     * else period=1+K (the only place the two arms can diverge) goes untested.
+     * fuzz-064 floors periods at 2, so this is the sole gate covering it. */
     for( v = 0; v < nvec; v++ ) vecIsEnum[v] = 0;
+    for( v = 1; v < nvec; v++ ) vecIsMin[v] = 1;
+
+    /* One ABOVE-default "large window" vector (default+41, clamped to the
+     * range). It exercises the general/large-period regime — a big ring/window
+     * so wraparound is hit over the fixed STREAM_N history — and for a
+     * fast-path-skip function (MIDPRICE) a period ABOVE its perf threshold,
+     * where the batch runs the very else-arm the stream models. The +41 (odd)
+     * offset also FLIPS PARITY vs the default, so a parity-branched dual-mode
+     * function (TRIMA odd/even) gets a non-degenerate ODD large period (its
+     * default 30 is even; min=1 is odd but degenerate), locking the odd arm's
+     * Open/Update/Peek continuation into CI. Without this vector,
+     * stream_build_vectors hands every function only default/min small periods,
+     * so a fast-path-skip stream is otherwise verified only in its
+     * threshold-and-below regime. Deduped vs the default; not a min/enum vector. */
+    {
+        int any = 0;
+        if( nvec < STREAM_MAX_VEC )
+        {
+            for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
+            {
+                const TA_OptInputParameterInfo *oi;
+                TA_GetOptInputParameterInfo(fi->handle, i, &oi);
+                vec[nvec][i] = oi->defaultValue;
+                if( oi->type == TA_OptInput_IntegerRange )
+                {
+                    const TA_IntegerRange *r = (const TA_IntegerRange *)oi->dataSet;
+                    int def_i = (int)oi->defaultValue, big = def_i + 41;
+                    if( r && big > (int)r->max ) big = (int)r->max;
+                    if( big != def_i ) { vec[nvec][i] = (double)big; any = 1; }
+                }
+            }
+            if( any ) { vecIsEnum[nvec] = 0; vecIsMin[nvec] = 0; nvec++; }
+        }
+    }
 
     /* Enum (MAType) sweep vectors: each non-default list value crossed with
      * (a) the defaults vector AND (b) the boundary vector when one exists
@@ -2094,6 +2140,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     ForEachFuncContext *ctx = (ForEachFuncContext *)opaqueData;
     double vec[STREAM_MAX_VEC][STREAM_MAX_OPT];
     int vecIsEnum[STREAM_MAX_VEC];
+    int vecIsMin[STREAM_MAX_VEC];
     int nvec, v, variant, legs = 0, rejArms = 0, vecOverflow = 0;
     int isUnstable;
 
@@ -2105,7 +2152,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
      * their stream values depend on EMA's ambient K). */
     isUnstable = (funcInfo->flags & TA_FUNC_FLG_UNST_PER) != 0 ||
                  get_unst_id(funcInfo->name) != TA_FUNC_UNST_NONE;
-    nvec = stream_build_vectors(funcInfo, vec, vecIsEnum, &vecOverflow);
+    nvec = stream_build_vectors(funcInfo, vec, vecIsEnum, vecIsMin, &vecOverflow);
 
     /* Silent truncation would quietly stop testing params beyond the cap. */
     if( funcInfo->nbOptInput > STREAM_MAX_OPT )
@@ -2130,9 +2177,10 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     {
         /* Variants: ambient defaults; plus (defaults vector only) one
          * unstable-period leg, one Metastock-compatibility leg, and the
-         * remaining data shapes so all 7 fuzz shapes (incl. CONSTANT and
-         * TIE_HEAVY) are exercised every run. */
-        for( variant = 0; variant < 7; variant++ )
+         * remaining data shapes so ALL fuzz shapes (incl. CONSTANT, TIE_HEAVY,
+         * and FUZZ_CANDLE — the pattern-rich inside-bar shape that makes the
+         * candlestick streams non-vacuous) are exercised every run. */
+        for( variant = 0; variant < FUZZ_NSHAPES; variant++ )
         {
             int K = 0, compat = 0, shape;
             ErrorNumber pipeErr;
@@ -2141,8 +2189,12 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 /* K-leg: defaults vector when the function is unstable, plus
                  * every enum-sweep vector — the selected sub-stream may be
                  * unstable (MA dispatching to EMA/KAMA/T3) even when the
-                 * dispatcher itself carries no unstable flag. */
-                if( !( (v == 0 && isUnstable) || vecIsEnum[v] ) ) continue;
+                 * dispatcher itself carries no unstable flag — plus the
+                 * below-default boundary vectors of an unstable function, so a
+                 * dual-mode degenerate arm (DI/DM at period=1, which ignores K)
+                 * is verified against batch under a warm unstable period. */
+                if( !( (v == 0 && isUnstable) || vecIsEnum[v]
+                       || (vecIsMin[v] && isUnstable) ) ) continue;
                 K = 3;
             }
             else if( variant == 2 )
@@ -2820,7 +2872,11 @@ static const char *const argv_064[] = {"./ta_064_serve", NULL};
 
 #define FUZZ_MAXN     256   /* bars per config (<= MAX_NB_TEST_ELEMENT) */
 #define FUZZ_MAX_OPT  8
-#define FUZZ_MAX_VEC  16    /* parameter vectors per function */
+#define FUZZ_MAX_VEC  48    /* parameter vectors per function. Sized for the
+                             * widest sweep (MACDEXT: 3 period ranges x up to 6
+                             * candidates + 3 MAType lists x 8 = ~42, + defaults).
+                             * fuzz_build_vectors reports any overflow and the
+                             * caller fails the run loudly (no silent drop). */
 #define FUZZ_MIN_PERIOD 2   /* period 1 is out of scope vs 0.6.4 (see CLAUDE.md) */
 typedef char fuzz_maxn_fits_output_bufs[FUZZ_MAXN <= MAX_NB_TEST_ELEMENT ? 1 : -1];
 
@@ -2924,8 +2980,10 @@ static unsigned long long fuzz_parse_hash(const char *resp)
 
 /* Parameter vectors: defaults + one-param-varied boundary/list sweeps. */
 static int fuzz_build_vectors(const TA_FuncInfo *fi,
-                              double vec[FUZZ_MAX_VEC][FUZZ_MAX_OPT])
+                              double vec[FUZZ_MAX_VEC][FUZZ_MAX_OPT],
+                              int *overflow)
 {
+    *overflow = 0;
     double def[FUZZ_MAX_OPT];
     unsigned int i;
     for( i = 0; i < fi->nbOptInput && i < FUZZ_MAX_OPT; i++ )
@@ -2952,8 +3010,13 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
             int def_i = (int)oi->defaultValue;
             int lo = r ? (int)r->min : FUZZ_MIN_PERIOD;
             if( lo < FUZZ_MIN_PERIOD ) lo = FUZZ_MIN_PERIOD;  /* period 1 tested by non-0.6.4 comparisons */
-            int base[5]; base[0]=lo; base[1]=lo+1; base[2]=lo+7; base[3]=def_i-1; base[4]=def_i+3;
-            for( int b = 0; b < 5; b++ )
+            /* min / min+1 / min+7 boundary, plus the tight neighbourhood around
+             * the default (default-1, default+1) and one a bit further out
+             * (default+3). vec[0] already carries the default itself, so the
+             * full {default-1, default, default+1} triple is covered. */
+            int base[6]; base[0]=lo; base[1]=lo+1; base[2]=lo+7;
+            base[3]=def_i-1; base[4]=def_i+1; base[5]=def_i+3;
+            for( int b = 0; b < 6; b++ )
             {
                 int v = base[b];
                 if( v < lo ) v = lo;
@@ -2984,8 +3047,11 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
             }
         }
 
-        for( c = 0; c < nc && nvec < FUZZ_MAX_VEC; c++ )
+        for( c = 0; c < nc; c++ )
         {
+            /* Silent truncation would quietly stop comparing parameter values
+             * vs 0.6.4 — count drops so the caller fails the run loudly. */
+            if( nvec >= FUZZ_MAX_VEC ) { (*overflow)++; continue; }
             for( unsigned int j = 0; j < fi->nbOptInput && j < FUZZ_MAX_OPT; j++ )
                 vec[nvec][j] = def[j];
             vec[nvec][i] = cand[c];
@@ -3001,13 +3067,52 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
  * sub-epsilon residue into a near-zero value (observed ~5e-14). This tolerance
  * absorbs exactly that — orders of magnitude below any real CCI value, so a
  * genuine divergence still fails. Applied ONLY to CCI. */
-#define FUZZ_CCI_064_TOL 1e-9
+/* latest -> 0.6.4 tolerance manifest: the authorized, bounded numeric
+ * divergences from the frozen reference. Everything not listed here must be
+ * bit-exact (hash-equal). Each entry cites the issue that authorized it.
+ *
+ *   TOL_ABS    : |current - v0.6.4| <= tol                (a fixed absolute bound)
+ *   TOL_REL_IN : |current - v0.6.4| <= min(tol * inScale, cap), where inScale is
+ *                the max |primary input| over the case. Used for algebraic
+ *                re-orderings whose rounding is proportional to the DATA
+ *                magnitude, which a fixed absolute bound cannot express because
+ *                the fuzz shapes span 1e-7 .. 1e9 (FUZZ_EXTREME) and cross slope
+ *                zero (the running-sum LINEARREG family, #103). Certified max
+ *                ratio 2.9e-11 (ANGLE) -> tol 1e-9 keeps ~35x margin while staying
+ *                tight on real prices.
+ *                `cap` (0 = none) bounds the data-scaled tolerance for outputs
+ *                that DON'T grow with input magnitude: ANGLE is atan-compressed
+ *                degrees in [-90,90], so on FUZZ_EXTREME (inScale ~2e9) an
+ *                uncapped bound would balloon to ~2 deg; the cap holds it near
+ *                ANGLE's true worst-case drift (measured 0.065 deg) so a real
+ *                future ANGLE regression can't hide, while realistic-scale cases
+ *                (bound ~1e-7 deg) are unaffected (cap never binds there). */
+enum { TOL_ABS = 0, TOL_REL_IN = 1 };
+static const struct { const char *name; int mode; double tol; double cap; } FUZZ_064_TOL[] = {
+    { "CCI",                 TOL_ABS,    1e-9, 0.0 },  /* #7   near-zero identical-price fix */
+    { "LINEARREG",           TOL_REL_IN, 1e-9, 0.0 },  /* #103 O(1) sliding-sum recurrence   */
+    { "LINEARREG_SLOPE",     TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
+    { "LINEARREG_INTERCEPT", TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
+    { "LINEARREG_ANGLE",     TOL_REL_IN, 1e-9, 0.5 },  /* #103 bounded degrees -> capped 0.5 */
+    { "TSF",                 TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
+};
 
-/* Returns 0 if a REAL divergence, 1 if benign (+0.0 vs -0.0), 2 if a CCI
- * near-zero case tolerated vs 0.6.4 (issue #7). Prints detail, capped per func. */
+/* Look up a function's authorized tolerance; returns NULL if it must be exact. */
+static const void *fuzz_064_tol_lookup(const char *name, int *mode, double *tol, double *cap)
+{
+    for( unsigned int i = 0; i < sizeof(FUZZ_064_TOL)/sizeof(FUZZ_064_TOL[0]); i++ )
+        if( strcmp(name, FUZZ_064_TOL[i].name) == 0 )
+        { *mode = FUZZ_064_TOL[i].mode; *tol = FUZZ_064_TOL[i].tol; *cap = FUZZ_064_TOL[i].cap;
+          return &FUZZ_064_TOL[i]; }
+    return NULL;
+}
+
+/* Returns 0 if a REAL divergence, 1 if benign (+0.0 vs -0.0), 2 if tolerated
+ * within the latest->0.6.4 manifest bound. Prints detail, capped per func.
+ * inScale = max |primary input| over the case (for TOL_REL_IN entries). */
 static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
                                     CodegenRangeTestParam *p, int shape, int seed, int n,
-                                    int s, int e, const double *optVals,
+                                    int s, int e, const double *optVals, double inScale,
                                     int curRc, int curBeg, int curNb,
                                     int refRc, int refBeg, int refNb)
 {
@@ -3029,8 +3134,20 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
     if( !fuzz_call(ctx) )
         return 0;   /* treat as real; the pipe failure is also counted */
 
-    int realDiff = 0, benignDiff = 0, cciTolDiff = 0;
-    int isCCI = (strcmp(fi->name, "CCI") == 0);
+    int realDiff = 0, benignDiff = 0, tolDiff = 0;
+    int tolMode = 0; double tolVal = 0.0, tolCap = 0.0;
+    const void *tolEntry = fuzz_064_tol_lookup(fi->name, &tolMode, &tolVal, &tolCap);
+    /* TOL_REL_IN bound is data-scaled (optionally capped); TOL_ABS is fixed. */
+    double tolBound = 0.0;
+    if( tolEntry )
+    {
+        if( tolMode == TOL_REL_IN )
+        {
+            tolBound = tolVal * inScale;
+            if( tolCap > 0.0 && tolBound > tolCap ) tolBound = tolCap;
+        }
+        else tolBound = tolVal;
+    }
     int firstO = -1, firstJ = -1;
     for( unsigned int o = 0; o < fi->nbOutput && o < MAX_OUTPUTS; o++ )
     {
@@ -3053,14 +3170,14 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
                 if( memcmp(&a, &b, sizeof(double)) == 0 ) continue;
                 double d = a - b; if( d < 0 ) d = -d;
                 if( a == b ) benignDiff = 1;        /* numerically equal => signed zero */
-                else if( isCCI && d <= FUZZ_CCI_064_TOL ) cciTolDiff = 1; /* issue #7 zero fix */
+                else if( tolEntry && d <= tolBound ) tolDiff = 1; /* within manifest bound */
                 else { realDiff = 1; if( firstO < 0 ) { firstO = (int)o; firstJ = j; } }
             }
         }
     }
 
-    if( !realDiff && (benignDiff || cciTolDiff) )
-        return cciTolDiff ? 2 : 1;   /* 2 = CCI issue-#7 tolerance, 1 = signed-zero */
+    if( !realDiff && (benignDiff || tolDiff) )
+        return tolDiff ? 2 : 1;   /* 2 = manifest-tolerated, 1 = signed-zero only */
 
     if( report )
     {
@@ -3135,7 +3252,17 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     setup_outputs(&p);
 
     double vec[FUZZ_MAX_VEC][FUZZ_MAX_OPT];
-    int nvec = fuzz_build_vectors(funcInfo, vec);
+    int vecOverflow = 0;
+    int nvec = fuzz_build_vectors(funcInfo, vec, &vecOverflow);
+    if( vecOverflow > 0 )
+    {
+        printf("FUZZ VECTOR OVERFLOW [TA_%s]: %d parameter value(s) dropped by "
+               "FUZZ_MAX_VEC — they would go uncompared vs 0.6.4\n",
+               funcInfo->name, vecOverflow);
+        ctx->failures++;   /* run fails: failures != 0 (see the 064 exit check) */
+        TA_ParamHolderFree(paramHolder);
+        return;
+    }
 
     static const int sizes[]  = {40, 120, 240};
     static const int seeds[]  = {1, 2, 3};
@@ -3153,6 +3280,11 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                  g_fzBuf[0], g_fzBuf[1], g_fzBuf[2], g_fzBuf[3], g_fzBuf[4], g_fzBuf[5]);
         hist.nbBars = (unsigned int)n;
         p.nbBars = n;
+        /* Data scale for the manifest's TOL_REL_IN bound (max |close|; close is
+         * the single real input the LINEARREG family reads). Floored at 1. */
+        double inScale = 1.0;
+        for( int z = 0; z < n; z++ )
+            if( fabs(g_fzBuf[3][z]) > inScale ) inScale = fabs(g_fzBuf[3][z]);
 
         for( int k = 0; k < nvec; k++ )
         {
@@ -3239,7 +3371,7 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 if( !mismatch ) { ctx->matches++; continue; }
 
                 int cls = fuzz_classify_and_report(ctx, funcInfo, &p, shape, seeds[si], n, s, e,
-                                             vec[k], (int)curRc, curBeg, curNb,
+                                             vec[k], inScale, (int)curRc, curBeg, curNb,
                                              refRc, refBeg, refNb);
                 if( cls == 0 )      ctx->failures++;
                 else if( cls == 2 ) ctx->cciTol++;   /* CCI issue-#7 near-zero (not a failure) */
@@ -3250,8 +3382,14 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
     if( ctx->failures > failBefore ) ctx->funcsWithFailures++;
     else if( ctx->cciTol > cciTolBefore )
-        printf("  TOLERATED TA_%s: %lld near-zero case(s) within %g vs 0.6.4 (issue #7 zero-value fix)\n",
-               funcInfo->name, ctx->cciTol - cciTolBefore, (double)FUZZ_CCI_064_TOL);
+    {
+        int tm = 0; double tv = 0.0, tc = 0.0;
+        fuzz_064_tol_lookup(funcInfo->name, &tm, &tv, &tc);
+        printf("  TOLERATED TA_%s: %lld case(s) within %g%s%s vs 0.6.4 (authorized manifest bound)\n",
+               funcInfo->name, ctx->cciTol - cciTolBefore, tv,
+               tm == TOL_REL_IN ? " * max|input|" : "",
+               (tm == TOL_REL_IN && tc > 0.0) ? " (capped)" : "");
+    }
     else if( ctx->benign > benignBefore )
     {
         ctx->funcsBenign++;
@@ -3314,8 +3452,8 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
         printf("skipped: %lld TRIX/NATR partial-range case(s) — fixed in 0.7.2, issue #98\n",
                ctx.skipped98);
     if( ctx.cciTol > 0 )
-        printf("cci-tolerated: %lld CCI near-zero case(s) within %g vs 0.6.4 (issue #7 zero-value fix)\n",
-               ctx.cciTol, (double)FUZZ_CCI_064_TOL);
+        printf("manifest-tolerated: %lld case(s) within an authorized latest->0.6.4 bound "
+               "(CCI #7 near-zero; LINEARREG family + TSF #103 sliding-sum)\n", ctx.cciTol);
     if( ctx.stochRsiSkipped > 0 )
         printf("stochrsi-skipped: %lld STOCHRSI case(s) — intentionally diverges from 0.6.4 (issue #107); pinned by test_stoch.c\n",
                ctx.stochRsiSkipped);
@@ -3337,6 +3475,143 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     return ctx.error != TA_TEST_PASS ? ctx.error : TA_CODEGEN_OUTPUT_MISMATCH;
 }
 
+/* Guard the FUZZ_CANDLE data shape (fuzz_data.h) that makes the candlestick
+ * streams and the v0.6.4 differential non-vacuous: it must actually FIRE the
+ * inside-bar patterns (detection AND confirmation, both directions). If a future
+ * edit to that generator stops producing patterns, fuzz-064 and stream_verify
+ * would silently go vacuous (all-zero == all-zero) for CDLHIKKAKE(MOD). The
+ * deterministic MC/DC gate (test_candlestick.c) is the independent backstop for
+ * the refactor itself; this only guards the differential/stream coverage. */
+static ErrorNumber verify_fuzz_candle_nonvacuous(void)
+{
+    static double o[512], h[512], l[512], c[512], vv[512], oi[512];
+    static int out[512];
+    struct { const char *nm;
+             TA_RetCode (*fn)(int,int,const double*,const double*,const double*,const double*,int*,int*,int*); }
+        F[2] = { { "CDLHIKKAKE", TA_CDLHIKKAKE }, { "CDLHIKKAKEMOD", TA_CDLHIKKAKEMOD } };
+    int fi;
+    for( fi = 0; fi < 2; fi++ )
+    {
+        int p100=0, n100=0, p200=0, n200=0, seed;
+        for( seed = 1; seed <= 6; seed++ )
+        {
+            int bi=0, nb=0, k;
+            fuzz_gen(FUZZ_CANDLE, seed, 512, o, h, l, c, vv, oi);
+            if( F[fi].fn(0, 511, o, h, l, c, &bi, &nb, out) != TA_SUCCESS ) continue;
+            for( k = 0; k < nb; k++ ) { int val=out[k];
+                if(val==100)p100++; else if(val==-100)n100++; else if(val==200)p200++; else if(val==-200)n200++; }
+        }
+        if( !(p100 && n100 && p200 && n200) )
+        {
+            printf("FUZZ_CANDLE VACUOUS for %s: +100=%d -100=%d +200=%d -200=%d "
+                   "(the pattern shape must fire detection AND confirmation)\n",
+                   F[fi].nm, p100, n100, p200, n200);
+            return TA_TSTCDL_PREDICATE_VACUOUS;
+        }
+    }
+    return TA_TEST_PASS;
+}
+
+/* Guard the FUZZ_ZEROSUM data shape (fuzz_data.h) that makes the ACCBANDS
+ * degenerate else branch (TA_IS_ZERO(high+low) -> upper=high, lower=low)
+ * non-vacuous vs v0.6.4 and in stream_verify. It must (a) actually produce bars
+ * with high+low == 0, and (b) keep ACCBANDS FINITE on them: if the else branch
+ * were skipped, 4*(high-low)/(high+low) divides by zero -> inf/nan propagates
+ * into every band whose window covers that bar, so the finiteness check BITES
+ * (proven by neutering the else branch). Without this guard a future edit to the
+ * generator could silently stop landing high+low in the 1e-14 band and the
+ * differential/stream coverage of that branch would go vacuous. */
+static ErrorNumber verify_fuzz_zerosum_nonvacuous(void)
+{
+    static double o[512], h[512], l[512], c[512], vv[512], oi[512];
+    static double up[512], mid[512], low[512];
+    int seed, zeroBars = 0, outBars = 0;
+    for( seed = 1; seed <= 6; seed++ )
+    {
+        int bi = 0, nb = 0, k;
+        fuzz_gen(FUZZ_ZEROSUM, seed, 512, o, h, l, c, vv, oi);
+        for( k = 0; k < 512; k++ )
+            if( h[k] + l[k] == 0.0 ) zeroBars++;
+        if( TA_ACCBANDS(0, 511, h, l, c, 20, &bi, &nb, up, mid, low) != TA_SUCCESS )
+        {
+            printf("FUZZ_ZEROSUM: ACCBANDS call failed\n");
+            return TA_TSTCDL_PREDICATE_VACUOUS;
+        }
+        for( k = 0; k < nb; k++ )
+        {
+            outBars++;
+            if( !isfinite(up[k]) || !isfinite(mid[k]) || !isfinite(low[k]) )
+            {
+                printf("FUZZ_ZEROSUM: ACCBANDS non-finite band at bar %d "
+                       "(the high+low==0 else branch is broken)\n", k);
+                return TA_TSTCDL_PREDICATE_VACUOUS;
+            }
+        }
+    }
+    if( zeroBars == 0 || outBars == 0 )
+    {
+        printf("FUZZ_ZEROSUM VACUOUS: high+low==0 bars=%d, output bars=%d "
+               "(the shape must land high+low in the TA_IS_ZERO band)\n",
+               zeroBars, outBars);
+        return TA_TSTCDL_PREDICATE_VACUOUS;
+    }
+    return TA_TEST_PASS;
+}
+
+/* ACCBANDS supports input==output aliasing: the fused single-loop rewrite reads
+ * every current and trailing bar BEFORE it writes any band for that output
+ * index, so an output buffer that aliases an input buffer is only overwritten
+ * after its last read. No generic gate exercises input==output, so verify it
+ * directly — each of the 3 outputs aliased onto each of the 3 inputs must
+ * reproduce the separate-buffer result BIT-FOR-BIT (all 3 bands, to catch an
+ * aliased write corrupting a still-needed read of another band's input). */
+static ErrorNumber verify_accbands_inplace_aliasing(void)
+{
+    enum { AN = 300, AP = 14 };
+    static double o[AN], h[AN], l[AN], c[AN], vv[AN], oi[AN];
+    static double refU[AN], refM[AN], refL[AN];
+    static double bh[AN], bl[AN], bc[AN], s1[AN], s2[AN];
+    int bi, nb, refNb, k, op, ip;
+    fuzz_gen(FUZZ_ZEROSUM, 2, AN, o, h, l, c, vv, oi);  /* mix of degenerate + normal bars */
+    if( TA_ACCBANDS(0, AN - 1, h, l, c, AP, &bi, &refNb, refU, refM, refL) != TA_SUCCESS )
+    {
+        printf("ACCBANDS aliasing: reference call failed\n");
+        return TA_TSTCDL_PREDICATE_VACUOUS;
+    }
+    for( op = 0; op < 3; op++ )       /* which output band aliases an input */
+    for( ip = 0; ip < 3; ip++ )       /* which input it aliases */
+    {
+        double *in[3], *bandbuf[3], *scratch[2];
+        double *ref[3];
+        int si = 0;
+        ref[0] = refU; ref[1] = refM; ref[2] = refL;
+        for( k = 0; k < AN; k++ ) { bh[k] = h[k]; bl[k] = l[k]; bc[k] = c[k]; }
+        in[0] = bh; in[1] = bl; in[2] = bc;
+        scratch[0] = s1; scratch[1] = s2;
+        for( k = 0; k < 3; k++ )
+            bandbuf[k] = (k == op) ? in[ip] : scratch[si++];
+        if( TA_ACCBANDS(0, AN - 1, in[0], in[1], in[2], AP,
+                        &bi, &nb, bandbuf[0], bandbuf[1], bandbuf[2]) != TA_SUCCESS )
+        {
+            printf("ACCBANDS aliasing[out=%d,in=%d]: call failed\n", op, ip);
+            return TA_TSTCDL_PREDICATE_VACUOUS;
+        }
+        for( k = 0; k < nb; k++ )
+        {
+            int band;
+            for( band = 0; band < 3; band++ )
+                if( memcmp(&bandbuf[band][k], &ref[band][k], sizeof(double)) != 0 )
+                {
+                    printf("ACCBANDS aliasing[out=%d,in=%d]: band %d bar %d "
+                           "differs from separate-buffer result (in-place unsafe)\n",
+                           op, ip, band, k);
+                    return TA_TSTCDL_PREDICATE_VACUOUS;
+                }
+        }
+    }
+    return TA_TEST_PASS;
+}
+
 ErrorNumber test_codegen(const TA_History *history,
                          const char *languageFilter,
                          const char *functionFilter)
@@ -3348,6 +3623,20 @@ ErrorNumber test_codegen(const TA_History *history,
     printf("=============================================\n");
     printf("Codegen Multi-Language Verification\n");
     printf("=============================================\n");
+
+    /* Non-vacuity guard for the candlestick pattern data shape. */
+    errNb = verify_fuzz_candle_nonvacuous();
+    if( errNb != TA_TEST_PASS )
+        return errNb;
+
+    /* Non-vacuity guard for the ACCBANDS high+low==0 degenerate branch, plus a
+     * direct input==output aliasing check for the fused single-loop rewrite. */
+    errNb = verify_fuzz_zerosum_nonvacuous();
+    if( errNb != TA_TEST_PASS )
+        return errNb;
+    errNb = verify_accbands_inplace_aliasing();
+    if( errNb != TA_TEST_PASS )
+        return errNb;
 
     /* Spawn the reference oracle once; it is the shared baseline for every
      * language server, including the generated C server (reference-as-server,

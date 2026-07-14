@@ -1,21 +1,23 @@
-//! ta-lib.org website generator — the one `ta_codegen` output that lives under `docs/`
-//! (the mkdocs site tree) instead of `ta_codegen/output/`.
+//! ta-lib.org website generator — writes the generated function pages directly into the
+//! VuePress site source tree at `website/src/functions/` (real files served in-tree, no
+//! symlink). This is the one `ta_codegen` output that lives under `website/` rather than
+//! `ta_codegen/output/`.
 //!
 //! For each function it reads the canonical documentation source
 //! `ta_codegen/input/<dir>/<dir>.md` and emits a website page at
-//! `docs/functions/<dir>.md` (served at `https://ta-lib.org/functions/<name>`), plus a
-//! grouped `docs/functions/index.md`. The page transform is deterministic (SEO front
-//! matter + `## See Also` links), so the output stays byte-stable under the regen oracle.
+//! `website/src/functions/<dir>.md` (served at `https://ta-lib.org/functions/<name>`), plus
+//! a grouped `website/src/functions/index.md`. The page transform is deterministic (SEO
+//! front matter + `## See Also` links), so the output stays byte-stable under the regen oracle.
 
 use crate::ir::FuncDef;
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
-/// Generate the per-function website pages + index into `docs/functions/`.
+/// Generate the per-function website pages + index into `website/src/functions/`.
 pub fn generate(funcs: &[FuncDef], root: &Path) {
     let input_base = root.join("ta_codegen/input");
-    let out_dir = root.join("docs/functions");
-    std::fs::create_dir_all(&out_dir).expect("create docs/functions");
+    let out_dir = root.join("website/src/functions");
+    std::fs::create_dir_all(&out_dir).expect("create website/src/functions");
 
     let mut funcs: Vec<&FuncDef> = funcs.iter().collect();
     funcs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -37,7 +39,12 @@ pub fn generate(funcs: &[FuncDef], root: &Path) {
     }
 
     let index = build_index(&paged);
-    super::write_if_changed(&out_dir.join("index.md"), &index, "docs/functions", paged.len());
+    super::write_if_changed(
+        &out_dir.join("index.md"),
+        &index,
+        "website/src/functions",
+        paged.len(),
+    );
 
     // Prune stale pages (functions removed since the last run).
     let mut keep: HashSet<String> = paged
@@ -85,8 +92,12 @@ fn extract_summary(body: &str) -> String {
     rest[..end].split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Turn `## See Also` entries (`ADX · DX · …`) into relative links to sibling pages,
-/// leaving any non-function token untouched.
+/// Turn `## See Also` entries (`ADX · DX · …`) into source-root-absolute, extensionless
+/// links (`/functions/<name>`) to sibling pages, leaving any non-function token untouched.
+/// Absolute (not bare-relative) so VuePress resolves them even though the pages are served
+/// from a symlink outside the site source root; extensionless (not `.md`/`.html`) so
+/// VuePress renders a real `<a>` server-side — the `.md` form only hydrates client-side
+/// (empty `<!---->` in SSR), and the `.html` form does the same.
 fn linkify_see_also(body: &str, known: &HashSet<&str>) -> String {
     let mut lines: Vec<String> = body.lines().map(String::from).collect();
     for i in 0..lines.len() {
@@ -101,7 +112,7 @@ fn linkify_see_also(body: &str, known: &HashSet<&str>) -> String {
                     .map(|tok| {
                         let n = tok.trim();
                         if known.contains(n) {
-                            format!("[{n}]({}.md)", n.to_lowercase())
+                            format!("[{n}](/functions/{})", n.to_lowercase())
                         } else {
                             n.to_string()
                         }
@@ -136,7 +147,7 @@ fn build_index(funcs: &[&FuncDef]) -> String {
         for f in fns {
             let dir = f.name.to_lowercase();
             let hint = f.hint.as_deref().unwrap_or("");
-            s.push_str(&format!("- [{}]({dir}.md) — {hint}\n", f.name));
+            s.push_str(&format!("- [{}](/functions/{dir}) — {hint}\n", f.name));
         }
     }
     s

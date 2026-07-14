@@ -8,6 +8,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -552,6 +553,7 @@
 		<GroupId>Volatility Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2095,6 +2097,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -2134,6 +2137,7 @@
 		<GroupId>Pattern Recognition</GroupId>
 		<Flags>
 			<Flag>Candlestick</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3854,6 +3858,7 @@
 		<GroupId>Cycle Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3881,6 +3886,7 @@
 		<GroupId>Cycle Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3908,6 +3914,7 @@
 		<GroupId>Cycle Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3942,6 +3949,7 @@
 		<GroupId>Cycle Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3977,6 +3985,7 @@
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4004,6 +4013,7 @@
 		<GroupId>Cycle Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4474,6 +4484,9 @@
 		<CamelCaseName>MacdExt</CamelCaseName>
 		<ShortDescription>MACD with controllable MA type</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4571,6 +4584,9 @@
 		<CamelCaseName>MacdFix</CamelCaseName>
 		<ShortDescription>Moving Average Convergence/Divergence Fix 12/26</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4627,6 +4643,7 @@
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4691,6 +4708,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4970,6 +4988,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5200,6 +5219,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5250,6 +5270,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5369,6 +5390,7 @@
 		<GroupId>Volatility Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5450,6 +5472,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5500,6 +5523,7 @@
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6722,6 +6746,7 @@
 		<GroupId>Overlap Studies</GroupId>
 		<Flags>
 			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>

@@ -68,7 +68,7 @@ public int accbandsLookback(
 @FuncInfo(
         name  = "ACCBANDS",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 3
@@ -799,7 +799,7 @@ public int atrLookback(
 @FuncInfo(
         name  = "ATR",
         group = "Volatility Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -2696,7 +2696,7 @@ public int cdlHikkakeLookback(
 @FuncInfo(
         name  = "CDLHIKKAKE",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -2744,7 +2744,7 @@ public int cdlHikkakeModLookback(
 @FuncInfo(
         name  = "CDLHIKKAKEMOD",
         group = "Pattern Recognition",
-        flags = 268435456,
+        flags = 301989888,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4896,7 +4896,7 @@ public int htDcPeriodLookback(
 @FuncInfo(
         name  = "HT_DCPERIOD",
         group = "Cycle Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4937,7 +4937,7 @@ public int htDcPhaseLookback(
 @FuncInfo(
         name  = "HT_DCPHASE",
         group = "Cycle Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -4978,7 +4978,7 @@ public int htPhasorLookback(
 @FuncInfo(
         name  = "HT_PHASOR",
         group = "Cycle Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 2
@@ -5026,7 +5026,7 @@ public int htSineLookback(
 @FuncInfo(
         name  = "HT_SINE",
         group = "Cycle Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 2
@@ -5074,7 +5074,7 @@ public int htTrendlineLookback(
 @FuncInfo(
         name  = "HT_TRENDLINE",
         group = "Overlap Studies",
-        flags = 150994944,
+        flags = 184549376,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -5115,7 +5115,7 @@ public int htTrendModeLookback(
 @FuncInfo(
         name  = "HT_TRENDMODE",
         group = "Cycle Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -5794,7 +5794,7 @@ public int macdExtLookback(
 @FuncInfo(
         name  = "MACDEXT",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 6,
         nbOutput   = 3
@@ -5948,7 +5948,7 @@ public int macdFixLookback(
 @FuncInfo(
         name  = "MACDFIX",
         group = "Momentum Indicators",
-        flags = 0,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 3
@@ -6023,7 +6023,7 @@ public int mamaLookback(
 @FuncInfo(
         name  = "MAMA",
         group = "Overlap Studies",
-        flags = 150994944,
+        flags = 184549376,
         nbInput    = 1,
         nbOptInput = 2,
         nbOutput   = 2
@@ -6113,7 +6113,7 @@ public int movingAverageVariablePeriodLookback(
 @FuncInfo(
         name  = "MAVP",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 2,
         nbOptInput = 3,
         nbOutput   = 1
@@ -6498,7 +6498,7 @@ public int midPriceLookback(
 @FuncInfo(
         name  = "MIDPRICE",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -6812,7 +6812,7 @@ public int minusDILookback(
 @FuncInfo(
         name  = "MINUS_DI",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -6875,7 +6875,7 @@ public int minusDMLookback(
 @FuncInfo(
         name  = "MINUS_DM",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -7043,7 +7043,7 @@ public int natrLookback(
 @FuncInfo(
         name  = "NATR",
         group = "Volatility Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -7154,7 +7154,7 @@ public int plusDILookback(
 @FuncInfo(
         name  = "PLUS_DI",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -7217,7 +7217,7 @@ public int plusDMLookback(
 @FuncInfo(
         name  = "PLUS_DM",
         group = "Momentum Indicators",
-        flags = 134217728,
+        flags = 167772160,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -8970,7 +8970,7 @@ public int trimaLookback(
 @FuncInfo(
         name  = "TRIMA",
         group = "Overlap Studies",
-        flags = 16777216,
+        flags = 50331648,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1

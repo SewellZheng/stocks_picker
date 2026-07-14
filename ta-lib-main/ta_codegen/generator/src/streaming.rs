@@ -138,6 +138,25 @@ pub struct CircState {
     pub layout: CircBufLayout,
 }
 
+/// A cursor-parity branch carried as stream state — the general handle for a
+/// steady loop that selects an arm on the ABSOLUTE bar index (`cursor % 2`).
+/// A stream cannot reconstruct the absolute index, so [`carry_cursor_parity`]
+/// rewrites the `cursor % 2` sub-expression to read a carried `int` field
+/// (registered as ordinary [`StreamModel::state`]); the emitter SEEDS it in
+/// open (`historyLen % 2` — the parity of the next bar, established by open's
+/// real-batch replay) and FLIPS it each update (`1 - parity`). The branch arms
+/// are transcribed verbatim, so a correct seed reproduces the batch's
+/// interleaving bit-for-bit; a 1-bar seed offset would swap the arms.
+///
+/// First consumer: the Hilbert-transform family (HT_DCPERIOD + riders), whose
+/// odd/even quadrature arms carry an even-only `hilbertIdx` advance — exactly
+/// the interleaving a wrong seed would invert.
+#[derive(Debug, Clone)]
+pub struct ParitySpec {
+    /// State field name carrying `cursor % 2` (an `int` appended to `state`).
+    pub field: String,
+}
+
 /// Absolute-index automaton (T4 extrema class: MIN/MAX/WILLR/MININDEX/
 /// AROON...). The batch keeps a cached extremum INDEX and rescans the
 /// window when it expires — tie-breaking differs between the rescan and
@@ -380,6 +399,104 @@ pub enum StreamPlan<'a> {
     Loop(StreamModel<'a>),
     Dispatch(DispatchPlan<'a>),
     Composed(ComposedPlan<'a>),
+    DualMode(DualModePlan<'a>),
+    FastPathSkip(FastPathSkipPlan<'a>),
+    PeriodBank(PeriodBankPlan<'a>),
+}
+
+/// One optional argument of a period-bank sub-open, in the callee's signature
+/// order: either the per-bar variable period (fixed to a distinct value in each
+/// bank slot) or the caller's forwarded MAType.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeriodBankArg {
+    /// The variable period — bank slot `k` opens the callee at `minPeriod + k`.
+    Period,
+    /// The caller's MAType param, forwarded to every slot.
+    MAType,
+}
+
+/// A recognized variable-period moving average (MAVP): a moving average whose
+/// period varies PER BAR, read from a second input and clamped to
+/// `[minPeriod, maxPeriod]`. The batch computes each distinct period's full MA
+/// once and scatters; a stream cannot know future periods, so it maintains a
+/// BANK of `maxPeriod - minPeriod + 1` streaming sub-MAs (one per possible
+/// period), advances them all in lockstep every bar, and outputs the one the
+/// current bar's clamped period selects. Reuses the callee's (`ma`) public
+/// stream — so it streams exactly the MATypes the callee streams (MAType_MAMA
+/// rejects at Open, as it does through MA's dispatch).
+#[derive(Debug)]
+pub struct PeriodBankPlan<'a> {
+    pub func: &'a FuncDef,
+    /// The per-period moving-average callee (input-level name, e.g. `ma`).
+    pub callee: String,
+    /// The callee's optional arguments, in signature order (period slot + the
+    /// forwarded MAType).
+    pub callee_opts: Vec<PeriodBankArg>,
+    /// Input fed to every sub-MA (the price series).
+    pub price_input: String,
+    /// Input read per bar as the (clamped) period selector.
+    pub period_input: String,
+    /// Optional-param names: the inclusive period-bank bounds.
+    pub min_param: String,
+    pub max_param: String,
+    /// The MAType optional-param name forwarded to every slot.
+    pub matype_param: String,
+    /// The single real output.
+    pub output: String,
+}
+
+/// A recognized param fast-path split whose two arms are bit-identical (a pure
+/// batch perf optimization): `<prologue> if (<param> <= <literal>) { fast-path }
+/// else { general } <epilogue>` (MIDPRICE rescans a short window but caches the
+/// running extremum for long periods; both paths produce identical output).
+/// ONLY the general (else) arm is streamed, for EVERY param — the fast-path
+/// `then` arm is a batch-only specialization skipped by the stream, and the
+/// stream_verify gate enforces bit-exactness across the threshold. The `<=
+/// literal` threshold predicate distinguishes this from a genuine dual-mode
+/// branch (TRIMA's `% 2`, whose arms differ and must both be streamed).
+#[derive(Debug)]
+pub struct FastPathSkipPlan<'a> {
+    pub func: &'a FuncDef,
+    /// The shared prologue (`body[..if_idx]`).
+    pub prologue: &'a [Statement],
+    /// The general (else) arm's stream model (`model.body` is the else slice).
+    pub model: StreamModel<'a>,
+    /// The shared epilogue (`body[if_idx+1..]`): out-meta writes + final return,
+    /// transcribed after the general arm.
+    pub epilogue: &'a [Statement],
+}
+
+/// A recognized param-selected dual-mode body: a shared prologue, then a
+/// leading `if (<param predicate>) { <mode-A steady loop>; return SUCCESS; }`
+/// arm followed by a fall-through `<mode-B steady loop>` general path
+/// (DI/DM: `optInTimePeriod <= 1` selects the raw single-period arm, which
+/// deliberately ignores the unstable period, over the Wilder-smoothed general
+/// path). Each mode is an independent [`StreamModel`]; the predicate is
+/// evaluated once at Open (params only, so fixed for a stream's lifetime) and
+/// the step re-selects the mode from the handle's stored param. The two arms'
+/// state sets are unioned into one handle; the input `.c` is UNTOUCHED (both
+/// arms are transcribed verbatim, so the mode-A quirks — DI's raw ratio, the
+/// unstable-period-independent lookback of 1 — are preserved by construction).
+#[derive(Debug)]
+pub struct DualModePlan<'a> {
+    pub func: &'a FuncDef,
+    /// The arm predicate, params only (e.g. `optInTimePeriod <= 1`). True
+    /// selects mode A; false falls through to mode B.
+    pub predicate: Expr,
+    /// The shared prologue (`body[..arm_idx]`): lookback computation, the
+    /// `startIdx` clamp, the no-data guard, output-index reset. Transcribed
+    /// ahead of the selected mode's body in Open (both arms need it).
+    pub prologue: &'a [Statement],
+    /// Mode A: the `if`-then arm (its `body` is the arm's then-body slice).
+    pub mode_a: StreamModel<'a>,
+    /// Mode B: the fall-through general path (early-return form) or the `else`
+    /// arm (if/else form). Its `body` is the corresponding slice.
+    pub mode_b: StreamModel<'a>,
+    /// Shared epilogue transcribed after the selected arm. Empty for the
+    /// early-return form (DI/DM — mode A returns, mode B is the general tail).
+    /// For the if/else form (TRIMA `period % 2`) both arms fall through to this
+    /// out-meta + return tail (`body[arm_idx+1..]`).
+    pub epilogue: &'a [Statement],
 }
 
 /// Syntactic form of the steady-state loop (informational; open() transcribes
@@ -472,6 +589,9 @@ pub struct StreamModel<'a> {
     pub steady: Steady,
     /// Recognized param==1 identity path, if the batch body has one.
     pub identity: Option<IdentityPath>,
+    /// Cursor-parity carry (`cursor % 2` odd/even branch), if the batch body
+    /// has one. Seeded in open, flipped each update; see [`ParitySpec`].
+    pub parity: Option<ParitySpec>,
 }
 
 impl StreamModel<'_> {
@@ -693,7 +813,7 @@ fn expr_var_names(e: &Expr, out: &mut BTreeSet<String>) {
     });
 }
 
-fn stmt_var_names(s: &Statement, out: &mut BTreeSet<String>) {
+pub fn stmt_var_names(s: &Statement, out: &mut BTreeSet<String>) {
     walk_stmt_exprs(s, &mut |e| expr_var_names(e, out));
 }
 
@@ -1187,10 +1307,28 @@ pub fn analyze(func: &FuncDef) -> Result<StreamModel<'_>, StreamError> {
 /// composed tier analyzes its PRODUCER region this way: the statements up to
 /// and including the steady loop, with the intermediate series local
 /// (STOCH's `tempBuffer`) standing in as the output the loop writes.
-#[allow(clippy::too_many_lines)]
 pub fn analyze_region<'a>(
     func: &'a FuncDef,
     body: &'a [Statement],
+    outputs: Vec<String>,
+) -> Result<StreamModel<'a>, StreamError> {
+    analyze_region_scoped(func, body, body, outputs)
+}
+
+/// [`analyze_region`] with the declaration scope decoupled from the scanned
+/// region. `body` is the region scanned for the steady loop, identity path,
+/// and return paths; `decl_scope` is where local declarations and CIRCBUF
+/// prologs are resolved (`classify_locals` / `discover_circs`). The dual-mode
+/// analyzer scans one arm at a time over a NESTED slice of the function body
+/// (the `if` then-body, or the general path after it) whose scalars are
+/// declared at the FUNCTION top, so it passes the full body as `decl_scope`.
+/// Every other caller passes `decl_scope == body` (a `body[..]` prefix already
+/// carries every decl), preserving byte-identical output.
+#[allow(clippy::too_many_lines)]
+pub fn analyze_region_scoped<'a>(
+    func: &'a FuncDef,
+    body: &'a [Statement],
+    decl_scope: &'a [Statement],
     outputs: Vec<String>,
 ) -> Result<StreamModel<'a>, StreamError> {
     if body.is_empty() {
@@ -1214,6 +1352,12 @@ pub fn analyze_region<'a>(
     // form `for (w = E; w >= 0; w--)` with `i` := `cursor - w` (IMI) — the
     // reads become in[cursor - w], the standard rescan-window shape.
     let steady_stmts = reindex_cursor_windows(&steady_stmts, &cursor);
+    // Two more general steady-loop normalizations that decouple the transition
+    // from the absolute cursor index (bit-preserving; each a no-op unless its
+    // shape is present). First drop a warm-up output gate, then carry any
+    // `cursor % 2` branch as state. (HT_DCPERIOD is the first consumer of both.)
+    let steady_stmts = strip_cursor_output_gate(steady_stmts, &cursor);
+    let (steady_stmts, parity) = carry_cursor_parity(steady_stmts, &cursor);
 
     // --- array accesses ----------------------------------------------------
 
@@ -1235,10 +1379,12 @@ pub fn analyze_region<'a>(
     check_no_output_read_back(&steady_stmts, &outputs)?;
 
     // --- locals ------------------------------------------------------------
-    let (circs, circ_extra) = discover_circs(body, &steady_stmts);
+    // Local decls / CIRCBUF prologs resolve in `decl_scope` (the full function
+    // body for a dual-mode arm; identical to `body` for every other caller).
+    let (circs, circ_extra) = discover_circs(decl_scope, &steady_stmts);
 
     let ctx = ClassifyCtx {
-        body,
+        body: decl_scope,
         steady_stmts: &steady_stmts,
         func,
         cursor: &cursor,
@@ -1247,10 +1393,17 @@ pub fn analyze_region<'a>(
         bar_inputs: &bar_inputs,
         outputs: &outputs,
         circ_extra: &circ_extra,
+        parity_field: parity.as_ref().map(|p| p.field.as_str()),
     };
     let (extrema, (mut state, temps)) =
         classify_or_extrema(&ctx, &ring_vars, &trailing, &windows, &circs)?;
     force_circ_index_state(&circs, &mut state, &temps);
+    // The carried parity field is synthetic (no VarDecl): classify_locals skips
+    // it, so append it as an ordinary int state field here (emitter seeds/flips
+    // it — see ParitySpec). Appended last: deterministic, after real locals.
+    if let Some(ps) = &parity {
+        state.push((ps.field.clone(), VarType::Integer));
+    }
 
     // Lags in input signature order.
     let lag_slots: Vec<LagSlot> = bar_inputs
@@ -1317,6 +1470,7 @@ pub fn analyze_region<'a>(
         lags: lag_slots,
         steady,
         identity,
+        parity,
     };
     // Drift-proof the cached tier: re-derive it from the FINAL model (through
     // the accessors) and confirm it matches. Catches any construction bug that
@@ -1334,6 +1488,191 @@ pub fn analyze_region<'a>(
         )
     );
     Ok(model)
+}
+
+/// Recognize a param-selected dual-mode body (DI/DM): a shared prologue, a
+/// leading `if (<param predicate>) { <steady loop>; return SUCCESS; }` arm, and
+/// a fall-through general path with its own steady loop. Each arm is analyzed
+/// as an independent [`StreamModel`] over its own body slice, with the FULL
+/// body as the declaration scope (both arms' scalars are declared at the
+/// function top). Returns [`StreamError::NoSteadyLoop`] when the body is not
+/// dual-mode-shaped (the gate then falls through to dispatch/composed); a shape
+/// match whose arm is genuinely unstreamable propagates that arm's error.
+///
+/// Tried only AFTER the single-loop [`analyze`] fails, so an ordinary function
+/// with a leading `period == 1` identity path (T3) — which analyzes cleanly as
+/// a Loop carrying an [`IdentityPath`] — is never misclassified here.
+pub fn analyze_dual_mode(func: &FuncDef) -> Result<DualModePlan<'_>, StreamError> {
+    let body: &[Statement] = if func.has_explicit_private {
+        &func.private_body
+    } else {
+        &func.body
+    };
+    let params: BTreeSet<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+    let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
+
+    let ends_in_success = |b: &[Statement]| {
+        matches!(
+            b.last(),
+            Some(Statement::Return { value: Some(Expr::Var(v)) })
+                if matches!(v.as_str(), "SUCCESS" | "TA_SUCCESS")
+        )
+    };
+    // A dual-mode arm is a steady loop (over the output range) — not a trivial
+    // scalar branch. This excludes the prologue's `if (period > 1) lookbackTotal
+    // = ... else lookbackTotal = 1` (both arms plain assignments) from the
+    // if/else form.
+    let has_loop = |b: &[Statement]| {
+        b.iter().any(|s| {
+            matches!(
+                s,
+                Statement::While { .. }
+                    | Statement::DoWhile { .. }
+                    | Statement::For { .. }
+                    | Statement::ForC { .. }
+            )
+        })
+    };
+    // Find the FIRST top-level param-guarded branch of either form. The no-data
+    // guard `if (startIdx > endIdx) return SUCCESS` is excluded by the params-only
+    // condition (it references startIdx/endIdx).
+    let mut found: Option<(usize, bool)> = None; // (index, is_if_else)
+    for (i, s) in body.iter().enumerate() {
+        let Statement::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } = s
+        else {
+            continue;
+        };
+        if !expr_is_param_pure(condition, &params) {
+            continue;
+        }
+        // Early-return form (DI/DM): empty else, the then-arm is a steady loop
+        // ending in SUCCESS, and a general path follows.
+        if else_body.is_empty()
+            && ends_in_success(then_body)
+            && has_loop(then_body)
+            && i + 1 < body.len()
+        {
+            found = Some((i, false));
+            break;
+        }
+        // If/else form (TRIMA): a real else, each arm is a steady loop, NEITHER
+        // returns (both fall through to a shared epilogue), and NOT a `<= literal`
+        // threshold — that shape is fast-path-skip's (a bit-identical perf split
+        // streams one arm; here the two arms genuinely differ and both stream).
+        if !else_body.is_empty()
+            && has_loop(then_body)
+            && has_loop(else_body)
+            && !ends_in_success(then_body)
+            && !ends_in_success(else_body)
+            && !is_threshold_pred(condition, &params)
+        {
+            found = Some((i, true));
+            break;
+        }
+    }
+    let Some((arm_idx, is_if_else)) = found else {
+        return Err(StreamError::NoSteadyLoop);
+    };
+
+    // Real borrows of `body` (lifetime tied to `func`) — no synthetic Vecs, so
+    // each mode's StreamModel can borrow its region. The full body is the
+    // declaration scope for both arms.
+    let Statement::If {
+        condition,
+        then_body,
+        else_body,
+        ..
+    } = &body[arm_idx]
+    else {
+        unreachable!("arm_idx indexes the recognized If")
+    };
+    let prologue = &body[..arm_idx];
+    // Mode A is always the `then` arm. Mode B is the `else` arm (if/else form) or
+    // the fall-through tail after the returning arm (early-return form).
+    let (then_region, alt_region, epilogue): (&[Statement], &[Statement], &[Statement]) =
+        if is_if_else {
+            (then_body, else_body, &body[arm_idx + 1..])
+        } else {
+            (then_body, &body[arm_idx + 1..], &[])
+        };
+    let mode_a = analyze_region_scoped(func, then_region, body, outputs.clone())?;
+    let mode_b = analyze_region_scoped(func, alt_region, body, outputs)?;
+
+    Ok(DualModePlan {
+        func,
+        predicate: condition.clone(),
+        prologue,
+        mode_a,
+        mode_b,
+        epilogue,
+    })
+}
+
+/// Recognize a param fast-path split whose two arms are bit-identical (see
+/// [`FastPathSkipPlan`]): `<prologue> if (<param> <= <lit>) { fast } else {
+/// general } <epilogue>`. Streams the GENERAL (else) arm for every param and
+/// skips the fast-path `then` arm (a batch-only perf specialization); the
+/// stream_verify gate enforces bit-exactness across the threshold. Tried after
+/// [`analyze_dual_mode`], so an early-return degenerate arm is handled there;
+/// the `<= literal` threshold predicate excludes a genuine dual-mode branch
+/// (e.g. TRIMA's `period % 2`, whose arms differ and are not interchangeable).
+pub fn analyze_fastpath_skip(func: &FuncDef) -> Result<FastPathSkipPlan<'_>, StreamError> {
+    let body: &[Statement] = if func.has_explicit_private {
+        &func.private_body
+    } else {
+        &func.body
+    };
+    let params: BTreeSet<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+    let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
+
+    let ends_in_return = |b: &[Statement]| matches!(b.last(), Some(Statement::Return { .. }));
+    let mut found: Option<usize> = None;
+    for (i, s) in body.iter().enumerate() {
+        let Statement::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } = s
+        else {
+            continue;
+        };
+        // A `param <= literal` (or `<`) threshold, a real else, and NEITHER arm
+        // returns (both fall through to the shared epilogue — the early-return
+        // form is dual-mode's).
+        let is_threshold = matches!(
+            condition,
+            Expr::BinOp(l, BinOp::LessEq | BinOp::Less, r)
+                if matches!(l.as_ref(), Expr::Var(v) if params.contains(v))
+                    && matches!(r.as_ref(), Expr::IntLiteral(_))
+        );
+        if is_threshold
+            && !else_body.is_empty()
+            && !ends_in_return(then_body)
+            && !ends_in_return(else_body)
+        {
+            found = Some(i);
+            break;
+        }
+    }
+    let Some(idx) = found else {
+        return Err(StreamError::NoSteadyLoop);
+    };
+    let Statement::If { else_body, .. } = &body[idx] else {
+        unreachable!("idx indexes the recognized If")
+    };
+    let model = analyze_region_scoped(func, else_body, body, outputs)?;
+    Ok(FastPathSkipPlan {
+        func,
+        prologue: &body[..idx],
+        model,
+        epilogue: &body[idx + 1..],
+    })
 }
 
 /// Recognize a dispatch body: optional identity path, then a single switch
@@ -2117,6 +2456,19 @@ fn cursor_plus_expr(idx: &Expr, cursors: &BTreeSet<String>) -> Option<Expr> {
 /// True when `e` reads only parameters, literals and arithmetic of them — no
 /// series, pointers, cursors or calls. A sub-output lag depth must be such a
 /// constant-per-stream parameter expression (`optInTimePeriod - 1`).
+/// A `<param> <= <literal>` (or `<`) threshold predicate — the shape of a batch
+/// perf fast-path split ([`analyze_fastpath_skip`], MIDPRICE), as opposed to a
+/// genuine dual-mode branch (TRIMA's `period % 2 == 1`). Used to route the
+/// two if/else recognizers apart.
+fn is_threshold_pred(cond: &Expr, params: &BTreeSet<String>) -> bool {
+    matches!(
+        cond,
+        Expr::BinOp(l, BinOp::LessEq | BinOp::Less, r)
+            if matches!(l.as_ref(), Expr::Var(v) if params.contains(v))
+                && matches!(r.as_ref(), Expr::IntLiteral(_))
+    )
+}
+
 fn expr_is_param_pure(e: &Expr, params: &BTreeSet<String>) -> bool {
     let mut ok = true;
     walk_expr(e, &mut |x| match x {
@@ -2615,21 +2967,35 @@ fn parse_dispatch_arm(
             supported: true,
         });
     }
-    // Not a supported delegation. If ANY indicator called in the arm is
-    // stream-flagged — not just the first one seen — this is a hard gate
-    // error: an arm like `trima(...); dema(...)` must never silently become
-    // a reject arm the verify precheck then blesses (the strictness
-    // contract above).
-    if let Some(flagged) = callees
+    // Not a supported delegation.
+    let flagged: Vec<&str> = callees
         .iter()
-        .find(|c| lookup.callee(c).is_some_and(|s| s.streaming))
-    {
+        .filter(|c| lookup.callee(c).is_some_and(|s| s.streaming))
+        .map(String::as_str)
+        .collect();
+    // A single flagged callee whose OUTPUT arity differs from this dispatch
+    // func's can never be a 1:1 whole-range delegation: MA's MAMA arm feeds
+    // mama's second (FAMA) output into a discarded scratch buffer, so it emits
+    // one output from a two-output callee. That is an honest reject arm (MA
+    // asks for batch on MAType_MAMA) even though `mama` itself streams —
+    // structurally distinct from the hidden-delegation bug below.
+    if let [only] = flagged.as_slice() {
+        let osig = lookup.callee(only).expect("flagged callee resolves");
+        if osig.n_outputs != outputs.len() {
+            return Ok(reject(only));
+        }
+    }
+    // If ANY indicator called in the arm is stream-flagged — not just the first
+    // one seen — this is a hard gate error: an arm like `trima(...); dema(...)`
+    // must never silently become a reject arm the verify precheck then blesses
+    // (the strictness contract above).
+    if let Some(f) = flagged.first() {
         return Err(StreamError::Unsupported(format!(
-            "dispatch arm `{label}` calls stream-flagged `{flagged}` but is not a \
+            "dispatch arm `{label}` calls stream-flagged `{f}` but is not a \
              whole-range delegation"
         )));
     }
-    // Only unflagged callees: honest reject arm (MAMA; TRIMA until it streams).
+    // Only unflagged callees: honest reject arm (TRIMA until it streamed).
     Ok(reject(&callee))
 }
 
@@ -2686,10 +3052,118 @@ fn delegation_opt_args(
     Some(opt_args)
 }
 
+/// The full argument list of the first `callee` invocation in `stmts` matching
+/// its TA signature arity, or `None` if absent.
+fn find_call_args(stmts: &[Statement], callee: &str, sig: &CalleeSig) -> Option<Vec<Expr>> {
+    let arity = 2 + sig.n_inputs + sig.n_opts + 2 + sig.n_outputs;
+    let mut result: Option<Vec<Expr>> = None;
+    for s in stmts {
+        walk_stmt_exprs(s, &mut |e| {
+            walk_expr(e, &mut |x| {
+                if result.is_none() {
+                    if let Expr::FuncCall(name, args) = x {
+                        if name == callee && args.len() == arity {
+                            result = Some(args.clone());
+                        }
+                    }
+                }
+            });
+        });
+    }
+    result
+}
+
+/// Recognize a variable-period moving average (MAVP): two real inputs (a price
+/// series and a per-bar period selector), a `MAType` enum param, exactly two
+/// integer bound params (min/max period), one real output, and a whole-range
+/// delegation to a single streaming 1-input/1-output MAType-dispatch callee
+/// (`ma`) whose period argument varies per bar. Returns [`StreamError::NoSteadyLoop`]
+/// when the body is not this shape (the gate then falls through to composed).
+/// See [`PeriodBankPlan`] for the streaming model.
+pub fn analyze_period_bank<'a>(
+    func: &'a FuncDef,
+    lookup: &dyn CalleeLookup,
+) -> Result<PeriodBankPlan<'a>, StreamError> {
+    let inputs = input_array_names(func);
+    if inputs.len() != 2 || func.outputs.len() != 1 {
+        return Err(StreamError::NoSteadyLoop);
+    }
+    // Exactly one MAType enum param + exactly two integer (period bound) params.
+    let Some(matype) = func
+        .optional_inputs
+        .iter()
+        .find(|p| matches!(&p.param_type, ParamType::Enum(e) if e == "MAType"))
+    else {
+        return Err(StreamError::NoSteadyLoop);
+    };
+    let ints: Vec<&str> = func
+        .optional_inputs
+        .iter()
+        .filter(|p| matches!(p.param_type, ParamType::Integer))
+        .map(|p| p.name.as_str())
+        .collect();
+    if ints.len() != 2 {
+        return Err(StreamError::NoSteadyLoop);
+    }
+    // A single streaming callee, itself a 1-input / 1-output / 2-opt MAType
+    // dispatch (so a per-period sub-MA can be opened from its public stream).
+    let streaming_names: Vec<String> = find_indicator_calls(&func.body, lookup)
+        .into_iter()
+        .filter(|c| lookup.callee(c).is_some_and(|s| s.streaming))
+        .collect();
+    let [callee] = streaming_names.as_slice() else {
+        return Err(StreamError::NoSteadyLoop);
+    };
+    let sig = lookup.callee(callee).expect("streaming callee resolves");
+    if sig.n_inputs != 1 || sig.n_outputs != 1 || sig.n_opts != 2 {
+        return Err(StreamError::NoSteadyLoop);
+    }
+    // Extract the callee's actual args to learn its price input and opt roles.
+    let args = find_call_args(&func.body, callee, &sig).ok_or(StreamError::NoSteadyLoop)?;
+    let Expr::Var(price_input) = &args[2] else {
+        return Err(StreamError::NoSteadyLoop);
+    };
+    if !inputs.iter().any(|i| i == price_input) {
+        return Err(StreamError::NoSteadyLoop);
+    }
+    let Some(period_input) = inputs.iter().find(|i| *i != price_input) else {
+        return Err(StreamError::NoSteadyLoop);
+    };
+    let opt_base = 2 + sig.n_inputs;
+    let callee_opts: Vec<PeriodBankArg> = args[opt_base..opt_base + sig.n_opts]
+        .iter()
+        .map(|e| {
+            if matches!(e, Expr::Var(v) if *v == matype.name) {
+                PeriodBankArg::MAType
+            } else {
+                PeriodBankArg::Period
+            }
+        })
+        .collect();
+    // Exactly one period slot and one MAType slot.
+    if callee_opts.iter().filter(|a| **a == PeriodBankArg::MAType).count() != 1
+        || callee_opts.iter().filter(|a| **a == PeriodBankArg::Period).count() != 1
+    {
+        return Err(StreamError::NoSteadyLoop);
+    }
+    Ok(PeriodBankPlan {
+        func,
+        callee: callee.clone(),
+        callee_opts,
+        price_input: price_input.clone(),
+        period_input: period_input.clone(),
+        min_param: ints[0].to_string(),
+        max_param: ints[1].to_string(),
+        matype_param: matype.name.clone(),
+        output: func.outputs[0].name.clone(),
+    })
+}
+
 /// Validate that a `streaming: true` function is still analyzable. Any
 /// failure is a generation-time error (the maintenance-coupling gate from
 /// the proposal): a batch rewrite that breaks stream analyzability fails
 /// HERE, not at release. The tier is derived, never declared.
+#[allow(clippy::too_many_lines)]
 pub fn validate_streamable<'a>(
     func: &'a FuncDef,
     lookup: &dyn CalleeLookup,
@@ -2754,6 +3228,56 @@ pub fn validate_streamable<'a>(
         }
         Err(e) => e,
     };
+    // Dual-mode (DI/DM): a param-selected pair of inline steady loops. Tried
+    // after the single-loop analysis fails (so a T3-style identity path stays a
+    // Loop), before dispatch/composed (DI/DM are neither). NoSteadyLoop = "not
+    // dual-mode-shaped": fall through. Any other error means the shape matched
+    // but an arm is unstreamable — surface it loudly (dispatch-strictness parity).
+    match analyze_dual_mode(func) {
+        Ok(plan) => {
+            build_transition(&plan.mode_a, &GateNames).map_err(|e| {
+                format!(
+                    "{}: dual-mode mode-A streamable by analysis but the transition cannot be built: {e}",
+                    func.name
+                )
+            })?;
+            build_transition(&plan.mode_b, &GateNames).map_err(|e| {
+                format!(
+                    "{}: dual-mode mode-B streamable by analysis but the transition cannot be built: {e}",
+                    func.name
+                )
+            })?;
+            return Ok(StreamPlan::DualMode(plan));
+        }
+        Err(StreamError::NoSteadyLoop) => {}
+        Err(dual_err) => {
+            return Err(format!(
+                "{}: YAML declares `streaming: true` but the dual-mode body is not streamable: {dual_err}",
+                func.name
+            ));
+        }
+    }
+    // General-arm (MIDPRICE): a `param <= literal` fast-path split whose arms are
+    // bit-identical — stream only the general (else) arm. After dual-mode (the
+    // early-return / genuine-branch forms), before dispatch/composed.
+    match analyze_fastpath_skip(func) {
+        Ok(plan) => {
+            build_transition(&plan.model, &GateNames).map_err(|e| {
+                format!(
+                    "{}: general-arm streamable by analysis but the transition cannot be built: {e}",
+                    func.name
+                )
+            })?;
+            return Ok(StreamPlan::FastPathSkip(plan));
+        }
+        Err(StreamError::NoSteadyLoop) => {}
+        Err(arm_err) => {
+            return Err(format!(
+                "{}: YAML declares `streaming: true` but the general-arm body is not streamable: {arm_err}",
+                func.name
+            ));
+        }
+    }
     match analyze_dispatch(func, lookup) {
         Ok(plan) => return Ok(StreamPlan::Dispatch(plan)),
         // NoSteadyLoop = "no switch found": the body is not a dispatch;
@@ -2765,6 +3289,20 @@ pub fn validate_streamable<'a>(
         Err(dispatch_err) => {
             return Err(format!(
                 "{}: YAML declares `streaming: true` but the dispatch body is not streamable: {dispatch_err}",
+                func.name
+            ));
+        }
+    }
+    // Period-bank (MAVP): a variable-per-bar-period moving average, streamed as a
+    // bank of the callee's per-period sub-streams. Tried after dispatch (it has no
+    // switch) and before composed (its `ma` call inside a loop is not the composed
+    // producer-plus-tail shape). NoSteadyLoop = "not period-bank-shaped".
+    match analyze_period_bank(func, lookup) {
+        Ok(plan) => return Ok(StreamPlan::PeriodBank(plan)),
+        Err(StreamError::NoSteadyLoop) => {}
+        Err(bank_err) => {
+            return Err(format!(
+                "{}: YAML declares `streaming: true` but the period-bank body is not streamable: {bank_err}",
                 func.name
             ));
         }
@@ -3132,6 +3670,9 @@ struct ClassifyCtx<'a> {
     bar_inputs: &'a [String],
     outputs: &'a [String],
     circ_extra: &'a [(String, VarType)],
+    /// Synthetic carried parity field, if any: skipped by the candidate scan
+    /// (it has no VarDecl; `analyze_region_scoped` injects it into state).
+    parity_field: Option<&'a str>,
 }
 
 type Classified = (Vec<ScalarField>, Vec<ScalarField>);
@@ -3159,6 +3700,7 @@ fn classify_or_extrema(
             ctx.bar_inputs,
             ctx.outputs,
             ctx.circ_extra,
+            ctx.parity_field,
         )
     };
     match run(ring_vars) {
@@ -3484,6 +4026,7 @@ fn classify_locals(
     bar_inputs: &[String],
     outputs: &[String],
     circ_extra: &[(String, VarType)],
+    parity_field: Option<&str>,
 ) -> Result<(Vec<ScalarField>, Vec<ScalarField>), StreamError> {
     let mut decls = BTreeMap::new();
     collect_var_decls(body, &mut decls);
@@ -3546,6 +4089,7 @@ fn classify_locals(
             || bar_inputs.contains(v)
             || outputs.contains(v)
             || candle_locals.contains(v)
+            || Some(v.as_str()) == parity_field
             || v == "endIdx"
             || v == "startIdx"
         {
@@ -4049,6 +4593,7 @@ pub trait NameMap {
 ///
 /// Returns an error if a dropped variable survives the rewrite (a bookkeeping
 /// statement the deleter did not recognize).
+#[allow(clippy::too_many_lines)]
 pub fn build_transition(model: &StreamModel, names: &dyn NameMap) -> Result<Vec<Statement>, String> {
     let dropped = model.dropped_vars();
     let state_names: BTreeSet<String> = model
@@ -4167,7 +4712,27 @@ pub fn build_transition(model: &StreamModel, names: &dyn NameMap) -> Result<Vec<
     for win in model.windows() {
         push_window_advance(&mut out, win, names);
     }
+    // Cursor-parity flip: this bar's `cursor % 2` was consumed by the branch
+    // predicate; advance to the next bar's parity.
+    if let Some(ps) = &model.parity {
+        push_parity_flip(&mut out, ps, names);
+    }
     Ok(out)
+}
+
+/// `parity = 1 - parity;` — advance the carried parity to the next bar (toggles
+/// {0,1}) after the branch predicate has consumed this bar's value.
+fn push_parity_flip(out: &mut Vec<Statement>, parity: &ParitySpec, names: &dyn NameMap) {
+    let field = names.state(&parity.field);
+    out.push(Statement::Assign {
+        target: Expr::Var(field.clone()),
+        value: Expr::BinOp(
+            Box::new(Expr::IntLiteral(1)),
+            BinOp::Sub,
+            Box::new(Expr::Var(field)),
+        ),
+        compound: false,
+    });
 }
 
 /// `win[pos] = bar;` — the current bar enters the window before the body.
@@ -4270,6 +4835,169 @@ fn insert_transition_prologue(
     if let Some(b) = identity_branch {
         out.insert(0, b);
     }
+}
+
+/// The state field name synthesized by [`carry_cursor_parity`] to hold
+/// `cursor % 2`. Reserved: the parity carry only fires when a steady loop
+/// branches on `cursor % 2`, so this name never coexists with a same-named
+/// local (no library source declares one).
+const PARITY_FIELD: &str = "streamParity";
+
+/// STEADY-LOOP NORMALIZATION (general; sits beside [`hoist_ternary_indices`]
+/// and [`reindex_cursor_windows`], applied to every steady body): strip a
+/// warm-up OUTPUT GATE `if (cursor >= startIdx) { <output writes> }` by splicing
+/// its then-body to the loop top level.
+///
+/// A batch loop that walks from before `startIdx` guards its output write so
+/// warm-up bars emit nothing. A stream never sees warm-up in the transition:
+/// open's full-batch replay consumes it (open transcribes the ORIGINAL body
+/// over [`StreamModel::body`], gate intact), and every update processes exactly
+/// one bar at index `>= startIdx`. So the transition writes UNCONDITIONALLY;
+/// promoting the guarded block removes `startIdx` from the steady loop (which
+/// `classify_locals` otherwise rejects) and the cursor reference in the gate.
+///
+/// Keyed purely on the structural shape `cursor >= startIdx` with an empty
+/// `else`, so any non-matching steady body passes through byte-identically
+/// (regen-safe). RECURSES into nested bodies and fires on every match: the gate
+/// can sit at the loop top level (HT_DCPERIOD) or inside another branch — e.g.
+/// HT_PHASOR writes its two outputs under a gate INSIDE each odd/even arm.
+fn strip_cursor_output_gate(stmts: Vec<Statement>, cursor: &str) -> Vec<Statement> {
+    let mut out: Vec<Statement> = Vec::with_capacity(stmts.len());
+    for st in stmts {
+        // Descend first so a gate nested in this statement's own bodies is
+        // stripped before we test the statement itself.
+        let st = strip_gate_in_children(st, cursor);
+        if let Statement::If {
+            condition: Expr::BinOp(ref l, BinOp::GreaterEq, ref r),
+            ref then_body,
+            ref else_body,
+            ..
+        } = st
+        {
+            if else_body.is_empty()
+                && matches!(l.as_ref(), Expr::Var(v) if v == cursor)
+                && matches!(r.as_ref(), Expr::Var(v) if v == "startIdx")
+            {
+                out.extend(then_body.iter().cloned());
+                continue;
+            }
+        }
+        out.push(st);
+    }
+    out
+}
+
+/// Apply [`strip_cursor_output_gate`] to every nested statement body of `st`
+/// (branch arms, loop bodies, switch cases), leaving the statement's own shape
+/// intact. Statements without nested bodies pass through unchanged.
+fn strip_gate_in_children(st: Statement, cursor: &str) -> Statement {
+    let strip = |b: Vec<Statement>| strip_cursor_output_gate(b, cursor);
+    match st {
+        Statement::If {
+            condition,
+            then_body,
+            else_body,
+            cond_comments,
+        } => Statement::If {
+            condition,
+            then_body: strip(then_body),
+            else_body: strip(else_body),
+            cond_comments,
+        },
+        Statement::While { condition, body } => Statement::While {
+            condition,
+            body: strip(body),
+        },
+        Statement::DoWhile { condition, body } => Statement::DoWhile {
+            condition,
+            body: strip(body),
+        },
+        Statement::For { var, count, body } => Statement::For {
+            var,
+            count,
+            body: strip(body),
+        },
+        Statement::ForC {
+            init,
+            condition,
+            update,
+            body,
+        } => Statement::ForC {
+            init,
+            condition,
+            update,
+            body: strip(body),
+        },
+        Statement::Block { body } => Statement::Block { body: strip(body) },
+        Statement::Switch {
+            expr,
+            cases,
+            default,
+        } => Statement::Switch {
+            expr,
+            cases: cases.into_iter().map(|(l, b)| (l, strip(b))).collect(),
+            default: strip(default),
+        },
+        other => other,
+    }
+}
+
+/// STEADY-LOOP NORMALIZATION (general; see [`strip_cursor_output_gate`]): carry
+/// a `cursor % 2` (odd/even absolute-bar-index) branch as state.
+///
+/// A stream cannot reconstruct the absolute bar index, so a steady loop that
+/// branches on `cursor % 2` cannot be transcribed verbatim. This rewrites the
+/// `cursor % 2` sub-expression to read a carried `int` field ([`PARITY_FIELD`])
+/// and returns a [`ParitySpec`] telling the emitter to SEED it in open
+/// (`historyLen % 2`, the next bar's parity, established by open's real-batch
+/// replay) and FLIP it (`1 - parity`) each update. Returns `None` when the body
+/// has no `cursor % 2` — a byte-identical no-op for every other function.
+///
+/// Keyed on shape via [`is_cursor_parity`] (the modulus's LEFT operand must be
+/// the cursor), which distinguishes `cursor % 2` from a param modulus like
+/// TRIMA's `optInTimePeriod % 2` — the latter is never rewritten.
+fn carry_cursor_parity(
+    stmts: Vec<Statement>,
+    cursor: &str,
+) -> (Vec<Statement>, Option<ParitySpec>) {
+    let mut found = false;
+    for s in &stmts {
+        walk_stmt_exprs(s, &mut |e| {
+            walk_expr(e, &mut |x| {
+                if is_cursor_parity(x, cursor) {
+                    found = true;
+                }
+            });
+        });
+    }
+    if !found {
+        return (stmts, None);
+    }
+    let fe = |e: Expr| -> Expr {
+        if is_cursor_parity(&e, cursor) {
+            Expr::Var(PARITY_FIELD.to_string())
+        } else {
+            e
+        }
+    };
+    let rewritten = rewrite_stmts(&stmts, &fe, &Some);
+    (
+        rewritten,
+        Some(ParitySpec {
+            field: PARITY_FIELD.to_string(),
+        }),
+    )
+}
+
+/// `cursor % 2` — a steady loop's odd/even absolute-bar-index parity test. The
+/// LEFT operand must be the cursor (excludes a param modulus like `period % 2`).
+fn is_cursor_parity(e: &Expr, cursor: &str) -> bool {
+    matches!(
+        e,
+        Expr::BinOp(l, BinOp::Mod, r)
+            if matches!(l.as_ref(), Expr::Var(v) if v == cursor)
+                && matches!(r.as_ref(), Expr::IntLiteral(2))
+    )
 }
 
 /// Rewrite `arr[cond ? a : b]` to `cond ? arr[a] : arr[b]` bottom-up,
@@ -4623,23 +5351,37 @@ fn rewrite_expr_for_transition(
                     });
                     match win {
                         Some(win) => {
-                            // win[(pos + cap - w) % cap]: bar `w` back from
-                            // the current one (slot `pos` holds the current
-                            // bar — written before the transition body).
+                            // Bar `w` back from the current one (slot `pos` holds
+                            // the current bar, written before the transition body).
+                            // The logical index is (pos + cap - w) % cap; but `w`
+                            // is a window offset in [0, cap-1], so that operand is
+                            // in [1, 2*cap) and the modulo is a single conditional
+                            // subtract. Emit `X >= cap ? X - cap : X` instead of a
+                            // per-element runtime integer division -- brings the
+                            // stream window-rescan to batch@last's cost (#110).
                             let pos = Expr::Var(names.win_pos(&win.var));
                             let cap = Expr::Var(names.win_cap(&win.var));
-                            let idx_expr = Expr::BinOp(
+                            let x = Expr::BinOp(
                                 Box::new(Expr::BinOp(
-                                    Box::new(Expr::BinOp(
-                                        Box::new(pos),
-                                        BinOp::Add,
-                                        Box::new(cap.clone()),
-                                    )),
-                                    BinOp::Sub,
-                                    Box::new(Expr::Var(w0)),
+                                    Box::new(pos),
+                                    BinOp::Add,
+                                    Box::new(cap.clone()),
                                 )),
-                                BinOp::Mod,
-                                Box::new(cap),
+                                BinOp::Sub,
+                                Box::new(Expr::Var(w0)),
+                            );
+                            let idx_expr = Expr::Ternary(
+                                Box::new(Expr::BinOp(
+                                    Box::new(x.clone()),
+                                    BinOp::GreaterEq,
+                                    Box::new(cap.clone()),
+                                )),
+                                Box::new(Expr::BinOp(
+                                    Box::new(x.clone()),
+                                    BinOp::Sub,
+                                    Box::new(cap),
+                                )),
+                                Box::new(x),
                             );
                             Expr::ArrayAccess(
                                 names.win_buf(&win.var, &n),

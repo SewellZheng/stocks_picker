@@ -370,7 +370,85 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
     fuzz_gen(svShape, svSeed, svN, sv_o, sv_h, sv_l, sv_c, sv_v, sv_oi);
     TA_SetCompatibility((TA_Compatibility)svCompat);
 
-    if( fnLen == 7 && strncmp(fn, "TA_ACOS", 7) == 0 ) {
+    if( fnLen == 11 && strncmp(fn, "TA_ACCBANDS", 11) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        rc = TA_ACCBANDS(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0, sv_b1, sv_b2);
+        lb = TA_ACCBANDS_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_ACCBANDS_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; double v2 = 0.0; TA_RetCode orc = TA_ACCBANDS_Open(optInTimePeriod, sv_h, sv_l, sv_c, svN, &st, &v0, &v1, &v2);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_ACCBANDS_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_ACCBANDS_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            double v1 = 0.0, pk1 = 0.0;
+            double v2 = 0.0, pk2 = 0.0;
+            rc = TA_ACCBANDS_Open(optInTimePeriod, sv_h, sv_l, sv_c, P, &st, &v0, &v1, &v2);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            if( ok && sv_bitne(v1, sv_b1[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 1; bv = sv_b1[(P - 1) - svBeg]; sv = v1; }
+            if( ok && sv_bitne(v2, sv_b2[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 2; bv = sv_b2[(P - 1) - svBeg]; sv = v2; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_ACCBANDS_Peek(st, sv_h[t], sv_l[t], sv_c[t], &pk0, &pk1, &pk2);
+                TA_ACCBANDS_Update(st, sv_h[t], sv_l[t], sv_c[t], &v0, &v1, &v2);
+                if( doPeek && (sv_bitne(pk0, v0) || sv_bitne(pk1, v1) || sv_bitne(pk2, v2)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+                if(  sv_bitne(v1, sv_b1[t - svBeg]) ) { ok = 0; badBar = t; badOut = 1; bv = sv_b1[t - svBeg]; sv = v1; }
+                if(  sv_bitne(v2, sv_b2[t - svBeg]) ) { ok = 0; badBar = t; badOut = 2; bv = sv_b2[t - svBeg]; sv = v2; }
+            }
+            if( st ) TA_ACCBANDS_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ACCBANDS(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0, sv_b1, sv_b2);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    double v2 = 0.0;
+                    TA_ACCBANDS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ACCBANDS_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0, &v1, &v2);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( ok && sv_bitne(v2, sv_b2[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 2; bv = sv_b2[(svN - 1) - svBegS]; sv = v2; }
+                    if( stA ) TA_ACCBANDS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 7 && strncmp(fn, "TA_ACOS", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
         int pref[4]; int pc[4];
@@ -414,6 +492,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ACOS(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ACOS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ACOS_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ACOS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -464,6 +560,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_AD(Sidx, svN - 1, sv_h, sv_l, sv_c, sv_v, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_AD_Stream *stA = NULL;
+                    TA_RetCode arc = TA_AD_OpenInternal(sv_h, sv_l, sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_AD_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -512,6 +626,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ADD(Sidx, svN - 1, sv_c, sv_v, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ADD_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ADD_OpenInternal(sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ADD_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -566,6 +698,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ADOSC(Sidx, svN - 1, sv_h, sv_l, sv_c, sv_v, optInFastPeriod, optInSlowPeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ADOSC_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ADOSC_OpenInternal(optInFastPeriod, optInSlowPeriod, sv_h, sv_l, sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ADOSC_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -618,6 +768,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ADX(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ADX_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ADX_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ADX_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetUnstablePeriod(0, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
@@ -674,6 +842,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ADXR(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ADXR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ADXR_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ADXR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(1, 0);
         TA_SetUnstablePeriod(0, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
@@ -684,7 +870,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInFastPeriod = json_find_int(json, "optInFastPeriod");
         int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
-        if( ( ( !(optInFastPeriod == 1) && ( optInMAType == TA_MAType_TRIMA || optInMAType == TA_MAType_MAMA ) ) || ( !(optInSlowPeriod == 1) && ( optInMAType == TA_MAType_TRIMA || optInMAType == TA_MAType_MAMA ) ) ) )
+        if( ( ( !(optInFastPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) || ( !(optInSlowPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) ) )
         {
             TA_APO_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc;
             int rejected;
@@ -747,6 +933,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_APO(Sidx, svN - 1, sv_c, optInFastPeriod, optInSlowPeriod, optInMAType, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_APO_Stream *stA = NULL;
+                    TA_RetCode arc = TA_APO_OpenInternal(optInFastPeriod, optInSlowPeriod, optInMAType, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_APO_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(23, 0);
         TA_SetUnstablePeriod(14, 0);
         TA_SetUnstablePeriod(13, 0);
@@ -804,6 +1008,26 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_AROON(Sidx, svN - 1, sv_h, sv_l, optInTimePeriod, &svBegS, &svNbS, sv_b0, sv_b1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    TA_AROON_Stream *stA = NULL;
+                    TA_RetCode arc = TA_AROON_OpenInternal(optInTimePeriod, sv_h, sv_l, Sidx, svN, &stA, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( stA ) TA_AROON_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -854,6 +1078,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_AROONOSC(Sidx, svN - 1, sv_h, sv_l, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_AROONOSC_Stream *stA = NULL;
+                    TA_RetCode arc = TA_AROONOSC_OpenInternal(optInTimePeriod, sv_h, sv_l, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_AROONOSC_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -902,6 +1144,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ASIN(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ASIN_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ASIN_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ASIN_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -952,6 +1212,95 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ATAN(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ATAN_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ATAN_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ATAN_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 6 && strncmp(fn, "TA_ATR", 6) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(2, (unsigned int)svK);
+        rc = TA_ATR(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_ATR_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_ATR_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_ATR_Open(optInTimePeriod, sv_h, sv_l, sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_ATR_Close(st); }
+            TA_SetUnstablePeriod(2, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_ATR_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_ATR_Open(optInTimePeriod, sv_h, sv_l, sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_ATR_Peek(st, sv_h[t], sv_l[t], sv_c[t], &pk0);
+                TA_ATR_Update(st, sv_h[t], sv_l[t], sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_ATR_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ATR(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ATR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ATR_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ATR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(2, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -1002,6 +1351,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_AVGDEV(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_AVGDEV_Stream *stA = NULL;
+                    TA_RetCode arc = TA_AVGDEV_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_AVGDEV_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -1051,6 +1418,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_AVGPRICE(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_AVGPRICE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_AVGPRICE_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_AVGPRICE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -1060,7 +1445,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         double optInNbDevUp = json_find_double(json, "optInNbDevUp");
         double optInNbDevDn = json_find_double(json, "optInNbDevDn");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
-        if( ( ( !(optInTimePeriod == 1) && ( optInMAType == TA_MAType_TRIMA || optInMAType == TA_MAType_MAMA ) ) ) )
+        if( ( ( !(optInTimePeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) ) )
         {
             TA_BBANDS_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; double v2 = 0.0; TA_RetCode orc;
             int rejected;
@@ -1129,6 +1514,28 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_BBANDS(Sidx, svN - 1, sv_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &svBegS, &svNbS, sv_b0, sv_b1, sv_b2);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    double v2 = 0.0;
+                    TA_BBANDS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_BBANDS_OpenInternal(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, sv_c, Sidx, svN, &stA, &v0, &v1, &v2);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( ok && sv_bitne(v2, sv_b2[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 2; bv = sv_b2[(svN - 1) - svBegS]; sv = v2; }
+                    if( stA ) TA_BBANDS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(23, 0);
         TA_SetUnstablePeriod(14, 0);
         TA_SetUnstablePeriod(13, 0);
@@ -1183,6 +1590,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_BETA(Sidx, svN - 1, sv_c, sv_v, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_BETA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_BETA_OpenInternal(optInTimePeriod, sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_BETA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -1231,6 +1656,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_BOP(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_BOP_Stream *stA = NULL;
+                    TA_RetCode arc = TA_BOP_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_BOP_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -1281,6 +1724,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CCI(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_CCI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CCI_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_CCI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -1341,6 +1802,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDL2CROWS(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDL2CROWS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDL2CROWS_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDL2CROWS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1400,6 +1879,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDL3BLACKCROWS(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDL3BLACKCROWS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDL3BLACKCROWS_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDL3BLACKCROWS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1459,6 +1956,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDL3INSIDE(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDL3INSIDE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDL3INSIDE_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDL3INSIDE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1518,6 +2033,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDL3LINESTRIKE(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDL3LINESTRIKE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDL3LINESTRIKE_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDL3LINESTRIKE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1577,6 +2110,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDL3OUTSIDE(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDL3OUTSIDE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDL3OUTSIDE_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDL3OUTSIDE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1636,6 +2187,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDL3STARSINSOUTH(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDL3STARSINSOUTH_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDL3STARSINSOUTH_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDL3STARSINSOUTH_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1695,6 +2264,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDL3WHITESOLDIERS(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDL3WHITESOLDIERS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDL3WHITESOLDIERS_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDL3WHITESOLDIERS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1755,6 +2342,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLABANDONEDBABY(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, optInPenetration, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLABANDONEDBABY_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLABANDONEDBABY_OpenInternal(optInPenetration, sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLABANDONEDBABY_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1814,6 +2419,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLADVANCEBLOCK(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLADVANCEBLOCK_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLADVANCEBLOCK_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLADVANCEBLOCK_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1873,6 +2496,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLBELTHOLD(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLBELTHOLD_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLBELTHOLD_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLBELTHOLD_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1932,6 +2573,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLBREAKAWAY(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLBREAKAWAY_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLBREAKAWAY_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLBREAKAWAY_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -1991,6 +2650,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLCLOSINGMARUBOZU(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLCLOSINGMARUBOZU_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLCLOSINGMARUBOZU_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLCLOSINGMARUBOZU_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2050,6 +2727,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLCONCEALBABYSWALL(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLCONCEALBABYSWALL_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLCONCEALBABYSWALL_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLCONCEALBABYSWALL_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2109,6 +2804,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLCOUNTERATTACK(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLCOUNTERATTACK_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLCOUNTERATTACK_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLCOUNTERATTACK_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2169,6 +2882,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLDARKCLOUDCOVER(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, optInPenetration, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLDARKCLOUDCOVER_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLDARKCLOUDCOVER_OpenInternal(optInPenetration, sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLDARKCLOUDCOVER_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2228,6 +2959,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLDOJI(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLDOJI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLDOJI_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLDOJI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2287,6 +3036,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLDOJISTAR(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLDOJISTAR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLDOJISTAR_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLDOJISTAR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2346,6 +3113,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLDRAGONFLYDOJI(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLDRAGONFLYDOJI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLDRAGONFLYDOJI_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLDRAGONFLYDOJI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2405,6 +3190,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLENGULFING(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLENGULFING_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLENGULFING_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLENGULFING_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2465,6 +3268,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLEVENINGDOJISTAR(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, optInPenetration, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLEVENINGDOJISTAR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLEVENINGDOJISTAR_OpenInternal(optInPenetration, sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLEVENINGDOJISTAR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2525,6 +3346,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLEVENINGSTAR(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, optInPenetration, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLEVENINGSTAR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLEVENINGSTAR_OpenInternal(optInPenetration, sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLEVENINGSTAR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2584,6 +3423,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLGAPSIDESIDEWHITE(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLGAPSIDESIDEWHITE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLGAPSIDESIDEWHITE_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLGAPSIDESIDEWHITE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2643,6 +3500,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLGRAVESTONEDOJI(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLGRAVESTONEDOJI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLGRAVESTONEDOJI_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLGRAVESTONEDOJI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2702,6 +3577,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLHAMMER(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLHAMMER_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLHAMMER_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLHAMMER_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2761,6 +3654,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLHANGINGMAN(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLHANGINGMAN_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLHANGINGMAN_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLHANGINGMAN_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2820,6 +3731,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLHARAMI(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLHARAMI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLHARAMI_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLHARAMI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2879,6 +3808,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLHARAMICROSS(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLHARAMICROSS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLHARAMICROSS_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLHARAMICROSS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2938,6 +3885,178 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLHIGHWAVE(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLHIGHWAVE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLHIGHWAVE_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLHIGHWAVE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 13 && strncmp(fn, "TA_CDLHIKKAKE", 13) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
+        pos = snprintf(resp, resp_size, "{\"retCode\":0");
+        for( rd = 0; rd < rounds; rd++ ) {
+        if( rd > 0 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        if( rd > 0 ) sv_candle_avg(rd - 1);
+        rc = TA_CDLHIKKAKE(0, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBeg, &svNb, sv_ib0);
+        lb = TA_CDLHIKKAKE_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_CDLHIKKAKE_Stream *st = NULL; int v0 = 0; TA_RetCode orc = TA_CDLHIKKAKE_Open(sv_o, sv_h, sv_l, sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_CDLHIKKAKE_Close(st); }
+            if( !openRejects ) allOk = 0;
+            if( rd + 1 < rounds ) continue;
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+            pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_CDLHIKKAKE_Stream *st = NULL;
+            int v0 = 0, pk0 = 0;
+            rc = TA_CDLHIKKAKE_Open(sv_o, sv_h, sv_l, sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && v0 != sv_ib0[(P - 1) - svBeg] ) { ok = 0; badBar = P - 1; badOut = 0; bv = (double)sv_ib0[(P - 1) - svBeg]; sv = (double)v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_CDLHIKKAKE_Peek(st, sv_o[t], sv_h[t], sv_l[t], sv_c[t], &pk0);
+                TA_CDLHIKKAKE_Update(st, sv_o[t], sv_h[t], sv_l[t], sv_c[t], &v0);
+                if( doPeek && ((pk0 != v0)) ) pkOk = 0;
+                if(  v0 != sv_ib0[t - svBeg] ) { ok = 0; badBar = t; badOut = 0; bv = (double)sv_ib0[t - svBeg]; sv = (double)v0; }
+            }
+            if( st ) TA_CDLHIKKAKE_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", lgi, P, lgi, ok, lgi, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", lgi, badBar, lgi, badOut, lgi, bv, lgi, sv); }
+            if( !pkOk ) peekAll = 0;
+            lgi++;
+        }
+        }
+        if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLHIKKAKE(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLHIKKAKE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLHIKKAKE_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLHIKKAKE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 16 && strncmp(fn, "TA_CDLHIKKAKEMOD", 16) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
+        pos = snprintf(resp, resp_size, "{\"retCode\":0");
+        for( rd = 0; rd < rounds; rd++ ) {
+        if( rd > 0 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        if( rd > 0 ) sv_candle_avg(rd - 1);
+        rc = TA_CDLHIKKAKEMOD(0, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBeg, &svNb, sv_ib0);
+        lb = TA_CDLHIKKAKEMOD_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_CDLHIKKAKEMOD_Stream *st = NULL; int v0 = 0; TA_RetCode orc = TA_CDLHIKKAKEMOD_Open(sv_o, sv_h, sv_l, sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_CDLHIKKAKEMOD_Close(st); }
+            if( !openRejects ) allOk = 0;
+            if( rd + 1 < rounds ) continue;
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+            pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_CDLHIKKAKEMOD_Stream *st = NULL;
+            int v0 = 0, pk0 = 0;
+            rc = TA_CDLHIKKAKEMOD_Open(sv_o, sv_h, sv_l, sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && v0 != sv_ib0[(P - 1) - svBeg] ) { ok = 0; badBar = P - 1; badOut = 0; bv = (double)sv_ib0[(P - 1) - svBeg]; sv = (double)v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_CDLHIKKAKEMOD_Peek(st, sv_o[t], sv_h[t], sv_l[t], sv_c[t], &pk0);
+                TA_CDLHIKKAKEMOD_Update(st, sv_o[t], sv_h[t], sv_l[t], sv_c[t], &v0);
+                if( doPeek && ((pk0 != v0)) ) pkOk = 0;
+                if(  v0 != sv_ib0[t - svBeg] ) { ok = 0; badBar = t; badOut = 0; bv = (double)sv_ib0[t - svBeg]; sv = (double)v0; }
+            }
+            if( st ) TA_CDLHIKKAKEMOD_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", lgi, P, lgi, ok, lgi, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", lgi, badBar, lgi, badOut, lgi, bv, lgi, sv); }
+            if( !pkOk ) peekAll = 0;
+            lgi++;
+        }
+        }
+        if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLHIKKAKEMOD(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLHIKKAKEMOD_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLHIKKAKEMOD_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLHIKKAKEMOD_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -2997,6 +4116,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLHOMINGPIGEON(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLHOMINGPIGEON_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLHOMINGPIGEON_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLHOMINGPIGEON_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3056,6 +4193,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLIDENTICAL3CROWS(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLIDENTICAL3CROWS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLIDENTICAL3CROWS_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLIDENTICAL3CROWS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3115,6 +4270,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLINNECK(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLINNECK_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLINNECK_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLINNECK_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3174,6 +4347,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLINVERTEDHAMMER(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLINVERTEDHAMMER_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLINVERTEDHAMMER_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLINVERTEDHAMMER_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3233,6 +4424,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLKICKING(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLKICKING_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLKICKING_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLKICKING_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3292,6 +4501,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLKICKINGBYLENGTH(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLKICKINGBYLENGTH_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLKICKINGBYLENGTH_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLKICKINGBYLENGTH_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3351,6 +4578,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLLADDERBOTTOM(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLLADDERBOTTOM_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLLADDERBOTTOM_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLLADDERBOTTOM_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3410,6 +4655,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLLONGLEGGEDDOJI(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLLONGLEGGEDDOJI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLLONGLEGGEDDOJI_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLLONGLEGGEDDOJI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3469,6 +4732,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLLONGLINE(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLLONGLINE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLLONGLINE_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLLONGLINE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3528,6 +4809,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLMARUBOZU(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLMARUBOZU_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLMARUBOZU_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLMARUBOZU_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3587,6 +4886,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLMATCHINGLOW(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLMATCHINGLOW_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLMATCHINGLOW_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLMATCHINGLOW_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3647,6 +4964,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLMATHOLD(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, optInPenetration, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLMATHOLD_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLMATHOLD_OpenInternal(optInPenetration, sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLMATHOLD_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3707,6 +5042,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLMORNINGDOJISTAR(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, optInPenetration, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLMORNINGDOJISTAR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLMORNINGDOJISTAR_OpenInternal(optInPenetration, sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLMORNINGDOJISTAR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3767,6 +5120,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLMORNINGSTAR(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, optInPenetration, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLMORNINGSTAR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLMORNINGSTAR_OpenInternal(optInPenetration, sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLMORNINGSTAR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3826,6 +5197,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLONNECK(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLONNECK_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLONNECK_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLONNECK_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3885,6 +5274,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLPIERCING(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLPIERCING_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLPIERCING_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLPIERCING_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -3944,6 +5351,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLRICKSHAWMAN(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLRICKSHAWMAN_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLRICKSHAWMAN_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLRICKSHAWMAN_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4003,6 +5428,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLRISEFALL3METHODS(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLRISEFALL3METHODS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLRISEFALL3METHODS_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLRISEFALL3METHODS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4062,6 +5505,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLSEPARATINGLINES(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLSEPARATINGLINES_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLSEPARATINGLINES_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLSEPARATINGLINES_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4121,6 +5582,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLSHOOTINGSTAR(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLSHOOTINGSTAR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLSHOOTINGSTAR_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLSHOOTINGSTAR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4180,6 +5659,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLSHORTLINE(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLSHORTLINE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLSHORTLINE_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLSHORTLINE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4239,6 +5736,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLSPINNINGTOP(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLSPINNINGTOP_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLSPINNINGTOP_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLSPINNINGTOP_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4298,6 +5813,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLSTALLEDPATTERN(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLSTALLEDPATTERN_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLSTALLEDPATTERN_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLSTALLEDPATTERN_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4357,6 +5890,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLSTICKSANDWICH(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLSTICKSANDWICH_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLSTICKSANDWICH_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLSTICKSANDWICH_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4416,6 +5967,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLTAKURI(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLTAKURI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLTAKURI_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLTAKURI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4475,6 +6044,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLTASUKIGAP(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLTASUKIGAP_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLTASUKIGAP_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLTASUKIGAP_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4534,6 +6121,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLTHRUSTING(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLTHRUSTING_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLTHRUSTING_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLTHRUSTING_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4593,6 +6198,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLTRISTAR(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLTRISTAR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLTRISTAR_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLTRISTAR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4652,6 +6275,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLUNIQUE3RIVER(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLUNIQUE3RIVER_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLUNIQUE3RIVER_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLUNIQUE3RIVER_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4711,6 +6352,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLUPSIDEGAP2CROWS(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLUPSIDEGAP2CROWS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLUPSIDEGAP2CROWS_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLUPSIDEGAP2CROWS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4770,6 +6429,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         }
         if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CDLXSIDEGAP3METHODS(Sidx, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_CDLXSIDEGAP3METHODS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CDLXSIDEGAP3METHODS_OpenInternal(sv_o, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_CDLXSIDEGAP3METHODS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
         return;
@@ -4818,6 +6495,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CEIL(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_CEIL_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CEIL_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_CEIL_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -4871,6 +6566,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CMO(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_CMO_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CMO_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_CMO_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(3, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -4922,6 +6635,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CORREL(Sidx, svN - 1, sv_c, sv_v, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_CORREL_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CORREL_OpenInternal(optInTimePeriod, sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_CORREL_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -4971,6 +6702,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_COS(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_COS_Stream *stA = NULL;
+                    TA_RetCode arc = TA_COS_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_COS_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -5019,6 +6768,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_COSH(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_COSH_Stream *stA = NULL;
+                    TA_RetCode arc = TA_COSH_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_COSH_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -5072,6 +6839,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_DEMA(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_DEMA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_DEMA_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_DEMA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -5121,6 +6906,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_DIV(Sidx, svN - 1, sv_c, sv_v, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_DIV_Stream *stA = NULL;
+                    TA_RetCode arc = TA_DIV_OpenInternal(sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_DIV_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -5173,6 +6976,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_DX(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_DX_Stream *stA = NULL;
+                    TA_RetCode arc = TA_DX_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_DX_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetUnstablePeriod(4, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
@@ -5227,6 +7048,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_EMA(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_EMA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_EMA_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_EMA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -5277,6 +7116,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_EXP(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_EXP_Stream *stA = NULL;
+                    TA_RetCode arc = TA_EXP_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_EXP_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -5326,6 +7183,454 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_FLOOR(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_FLOOR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_FLOOR_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_FLOOR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 14 && strncmp(fn, "TA_HT_DCPERIOD", 14) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(6, (unsigned int)svK);
+        rc = TA_HT_DCPERIOD(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
+        lb = TA_HT_DCPERIOD_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_HT_DCPERIOD_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_HT_DCPERIOD_Open(sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_HT_DCPERIOD_Close(st); }
+            TA_SetUnstablePeriod(6, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_HT_DCPERIOD_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_HT_DCPERIOD_Open(sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_HT_DCPERIOD_Peek(st, sv_c[t], &pk0);
+                TA_HT_DCPERIOD_Update(st, sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_HT_DCPERIOD_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_HT_DCPERIOD(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_HT_DCPERIOD_Stream *stA = NULL;
+                    TA_RetCode arc = TA_HT_DCPERIOD_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_HT_DCPERIOD_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(6, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 13 && strncmp(fn, "TA_HT_DCPHASE", 13) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(7, (unsigned int)svK);
+        rc = TA_HT_DCPHASE(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
+        lb = TA_HT_DCPHASE_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_HT_DCPHASE_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_HT_DCPHASE_Open(sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_HT_DCPHASE_Close(st); }
+            TA_SetUnstablePeriod(7, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_HT_DCPHASE_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_HT_DCPHASE_Open(sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_HT_DCPHASE_Peek(st, sv_c[t], &pk0);
+                TA_HT_DCPHASE_Update(st, sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_HT_DCPHASE_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_HT_DCPHASE(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_HT_DCPHASE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_HT_DCPHASE_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_HT_DCPHASE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(7, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 12 && strncmp(fn, "TA_HT_PHASOR", 12) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(8, (unsigned int)svK);
+        rc = TA_HT_PHASOR(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0, sv_b1);
+        lb = TA_HT_PHASOR_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_HT_PHASOR_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc = TA_HT_PHASOR_Open(sv_c, svN, &st, &v0, &v1);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_HT_PHASOR_Close(st); }
+            TA_SetUnstablePeriod(8, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_HT_PHASOR_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            double v1 = 0.0, pk1 = 0.0;
+            rc = TA_HT_PHASOR_Open(sv_c, P, &st, &v0, &v1);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            if( ok && sv_bitne(v1, sv_b1[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 1; bv = sv_b1[(P - 1) - svBeg]; sv = v1; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_HT_PHASOR_Peek(st, sv_c[t], &pk0, &pk1);
+                TA_HT_PHASOR_Update(st, sv_c[t], &v0, &v1);
+                if( doPeek && (sv_bitne(pk0, v0) || sv_bitne(pk1, v1)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+                if(  sv_bitne(v1, sv_b1[t - svBeg]) ) { ok = 0; badBar = t; badOut = 1; bv = sv_b1[t - svBeg]; sv = v1; }
+            }
+            if( st ) TA_HT_PHASOR_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_HT_PHASOR(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0, sv_b1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    TA_HT_PHASOR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_HT_PHASOR_OpenInternal(sv_c, Sidx, svN, &stA, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( stA ) TA_HT_PHASOR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(8, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 10 && strncmp(fn, "TA_HT_SINE", 10) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(9, (unsigned int)svK);
+        rc = TA_HT_SINE(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0, sv_b1);
+        lb = TA_HT_SINE_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_HT_SINE_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc = TA_HT_SINE_Open(sv_c, svN, &st, &v0, &v1);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_HT_SINE_Close(st); }
+            TA_SetUnstablePeriod(9, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_HT_SINE_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            double v1 = 0.0, pk1 = 0.0;
+            rc = TA_HT_SINE_Open(sv_c, P, &st, &v0, &v1);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            if( ok && sv_bitne(v1, sv_b1[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 1; bv = sv_b1[(P - 1) - svBeg]; sv = v1; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_HT_SINE_Peek(st, sv_c[t], &pk0, &pk1);
+                TA_HT_SINE_Update(st, sv_c[t], &v0, &v1);
+                if( doPeek && (sv_bitne(pk0, v0) || sv_bitne(pk1, v1)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+                if(  sv_bitne(v1, sv_b1[t - svBeg]) ) { ok = 0; badBar = t; badOut = 1; bv = sv_b1[t - svBeg]; sv = v1; }
+            }
+            if( st ) TA_HT_SINE_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_HT_SINE(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0, sv_b1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    TA_HT_SINE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_HT_SINE_OpenInternal(sv_c, Sidx, svN, &stA, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( stA ) TA_HT_SINE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(9, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 15 && strncmp(fn, "TA_HT_TRENDLINE", 15) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(10, (unsigned int)svK);
+        rc = TA_HT_TRENDLINE(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
+        lb = TA_HT_TRENDLINE_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_HT_TRENDLINE_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_HT_TRENDLINE_Open(sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_HT_TRENDLINE_Close(st); }
+            TA_SetUnstablePeriod(10, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_HT_TRENDLINE_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_HT_TRENDLINE_Open(sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_HT_TRENDLINE_Peek(st, sv_c[t], &pk0);
+                TA_HT_TRENDLINE_Update(st, sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_HT_TRENDLINE_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_HT_TRENDLINE(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_HT_TRENDLINE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_HT_TRENDLINE_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_HT_TRENDLINE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(10, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 15 && strncmp(fn, "TA_HT_TRENDMODE", 15) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(11, (unsigned int)svK);
+        rc = TA_HT_TRENDMODE(0, svN - 1, sv_c, &svBeg, &svNb, sv_ib0);
+        lb = TA_HT_TRENDMODE_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_HT_TRENDMODE_Stream *st = NULL; int v0 = 0; TA_RetCode orc = TA_HT_TRENDMODE_Open(sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_HT_TRENDMODE_Close(st); }
+            TA_SetUnstablePeriod(11, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_HT_TRENDMODE_Stream *st = NULL;
+            int v0 = 0, pk0 = 0;
+            rc = TA_HT_TRENDMODE_Open(sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && v0 != sv_ib0[(P - 1) - svBeg] ) { ok = 0; badBar = P - 1; badOut = 0; bv = (double)sv_ib0[(P - 1) - svBeg]; sv = (double)v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_HT_TRENDMODE_Peek(st, sv_c[t], &pk0);
+                TA_HT_TRENDMODE_Update(st, sv_c[t], &v0);
+                if( doPeek && ((pk0 != v0)) ) pkOk = 0;
+                if(  v0 != sv_ib0[t - svBeg] ) { ok = 0; badBar = t; badOut = 0; bv = (double)sv_ib0[t - svBeg]; sv = (double)v0; }
+            }
+            if( st ) TA_HT_TRENDMODE_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_HT_TRENDMODE(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_HT_TRENDMODE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_HT_TRENDMODE_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_HT_TRENDMODE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(11, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -5375,6 +7680,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_IMI(Sidx, svN - 1, sv_o, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_IMI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_IMI_OpenInternal(optInTimePeriod, sv_o, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_IMI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -5428,6 +7751,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_KAMA(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_KAMA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_KAMA_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_KAMA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(13, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -5479,6 +7820,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_LINEARREG(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_LINEARREG_Stream *stA = NULL;
+                    TA_RetCode arc = TA_LINEARREG_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_LINEARREG_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -5528,6 +7887,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_LINEARREG_ANGLE(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_LINEARREG_ANGLE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_LINEARREG_ANGLE_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_LINEARREG_ANGLE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -5579,6 +7956,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_LINEARREG_INTERCEPT(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_LINEARREG_INTERCEPT_Stream *stA = NULL;
+                    TA_RetCode arc = TA_LINEARREG_INTERCEPT_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_LINEARREG_INTERCEPT_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -5629,6 +8024,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_LINEARREG_SLOPE(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_LINEARREG_SLOPE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_LINEARREG_SLOPE_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_LINEARREG_SLOPE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -5677,6 +8090,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_LN(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_LN_Stream *stA = NULL;
+                    TA_RetCode arc = TA_LN_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_LN_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -5727,6 +8158,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_LOG10(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_LOG10_Stream *stA = NULL;
+                    TA_RetCode arc = TA_LOG10_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_LOG10_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -5734,7 +8183,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
     else if( fnLen == 5 && strncmp(fn, "TA_MA", 5) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
-        if( ( !(optInTimePeriod == 1) && ( optInMAType == TA_MAType_TRIMA || optInMAType == TA_MAType_MAMA ) ) )
+        if( ( !(optInTimePeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) )
         {
             TA_MA_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc;
             int rejected;
@@ -5796,6 +8245,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MA(Sidx, svN - 1, sv_c, optInTimePeriod, optInMAType, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MA_OpenInternal(optInTimePeriod, optInMAType, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetUnstablePeriod(23, 0);
         TA_SetUnstablePeriod(14, 0);
@@ -5861,6 +8328,386 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MACD(Sidx, svN - 1, sv_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &svBegS, &svNbS, sv_b0, sv_b1, sv_b2);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    double v2 = 0.0;
+                    TA_MACD_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MACD_OpenInternal(optInFastPeriod, optInSlowPeriod, optInSignalPeriod, sv_c, Sidx, svN, &stA, &v0, &v1, &v2);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( ok && sv_bitne(v2, sv_b2[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 2; bv = sv_b2[(svN - 1) - svBegS]; sv = v2; }
+                    if( stA ) TA_MACD_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(5, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 10 && strncmp(fn, "TA_MACDEXT", 10) == 0 ) {
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        TA_MAType optInFastMAType = (TA_MAType)json_find_int(json, "optInFastMAType");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        TA_MAType optInSlowMAType = (TA_MAType)json_find_int(json, "optInSlowMAType");
+        int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
+        TA_MAType optInSignalMAType = (TA_MAType)json_find_int(json, "optInSignalMAType");
+        if( ( ( !(optInSlowPeriod == 1) && ( optInSlowMAType == TA_MAType_MAMA ) ) || ( !(optInFastPeriod == 1) && ( optInFastMAType == TA_MAType_MAMA ) ) || ( !(optInSignalPeriod == 1) && ( optInSignalMAType == TA_MAType_MAMA ) ) ) )
+        {
+            TA_MACDEXT_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; double v2 = 0.0; TA_RetCode orc;
+            int rejected;
+            orc = TA_MACDEXT_Open( optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, sv_c, svN, &st, &v0, &v1, &v2 );
+            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
+            if( st ) TA_MACDEXT_Close( st );
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
+            return;
+        }
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(23, (unsigned int)svK);
+        TA_SetUnstablePeriod(14, (unsigned int)svK);
+        TA_SetUnstablePeriod(13, (unsigned int)svK);
+        TA_SetUnstablePeriod(5, (unsigned int)svK);
+        rc = TA_MACDEXT(0, svN - 1, sv_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &svBeg, &svNb, sv_b0, sv_b1, sv_b2);
+        lb = TA_MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_MACDEXT_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; double v2 = 0.0; TA_RetCode orc = TA_MACDEXT_Open(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, sv_c, svN, &st, &v0, &v1, &v2);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_MACDEXT_Close(st); }
+            TA_SetUnstablePeriod(23, 0);
+            TA_SetUnstablePeriod(14, 0);
+            TA_SetUnstablePeriod(13, 0);
+            TA_SetUnstablePeriod(5, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_MACDEXT_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            double v1 = 0.0, pk1 = 0.0;
+            double v2 = 0.0, pk2 = 0.0;
+            rc = TA_MACDEXT_Open(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, sv_c, P, &st, &v0, &v1, &v2);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            if( ok && sv_bitne(v1, sv_b1[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 1; bv = sv_b1[(P - 1) - svBeg]; sv = v1; }
+            if( ok && sv_bitne(v2, sv_b2[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 2; bv = sv_b2[(P - 1) - svBeg]; sv = v2; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_MACDEXT_Peek(st, sv_c[t], &pk0, &pk1, &pk2);
+                TA_MACDEXT_Update(st, sv_c[t], &v0, &v1, &v2);
+                if( doPeek && (sv_bitne(pk0, v0) || sv_bitne(pk1, v1) || sv_bitne(pk2, v2)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+                if(  sv_bitne(v1, sv_b1[t - svBeg]) ) { ok = 0; badBar = t; badOut = 1; bv = sv_b1[t - svBeg]; sv = v1; }
+                if(  sv_bitne(v2, sv_b2[t - svBeg]) ) { ok = 0; badBar = t; badOut = 2; bv = sv_b2[t - svBeg]; sv = v2; }
+            }
+            if( st ) TA_MACDEXT_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MACDEXT(Sidx, svN - 1, sv_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &svBegS, &svNbS, sv_b0, sv_b1, sv_b2);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    double v2 = 0.0;
+                    TA_MACDEXT_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MACDEXT_OpenInternal(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, sv_c, Sidx, svN, &stA, &v0, &v1, &v2);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( ok && sv_bitne(v2, sv_b2[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 2; bv = sv_b2[(svN - 1) - svBegS]; sv = v2; }
+                    if( stA ) TA_MACDEXT_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(23, 0);
+        TA_SetUnstablePeriod(14, 0);
+        TA_SetUnstablePeriod(13, 0);
+        TA_SetUnstablePeriod(5, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 10 && strncmp(fn, "TA_MACDFIX", 10) == 0 ) {
+        int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(5, (unsigned int)svK);
+        rc = TA_MACDFIX(0, svN - 1, sv_c, optInSignalPeriod, &svBeg, &svNb, sv_b0, sv_b1, sv_b2);
+        lb = TA_MACDFIX_Lookback(optInSignalPeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_MACDFIX_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; double v2 = 0.0; TA_RetCode orc = TA_MACDFIX_Open(optInSignalPeriod, sv_c, svN, &st, &v0, &v1, &v2);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_MACDFIX_Close(st); }
+            TA_SetUnstablePeriod(5, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_MACDFIX_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            double v1 = 0.0, pk1 = 0.0;
+            double v2 = 0.0, pk2 = 0.0;
+            rc = TA_MACDFIX_Open(optInSignalPeriod, sv_c, P, &st, &v0, &v1, &v2);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            if( ok && sv_bitne(v1, sv_b1[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 1; bv = sv_b1[(P - 1) - svBeg]; sv = v1; }
+            if( ok && sv_bitne(v2, sv_b2[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 2; bv = sv_b2[(P - 1) - svBeg]; sv = v2; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_MACDFIX_Peek(st, sv_c[t], &pk0, &pk1, &pk2);
+                TA_MACDFIX_Update(st, sv_c[t], &v0, &v1, &v2);
+                if( doPeek && (sv_bitne(pk0, v0) || sv_bitne(pk1, v1) || sv_bitne(pk2, v2)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+                if(  sv_bitne(v1, sv_b1[t - svBeg]) ) { ok = 0; badBar = t; badOut = 1; bv = sv_b1[t - svBeg]; sv = v1; }
+                if(  sv_bitne(v2, sv_b2[t - svBeg]) ) { ok = 0; badBar = t; badOut = 2; bv = sv_b2[t - svBeg]; sv = v2; }
+            }
+            if( st ) TA_MACDFIX_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MACDFIX(Sidx, svN - 1, sv_c, optInSignalPeriod, &svBegS, &svNbS, sv_b0, sv_b1, sv_b2);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    double v2 = 0.0;
+                    TA_MACDFIX_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MACDFIX_OpenInternal(optInSignalPeriod, sv_c, Sidx, svN, &stA, &v0, &v1, &v2);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( ok && sv_bitne(v2, sv_b2[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 2; bv = sv_b2[(svN - 1) - svBegS]; sv = v2; }
+                    if( stA ) TA_MACDFIX_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(5, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 7 && strncmp(fn, "TA_MAMA", 7) == 0 ) {
+        double optInFastLimit = json_find_double(json, "optInFastLimit");
+        double optInSlowLimit = json_find_double(json, "optInSlowLimit");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(14, (unsigned int)svK);
+        rc = TA_MAMA(0, svN - 1, sv_c, optInFastLimit, optInSlowLimit, &svBeg, &svNb, sv_b0, sv_b1);
+        lb = TA_MAMA_Lookback(optInFastLimit, optInSlowLimit);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_MAMA_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc = TA_MAMA_Open(optInFastLimit, optInSlowLimit, sv_c, svN, &st, &v0, &v1);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_MAMA_Close(st); }
+            TA_SetUnstablePeriod(14, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_MAMA_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            double v1 = 0.0, pk1 = 0.0;
+            rc = TA_MAMA_Open(optInFastLimit, optInSlowLimit, sv_c, P, &st, &v0, &v1);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            if( ok && sv_bitne(v1, sv_b1[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 1; bv = sv_b1[(P - 1) - svBeg]; sv = v1; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_MAMA_Peek(st, sv_c[t], &pk0, &pk1);
+                TA_MAMA_Update(st, sv_c[t], &v0, &v1);
+                if( doPeek && (sv_bitne(pk0, v0) || sv_bitne(pk1, v1)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+                if(  sv_bitne(v1, sv_b1[t - svBeg]) ) { ok = 0; badBar = t; badOut = 1; bv = sv_b1[t - svBeg]; sv = v1; }
+            }
+            if( st ) TA_MAMA_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MAMA(Sidx, svN - 1, sv_c, optInFastLimit, optInSlowLimit, &svBegS, &svNbS, sv_b0, sv_b1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    TA_MAMA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MAMA_OpenInternal(optInFastLimit, optInSlowLimit, sv_c, Sidx, svN, &stA, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( stA ) TA_MAMA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(14, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 7 && strncmp(fn, "TA_MAVP", 7) == 0 ) {
+        int optInMinPeriod = json_find_int(json, "optInMinPeriod");
+        int optInMaxPeriod = json_find_int(json, "optInMaxPeriod");
+        TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
+        { int _pi; for( _pi = 0; _pi < svN; _pi++ ) sv_v[_pi] = (double)(optInMinPeriod + (_pi % (optInMaxPeriod - optInMinPeriod + 3)) - 1); }
+        if( ( !(optInMaxPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) )
+        {
+            TA_MAVP_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc;
+            int rejected;
+            orc = TA_MAVP_Open( optInMinPeriod, optInMaxPeriod, optInMAType, sv_c, sv_v, svN, &st, &v0 );
+            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
+            if( st ) TA_MAVP_Close( st );
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
+            return;
+        }
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(23, (unsigned int)svK);
+        TA_SetUnstablePeriod(14, (unsigned int)svK);
+        TA_SetUnstablePeriod(13, (unsigned int)svK);
+        TA_SetUnstablePeriod(5, (unsigned int)svK);
+        rc = TA_MAVP(0, svN - 1, sv_c, sv_v, optInMinPeriod, optInMaxPeriod, optInMAType, &svBeg, &svNb, sv_b0);
+        lb = TA_MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_MAVP_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_MAVP_Open(optInMinPeriod, optInMaxPeriod, optInMAType, sv_c, sv_v, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_MAVP_Close(st); }
+            TA_SetUnstablePeriod(23, 0);
+            TA_SetUnstablePeriod(14, 0);
+            TA_SetUnstablePeriod(13, 0);
+            TA_SetUnstablePeriod(5, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_MAVP_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_MAVP_Open(optInMinPeriod, optInMaxPeriod, optInMAType, sv_c, sv_v, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_MAVP_Peek(st, sv_c[t], sv_v[t], &pk0);
+                TA_MAVP_Update(st, sv_c[t], sv_v[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_MAVP_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MAVP(Sidx, svN - 1, sv_c, sv_v, optInMinPeriod, optInMaxPeriod, optInMAType, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MAVP_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MAVP_OpenInternal(optInMinPeriod, optInMaxPeriod, optInMAType, sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MAVP_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(23, 0);
+        TA_SetUnstablePeriod(14, 0);
+        TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -5912,6 +8759,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MAX(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MAX_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MAX_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MAX_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -5962,6 +8827,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MAXINDEX(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_MAXINDEX_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MAXINDEX_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_MAXINDEX_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6010,6 +8893,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MEDPRICE(Sidx, svN - 1, sv_h, sv_l, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MEDPRICE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MEDPRICE_OpenInternal(sv_h, sv_l, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MEDPRICE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -6061,6 +8962,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MFI(Sidx, svN - 1, sv_h, sv_l, sv_c, sv_v, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MFI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MFI_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MFI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6110,6 +9029,92 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MIDPOINT(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MIDPOINT_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MIDPOINT_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MIDPOINT_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 11 && strncmp(fn, "TA_MIDPRICE", 11) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        rc = TA_MIDPRICE(0, svN - 1, sv_h, sv_l, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_MIDPRICE_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_MIDPRICE_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_MIDPRICE_Open(optInTimePeriod, sv_h, sv_l, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_MIDPRICE_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_MIDPRICE_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_MIDPRICE_Open(optInTimePeriod, sv_h, sv_l, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_MIDPRICE_Peek(st, sv_h[t], sv_l[t], &pk0);
+                TA_MIDPRICE_Update(st, sv_h[t], sv_l[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_MIDPRICE_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MIDPRICE(Sidx, svN - 1, sv_h, sv_l, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MIDPRICE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MIDPRICE_OpenInternal(optInTimePeriod, sv_h, sv_l, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MIDPRICE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -6161,6 +9166,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MIN(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MIN_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MIN_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MIN_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6210,6 +9233,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MININDEX(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_ib0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    TA_MININDEX_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MININDEX_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( stA ) TA_MININDEX_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -6264,6 +9305,26 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MINMAX(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0, sv_b1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    TA_MINMAX_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MINMAX_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( stA ) TA_MINMAX_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6317,6 +9378,168 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MINMAXINDEX(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_ib0, sv_ib1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    int v0 = 0;
+                    int v1 = 0;
+                    TA_MINMAXINDEX_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MINMAXINDEX_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && v0 != sv_ib0[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 0; bv = (double)sv_ib0[(svN - 1) - svBegS]; sv = (double)v0; }
+                    if( ok && v1 != sv_ib1[(svN - 1) - svBegS] ) { ok = 0; badBar = svN - 1; badOut = 1; bv = (double)sv_ib1[(svN - 1) - svBegS]; sv = (double)v1; }
+                    if( stA ) TA_MINMAXINDEX_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 11 && strncmp(fn, "TA_MINUS_DI", 11) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(16, (unsigned int)svK);
+        rc = TA_MINUS_DI(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_MINUS_DI_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_MINUS_DI_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_MINUS_DI_Open(optInTimePeriod, sv_h, sv_l, sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_MINUS_DI_Close(st); }
+            TA_SetUnstablePeriod(16, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_MINUS_DI_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_MINUS_DI_Open(optInTimePeriod, sv_h, sv_l, sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_MINUS_DI_Peek(st, sv_h[t], sv_l[t], sv_c[t], &pk0);
+                TA_MINUS_DI_Update(st, sv_h[t], sv_l[t], sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_MINUS_DI_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MINUS_DI(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MINUS_DI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MINUS_DI_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MINUS_DI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(16, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 11 && strncmp(fn, "TA_MINUS_DM", 11) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(17, (unsigned int)svK);
+        rc = TA_MINUS_DM(0, svN - 1, sv_h, sv_l, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_MINUS_DM_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_MINUS_DM_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_MINUS_DM_Open(optInTimePeriod, sv_h, sv_l, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_MINUS_DM_Close(st); }
+            TA_SetUnstablePeriod(17, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_MINUS_DM_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_MINUS_DM_Open(optInTimePeriod, sv_h, sv_l, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_MINUS_DM_Peek(st, sv_h[t], sv_l[t], &pk0);
+                TA_MINUS_DM_Update(st, sv_h[t], sv_l[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_MINUS_DM_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MINUS_DM(Sidx, svN - 1, sv_h, sv_l, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MINUS_DM_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MINUS_DM_OpenInternal(optInTimePeriod, sv_h, sv_l, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MINUS_DM_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(17, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6367,6 +9590,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MOM(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MOM_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MOM_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MOM_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6416,6 +9657,95 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MULT(Sidx, svN - 1, sv_c, sv_v, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MULT_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MULT_OpenInternal(sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MULT_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 7 && strncmp(fn, "TA_NATR", 7) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(18, (unsigned int)svK);
+        rc = TA_NATR(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_NATR_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_NATR_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_NATR_Open(optInTimePeriod, sv_h, sv_l, sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_NATR_Close(st); }
+            TA_SetUnstablePeriod(18, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_NATR_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_NATR_Open(optInTimePeriod, sv_h, sv_l, sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_NATR_Peek(st, sv_h[t], sv_l[t], sv_c[t], &pk0);
+                TA_NATR_Update(st, sv_h[t], sv_l[t], sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_NATR_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_NATR(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_NATR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_NATR_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_NATR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(18, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6465,6 +9795,166 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_OBV(Sidx, svN - 1, sv_c, sv_v, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_OBV_Stream *stA = NULL;
+                    TA_RetCode arc = TA_OBV_OpenInternal(sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_OBV_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 10 && strncmp(fn, "TA_PLUS_DI", 10) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(19, (unsigned int)svK);
+        rc = TA_PLUS_DI(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_PLUS_DI_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_PLUS_DI_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_PLUS_DI_Open(optInTimePeriod, sv_h, sv_l, sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_PLUS_DI_Close(st); }
+            TA_SetUnstablePeriod(19, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_PLUS_DI_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_PLUS_DI_Open(optInTimePeriod, sv_h, sv_l, sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_PLUS_DI_Peek(st, sv_h[t], sv_l[t], sv_c[t], &pk0);
+                TA_PLUS_DI_Update(st, sv_h[t], sv_l[t], sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_PLUS_DI_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_PLUS_DI(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_PLUS_DI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_PLUS_DI_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_PLUS_DI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(19, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 10 && strncmp(fn, "TA_PLUS_DM", 10) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(20, (unsigned int)svK);
+        rc = TA_PLUS_DM(0, svN - 1, sv_h, sv_l, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_PLUS_DM_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_PLUS_DM_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_PLUS_DM_Open(optInTimePeriod, sv_h, sv_l, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_PLUS_DM_Close(st); }
+            TA_SetUnstablePeriod(20, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_PLUS_DM_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_PLUS_DM_Open(optInTimePeriod, sv_h, sv_l, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_PLUS_DM_Peek(st, sv_h[t], sv_l[t], &pk0);
+                TA_PLUS_DM_Update(st, sv_h[t], sv_l[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_PLUS_DM_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_PLUS_DM(Sidx, svN - 1, sv_h, sv_l, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_PLUS_DM_Stream *stA = NULL;
+                    TA_RetCode arc = TA_PLUS_DM_OpenInternal(optInTimePeriod, sv_h, sv_l, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_PLUS_DM_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(20, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6473,7 +9963,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInFastPeriod = json_find_int(json, "optInFastPeriod");
         int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
-        if( ( ( !(optInFastPeriod == 1) && ( optInMAType == TA_MAType_TRIMA || optInMAType == TA_MAType_MAMA ) ) || ( !(optInSlowPeriod == 1) && ( optInMAType == TA_MAType_TRIMA || optInMAType == TA_MAType_MAMA ) ) ) )
+        if( ( ( !(optInFastPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) || ( !(optInSlowPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) ) )
         {
             TA_PPO_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc;
             int rejected;
@@ -6536,6 +10026,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_PPO(Sidx, svN - 1, sv_c, optInFastPeriod, optInSlowPeriod, optInMAType, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_PPO_Stream *stA = NULL;
+                    TA_RetCode arc = TA_PPO_OpenInternal(optInFastPeriod, optInSlowPeriod, optInMAType, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_PPO_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(23, 0);
         TA_SetUnstablePeriod(14, 0);
         TA_SetUnstablePeriod(13, 0);
@@ -6590,6 +10098,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ROC(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ROC_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ROC_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ROC_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6639,6 +10165,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ROCP(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ROCP_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ROCP_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ROCP_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -6690,6 +10234,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ROCR(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ROCR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ROCR_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ROCR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6739,6 +10301,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ROCR100(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ROCR100_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ROCR100_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ROCR100_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -6792,6 +10372,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_RSI(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_RSI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_RSI_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_RSI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(21, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -6843,6 +10441,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_SAR(Sidx, svN - 1, sv_h, sv_l, optInAcceleration, optInMaximum, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_SAR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_SAR_OpenInternal(optInAcceleration, optInMaximum, sv_h, sv_l, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_SAR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -6901,6 +10517,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_SAREXT(Sidx, svN - 1, sv_h, sv_l, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_SAREXT_Stream *stA = NULL;
+                    TA_RetCode arc = TA_SAREXT_OpenInternal(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, sv_h, sv_l, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_SAREXT_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6950,6 +10584,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_SIN(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_SIN_Stream *stA = NULL;
+                    TA_RetCode arc = TA_SIN_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_SIN_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -6998,6 +10650,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_SINH(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_SINH_Stream *stA = NULL;
+                    TA_RetCode arc = TA_SINH_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_SINH_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -7049,6 +10719,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_SMA(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_SMA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_SMA_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_SMA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -7097,6 +10785,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_SQRT(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_SQRT_Stream *stA = NULL;
+                    TA_RetCode arc = TA_SQRT_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_SQRT_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -7149,6 +10855,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_STDDEV(Sidx, svN - 1, sv_c, optInTimePeriod, optInNbDev, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_STDDEV_Stream *stA = NULL;
+                    TA_RetCode arc = TA_STDDEV_OpenInternal(optInTimePeriod, optInNbDev, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_STDDEV_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -7159,7 +10883,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_MAType optInSlowK_MAType = (TA_MAType)json_find_int(json, "optInSlowK_MAType");
         int optInSlowD_Period = json_find_int(json, "optInSlowD_Period");
         TA_MAType optInSlowD_MAType = (TA_MAType)json_find_int(json, "optInSlowD_MAType");
-        if( ( ( !(optInSlowK_Period == 1) && ( optInSlowK_MAType == TA_MAType_TRIMA || optInSlowK_MAType == TA_MAType_MAMA ) ) || ( !(optInSlowD_Period == 1) && ( optInSlowD_MAType == TA_MAType_TRIMA || optInSlowD_MAType == TA_MAType_MAMA ) ) ) )
+        if( ( ( !(optInSlowK_Period == 1) && ( optInSlowK_MAType == TA_MAType_MAMA ) ) || ( !(optInSlowD_Period == 1) && ( optInSlowD_MAType == TA_MAType_MAMA ) ) ) )
         {
             TA_STOCH_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc;
             int rejected;
@@ -7225,6 +10949,26 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_STOCH(Sidx, svN - 1, sv_h, sv_l, sv_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &svBegS, &svNbS, sv_b0, sv_b1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    TA_STOCH_Stream *stA = NULL;
+                    TA_RetCode arc = TA_STOCH_OpenInternal(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( stA ) TA_STOCH_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(23, 0);
         TA_SetUnstablePeriod(14, 0);
         TA_SetUnstablePeriod(13, 0);
@@ -7237,7 +10981,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInFastK_Period = json_find_int(json, "optInFastK_Period");
         int optInFastD_Period = json_find_int(json, "optInFastD_Period");
         TA_MAType optInFastD_MAType = (TA_MAType)json_find_int(json, "optInFastD_MAType");
-        if( ( ( !(optInFastD_Period == 1) && ( optInFastD_MAType == TA_MAType_TRIMA || optInFastD_MAType == TA_MAType_MAMA ) ) ) )
+        if( ( ( !(optInFastD_Period == 1) && ( optInFastD_MAType == TA_MAType_MAMA ) ) ) )
         {
             TA_STOCHF_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc;
             int rejected;
@@ -7303,6 +11047,26 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_STOCHF(Sidx, svN - 1, sv_h, sv_l, sv_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &svBegS, &svNbS, sv_b0, sv_b1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    TA_STOCHF_Stream *stA = NULL;
+                    TA_RetCode arc = TA_STOCHF_OpenInternal(optInFastK_Period, optInFastD_Period, optInFastD_MAType, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( stA ) TA_STOCHF_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(23, 0);
         TA_SetUnstablePeriod(14, 0);
         TA_SetUnstablePeriod(13, 0);
@@ -7316,7 +11080,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInFastK_Period = json_find_int(json, "optInFastK_Period");
         int optInFastD_Period = json_find_int(json, "optInFastD_Period");
         TA_MAType optInFastD_MAType = (TA_MAType)json_find_int(json, "optInFastD_MAType");
-        if( ( ( ( !(optInFastD_Period == 1) && ( optInFastD_MAType == TA_MAType_TRIMA || optInFastD_MAType == TA_MAType_MAMA ) ) ) ) )
+        if( ( ( ( !(optInFastD_Period == 1) && ( optInFastD_MAType == TA_MAType_MAMA ) ) ) ) )
         {
             TA_STOCHRSI_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc;
             int rejected;
@@ -7386,6 +11150,26 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_STOCHRSI(Sidx, svN - 1, sv_c, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &svBegS, &svNbS, sv_b0, sv_b1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    TA_STOCHRSI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_STOCHRSI_OpenInternal(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, sv_c, Sidx, svN, &stA, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_bitne(v1, sv_b1[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( stA ) TA_STOCHRSI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(22, 0);
         TA_SetUnstablePeriod(23, 0);
         TA_SetUnstablePeriod(14, 0);
@@ -7441,6 +11225,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_SUB(Sidx, svN - 1, sv_c, sv_v, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_SUB_Stream *stA = NULL;
+                    TA_RetCode arc = TA_SUB_OpenInternal(sv_c, sv_v, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_SUB_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -7490,6 +11292,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_SUM(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_SUM_Stream *stA = NULL;
+                    TA_RetCode arc = TA_SUM_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_SUM_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -7544,6 +11364,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_T3(Sidx, svN - 1, sv_c, optInTimePeriod, optInVFactor, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_T3_Stream *stA = NULL;
+                    TA_RetCode arc = TA_T3_OpenInternal(optInTimePeriod, optInVFactor, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_T3_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(23, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -7594,6 +11432,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_TAN(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_TAN_Stream *stA = NULL;
+                    TA_RetCode arc = TA_TAN_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_TAN_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -7642,6 +11498,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_TANH(Sidx, svN - 1, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_TANH_Stream *stA = NULL;
+                    TA_RetCode arc = TA_TANH_OpenInternal(sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_TANH_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -7695,6 +11569,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_TEMA(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_TEMA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_TEMA_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_TEMA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -7744,6 +11636,92 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_TRANGE(Sidx, svN - 1, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_TRANGE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_TRANGE_OpenInternal(sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_TRANGE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 8 && strncmp(fn, "TA_TRIMA", 8) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int pref[4]; int pc[4];
+        rc = TA_TRIMA(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_TRIMA_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_TRIMA_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_TRIMA_Open(optInTimePeriod, sv_c, svN, &st, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_TRIMA_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_TRIMA_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_TRIMA_Open(optInTimePeriod, sv_c, P, &st, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_TRIMA_Peek(st, sv_c[t], &pk0);
+                TA_TRIMA_Update(st, sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_TRIMA_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_TRIMA(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_TRIMA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_TRIMA_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_TRIMA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -7797,6 +11775,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_TRIX(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_TRIX_Stream *stA = NULL;
+                    TA_RetCode arc = TA_TRIX_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_TRIX_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -7848,6 +11844,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_TSF(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_TSF_Stream *stA = NULL;
+                    TA_RetCode arc = TA_TSF_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_TSF_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -7896,6 +11910,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_TYPPRICE(Sidx, svN - 1, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_TYPPRICE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_TYPPRICE_OpenInternal(sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_TYPPRICE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -7949,6 +11981,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_ULTOSC(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_ULTOSC_Stream *stA = NULL;
+                    TA_RetCode arc = TA_ULTOSC_OpenInternal(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_ULTOSC_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -8000,6 +12050,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_VAR(Sidx, svN - 1, sv_c, optInTimePeriod, optInNbDev, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_VAR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_VAR_OpenInternal(optInTimePeriod, optInNbDev, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_VAR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -8048,6 +12116,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_WCLPRICE(Sidx, svN - 1, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_WCLPRICE_Stream *stA = NULL;
+                    TA_RetCode arc = TA_WCLPRICE_OpenInternal(sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_WCLPRICE_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
@@ -8099,6 +12185,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
         }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_WILLR(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_WILLR_Stream *stA = NULL;
+                    TA_RetCode arc = TA_WILLR_OpenInternal(optInTimePeriod, sv_h, sv_l, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_WILLR_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
         return;
@@ -8148,6 +12252,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
             if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
             if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_WMA(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_WMA_Stream *stA = NULL;
+                    TA_RetCode arc = TA_WMA_OpenInternal(optInTimePeriod, sv_c, Sidx, svN, &stA, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_WMA_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);

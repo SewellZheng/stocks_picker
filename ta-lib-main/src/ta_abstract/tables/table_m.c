@@ -212,7 +212,7 @@ DEF_FUNCTION( MACDEXT,
               TA_GroupId_MomentumIndicators,
               "MACD with controllable MA type",
               "MacdExt",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* MACDEXT END */
 
@@ -263,7 +263,7 @@ DEF_FUNCTION( MACDFIX,
               TA_GroupId_MomentumIndicators,
               "Moving Average Convergence/Divergence Fix 12/26",
               "MacdFix",
-              0
+              TA_FUNC_FLG_STREAM
              );
 /* MACDFIX END */
 
@@ -345,7 +345,7 @@ DEF_FUNCTION( MAMA,
               TA_GroupId_OverlapStudies,
               "MESA Adaptive Moving Average",
               "Mama",
-              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* MAMA END */
 
@@ -402,7 +402,7 @@ DEF_FUNCTION( MAVP,
               TA_GroupId_OverlapStudies,
               "Moving average with variable period",
               "MovingAverageVariablePeriod",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* MAVP END */
 
@@ -556,7 +556,7 @@ DEF_FUNCTION( MIDPRICE,
               TA_GroupId_OverlapStudies,
               "Midpoint Price over period",
               "MidPrice",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* MIDPRICE END */
 
@@ -700,7 +700,7 @@ DEF_FUNCTION( MINUS_DI,
               TA_GroupId_MomentumIndicators,
               "Minus Directional Indicator",
               "MinusDI",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* MINUS_DI END */
 
@@ -726,7 +726,7 @@ DEF_FUNCTION( MINUS_DM,
               TA_GroupId_MomentumIndicators,
               "Minus Directional Movement",
               "MinusDM",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* MINUS_DM END */
 

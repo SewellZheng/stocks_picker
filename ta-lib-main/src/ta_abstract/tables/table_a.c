@@ -71,7 +71,7 @@ DEF_FUNCTION( ACCBANDS,
               TA_GroupId_OverlapStudies,
               "Acceleration Bands",
               "Accbands",
-              TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* ACCBANDS END */
 
@@ -412,7 +412,7 @@ DEF_FUNCTION( ATR,
               TA_GroupId_VolatilityIndicators,
               "Average True Range",
               "Atr",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* ATR END */
 

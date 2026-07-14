@@ -52,23 +52,34 @@ def build_server():
 
 
 def opt_value(oi, which):
-    """`which` in {'default','min'}; return the value in the param's type.
+    """`which` in {'default','min','large'}; return the value in the param's type.
 
     Falls back to the default when the range bound is a non-numeric sentinel
     (`TA_REAL_MIN`, `TA_INTEGER_MIN`, ...) — those are unbounded markers, not
-    values to feed a stream open.
+    values to feed a stream open. `'large'` is default+40 (clamped to the range)
+    for a plain integer param, exercising a big ring/window under the sanitizers;
+    enum/real params keep their default there.
     """
     typ = oi.get("type", "integer")
     is_int = typ.startswith("enum") or typ == "integer"
     cast = int if is_int else float
     default = cast(oi.get("default", 0))
-    if which == "min":
-        rng = oi.get("range")
+    rng = oi.get("range")
+    if which == "min" and rng:
+        try:
+            return cast(rng[0])
+        except (TypeError, ValueError):
+            return default
+    if which == "large" and typ == "integer":
+        # +41 (odd): large ring/window AND a parity flip vs the (often even)
+        # default, so a parity-branched dual mode (TRIMA) sanitizes its odd arm.
+        big = int(default) + 41
         if rng:
             try:
-                return cast(rng[0])
+                big = min(big, int(rng[1]))
             except (TypeError, ValueError):
-                return default
+                pass
+        return big
     return default
 
 
@@ -79,9 +90,9 @@ def requests_for(func):
     unstable = "unstable_period" in (func.get("flags") or [])
     reqs = []
 
-    def build(which, seed, unst):
+    def build(which, seed, unst, shape=0):
         params = {
-            "funcName": f"TA_{name}", "gen_shape": 0, "gen_seed": seed,
+            "funcName": f"TA_{name}", "gen_shape": shape, "gen_seed": seed,
             "gen_n": 320, "unstablePeriod": unst, "compatibility": 0,
         }
         for oi in opts:
@@ -89,11 +100,31 @@ def requests_for(func):
         return json.dumps({"method": "stream_verify", "params": params},
                           separators=(",", ":"))
 
+    has_int = any(oi.get("type", "integer") == "integer" for oi in opts)
     reqs.append(build("default", 101, 0))   # defaults
     if opts:
         reqs.append(build("min", 202, 0))   # minimum period = smallest ring
+    if has_int:
+        # A large period => big ring/window (wraparound), and for a fast-path-skip
+        # function (MIDPRICE) a period above its perf threshold — under the sanitizers.
+        reqs.append(build("large", 505, 0))
     if unstable:
         reqs.append(build("default", 303, 5))  # a warm unstable-period leg
+        if opts:
+            # Minimum period UNDER a warm unstable period: a dual-mode function
+            # (DI/DM) runs its degenerate arm here — which ignores K while the
+            # general arm honors it — so the sanitizers cover that arm at K>0.
+            reqs.append(build("min", 404, 5))
+    if "candlestick" in (func.get("flags") or []):
+        # FUZZ_CANDLE (shape 7 in fuzz_data.h): pattern-rich inside-bar data so a
+        # candlestick stream's ring/state/confirmation paths run under ASan/UBSan/
+        # LSan on FIRING patterns, not just the all-zero no-pattern path.
+        reqs.append(build("default", 606, 0, shape=7))
+    if name == "ACCBANDS":
+        # FUZZ_ZEROSUM (shape 8): high+low==0 bars exercise the degenerate else
+        # branch of the fused 3-sum ring under ASan/UBSan/LSan (its ring read/
+        # recompute path on the divide-avoiding arm).
+        reqs.append(build("default", 707, 0, shape=8))
     return reqs
 
 

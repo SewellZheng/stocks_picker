@@ -147,6 +147,57 @@ pub fn open_signature(func: &FuncDef) -> String {
     )
 }
 
+/// Internal `OpenInternal` prototype (no trailing `;`). This is the real
+/// worker: it takes an extra `startIdx` — the bar within the history buffer at
+/// which warm-up begins (0 = warm from the very first bar). The public `Open`
+/// is a thin wrapper that calls this with 0; only generated code (composed
+/// functions opening a sub-stream) passes a non-zero startIdx, handing the sub
+/// the FULL buffer from bar 0 so it seeds itself exactly as its batch would —
+/// including MA types that seed from the absolute origin (`inReal[0]`) under
+/// Metastock/Tradestation. The seeding stays inside each callee's own body; the
+/// composer never reasons about MA types. Kept out of the public header so the
+/// public API stays simple and this entry point can grow new knobs internally.
+pub fn open_internal_signature(func: &FuncDef) -> String {
+    let n = uname(func);
+    let mut history = String::new();
+    for a in streaming::input_array_names(func) {
+        let _ = write!(history, "const double {a}[], ");
+    }
+    // Uses `struct TA_<n>_Stream` (not the typedef) so the internal header does
+    // not depend on ta_func.h being included first. The tag is forward-declared
+    // at file scope in the internal header, so this refers to the same struct as
+    // the definition (a bare `struct X` first seen in a prototype would otherwise
+    // get prototype scope and collide).
+    format!(
+        "TA_RetCode TA_{n}_OpenInternal( {}{}int startIdx, int historyLen, struct TA_{n}_Stream **stream, {} )",
+        opt_params_sig(func),
+        history,
+        out_params_sig(func)
+    )
+}
+
+/// Emit the public `Open` as a thin wrapper delegating to `OpenInternal` with
+/// startIdx = 0 (the standalone/public default).
+fn emit_open_wrapper(o: &mut String, func: &FuncDef) {
+    let n = uname(func);
+    let mut fwd = String::new();
+    for p in &func.optional_inputs {
+        let _ = write!(fwd, "{}, ", p.name);
+    }
+    for a in streaming::input_array_names(func) {
+        let _ = write!(fwd, "{a}, ");
+    }
+    let outs: String = func
+        .outputs
+        .iter()
+        .map(|out| out.name.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(o, "{}\n{{", open_signature(func));
+    let _ = writeln!(o, "   return TA_{n}_OpenInternal( {fwd}0, historyLen, stream, {outs} );");
+    let _ = writeln!(o, "}}\n");
+}
+
 /// Public `Update` prototype (no trailing `;`).
 pub fn update_signature(func: &FuncDef) -> String {
     let n = uname(func);
@@ -277,6 +328,15 @@ pub fn generate(
         }
         StreamPlan::Composed(cp) => {
             emit_composed(&mut o, func, cp, enums, registry, helpers, &counter);
+        }
+        StreamPlan::DualMode(dmp) => {
+            emit_dual_mode(&mut o, func, dmp, enums, registry, helpers, &counter);
+        }
+        StreamPlan::FastPathSkip(gap) => {
+            emit_fastpath_skip(&mut o, func, gap, enums, registry, helpers, &counter);
+        }
+        StreamPlan::PeriodBank(pbp) => {
+            emit_period_bank(&mut o, func, pbp, registry, helpers, &counter);
         }
     }
 
@@ -760,12 +820,6 @@ fn emit_composed_sub_open(
         let _ = write!(s, "{}, ", render_expression(a, registry, helpers, counter));
         s
     });
-    let lb_args: String = sub
-        .opt_args
-        .iter()
-        .map(|a| render_expression(a, registry, helpers, counter))
-        .collect::<Vec<_>>()
-        .join(", ");
     let s_arg = render_expression(
         &streaming::rewrite_expr(&sub.s_arg, open_map),
         registry,
@@ -778,18 +832,21 @@ fn emit_composed_sub_open(
         helpers,
         counter,
     );
-    // One `&src[subOff]` per callee input (caller outputs live in the scratch
-    // arrays; materialized intermediates and bar inputs keep their name).
+    // One source pointer per callee input, from bar 0 (caller outputs live in
+    // the scratch arrays; materialized intermediates and bar inputs keep their
+    // name). The sub sees the FULL history from the origin and warms up at the
+    // sub-call's own startIdx, so it seeds exactly as its batch would — the
+    // seeding (incl. absolute-origin MA types under Metastock) stays inside the
+    // callee's own Open, no anchor arithmetic here.
     let src_ptrs: String = sub
         .srcs
         .iter()
         .map(|src| {
-            let base = if outputs.contains(src) {
+            if outputs.contains(src) {
                 format!("sc_{src}")
             } else {
                 src.clone()
-            };
-            format!("&{base}[subOff]")
+            }
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -799,18 +856,15 @@ fn emit_composed_sub_open(
         .join(", ");
     let _ = writeln!(
         o,
-        "      /* Sub-stream {si}: {} over `{}` — the same series the",
+        "      /* Sub-stream {si}: {} over `{}`, warmed from bar 0 up to the",
         sub.callee,
         sub.srcs.join(", ")
     );
-    let _ = writeln!(o, "       * batch call below consumes, anchored at its seeding point. */");
+    let _ = writeln!(o, "       * sub-call's own startIdx (the seeding point). */");
     let _ = writeln!(o, "      {{");
-    let _ = writeln!(o, "         int subOff;");
-    let _ = writeln!(o, "         subOff = ({s_arg}) - {cpfx}_Lookback( {lb_args} );");
-    let _ = writeln!(o, "         if( subOff < 0 ) subOff = 0;");
     let _ = writeln!(
         o,
-        "         subRc = {cpfx}_Open( {opt_str}{src_ptrs}, ({e_arg}) - subOff + 1, &sub{si}, {out_dummies} );"
+        "         subRc = {cpfx}_OpenInternal( {opt_str}{src_ptrs}, ({s_arg}), ({e_arg}) + 1, &sub{si}, {out_dummies} );"
     );
     let _ = writeln!(o, "         if( subRc != TA_SUCCESS )");
     let _ = writeln!(o, "         {{");
@@ -853,9 +907,8 @@ fn emit_composed_open(
     counter: &Cell<usize>,
 ) {
     let n = uname(func);
-    let _ = writeln!(o, "{}\n{{", open_signature(func));
+    let _ = writeln!(o, "{}\n{{", open_internal_signature(func));
     let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
-    let _ = writeln!(o, "   int startIdx;");
     let _ = writeln!(o, "   int endIdx;");
     let _ = writeln!(o, "   int dummyBegIdx;");
     let _ = writeln!(o, "   int dummyNBElement;");
@@ -870,8 +923,8 @@ fn emit_composed_open(
 
     emit_open_validation(o, func, outputs, inputs);
 
-    let _ = writeln!(o, "\n   startIdx = 0;");
-    let _ = writeln!(o, "   endIdx = historyLen - 1;");
+    // startIdx arrives as a parameter (0 for standalone opens).
+    let _ = writeln!(o, "\n   endIdx = historyLen - 1;");
     let _ = writeln!(o, "   dummyBegIdx = 0;");
     let _ = writeln!(o, "   dummyNBElement = 0;");
     let _ = writeln!(o, "   subRc = TA_SUCCESS;");
@@ -1020,6 +1073,7 @@ fn emit_composed_open(
     let _ = writeln!(o, "      *stream = sp;");
     let _ = writeln!(o, "      return TA_SUCCESS;");
     let _ = writeln!(o, "   }}\n}}\n");
+    emit_open_wrapper(o, func);
 }
 
 /// The composed-Open expression mapping: out-meta pointers to the dummies —
@@ -1227,7 +1281,7 @@ fn emit_dispatch(
     let _ = writeln!(o, "}};\n");
 
     // --- Open ----------------------------------------------------------------
-    let _ = writeln!(o, "{}\n{{", open_signature(func));
+    let _ = writeln!(o, "{}\n{{", open_internal_signature(func));
     let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
     let _ = writeln!(o, "   TA_RetCode retCode;");
     let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
@@ -1239,6 +1293,7 @@ fn emit_dispatch(
         .collect();
     let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
     let _ = writeln!(o, "   if( historyLen < 1 ) return TA_BAD_PARAM;");
+    let _ = writeln!(o, "   (void)startIdx;");
     o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM"));
     let _ = writeln!(
         o,
@@ -1290,7 +1345,7 @@ fn emit_dispatch(
         let _ = writeln!(o, "         {cp}_Stream *sub = NULL;");
         let _ = writeln!(
             o,
-            "         retCode = {cp}_Open( {opt_str}{bar_args}, historyLen, &sub, {out_args} );",
+            "         retCode = {cp}_OpenInternal( {opt_str}{bar_args}, startIdx, historyLen, &sub, {out_args} );",
         );
         let _ = writeln!(o, "         sp->sub = sub;");
         let _ = writeln!(o, "      }}");
@@ -1318,6 +1373,7 @@ fn emit_dispatch(
     let _ = writeln!(o, "   }}");
     let _ = writeln!(o, "   *stream = sp;");
     let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
+    emit_open_wrapper(o, func);
 
     // --- Update / Peek ---------------------------------------------------------
     let identity_handle_cond =
@@ -1379,13 +1435,55 @@ fn emit_dispatch(
     let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
 }
 
-fn emit_state_struct(o: &mut String, func: &FuncDef, model: &StreamModel) {
-    emit_state_struct_ex(o, func, model, "");
+// ---------------------------------------------------------------------------
+// Dual-mode emission (DI/DM class): two param-selected inline steady loops
+// sharing one handle. See streaming::DualModePlan.
+// ---------------------------------------------------------------------------
+
+/// Render the arm predicate (`optInTimePeriod <= 1`) either bare (Open, where
+/// the param is a local) or handle-qualified (`sp->optInTimePeriod <= 1`, for
+/// the Step which re-selects the mode from the immutable stored param).
+fn render_dual_pred(
+    pred: &Expr,
+    on_handle: bool,
+    func: &FuncDef,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) -> String {
+    let params: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+    let e = if on_handle {
+        streaming::rewrite_expr(pred, &|x| match x {
+            Expr::Var(v) if params.contains(&v) => Expr::Var(format!("sp->{v}")),
+            other => other,
+        })
+    } else {
+        pred.clone()
+    };
+    render_expression(&e, registry, helpers, counter)
 }
 
-/// State struct with extra trailing fields (composed tier: peekMode + typed
-/// sub handles appended after the producer's own fields).
-fn emit_state_struct_ex(o: &mut String, func: &FuncDef, model: &StreamModel, extra: &str) {
+/// The dual-mode state struct: optional params (incl. the discriminator param),
+/// the TYPE-CHECKED UNION of both modes' SCALAR state (a name shared by the two
+/// modes — DI/DM's `prevHigh`/`prevLow`, TRIMA's `numerator` — is one field;
+/// mode-B-only fields sit zeroed under mode A), then the shared NON-SCALAR state
+/// (rings/windows/circs/extrema/feedback/lags). No `mode` tag is stored: the step
+/// re-derives it from the immutable discriminator param (the Dispatch precedent).
+/// The two modes must carry IDENTICAL non-scalar state — TRIMA's odd/even arms
+/// share the very same rings; DI/DM have none. Differing per-arm buffers would
+/// need a real per-arm union (extend then).
+fn emit_dual_state_struct(o: &mut String, func: &FuncDef, ma: &StreamModel, mb: &StreamModel) {
+    let mut a_nonscalar = String::new();
+    emit_nonscalar_struct_fields(&mut a_nonscalar, func, ma);
+    let mut b_nonscalar = String::new();
+    emit_nonscalar_struct_fields(&mut b_nonscalar, func, mb);
+    assert!(
+        a_nonscalar == b_nonscalar,
+        "{}: dual-mode modes carry differing non-scalar state (rings/windows/circs/\
+         extrema/feedback/lags); a real per-arm buffer union is not supported yet",
+        func.name
+    );
+
     let n = uname(func);
     let _ = writeln!(o, "struct TA_{n}_Stream {{");
     for p in &func.optional_inputs {
@@ -1394,9 +1492,161 @@ fn emit_state_struct_ex(o: &mut String, func: &FuncDef, model: &StreamModel, ext
     for (name, c_type) in &func.private_extra_params {
         let _ = writeln!(o, "   {c_type} {name};");
     }
-    for (name, ty) in &model.state {
+    // Union of the two modes' SCALAR state, mode-A order first, dedup by name.
+    let mut seen: std::collections::BTreeMap<String, &crate::ir::VarType> =
+        std::collections::BTreeMap::new();
+    let mut order: Vec<(String, crate::ir::VarType)> = Vec::new();
+    for (name, ty) in ma.state.iter().chain(mb.state.iter()) {
+        if let Some(prev) = seen.get(name) {
+            assert!(
+                *prev == ty,
+                "{}: dual-mode state `{name}` has conflicting types across modes",
+                func.name
+            );
+        } else {
+            seen.insert(name.clone(), ty);
+            order.push((name.clone(), ty.clone()));
+        }
+    }
+    for (name, ty) in &order {
         let _ = writeln!(o, "   {};", c_decl(ty, name));
     }
+    o.push_str(&a_nonscalar); // shared across modes (== b_nonscalar)
+    let _ = writeln!(o, "}};\n");
+}
+
+/// Remove top-level `VarDecl`s whose variable is never referenced elsewhere in
+/// `body`. Used only for the dual-mode Open arms: each arm is `shared prologue
+/// ++ its own arm body`, and the prologue declares the UNION of both modes'
+/// function-top scalars, so the degenerate arm would otherwise carry (and
+/// -Wunused-warn on) the Wilder-path accumulators and warm-up counter it never
+/// touches. A decl's own name is not a "use" (only its initializer is walked),
+/// and a decl kept here is exactly one the arm reads or writes — so dropping
+/// the rest is behavior-preserving.
+fn drop_unused_decls(body: Vec<Statement>) -> Vec<Statement> {
+    let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for s in &body {
+        streaming::walk_stmt_exprs(s, &mut |e| {
+            streaming::walk_expr(e, &mut |x| {
+                if let Expr::Var(v) = x {
+                    used.insert(v.clone());
+                }
+            });
+        });
+    }
+    body.into_iter()
+        .filter(|s| !matches!(s, Statement::VarDecl { name, .. } if !used.contains(name)))
+        .collect()
+}
+
+/// Emit the full dual-mode stream section: one union struct, one predicate-
+/// branching StreamStep, one predicate-branching OpenInternal (+ public Open
+/// wrapper), and Update/Peek/Close reused from the loop tier (mode-independent
+/// for scalar modes — the stored param rides the struct copy through Peek).
+#[allow(clippy::too_many_arguments)]
+fn emit_dual_mode(
+    o: &mut String,
+    func: &FuncDef,
+    dmp: &streaming::DualModePlan,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) {
+    let n = uname(func);
+    let ma = &dmp.mode_a;
+    let mb = &dmp.mode_b;
+
+    // --- state struct -------------------------------------------------------
+    emit_dual_state_struct(o, func, ma, mb);
+    // StreamRelease (frees the shared ring buffers) for a ring-carrying dual mode
+    // (TRIMA); inert for a scalar mode (DI/DM). Emitted before Open, whose
+    // malloc-failure paths call it.
+    emit_release(o, func, ma);
+
+    // --- Step: one function, mode selected from the stored param ------------
+    let bars = bar_params_sig(func);
+    let outs = out_params_sig(func);
+    let _ = writeln!(
+        o,
+        "static void TA_{n}_StreamStep( struct TA_{n}_Stream *sp, {bars}{outs} )\n{{"
+    );
+    let pred_h = render_dual_pred(&dmp.predicate, true, func, registry, helpers, counter);
+    let _ = writeln!(o, "   if( {pred_h} )\n   {{");
+    emit_step_inner(o, ma, enums, registry, helpers, counter, 6, false);
+    let _ = writeln!(o, "   }}\n   else\n   {{");
+    emit_step_inner(o, mb, enums, registry, helpers, counter, 6, false);
+    let _ = writeln!(o, "   }}\n}}\n");
+
+    // --- OpenInternal: shared head, then a predicate branch per mode --------
+    let inputs = streaming::input_array_names(func);
+    let _ = writeln!(o, "{}\n{{", open_internal_signature(func));
+    let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
+    let _ = writeln!(o, "   int endIdx;");
+    let _ = writeln!(o, "   int dummyBegIdx;");
+    let _ = writeln!(o, "   int dummyNBElement;");
+    for out in &ma.outputs {
+        let _ = writeln!(o, "   {} lastValue_{out};", out_c_type(func, out));
+    }
+    for (name, c_type) in &func.private_extra_params {
+        let _ = writeln!(o, "   {c_type} {name};");
+    }
+    emit_open_validation(o, func, &ma.outputs, &inputs);
+    let _ = writeln!(o, "\n   endIdx = historyLen - 1;");
+    let _ = writeln!(o, "   dummyBegIdx = 0;");
+    let _ = writeln!(o, "   dummyNBElement = 0;");
+    for out in &ma.outputs {
+        let init = if out_c_type(func, out) == "int" { "0" } else { "0.0" };
+        let _ = writeln!(o, "   lastValue_{out} = {init};");
+    }
+    let _ = writeln!(
+        o,
+        "   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;"
+    );
+
+    // Each mode transcribes the SHARED PROLOGUE, then its own arm body, then the
+    // SHARED EPILOGUE (empty for the early-return form; the out-meta + return tail
+    // for the if/else form). The prologue computes the mode-appropriate lookback/
+    // clamp, so min-history is per-mode correct by construction. The shared
+    // prologue declares the UNION of both modes' function-top locals, so a per-arm
+    // dead-decl drop is applied: a mode that never touches the other mode's
+    // accumulators or warm-up counter would otherwise emit -Wunused-variable.
+    let compose = |arm_body: &[Statement]| -> Vec<Statement> {
+        let mut v = dmp.prologue.to_vec();
+        v.extend_from_slice(arm_body);
+        v.extend_from_slice(dmp.epilogue);
+        drop_unused_decls(v)
+    };
+    let pred_bare = render_dual_pred(&dmp.predicate, false, func, registry, helpers, counter);
+    let body_a = compose(ma.body);
+    let body_b = compose(mb.body);
+    let _ = writeln!(o, "\n   if( {pred_bare} )\n   {{");
+    emit_open_arm(o, func, ma, &body_a, enums, registry, helpers, counter);
+    let _ = writeln!(o, "   }}\n   else\n   {{");
+    emit_open_arm(o, func, mb, &body_b, enums, registry, helpers, counter);
+    let _ = writeln!(o, "   }}");
+    // Both arms return; keep the compiler happy about the fall-through.
+    let _ = writeln!(o, "\n   return TA_INTERNAL_ERROR;\n}}\n");
+    emit_open_wrapper(o, func);
+
+    // --- Update / Peek / Close (mode-independent for scalar modes) ----------
+    emit_update(o, func);
+    emit_peek(o, func, ma);
+    emit_close(o, func, ma);
+}
+
+fn emit_state_struct(o: &mut String, func: &FuncDef, model: &StreamModel) {
+    emit_state_struct_ex(o, func, model, "");
+}
+
+/// State struct with extra trailing fields (composed tier: peekMode + typed
+/// sub handles appended after the producer's own fields).
+/// The non-scalar handle fields (out-feedback, lag slots, ring/window/circ/
+/// extrema buffers + their Peek mirrors) for one model. Shared by the loop-tier
+/// struct and the dual-mode union struct (whose two modes carry identical
+/// non-scalar state — TRIMA's odd/even arms share the same rings — so the union
+/// emits one model's set).
+fn emit_nonscalar_struct_fields(o: &mut String, func: &FuncDef, model: &StreamModel) {
     for name in &model.out_feedback {
         let _ = writeln!(o, "   {} lastOut_{name};", out_c_type(func, name));
     }
@@ -1443,6 +1693,21 @@ fn emit_state_struct_ex(o: &mut String, func: &FuncDef, model: &StreamModel, ext
             let _ = writeln!(o, "   double *xMirror_{arr};");
         }
     }
+}
+
+fn emit_state_struct_ex(o: &mut String, func: &FuncDef, model: &StreamModel, extra: &str) {
+    let n = uname(func);
+    let _ = writeln!(o, "struct TA_{n}_Stream {{");
+    for p in &func.optional_inputs {
+        let _ = writeln!(o, "   {} {};", opt_param_c_type(&p.param_type), p.name);
+    }
+    for (name, c_type) in &func.private_extra_params {
+        let _ = writeln!(o, "   {c_type} {name};");
+    }
+    for (name, ty) in &model.state {
+        let _ = writeln!(o, "   {};", c_decl(ty, name));
+    }
+    emit_nonscalar_struct_fields(o, func, model);
     o.push_str(extra);
     // A struct must have at least one member (T1 maps carry none).
     if extra.is_empty()
@@ -1512,25 +1777,45 @@ fn emit_step(
         o,
         "static void TA_{n}_StreamStep( struct TA_{n}_Stream *sp, {bars}{outs} )\n{{"
     );
+    let void_sp = model.state.is_empty()
+        && func.optional_inputs.is_empty()
+        && func.private_extra_params.is_empty()
+        && model.lags.is_empty();
+    emit_step_inner(o, model, enums, registry, helpers, counter, 3, void_sp);
+    let _ = writeln!(o, "}}\n");
+}
+
+/// The per-bar step body for ONE model at a given indent: temp decls, an
+/// optional `(void)sp`, the extrema rebase, the rendered transition, and
+/// candle-settings unpacking. Shared by the single-model [`emit_step`] and the
+/// dual-mode step (called once per arm inside the `if (sp->param ...)` branch,
+/// at a deeper indent, with `void_sp = false` since a mode always has state).
+fn emit_step_inner(
+    o: &mut String,
+    model: &StreamModel,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+    indent: usize,
+    void_sp: bool,
+) {
+    let pad = " ".repeat(indent);
     for (name, ty) in &model.temps {
-        let _ = writeln!(o, "   {};", c_decl(ty, name));
+        let _ = writeln!(o, "{pad}{};", c_decl(ty, name));
     }
     if !model.temps.is_empty() {
         let _ = writeln!(o);
     }
-    if model.state.is_empty()
-        && func.optional_inputs.is_empty()
-        && func.private_extra_params.is_empty()
-        && model.lags.is_empty()
-    {
-        let _ = writeln!(o, "   (void)sp;");
+    if void_sp {
+        let _ = writeln!(o, "{pad}(void)sp;");
     }
     emit_extrema_rebase(o, model);
     let transition = streaming::build_transition(model, &CNames)
         .unwrap_or_else(|e| panic!("streaming transition: {e}"));
     let mut body_c = String::new();
     for s in &transition {
-        body_c.push_str(&render_statement_stream(s, 3, enums, registry, helpers, counter));
+        body_c.push_str(&render_statement_stream(s, indent, enums, registry, helpers, counter));
     }
     // Candle settings are read where batch reads them (per step, from the
     // globals — the settings-stability rule). The TA_STREAM_CANDLE* macros
@@ -1538,10 +1823,9 @@ fn emit_step(
     // the rendered body actually references them (no dead decls/-Wunused).
     let step_settings = crate::candle_settings::detect_candle_settings(&model.steady_stmts);
     if !step_settings.is_empty() {
-        o.push_str(&emit_used_candle_unpacking(&step_settings, &body_c, 3));
+        o.push_str(&emit_used_candle_unpacking(&step_settings, &body_c, indent));
     }
     o.push_str(&body_c);
-    let _ = writeln!(o, "}}\n");
 }
 
 /// Extrema automatons carry batch-absolute int indices that grow by one
@@ -1592,23 +1876,25 @@ fn emit_used_candle_unpacking(
     out
 }
 
-fn emit_open(
+/// The `OpenInternal` head shared by the loop tier and the fast-path-skip tier:
+/// signature, declarations, param validation, initialization, and the identity
+/// fast path. The caller then emits the transcribed body arm(s) and closes the
+/// function.
+fn emit_open_head(
     o: &mut String,
     func: &FuncDef,
     model: &StreamModel,
-    enums: &HashMap<String, EnumDef>,
     registry: &Registry,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
 ) {
     let n = uname(func);
     let inputs = streaming::input_array_names(func);
-    let _ = writeln!(o, "{}\n{{", open_signature(func));
+    let _ = writeln!(o, "{}\n{{", open_internal_signature(func));
 
     // --- declarations -------------------------------------------------------
     let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
     emit_circ_hoist(o, func, model);
-    let _ = writeln!(o, "   int startIdx;");
     let _ = writeln!(o, "   int endIdx;");
     let _ = writeln!(o, "   int dummyBegIdx;");
     let _ = writeln!(o, "   int dummyNBElement;");
@@ -1618,17 +1904,13 @@ fn emit_open(
     for (name, c_type) in &func.private_extra_params {
         let _ = writeln!(o, "   {c_type} {name};");
     }
-    // Optional params arrive by value; validation may rewrite them (defaults).
-    let mut opt_names: Vec<&str> = Vec::new();
-    for p in &func.optional_inputs {
-        opt_names.push(&p.name);
-    }
 
     emit_open_validation(o, func, &model.outputs, &inputs);
 
     // --- initialization (after defaults are substituted) ---------------------
-    let _ = writeln!(o, "\n   startIdx = 0;");
-    let _ = writeln!(o, "   endIdx = historyLen - 1;");
+    // startIdx arrives as a parameter (0 for standalone opens; the sub-call's
+    // own startIdx when a composed function opens this as a sub-stream).
+    let _ = writeln!(o, "\n   endIdx = historyLen - 1;");
     let _ = writeln!(o, "   dummyBegIdx = 0;");
     let _ = writeln!(o, "   dummyNBElement = 0;");
     for out in &model.outputs {
@@ -1652,15 +1934,265 @@ fn emit_open(
     );
 
     emit_identity_fast_path(o, func, model, registry, helpers, counter);
+}
 
+fn emit_open(
+    o: &mut String,
+    func: &FuncDef,
+    model: &StreamModel,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) {
+    emit_open_head(o, func, model, registry, helpers, counter);
+    emit_open_arm(o, func, model, model.body, enums, registry, helpers, counter);
+    let _ = writeln!(o, "}}\n");
+    emit_open_wrapper(o, func);
+}
+
+/// Emit the fast-path-skip stream section (MIDPRICE): the standard loop-tier
+/// lifecycle for the general (else) arm's model, except the OpenInternal
+/// transcribes `prologue ++ general-arm body ++ epilogue` — the fast-path
+/// `then` arm is skipped (a batch-only perf specialization). Struct / Step /
+/// Update / Peek / Close are the ordinary single-model emitters.
+#[allow(clippy::too_many_arguments)]
+fn emit_fastpath_skip(
+    o: &mut String,
+    func: &FuncDef,
+    plan: &streaming::FastPathSkipPlan,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) {
+    let model = &plan.model;
+    emit_state_struct(o, func, model);
+    emit_release(o, func, model);
+    emit_step(o, func, model, enums, registry, helpers, counter);
+
+    emit_open_head(o, func, model, registry, helpers, counter);
+    // prologue ++ general arm ++ epilogue: the Open seeds the general path for
+    // every param (the skipped fast-path arm is bit-identical by construction).
+    // drop_unused_decls prunes any fast-path-only locals the skipped arm owned.
+    let mut body = plan.prologue.to_vec();
+    body.extend_from_slice(model.body);
+    body.extend_from_slice(plan.epilogue);
+    let body = drop_unused_decls(body);
+    emit_open_arm(o, func, model, &body, enums, registry, helpers, counter);
+    let _ = writeln!(o, "}}\n");
+    emit_open_wrapper(o, func);
+
+    emit_update(o, func);
+    emit_peek(o, func, model);
+    emit_close(o, func, model);
+}
+
+/// Emit the period-bank stream section (MAVP): a moving average whose period
+/// varies per bar. Open builds a bank of `maxPeriod - minPeriod + 1` sub-MA
+/// streams (one per possible period, each seeded from history via the callee's
+/// `OpenInternal`); Update advances the whole bank in lockstep and outputs the
+/// slot the current bar's clamped period selects; Peek previews only the
+/// selected slot; Close frees the bank. The bank inherits the callee's
+/// per-MAType streamability (MAType_MAMA rejects at the first sub-open).
+#[allow(clippy::too_many_lines)]
+fn emit_period_bank(
+    o: &mut String,
+    func: &FuncDef,
+    plan: &streaming::PeriodBankPlan,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) {
+    let n = uname(func);
+    let pre = callee_prefix(&plan.callee); // e.g. TA_MA
+    let subty = format!("struct {pre}_Stream");
+    let min = &plan.min_param;
+    let max = &plan.max_param;
+    let price = &plan.price_input;
+    let period = &plan.period_input;
+    let out = &plan.output;
+    let inputs = streaming::input_array_names(func);
+
+    // Sub-open opt args in the callee's signature order.
+    let open_opts: String = plan
+        .callee_opts
+        .iter()
+        .map(|a| match a {
+            streaming::PeriodBankArg::Period => format!("{min} + k"),
+            streaming::PeriodBankArg::MAType => plan.matype_param.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // --- state struct -------------------------------------------------------
+    let _ = writeln!(o, "struct TA_{n}_Stream {{");
+    for p in &func.optional_inputs {
+        let _ = writeln!(o, "   {} {};", opt_param_c_type(&p.param_type), p.name);
+    }
+    let _ = writeln!(o, "   int nBank;");
+    let _ = writeln!(o, "   {subty} **bank;");
+    let _ = writeln!(o, "   double *scratch;");
+    let _ = writeln!(o, "}};\n");
+
+    // --- OpenInternal -------------------------------------------------------
+    let _ = writeln!(o, "{}\n{{", open_internal_signature(func));
+    let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
+    let _ = writeln!(o, "   int k, cp, lookbackTotal, subStart;");
+    let _ = writeln!(o, "   TA_RetCode retCode;");
+    let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
+    let _ = writeln!(o, "   *stream = NULL;");
+    let null_checks: Vec<String> = inputs
+        .iter()
+        .cloned()
+        .chain(std::iter::once(out.clone()))
+        .map(|x| format!("!{x}"))
+        .collect();
+    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
+    let _ = writeln!(o, "   if( historyLen < 1 ) return TA_BAD_PARAM;");
+    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM"));
+    // MAVP's own guard: an inverted [min,max] window is invalid (batch rejects).
+    let _ = writeln!(o, "   if( {min} > {max} ) return TA_BAD_PARAM;");
+    // Seed EVERY sub-MA at the SHARED max-period lookback, exactly as the batch
+    // does: it clamps startIdx up to lookback(maxPeriod) and calls the callee
+    // with that same start for every period. Seeding each sub at its OWN (smaller)
+    // lookback would seed the recurrence from a different bar and diverge for
+    // every period < maxPeriod (order-1 for recursive MAs, running-sum residue
+    // for stable ones). This is the OpenInternal start-anchor seam (MACDEXT).
+    let _ = writeln!(
+        o,
+        "   lookbackTotal = {pre}_Lookback( {max}, {matype} );",
+        matype = plan.matype_param
+    );
+    let _ = writeln!(
+        o,
+        "   subStart = startIdx < lookbackTotal ? lookbackTotal : startIdx;"
+    );
+
+    let _ = writeln!(o, "\n   sp = (struct TA_{n}_Stream *)TA_Malloc( sizeof(*sp) );");
+    let _ = writeln!(o, "   if( !sp ) return TA_ALLOC_ERR;");
+    let _ = writeln!(o, "   memset( sp, 0, sizeof(*sp) );");
+    for p in &func.optional_inputs {
+        let _ = writeln!(o, "   sp->{0} = {0};", p.name);
+    }
+    let _ = writeln!(o, "   sp->nBank = {max} - {min} + 1;");
+    let _ = writeln!(
+        o,
+        "   sp->bank = ({subty} **)TA_Malloc( sizeof({subty} *) * (size_t)sp->nBank );"
+    );
+    let _ = writeln!(o, "   if( !sp->bank ) {{ TA_Free( sp ); return TA_ALLOC_ERR; }}");
+    let _ = writeln!(
+        o,
+        "   memset( sp->bank, 0, sizeof({subty} *) * (size_t)sp->nBank );"
+    );
+    let _ = writeln!(
+        o,
+        "   sp->scratch = (double *)TA_Malloc( sizeof(double) * (size_t)sp->nBank );"
+    );
+    let _ = writeln!(
+        o,
+        "   if( !sp->scratch ) {{ TA_Free( sp->bank ); TA_Free( sp ); return TA_ALLOC_ERR; }}"
+    );
+    // Open one sub-MA per possible period, seeded from the full history.
+    let _ = writeln!(o, "\n   for( k = 0; k < sp->nBank; k++ )");
+    let _ = writeln!(o, "   {{");
+    let _ = writeln!(
+        o,
+        "      retCode = {pre}_OpenInternal( {open_opts}, {price}, subStart, historyLen, &sp->bank[k], &sp->scratch[k] );"
+    );
+    let _ = writeln!(o, "      if( retCode != TA_SUCCESS )");
+    let _ = writeln!(o, "      {{");
+    let _ = writeln!(o, "         int j;");
+    let _ = writeln!(o, "         for( j = 0; j < k; j++ ) {pre}_Close( sp->bank[j] );");
+    let _ = writeln!(
+        o,
+        "         TA_Free( sp->scratch ); TA_Free( sp->bank ); TA_Free( sp );"
+    );
+    let _ = writeln!(o, "         return retCode;");
+    let _ = writeln!(o, "      }}");
+    let _ = writeln!(o, "   }}");
+    // Current output: the last history bar's clamped period selects the slot.
+    let _ = writeln!(o, "\n   cp = (int)({period}[historyLen - 1]);");
+    let _ = writeln!(o, "   if( cp < {min} ) cp = {min};");
+    let _ = writeln!(o, "   else if( cp > {max} ) cp = {max};");
+    let _ = writeln!(o, "   *{out} = sp->scratch[cp - {min}];");
+    let _ = writeln!(o, "\n   *stream = sp;");
+    let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
+    let _ = registry;
+    let _ = helpers;
+    let _ = counter;
+    emit_open_wrapper(o, func);
+
+    // --- Update -------------------------------------------------------------
+    let _ = writeln!(o, "{}\n{{", update_signature(func));
+    let _ = writeln!(o, "   int k, cp;");
+    let _ = writeln!(o, "   if( !stream || !{out} ) return TA_BAD_PARAM;");
+    let _ = writeln!(o, "   for( k = 0; k < stream->nBank; k++ )");
+    let _ = writeln!(o, "      {pre}_Update( stream->bank[k], {price}, &stream->scratch[k] );");
+    let _ = writeln!(o, "   cp = (int){period};");
+    let _ = writeln!(o, "   if( cp < stream->{min} ) cp = stream->{min};");
+    let _ = writeln!(o, "   else if( cp > stream->{max} ) cp = stream->{max};");
+    let _ = writeln!(o, "   *{out} = stream->scratch[cp - stream->{min}];");
+    let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
+
+    // --- Peek ---------------------------------------------------------------
+    // Only the SELECTED slot is peeked: the other slots' next values are not the
+    // output for this bar, and peeking is non-committing per sub-handle.
+    let _ = writeln!(o, "{}\n{{", peek_signature(func));
+    let _ = writeln!(o, "   int cp;");
+    let _ = writeln!(o, "   if( !stream || !{out} ) return TA_BAD_PARAM;");
+    let _ = writeln!(o, "   cp = (int){period};");
+    let _ = writeln!(o, "   if( cp < stream->{min} ) cp = stream->{min};");
+    let _ = writeln!(o, "   else if( cp > stream->{max} ) cp = stream->{max};");
+    let _ = writeln!(
+        o,
+        "   {pre}_Peek( stream->bank[cp - stream->{min}], {price}, {out} );"
+    );
+    let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
+
+    // --- Close --------------------------------------------------------------
+    let _ = writeln!(o, "{}\n{{", close_signature(func));
+    let _ = writeln!(o, "   int k;");
+    let _ = writeln!(o, "   if( stream )");
+    let _ = writeln!(o, "   {{");
+    let _ = writeln!(o, "      if( stream->bank )");
+    let _ = writeln!(o, "      {{");
+    let _ = writeln!(o, "         for( k = 0; k < stream->nBank; k++ )");
+    let _ = writeln!(o, "            if( stream->bank[k] ) {pre}_Close( stream->bank[k] );");
+    let _ = writeln!(o, "         TA_Free( stream->bank );");
+    let _ = writeln!(o, "      }}");
+    let _ = writeln!(o, "      if( stream->scratch ) TA_Free( stream->scratch );");
+    let _ = writeln!(o, "      TA_Free( stream );");
+    let _ = writeln!(o, "   }}");
+    let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
+}
+
+/// One Open arm: the transcribed batch body region + live state capture,
+/// wrapped in a `{ ... }` block ending in `emit_open_tail` (publish + return).
+/// The single-model [`emit_open`] calls it once on `model.body`; the dual-mode
+/// Open calls it once per arm on `prologue ++ selected-arm-body`, inside the
+/// predicate `if/else`. Does NOT close the enclosing `OpenInternal` (the caller
+/// owns that and the public wrapper).
+#[allow(clippy::too_many_arguments)]
+fn emit_open_arm(
+    o: &mut String,
+    func: &FuncDef,
+    model: &StreamModel,
+    body: &[Statement],
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) {
+    let n = uname(func);
     // --- transcribed batch body ----------------------------------------------
     let _ = writeln!(o, "\n   {{");
-    let open_body = build_open_body(model);
+    let open_body = build_open_body_from(model, body);
     let mut open_body_c = String::new();
     for s in &open_body {
         open_body_c.push_str(&render_statement(s, 6, false, enums, registry, helpers, counter));
     }
-    let open_settings = crate::candle_settings::detect_candle_settings(model.body);
+    let open_settings = crate::candle_settings::detect_candle_settings(body);
     if !open_settings.is_empty() {
         o.push_str(&emit_used_candle_unpacking(&open_settings, &open_body_c, 6));
     }
@@ -1683,7 +2215,7 @@ fn emit_open(
     }
     emit_circ_capture(o, model, &n);
     emit_open_tail(o, func, model);
-    let _ = writeln!(o, "   }}\n}}\n");
+    let _ = writeln!(o, "   }}");
 }
 
 /// Circ capture: allocate + copy the live batch buffers (contents AND
@@ -1794,7 +2326,13 @@ fn alloc_and_capture(
             let _ = writeln!(s, "{pad}sp->lastOut_{name} = lastValue_{name};");
         }
         for (name, ty) in &model.state {
-            if matches!(
+            if model.parity.as_ref().is_some_and(|p| &p.field == name) {
+                // Synthetic parity field: SEEDED (not captured from a batch
+                // local) to the next bar's parity — the batch replay processed
+                // bars 0..historyLen-1, so the next update handles bar
+                // historyLen. Flipped each update (see build_transition).
+                let _ = writeln!(s, "{pad}sp->{name} = historyLen % 2;");
+            } else if matches!(
                 ty,
                 crate::ir::VarType::RealArray(_) | crate::ir::VarType::IntArray(_)
             ) {
@@ -2088,11 +2626,14 @@ fn circ_static_size(func: &FuncDef, id: &str) -> i64 {
     find(body, id).expect("circbuf prolog present for referenced id")
 }
 
-/// The transcribed batch body for Open: out-param pointers redirected to the
-/// dummies, output-array writes redirected to `lastValue_*`, early returns
-/// mapped (no-data success -> TA_BAD_PARAM; error codes verbatim), final
-/// return dropped so control falls through to the state capture.
-fn build_open_body(model: &StreamModel) -> Vec<Statement> {
+/// Transcribe a batch body region for Open: out-param pointers → dummies,
+/// output-array writes → `lastValue_*`, early returns mapped (no-data success →
+/// TA_BAD_PARAM; error codes verbatim), final return dropped so control falls
+/// through to the state capture. The loop tier passes `model.body`; dual-mode
+/// passes `prologue ++ selected-arm-body` (not `model.body`), so the region is
+/// an explicit parameter. Output redirection / early-return mapping / state
+/// zero-init use `model`'s outputs, out-feedback, and state.
+fn build_open_body_from(model: &StreamModel, body: &[Statement]) -> Vec<Statement> {
     let outputs = model.outputs.clone();
     // Carried-state locals must never be captured uninitialized: a local
     // assigned only inside a data-dependent branch (ADX's minusDI/plusDI on
@@ -2176,7 +2717,7 @@ fn build_open_body(model: &StreamModel) -> Vec<Statement> {
     // early-return guards are kept verbatim: they are the batch's own
     // leak-free error paths (dropping them leaked MFI's heap buffers on the
     // insufficient-history return).
-    let mut body: Vec<Statement> = model.body.to_vec();
+    let mut body: Vec<Statement> = body.to_vec();
     if matches!(body.last(), Some(Statement::Return { .. })) {
         body.pop();
     }

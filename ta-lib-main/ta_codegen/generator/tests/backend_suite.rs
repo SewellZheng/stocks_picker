@@ -6389,7 +6389,7 @@ fn java_array_access() {
 
 /// Pin the generated MA dispatch stream section: tagged handle over the
 /// callees' PUBLIC streams, batch-order ENUM_CASE arms, identity fast path,
-/// unsupported arms (TRIMA until its stream lands, MAMA) rejecting at Open.
+/// the one remaining unsupported arm (MAMA) rejecting at Open.
 #[test]
 fn test_c_ma_dispatch_stream_section() {
     let (mut func, enums) = load_indicator("ma");
@@ -6416,31 +6416,30 @@ fn test_c_ma_dispatch_stream_section() {
         ("Tema", "TA_TEMA"),
         ("Kama", "TA_KAMA"),
         ("T3", "TA_T3"),
+        ("Trima", "TA_TRIMA"), // dual-mode stream (M6c): auto-promoted from reject
     ] {
         assert!(
             c.contains(&format!("case ENUM_CASE(MAType, TA_MAType_{}, {label}):", label.to_uppercase())),
             "supported arm case label for {label}"
         );
-        assert!(c.contains(&format!("{callee}_Open(")), "sub open for {callee}");
+        assert!(c.contains(&format!("{callee}_OpenInternal(")), "sub open for {callee}");
         assert!(c.contains(&format!("{callee}_Update(")), "sub update for {callee}");
         assert!(c.contains(&format!("{callee}_Peek(")), "sub peek for {callee}");
         assert!(c.contains(&format!("{callee}_Close(")), "sub close for {callee}");
     }
-    // T3's fixed vfactor literal forwards positionally.
+    // T3's fixed vfactor literal forwards positionally; the dispatch threads
+    // its own startIdx into the arm's internal open.
     assert!(
-        c.contains("TA_T3_Open( optInTimePeriod, 0.7, inReal, historyLen"),
-        "T3 arm forwards the 0.7 vfactor literal"
+        c.contains("TA_T3_OpenInternal( optInTimePeriod, 0.7, inReal, startIdx, historyLen"),
+        "T3 arm forwards the 0.7 vfactor literal + startIdx"
     );
-    // Unsupported arms reject at Open and never open a sub-stream.
-    assert!(
-        c.contains("case ENUM_CASE(MAType, TA_MAType_TRIMA, Trima): /* no trima stream */"),
-        "TRIMA reject arm"
-    );
+    // MAMA is the only remaining unsupported arm — it rejects at Open and never
+    // opens a sub-stream (TRIMA gained a dual-mode stream in M6c and is now a
+    // supported arm above).
     assert!(
         c.contains("case ENUM_CASE(MAType, TA_MAType_MAMA, Mama): /* no mama stream */"),
         "MAMA reject arm"
     );
-    assert!(!c.contains("TA_TRIMA_Open"), "no TRIMA sub open");
     assert!(!c.contains("TA_MAMA_Open"), "no MAMA sub open");
     // Update/Peek identity short-circuit reads the handle's params.
     assert!(
@@ -6451,6 +6450,336 @@ fn test_c_ma_dispatch_stream_section() {
     assert!(
         c.contains("(const TA_SMA_Stream *)stream->sub"),
         "const sub cast in Peek"
+    );
+}
+
+/// Pin the generated MINUS_DM dual-mode stream section: ONE union state struct,
+/// ONE StreamStep that branches on the stored (immutable) period param — no
+/// separate mode tag — and an OpenInternal that selects the degenerate vs the
+/// Wilder arm by the same predicate. The input `.c` is untouched: both arms are
+/// transcribed verbatim, so the period<=1 raw-DM1 behavior (which ignores the
+/// unstable period) is preserved by construction, not re-derived.
+#[test]
+fn test_c_minus_dm_dual_mode_stream_section() {
+    let (mut func, enums) = load_indicator("minus_dm");
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+
+    // Exactly one StreamStep (not one per mode), branching on the stored param.
+    assert_eq!(c.matches("TA_MINUS_DM_StreamStep( struct").count(), 1, "one StreamStep def");
+    assert!(
+        c.contains("if( sp->optInTimePeriod <= 1 )"),
+        "step selects the degenerate arm from the immutable stored param"
+    );
+    // Wilder smoothing lives in mode B only; the degenerate arm writes raw DM1.
+    assert!(
+        c.contains("sp->prevMinusDM = sp->prevMinusDM - sp->prevMinusDM / sp->optInTimePeriod"),
+        "Wilder recurrence in mode B"
+    );
+    // OpenInternal selects the arm on the bare predicate (param is a local there).
+    assert!(c.contains("if( optInTimePeriod <= 1 )"), "open selects mode by bare predicate");
+    // The union struct carries mode B's accumulator (mode A never touches it).
+    let struct_sec = c
+        .split("struct TA_MINUS_DM_Stream {")
+        .nth(1)
+        .and_then(|s| s.split("};").next())
+        .expect("state struct");
+    assert!(struct_sec.contains("double prevMinusDM;"), "union carries prevMinusDM");
+}
+
+/// Pin the generated HT_DCPERIOD stream section (M7c): the Hilbert-transform
+/// family streams via two general steady-loop normalizations —
+///   (1) CARRIED PARITY: the `today % 2` quadrature branch reads an int
+///       `streamParity` field, seeded `historyLen % 2` in Open and flipped
+///       `1 - streamParity` each step; and
+///   (2) OUTPUT-GATE STRIP: the `if (today >= startIdx)` output gate is promoted
+///       to an UNCONDITIONAL write in the step (Open's batch replay still
+///       suppresses warm-up).
+/// This render pin also neuter-checks build_transition: dropping either
+/// recognizer makes `backends::c::generate` PANIC (the `today` cursor leaks into
+/// the transition), so a clean render proves both fired.
+#[test]
+fn test_c_ht_dcperiod_parity_stream_section() {
+    let (mut func, enums) = load_indicator("ht_dcperiod");
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let stream = &c[c.find("/**** Streaming API *****/").expect("stream section")..];
+
+    // (2) carried parity: int field, seeded in Open, flipped in the step.
+    assert!(stream.contains("int streamParity;"), "streamParity int state field");
+    assert!(
+        stream.contains("sp->streamParity = historyLen % 2;"),
+        "parity seeded to the next bar's parity in Open"
+    );
+    assert!(
+        stream.contains("if( sp->streamParity == 0 )"),
+        "the step branches on the carried parity, not `today % 2`"
+    );
+    assert!(
+        stream.contains("sp->streamParity = 1 - sp->streamParity;"),
+        "parity flips each step"
+    );
+    // (1) output-gate strip: the step writes outReal UNCONDITIONALLY (no
+    // `today >= startIdx` gate survives in the per-bar transition).
+    let step = stream
+        .split("TA_HT_DCPERIOD_StreamStep")
+        .nth(1)
+        .expect("StreamStep emitted");
+    let step_body = &step[..step.find("TA_HT_DCPERIOD_OpenInternal").unwrap_or(step.len())];
+    assert!(
+        step_body.contains("*outReal= sp->smoothPeriod;"),
+        "unconditional smoothPeriod output in the step"
+    );
+    // No absolute-index leak: `startIdx` (the gate RHS) and the raw `% 2` parity
+    // test are both gone — the gate was stripped and `today % 2` was carried.
+    // (A `todayValue` temp legitimately survives; that is the bar input, not the
+    // cursor.)
+    assert!(
+        !step_body.contains("startIdx") && !step_body.contains("% 2"),
+        "no gate (`startIdx`) or raw parity (`% 2`) leaks into the step"
+    );
+    // WMA price smoother rides as a trailing ring; the 8 Hilbert double[3]
+    // buffers ride as fixed-array carried state (memcpy capture).
+    assert!(stream.contains("double *ring_trailingWMAIdx_inReal;"), "WMA trailing ring");
+    assert!(stream.contains("double detrender_Even[3];"), "fixed Hilbert array state");
+    assert!(
+        stream.contains("memcpy( sp->detrender_Even, detrender_Even, sizeof( sp->detrender_Even ) );"),
+        "fixed arrays captured by memcpy in Open"
+    );
+}
+
+/// Pin the generated HT_PHASOR stream section: the SECOND consumer of the two
+/// general normalizations, and the one that stresses their nesting. Unlike
+/// HT_DCPERIOD, HT_PHASOR writes its TWO outputs under an output gate NESTED
+/// INSIDE each odd/even parity arm. This pins that (a) the gate strip reaches
+/// nested gates (both outputs land UNCONDITIONALLY inside `if(streamParity==0)`
+/// / else), (b) the carried-parity machinery is reused verbatim, and (c) both
+/// outputs are written per bar in the arm that runs.
+#[test]
+fn test_c_ht_phasor_nested_gate_two_outputs_stream_section() {
+    let (mut func, enums) = load_indicator("ht_phasor");
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let stream = &c[c.find("/**** Streaming API *****/").expect("stream section")..];
+
+    // Reused carried-parity machinery (same as HT_DCPERIOD).
+    assert!(stream.contains("int streamParity;"), "streamParity int state field");
+    assert!(stream.contains("sp->streamParity = historyLen % 2;"), "parity seeded in Open");
+    assert!(stream.contains("sp->streamParity = 1 - sp->streamParity;"), "parity flips each step");
+
+    let step = stream
+        .split("TA_HT_PHASOR_StreamStep")
+        .nth(1)
+        .expect("StreamStep emitted");
+    let step_body = &step[..step.find("TA_HT_PHASOR_OpenInternal").unwrap_or(step.len())];
+    // The step branches on the carried parity, and BOTH outputs are written
+    // unconditionally in each arm (the nested `today >= startIdx` gate stripped).
+    assert!(step_body.contains("if( sp->streamParity == 0 )"), "parity branch in the step");
+    assert_eq!(
+        step_body.matches("*outQuadrature= sp->Q1;").count(),
+        2,
+        "outQuadrature written unconditionally in BOTH parity arms (nested gate stripped)"
+    );
+    assert!(
+        step_body.contains("*outInPhase= sp->I1ForEvenPrev3;")
+            && step_body.contains("*outInPhase= sp->I1ForOddPrev3;"),
+        "outInPhase written per-arm with the arm's own carried I1"
+    );
+    assert!(
+        !step_body.contains("startIdx") && !step_body.contains("% 2"),
+        "no gate (`startIdx`) or raw parity (`% 2`) leaks into the step"
+    );
+}
+
+/// Small helper: the streaming section of a generated HT function.
+fn ht_stream_section(name: &str) -> String {
+    let (mut func, enums) = load_indicator(name);
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let start = c.find("/**** Streaming API *****/").expect("stream section");
+    c[start..].to_string()
+}
+
+/// Pin HT_DCPHASE: the first coexistence of a smoothPrice CIRCBUF, a WMA trailing
+/// ring, and the eight fixed Hilbert arrays in ONE handle. The DCPhase backward
+/// rescan reads the circbuf; DCPhase is carried across bars.
+#[test]
+fn test_c_ht_dcphase_circ_ring_fixed_coexist() {
+    let s = ht_stream_section("ht_dcphase");
+    assert!(s.contains("double *cb_smoothPrice;"), "smoothPrice circbuf");
+    assert!(s.contains("double *ring_trailingWMAIdx_inReal;"), "WMA trailing ring");
+    assert!(s.contains("double detrender_Even[3];"), "fixed Hilbert array");
+    assert!(s.contains("double DCPhase;"), "DCPhase carried across bars");
+    assert!(s.contains("sp->cb_smoothPrice[sp->smoothPrice_Idx] = sp->smoothedValue;"), "circbuf write");
+    assert!(s.contains("sp->cb_smoothPrice[sp->idx]"), "circbuf backward rescan read");
+    assert!(s.contains("memcpy( sp->cb_smoothPrice, smoothPrice"), "circbuf captured (contents+phase) in Open");
+    assert!(s.contains("*outReal= sp->DCPhase;"), "unconditional DCPhase output (gate stripped)");
+}
+
+/// Pin HT_SINE: DCPHASE's circbuf/ring body with TWO sin() outputs.
+#[test]
+fn test_c_ht_sine_two_sin_outputs() {
+    let s = ht_stream_section("ht_sine");
+    assert!(s.contains("double *cb_smoothPrice;"), "shares DCPHASE's circbuf");
+    let step = s.split("TA_HT_SINE_StreamStep").nth(1).unwrap();
+    let step = &step[..step.find("TA_HT_SINE_OpenInternal").unwrap_or(step.len())];
+    assert!(step.contains("*outSine="), "outSine written unconditionally");
+    assert!(step.contains("*outLeadSine="), "outLeadSine written unconditionally");
+    assert!(!step.contains("startIdx") && !step.contains("% 2"), "no cursor leak in the step");
+}
+
+/// Pin HT_TRENDLINE: a rescan window over the RAW input (the padded-loop source
+/// rewrite of `inReal[idx--]`), no circbuf, single output.
+#[test]
+fn test_c_ht_trendline_raw_price_window() {
+    let s = ht_stream_section("ht_trendline");
+    assert!(s.contains("double *win_i_inReal;"), "rescan window over raw inReal");
+    assert!(!s.contains("cb_smoothPrice"), "no smoothPrice circbuf (removed, issue #88)");
+    let step = s.split("TA_HT_TRENDLINE_StreamStep").nth(1).unwrap();
+    let step = &step[..step.find("TA_HT_TRENDLINE_OpenInternal").unwrap_or(step.len())];
+    assert!(step.contains("sp->win_i_inReal[(sp->winPos_i + sp->winCap_i - sp->i >= sp->winCap_i) ?"), "de-modulo window read of bar today-i");
+    assert!(step.contains("if( sp->i < sp->DCPeriodInt )"), "guarded to the first DCPeriodInt bars");
+    assert!(step.contains("*outReal= sp->tempReal2;"), "unconditional trendline output");
+}
+
+/// Pin HT_TRENDMODE: the full HT union — WMA ring + smoothPrice circbuf + a
+/// raw-price rescan window (separate counter j) + an INTEGER output.
+#[test]
+fn test_c_ht_trendmode_full_union() {
+    let s = ht_stream_section("ht_trendmode");
+    assert!(s.contains("double *ring_trailingWMAIdx_inReal;"), "WMA ring");
+    assert!(s.contains("double *cb_smoothPrice;"), "smoothPrice circbuf");
+    assert!(s.contains("double *win_j_inReal;"), "raw-price rescan window (counter j)");
+    let step = s.split("TA_HT_TRENDMODE_StreamStep").nth(1).unwrap();
+    let step = &step[..step.find("TA_HT_TRENDMODE_OpenInternal").unwrap_or(step.len())];
+    assert!(step.contains("*outInteger="), "integer trend-mode output, unconditional");
+    assert!(step.contains("sp->cb_smoothPrice[sp->idx]"), "circbuf DC-phase read");
+    assert!(step.contains("sp->win_j_inReal[(sp->winPos_j + sp->winCap_j - sp->j >= sp->winCap_j) ?"), "de-modulo window trendline read");
+    assert!(!step.contains("startIdx") && !step.contains("% 2"), "no cursor leak in the step");
+}
+
+/// Pin MAMA — the last MAType function to stream (empties the every-MAType ratchet
+/// blocklist). It is an ordinary HT function (WMA ring + parity) with two real
+/// optional params and two coupled outputs (mama/fama) written in a top-level gate.
+/// (MA's *dispatch* still rejects MAType_MAMA at Open — a two-output callee cannot
+/// be a 1:1 delegation into MA's single output; pinned by ma_derives_dispatch_plan.)
+#[test]
+fn test_c_mama_two_outputs_and_params() {
+    let s = ht_stream_section("mama");
+    assert!(s.contains("double optInFastLimit;") && s.contains("double optInSlowLimit;"), "real params carried in the handle");
+    assert!(s.contains("double mama;") && s.contains("double fama;"), "coupled mama/fama carried");
+    let step = s.split("TA_MAMA_StreamStep").nth(1).unwrap();
+    let step = &step[..step.find("TA_MAMA_OpenInternal").unwrap_or(step.len())];
+    assert!(step.contains("if( sp->streamParity == 0 )"), "parity branch");
+    assert!(step.contains("*outMAMA= sp->mama;") && step.contains("*outFAMA= sp->fama;"), "both outputs written unconditionally (gate stripped)");
+    assert!(step.contains("sp->optInFastLimit") && step.contains("sp->optInSlowLimit"), "params drive the adaptive alpha");
+    assert!(!step.contains("startIdx") && !step.contains("% 2"), "no cursor leak in the step");
+}
+
+/// Pin MAVP — the last function and the campaign's one genuinely-new tier: a
+/// moving average whose period varies per bar, streamed as a BANK of sub-MA
+/// streams. Open builds `maxPeriod - minPeriod + 1` sub-streams (each via the
+/// callee's OpenInternal) with all-freed-so-far OOM; Update advances the whole
+/// bank in lockstep and indexes by the clamped period; Peek previews only the
+/// selected slot; Close frees the bank.
+#[test]
+fn test_c_mavp_period_bank() {
+    let s = ht_stream_section("mavp");
+    // Bank of sub-MA streams + scratch, sized at Open.
+    assert!(s.contains("struct TA_MA_Stream **bank;"), "bank of sub-MA handles");
+    assert!(s.contains("double *scratch;"), "per-slot lockstep output scratch");
+    assert!(s.contains("sp->nBank = optInMaxPeriod - optInMinPeriod + 1;"), "one slot per possible period");
+    assert!(s.contains("if( optInMinPeriod > optInMaxPeriod ) return TA_BAD_PARAM;"), "inverted window rejected");
+    // Every sub-MA is seeded at the SHARED max-period lookback (matching batch),
+    // NOT at its own lookback — else period < maxPeriod diverges. This bug fooled
+    // every objective gate (the fuzz period-selector always clamped to maxPeriod);
+    // pin the anchor so it can never regress.
+    assert!(s.contains("lookbackTotal = TA_MA_Lookback( optInMaxPeriod, optInMAType );"), "shared max-period lookback anchor");
+    assert!(s.contains("subStart = startIdx < lookbackTotal ? lookbackTotal : startIdx;"), "clamp start to the shared anchor");
+    // Open: bank loop opening each period's sub-stream at subStart, all-freed-so-far on OOM.
+    assert!(s.contains("TA_MA_OpenInternal( optInMinPeriod + k, optInMAType, inReal, subStart, historyLen,"), "sub-open per period at the shared anchor, MAType forwarded");
+    assert!(s.contains("for( j = 0; j < k; j++ ) TA_MA_Close( sp->bank[j] );"), "frees sub-streams opened so far on failure");
+    // Update: lockstep advance + clamp-indexed output.
+    let upd = s.split("TA_MAVP_Update").nth(1).unwrap();
+    let upd = &upd[..upd.find("TA_MAVP_Peek").unwrap_or(upd.len())];
+    assert!(upd.contains("for( k = 0; k < stream->nBank; k++ )") && upd.contains("TA_MA_Update( stream->bank[k], inReal, &stream->scratch[k] );"), "advances the whole bank in lockstep");
+    assert!(upd.contains("if( cp < stream->optInMinPeriod ) cp = stream->optInMinPeriod;"), "clamps the per-bar period");
+    assert!(upd.contains("*outReal = stream->scratch[cp - stream->optInMinPeriod];"), "outputs the selected slot");
+    // Peek: only the selected slot (non-committing).
+    let peek = s.split("TA_MAVP_Peek").nth(1).unwrap();
+    let peek = &peek[..peek.find("TA_MAVP_Close").unwrap_or(peek.len())];
+    assert!(peek.contains("TA_MA_Peek( stream->bank[cp - stream->optInMinPeriod], inReal, outReal );"), "peeks only the selected slot");
+    assert!(!peek.contains("TA_MA_Update"), "peek never advances the bank");
+    // Close frees every sub-stream + the arrays.
+    assert!(s.contains("if( stream->bank[k] ) TA_MA_Close( stream->bank[k] );"), "close frees each sub-stream");
+}
+
+/// Pin the generated TRIMA dual-mode (if/else) stream section: the odd/even arms
+/// are genuinely different but share identical rings, so the handle carries ONE
+/// ring set + one StreamStep branching on the stored parity; the ring buffers are
+/// freed by StreamRelease and mirrored in Peek.
+#[test]
+fn test_c_trima_dual_mode_rings_stream_section() {
+    let (mut func, enums) = load_indicator("trima");
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+
+    // Union struct: shared triangular-sum scalars + the SHARED rings (one set).
+    assert!(
+        c.contains("double *ring_middleIdx_inReal;") && c.contains("double *ring_trailingIdx_inReal;"),
+        "shared middleIdx/trailingIdx rings (one set, both arms)"
+    );
+    assert!(c.contains("double numerator;"), "shared triangular-sum accumulator");
+    assert_eq!(c.matches("TA_TRIMA_StreamStep( struct").count(), 1, "one StreamStep");
+    assert!(
+        c.contains("if( sp->optInTimePeriod % 2 == 1 )"),
+        "step branches on the stored parity"
+    );
+    assert!(c.contains("TA_TRIMA_StreamRelease"), "StreamRelease frees the rings");
+    assert!(c.contains("ringMirror_middleIdx_inReal"), "Peek ring mirror");
+}
+
+/// Pin the generated MIDPRICE fast-path-skip stream section: the `if(period<=20)`
+/// arms are bit-identical (batch perf split), so ONLY the general (else) T4
+/// extrema arm is streamed — one StreamStep, no mode branch, and the Open does
+/// not transcribe the fast-path `period<=20` window-rescan arm.
+#[test]
+fn test_c_midprice_fastpath_skip_stream_section() {
+    let (mut func, enums) = load_indicator("midprice");
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+
+    assert!(c.contains("struct TA_MIDPRICE_Stream {"), "state struct");
+    assert!(
+        c.contains("double *x_inHigh;") && c.contains("double *x_inLow;"),
+        "T4 extrema rings for high/low"
+    );
+    assert_eq!(c.matches("TA_MIDPRICE_StreamStep( struct").count(), 1, "one StreamStep");
+    assert!(
+        c.contains("*outReal= (sp->highest + sp->lowest) / 2.0;"),
+        "midprice combine in the extrema step"
+    );
+    // The fast-path window-rescan then-arm is NOT transcribed into the Open: no
+    // `optInTimePeriod <= 20` branch survives (only the general else arm streams).
+    let open = c
+        .split("TA_MIDPRICE_OpenInternal")
+        .nth(1)
+        .expect("OpenInternal emitted");
+    assert!(
+        !open.contains("optInTimePeriod <= 20"),
+        "the perf fast-path arm must be skipped, not transcribed"
     );
 }
 
@@ -6475,9 +6804,9 @@ fn test_c_stoch_composed_stream_section() {
 
     // Open: sub0 opens on the RAW series strictly BEFORE the in-place
     // smoothing call; sub1 after it, before the %D call.
-    let sub0 = stream.find("subRc = TA_MA_Open( optInSlowK_Period, optInSlowK_MAType, &tempBuffer[subOff]").expect("sub0 open");
+    let sub0 = stream.find("subRc = TA_MA_OpenInternal( optInSlowK_Period, optInSlowK_MAType, tempBuffer").expect("sub0 open");
     let ma1 = stream.find("retCode = TA_MA_Unguarded(0,outIdx - 1,tempBuffer").expect("in-place smoothing");
-    let sub1 = stream.find("subRc = TA_MA_Open( optInSlowD_Period, optInSlowD_MAType, &tempBuffer[subOff]").expect("sub1 open");
+    let sub1 = stream.find("subRc = TA_MA_OpenInternal( optInSlowD_Period, optInSlowD_MAType, tempBuffer").expect("sub1 open");
     let ma2 = stream.find("optInSlowD_MAType,&dummyBegIdx,&dummyNBElement,sc_outSlowD").expect("%D call");
     assert!(sub0 < ma1 && ma1 < sub1 && sub1 < ma2, "sub-open ordering");
 

@@ -58,7 +58,7 @@ DEF_FUNCTION( HT_DCPERIOD,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - Dominant Cycle Period",
               "HtDcPeriod",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_DCPERIOD END */
 
@@ -82,7 +82,7 @@ DEF_FUNCTION( HT_DCPHASE,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - Dominant Cycle Phase",
               "HtDcPhase",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_DCPHASE END */
 
@@ -113,7 +113,7 @@ DEF_FUNCTION( HT_PHASOR,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - Phasor Components",
               "HtPhasor",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_PHASOR END */
 
@@ -144,7 +144,7 @@ DEF_FUNCTION( HT_SINE,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - SineWave",
               "HtSine",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_SINE END */
 
@@ -168,7 +168,7 @@ DEF_FUNCTION( HT_TRENDLINE,
               TA_GroupId_OverlapStudies,
               "Hilbert Transform - Instantaneous Trendline",
               "HtTrendline",
-              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_OVERLAP
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* HT_TRENDLINE END */
 
@@ -192,7 +192,7 @@ DEF_FUNCTION( HT_TRENDMODE,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - Trend vs Cycle Mode",
               "HtTrendMode",
-              TA_FUNC_FLG_UNST_PER
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_TRENDMODE END */
 

@@ -610,7 +610,7 @@ static void TA_CDLMATHOLD_StreamStep( struct TA_CDLMATHOLD_Stream *sp, double in
    sp->BodyPeriodTotal[4] = sp->BodyPeriodTotal[4] + (TA_STREAM_CANDLERANGE(BodyLong,sp->lag4_inOpen,sp->lag4_inHigh,sp->lag4_inLow,sp->lag4_inClose) - TA_STREAM_CANDLERANGE(BodyLong,sp->ring_BodyLongTrailingIdx_inOpen[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 4) % sp->ringCap_BodyLongTrailingIdx],sp->ring_BodyLongTrailingIdx_inHigh[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 4) % sp->ringCap_BodyLongTrailingIdx],sp->ring_BodyLongTrailingIdx_inLow[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 4) % sp->ringCap_BodyLongTrailingIdx],sp->ring_BodyLongTrailingIdx_inClose[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 4) % sp->ringCap_BodyLongTrailingIdx]));
    for( sp->totIdx = 3; sp->totIdx >= 1; sp->totIdx -= 1 )
    {
-      sp->BodyPeriodTotal[sp->totIdx] = sp->BodyPeriodTotal[sp->totIdx] + (TA_STREAM_CANDLERANGE(BodyShort,sp->win_totIdx_inOpen[(sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx) % sp->winCap_totIdx],sp->win_totIdx_inHigh[(sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx) % sp->winCap_totIdx],sp->win_totIdx_inLow[(sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx) % sp->winCap_totIdx],sp->win_totIdx_inClose[(sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx) % sp->winCap_totIdx]) - TA_STREAM_CANDLERANGE(BodyShort,sp->ring_BodyShortTrailingIdx_inOpen[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - sp->totIdx) % sp->ringCap_BodyShortTrailingIdx],sp->ring_BodyShortTrailingIdx_inHigh[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - sp->totIdx) % sp->ringCap_BodyShortTrailingIdx],sp->ring_BodyShortTrailingIdx_inLow[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - sp->totIdx) % sp->ringCap_BodyShortTrailingIdx],sp->ring_BodyShortTrailingIdx_inClose[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - sp->totIdx) % sp->ringCap_BodyShortTrailingIdx]));
+      sp->BodyPeriodTotal[sp->totIdx] = sp->BodyPeriodTotal[sp->totIdx] + (TA_STREAM_CANDLERANGE(BodyShort,sp->win_totIdx_inOpen[(sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx >= sp->winCap_totIdx) ? sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx - sp->winCap_totIdx : sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx],sp->win_totIdx_inHigh[(sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx >= sp->winCap_totIdx) ? sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx - sp->winCap_totIdx : sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx],sp->win_totIdx_inLow[(sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx >= sp->winCap_totIdx) ? sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx - sp->winCap_totIdx : sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx],sp->win_totIdx_inClose[(sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx >= sp->winCap_totIdx) ? sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx - sp->winCap_totIdx : sp->winPos_totIdx + sp->winCap_totIdx - sp->totIdx]) - TA_STREAM_CANDLERANGE(BodyShort,sp->ring_BodyShortTrailingIdx_inOpen[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - sp->totIdx) % sp->ringCap_BodyShortTrailingIdx],sp->ring_BodyShortTrailingIdx_inHigh[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - sp->totIdx) % sp->ringCap_BodyShortTrailingIdx],sp->ring_BodyShortTrailingIdx_inLow[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - sp->totIdx) % sp->ringCap_BodyShortTrailingIdx],sp->ring_BodyShortTrailingIdx_inClose[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - sp->totIdx) % sp->ringCap_BodyShortTrailingIdx]));
    }
    sp->lag4_inOpen = sp->lag3_inOpen;
    sp->lag3_inOpen = sp->lag2_inOpen;
@@ -653,10 +653,9 @@ static void TA_CDLMATHOLD_StreamStep( struct TA_CDLMATHOLD_Stream *sp, double in
    }
 }
 
-TA_LIB_API TA_RetCode TA_CDLMATHOLD_Open( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLMATHOLD_Stream **stream, int *outInteger )
+TA_RetCode TA_CDLMATHOLD_OpenInternal( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, struct TA_CDLMATHOLD_Stream **stream, int *outInteger )
 {
    struct TA_CDLMATHOLD_Stream *sp;
-   int startIdx;
    int endIdx;
    int dummyBegIdx;
    int dummyNBElement;
@@ -671,7 +670,6 @@ TA_LIB_API TA_RetCode TA_CDLMATHOLD_Open( double optInPenetration, const double 
    else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 )
       return TA_BAD_PARAM;
 
-   startIdx = 0;
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
    dummyNBElement = 0;
@@ -912,6 +910,11 @@ TA_LIB_API TA_RetCode TA_CDLMATHOLD_Open( double optInPenetration, const double 
       *stream = sp;
       return TA_SUCCESS;
    }
+}
+
+TA_LIB_API TA_RetCode TA_CDLMATHOLD_Open( double optInPenetration, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, TA_CDLMATHOLD_Stream **stream, int *outInteger )
+{
+   return TA_CDLMATHOLD_OpenInternal( optInPenetration, inOpen, inHigh, inLow, inClose, 0, historyLen, stream, outInteger );
 }
 
 TA_LIB_API TA_RetCode TA_CDLMATHOLD_Update( TA_CDLMATHOLD_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )

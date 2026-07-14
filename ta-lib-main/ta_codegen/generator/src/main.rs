@@ -334,6 +334,35 @@ fn stream_census(seed_yaml: bool) -> i32 {
                             cmp.intermediates.len()
                         );
                     }
+                    ta_codegen_lib::streaming::StreamPlan::DualMode(dm) => {
+                        derived_tc += 1;
+                        println!(
+                            "{:<10} {:<14} TC dualmode modeA={}/state={} modeB={}/state={}",
+                            status,
+                            func.name,
+                            dm.mode_a.tier.as_str(),
+                            dm.mode_a.state.len(),
+                            dm.mode_b.tier.as_str(),
+                            dm.mode_b.state.len()
+                        );
+                    }
+                    ta_codegen_lib::streaming::StreamPlan::FastPathSkip(ga) => {
+                        derived_tc += 1;
+                        println!(
+                            "{:<10} {:<14} TC fastpath-skip {} state={}",
+                            status,
+                            func.name,
+                            ga.model.tier.as_str(),
+                            ga.model.state.len()
+                        );
+                    }
+                    ta_codegen_lib::streaming::StreamPlan::PeriodBank(pb) => {
+                        derived_tc += 1;
+                        println!(
+                            "{:<10} {:<14} TC period-bank callee={} min={} max={}",
+                            status, func.name, pb.callee, pb.min_param, pb.max_param
+                        );
+                    }
                 }
                 if seed_yaml && !func.streaming {
                     let yaml_path = root
@@ -791,6 +820,7 @@ fn generate_bench(backend_filter: Option<&str>) {
             let dir = out_base.join("c");
             std::fs::create_dir_all(&dir).unwrap();
             ta_codegen_lib::bench_gen::write_c_bench(&funcs, &dir);
+            ta_codegen_lib::bench_gen::write_c_stream_bench(&funcs, &dir);
         } else {
             eprintln!("generate-bench: unsupported backend '{}' (only 'c' is supported)", backend);
         }
@@ -952,6 +982,37 @@ fn build_servers(backend_filter: Option<&str>) {
                             "-o",
                             bench_dst.to_str().unwrap(),
                             bench_src.to_str().unwrap(),
+                            &format!("-I{}", bench_inc_c.to_str().unwrap()),
+                            &format!("-I{}", include_dir.to_str().unwrap()),
+                            &format!("-I{}", src_dir.to_str().unwrap()),
+                            &format!("-I{}", ta_func_dir.to_str().unwrap()),
+                            &format!("-I{}", ta_common_dir.to_str().unwrap()),
+                        ])
+                        .args(COMMON_GCC_FLAGS)
+                        .status()
+                    {
+                        Ok(s) if s.success() => println!("OK"),
+                        Ok(s) => {
+                            failures += 1;
+                            println!("FAILED (exit {})", s.code().unwrap_or(-1));
+                        }
+                        Err(e) => {
+                            failures += 1;
+                            println!("FAILED (gcc not found: {})", e);
+                        }
+                    }
+                }
+                // Also build the streaming benchmark binary if source exists
+                let sbench_src = out_base.join("c/ta_bench_stream.c");
+                if sbench_src.exists() {
+                    print!("  Building C stream bench... ");
+                    let sbench_dst = bin_dir.join("ta_bench_stream");
+                    let bench_inc_c = out_base.join("c");
+                    match std::process::Command::new("gcc")
+                        .args([
+                            "-o",
+                            sbench_dst.to_str().unwrap(),
+                            sbench_src.to_str().unwrap(),
                             &format!("-I{}", bench_inc_c.to_str().unwrap()),
                             &format!("-I{}", include_dir.to_str().unwrap()),
                             &format!("-I{}", src_dir.to_str().unwrap()),

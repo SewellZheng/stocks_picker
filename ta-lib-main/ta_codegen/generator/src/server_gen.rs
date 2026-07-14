@@ -314,6 +314,24 @@ pub fn generate_c_header_stub(funcs: &[FuncDef]) -> String {
     push_private_decls(&mut s, funcs);
     s.push('\n');
 
+    // Internal stream-open declarations. TA_*_OpenInternal is the startIdx-aware
+    // worker behind the public TA_*_Open (a thin wrapper passing startIdx=0). It
+    // is NOT exported / not in the public header: only generated code (a composed
+    // function opening a sub-stream) calls it cross-TU, so it needs a plain extern
+    // forward declaration here.
+    s.push_str("/* Internal stream-open declarations (startIdx-aware; behind the public Open) */\n");
+    // Forward-declare each stream handle tag at file scope so the prototypes
+    // below refer to the same struct as the definitions (a bare `struct X` first
+    // seen inside a prototype would get prototype scope and collide).
+    for func in funcs.iter().filter(|f| f.streaming) {
+        s.push_str(&format!("struct TA_{}_Stream;\n", func.name.to_uppercase()));
+    }
+    for func in funcs.iter().filter(|f| f.streaming) {
+        s.push_str(&crate::backends::c_stream::open_internal_signature(func));
+        s.push_str(";\n");
+    }
+    s.push('\n');
+
     s.push_str("/* Internal helper forward declarations */\n");
     s.push_str("extern void stddev_using_precalc_ma(const double inReal[], const double inMovAvg[], int inMovAvgBegIdx, int inMovAvgNbElement, int timePeriod, double output[]);\n");
     s.push('\n');
@@ -731,6 +749,37 @@ fn emit_sv_batch_fail_tail(s: &mut String, candle: bool) {
     s.push_str("        }\n");
 }
 
+/// Period-bank functions (MAVP): the fuzz period-selector input (mapped to a
+/// generic real series ~volume, always >= 1000) would clamp to `maxPeriod` at
+/// every bar, so the stream_verify would only ever exercise ONE bank slot and
+/// pass vacuously for all others. Overwrite the selector with a ramp spanning
+/// `[minPeriod-1, maxPeriod+1]` (fed identically to the batch and the stream),
+/// so every bank slot AND both clamp directions are exercised. Regenerated per
+/// request (fuzz_gen runs first), so this override does not leak to other funcs.
+fn emit_sv_period_bank_input(
+    s: &mut String,
+    func: &FuncDef,
+    funcs: &[FuncDef],
+    input_arrays: &[&str],
+) {
+    let lookup = crate::streaming::FuncsLookup(funcs);
+    let Ok(crate::streaming::StreamPlan::PeriodBank(pb)) =
+        crate::streaming::validate_streamable(func, &lookup)
+    else {
+        return;
+    };
+    let inputs = crate::streaming::input_array_names(func);
+    let Some(idx) = inputs.iter().position(|i| *i == pb.period_input) else {
+        return;
+    };
+    let arr = input_arrays[idx];
+    s.push_str(&format!(
+        "        {{ int _pi; for( _pi = 0; _pi < svN; _pi++ ) {arr}[_pi] = (double)({min} + (_pi % ({max} - {min} + 3)) - 1); }}\n",
+        min = pb.min_param,
+        max = pb.max_param
+    ));
+}
+
 /// Dispatch functions (MA): enum values whose arm has no sub-stream reject
 /// at Open — a DOCUMENTED capability limitation, verified loudly here
 /// (never a silent vacuous pass). The identity path (period==1) is exempt:
@@ -943,6 +992,39 @@ fn sv_reject_condition(
                 Some(format!("( {} )", parts.join(" || ")))
             }
         }
+        Ok(crate::streaming::StreamPlan::PeriodBank(pb)) => {
+            // The bank opens the callee (`ma`) at every period in [min,max], so
+            // MAVP rejects when the callee rejects for the forwarded MAType at
+            // ANY of those periods. The callee's period guard (its `period == 1`
+            // identity path exempts MAType=MAMA) is resolved against the LARGEST
+            // period in the bank: `ma(maxPeriod, MAMA)` rejects whenever
+            // maxPeriod > 1, which is exactly when a non-identity slot exists.
+            let callee = funcs
+                .iter()
+                .find(|f| f.name.eq_ignore_ascii_case(&pb.callee))?;
+            let resolve = |name: &str| -> Expr {
+                match subst {
+                    Some(outer) => outer
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_else(|| Expr::Var(name.to_string())),
+                    None => Expr::Var(name.to_string()),
+                }
+            };
+            let mut m = std::collections::BTreeMap::new();
+            for p in &callee.optional_inputs {
+                match &p.param_type {
+                    crate::ir::ParamType::Enum(e) if e == "MAType" => {
+                        m.insert(p.name.clone(), resolve(&pb.matype_param));
+                    }
+                    crate::ir::ParamType::Integer => {
+                        m.insert(p.name.clone(), resolve(&pb.max_param));
+                    }
+                    _ => {}
+                }
+            }
+            sv_reject_condition(callee, funcs, Some(&m))
+        }
         _ => None,
     }
 }
@@ -1074,6 +1156,7 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
             }
         }
 
+        emit_sv_period_bank_input(&mut s, func, funcs, &input_arrays);
         emit_sv_dispatch_precheck(&mut s, func, funcs, &input_arrays, n_outs, name);
 
         let candle = func.flags.iter().any(|f| f == "candlestick");
@@ -1271,6 +1354,42 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
             s.push_str("        }\n");
             s.push_str("        if( rounds > 1 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );\n");
         }
+
+        // startIdx>0 coverage: the anchored internal open (OpenInternal at a
+        // non-zero startIdx over the FULL history from bar 0) must equal
+        // batch(S). This exercises the extra anchor parameter for EVERY stream
+        // function — not just composed sub-callees — under the same K/compat.
+        // (Reuses the bbuf batch buffers, recomputed at startIdx=S; the prefix
+        // sweep above is done with them.)
+        {
+            let aout: String = (0..n_outs).map(|i| format!("&v{i}")).collect::<Vec<_>>().join(", ");
+            s.push_str("        {\n");
+            s.push_str("            int Sidx = lb + (svN - lb) / 3;\n");
+            s.push_str("            if( Sidx > lb && Sidx < svN - 1 ) {\n");
+            s.push_str("                int svBegS = 0, svNbS = 0;\n");
+            s.push_str(&format!(
+                "                rc = {method}(Sidx, svN - 1, {in_args}{opt_args}&svBegS, &svNbS{out_args});\n"
+            ));
+            s.push_str("                if( rc == TA_SUCCESS && svNbS > 0 ) {\n");
+            s.push_str("                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;\n");
+            for (i, is_int) in out_is_int.iter().enumerate() {
+                let (ty, z) = if *is_int { ("int", "0") } else { ("double", "0.0") };
+                s.push_str(&format!("                    {ty} v{i} = {z};\n"));
+            }
+            s.push_str(&format!("                    TA_{name}_Stream *stA = NULL;\n"));
+            s.push_str(&format!(
+                "                    TA_RetCode arc = TA_{name}_OpenInternal({opt_args}{in_args}Sidx, svN, &stA, {aout});\n"
+            ));
+            s.push_str("                    if( arc != TA_SUCCESS || !stA ) ok = 0;\n");
+            emit_sv_compare(&mut s, &out_is_int, &bbuf, "                    ", "(svN - 1) - svBegS", "svN - 1", "ok &&");
+            s.push_str(&format!("                    if( stA ) TA_{name}_Close(stA);\n"));
+            s.push_str("                    if( !ok ) allOk = 0;\n");
+            s.push_str("                    (void)badBar; (void)badOut; (void)bv; (void)sv;\n");
+            s.push_str("                }\n");
+            s.push_str("            }\n");
+            s.push_str("        }\n");
+        }
+
         for id in &pin_ids {
             s.push_str(&format!("        TA_SetUnstablePeriod({id}, 0);\n"));
         }

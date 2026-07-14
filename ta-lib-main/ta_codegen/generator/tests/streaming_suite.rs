@@ -83,11 +83,102 @@ fn sma_is_t3_ring() {
 }
 
 #[test]
-fn atr_period1_delegation_rejected() {
+fn atr_streams_as_t2() {
+    // ATR dropped its `if (period <= 1) return trange(...)` delegation: the
+    // general Wilder recursion degenerates to the raw True Range at period 1
+    // (prevATR = (prevATR*0 + TR)/1 = TR), so the single path streams as a plain
+    // T2 (carried prevATR + a lag-1 close read) for every period.
+    let f = load("atr");
+    let m = streaming::analyze(&f).expect("ATR analyzes as T2");
+    assert_eq!(m.tier, StreamTier::T2);
+    assert!(m.lags.iter().any(|l| l.array == "inClose"), "lag-1 close read");
+}
+
+#[test]
+fn minus_dm_derives_dual_mode_plan() {
+    // MINUS_DM keeps BOTH its `if (period <= 1) { raw DM1; return }` degenerate
+    // arm (which ignores the unstable period) AND its Wilder general path.
+    // Unlike ATR, the two arms differ under a nonzero K (the degenerate lookback
+    // is 1 regardless of K), so neither an ATR-style drop nor rejection preserves
+    // period=1 — it streams as a param-selected dual mode: two independent T2
+    // models sharing one handle, selected by the period<=1 guard fixed at Open.
+    let f = load("minus_dm");
+    let plan = streaming::validate_streamable(&f, &lookup()).expect("MINUS_DM derives a plan");
+    let streaming::StreamPlan::DualMode(dm) = plan else {
+        panic!("expected DualMode, got {plan:?}");
+    };
+    assert_eq!(dm.mode_a.tier, StreamTier::T2);
+    assert_eq!(dm.mode_b.tier, StreamTier::T2);
+    // The predicate is the batch's own period-degenerate guard.
     assert!(matches!(
-        streaming::analyze(&load("atr")),
-        Err(StreamError::Unsupported(m)) if m.contains("return path")
+        &dm.predicate,
+        ta_codegen_lib::ir::Expr::BinOp(_, ta_codegen_lib::ir::BinOp::LessEq, _)
     ));
+    // Mode B (general) carries the Wilder accumulator; mode A (raw DM1) does not.
+    assert!(dm.mode_b.state.iter().any(|(n, _)| n == "prevMinusDM"));
+    assert!(!dm.mode_a.state.iter().any(|(n, _)| n == "prevMinusDM"));
+    assert!(dm.mode_a.state.len() < dm.mode_b.state.len());
+}
+
+#[test]
+fn minus_di_derives_dual_mode_plan_with_tr() {
+    // MINUS_DI is the DI variant: the general arm adds prevTR and divides (percent
+    // DI); the degenerate arm returns the raw DM1/TR ratio (no x100 — the
+    // documented period-1 quirk), preserved verbatim by transcribing the arm.
+    let f = load("minus_di");
+    let plan = streaming::validate_streamable(&f, &lookup()).expect("MINUS_DI derives a plan");
+    let streaming::StreamPlan::DualMode(dm) = plan else {
+        panic!("expected DualMode, got {plan:?}");
+    };
+    assert!(dm.mode_b.state.iter().any(|(n, _)| n == "prevTR"));
+    assert!(dm.func.streaming);
+}
+
+#[test]
+fn trima_derives_dual_mode_if_else() {
+    // TRIMA's `if (period % 2 == 1) { odd } else { even }` arms are genuinely
+    // different triangular-sum recurrences (different factor and Step-2 order), so
+    // BOTH stream, as a dual mode selected by parity — NOT fast-path-skip (that
+    // needs a `<= literal` threshold). The two arms (both T3 tier) share rings
+    // (middleIdx, trailingIdx over inReal), so the handle carries one ring set,
+    // and both fall through to a shared epilogue (the if/else form).
+    let f = load("trima");
+    let plan = streaming::validate_streamable(&f, &lookup()).expect("TRIMA derives a plan");
+    let streaming::StreamPlan::DualMode(dm) = plan else {
+        panic!("expected DualMode, got {plan:?}");
+    };
+    assert_eq!(dm.mode_a.tier, StreamTier::T3);
+    assert_eq!(dm.mode_b.tier, StreamTier::T3);
+    assert_eq!(dm.mode_a.rings().len(), 2, "middleIdx + trailingIdx rings");
+    assert_eq!(
+        dm.mode_a.rings().iter().map(|r| r.var.clone()).collect::<Vec<_>>(),
+        dm.mode_b.rings().iter().map(|r| r.var.clone()).collect::<Vec<_>>(),
+        "both arms carry the SAME rings (union collapses to one set)"
+    );
+    assert!(!dm.epilogue.is_empty(), "shared epilogue (if/else form)");
+    // A modulo-equality branch, not a threshold (which would be fast-path-skip).
+    assert!(matches!(
+        &dm.predicate,
+        ta_codegen_lib::ir::Expr::BinOp(_, ta_codegen_lib::ir::BinOp::Eq, _)
+    ));
+}
+
+#[test]
+fn midprice_derives_fastpath_skip_plan() {
+    // MIDPRICE's `if (period <= 20) { window rescan } else { cached extremum }`
+    // arms are bit-identical (a pure batch perf split). Only the general (else)
+    // arm streams — as a T4 extrema automaton — and the fast-path then-arm is
+    // skipped. The `<= 20` threshold predicate is what marks it general-arm
+    // rather than dual-mode (whose arms genuinely differ).
+    let f = load("midprice");
+    let plan = streaming::validate_streamable(&f, &lookup()).expect("MIDPRICE derives a plan");
+    let streaming::StreamPlan::FastPathSkip(ga) = plan else {
+        panic!("expected FastPathSkip, got {plan:?}");
+    };
+    assert_eq!(ga.model.tier, StreamTier::T4);
+    assert!(ga.model.extrema().is_some(), "general arm is an extrema automaton");
+    assert!(!ga.prologue.is_empty(), "shared prologue");
+    assert!(!ga.epilogue.is_empty(), "shared epilogue (out-meta + return)");
 }
 
 #[test]
@@ -243,18 +334,225 @@ fn ultosc_analyzes_t3() {
 }
 
 #[test]
-fn cdlhikkake_rejected_at_transition_build() {
-    // Saves bar indices (patternIdx = i): analysis passes but the transition
-    // cannot be built — the wall the census gate must keep unseeded.
+fn cdlhikkake_streams_via_countdown_refactor() {
+    // The absolute `patternIdx = i` (a cursor leak) was refactored to a carried
+    // confirmation countdown + cached 2nd-candle high/low, so the transition reads
+    // no bare cursor and it now streams (bit-identical batch, verified vs v0.6.4).
     let f = load("cdlhikkake");
-    assert!(streaming::analyze(&f).is_ok(), "analysis alone passes");
+    assert!(
+        streaming::validate_streamable(&f, &lookup()).is_ok(),
+        "CDLHIKKAKE streams after the countdown refactor"
+    );
+}
+
+#[test]
+fn ht_dcperiod_streams_via_carried_parity_and_gate_strip() {
+    // M7c: the Hilbert-transform family reads the ABSOLUTE cursor `today` twice —
+    // the `today % 2` odd/even quadrature branch and the in-loop
+    // `if (today >= startIdx)` output gate. Two general steady-loop normalizations
+    // (strip_cursor_output_gate + carry_cursor_parity) let it fall into the
+    // ordinary Batch loop tier:
+    //   (1) the output gate is STRIPPED (so `startIdx` no longer leaks into the
+    //       steady loop — this used to reject at analyze with "steady loop
+    //       references `startIdx`"), and
+    //   (2) `today % 2` is CARRIED as an int `streamParity` field (so `today` no
+    //       longer leaks into the transition — this used to reject at
+    //       build_transition with "index variable `today` leaks").
+    // This is the positive pin AND the neuter-check for both recognizers:
+    //   * remove the parity carry  -> model.parity is None (fails the assert
+    //     below) and build_transition leaks `today` (panics the C render pin
+    //     test_c_ht_dcperiod_parity_stream_section);
+    //   * remove the gate strip    -> analyze() errors "steady loop references
+    //     `startIdx`" (fails the analyze-Ok assert below).
+    let f = load("ht_dcperiod");
+    let m = streaming::analyze(&f).expect("HT_DCPERIOD analyzes once the HT gates are normalized");
+    assert_eq!(m.tier, StreamTier::T3, "WMA trailing ring => T3");
+    // (2) parity carried as an int state field, seeded/flipped by the emitter.
+    let parity = m.parity.as_ref().expect("carried-parity spec present");
+    assert_eq!(parity.field, "streamParity");
+    assert!(
+        m.state.iter().any(|(n, t)| n == "streamParity"
+            && matches!(t, ta_codegen_lib::ir::VarType::Integer)),
+        "streamParity is an int state field"
+    );
+    // The WMA price smoother is one trailing ring over inReal (like WMA/SMA).
+    assert_eq!(m.rings().len(), 1);
+    assert_eq!(m.rings()[0].arrays, ["inReal"]);
+    // The 8 Hilbert double[3] buffers ride as fixed-array carried state.
+    assert!(
+        m.state.iter().any(|(n, t)| n == "detrender_Even"
+            && matches!(t, ta_codegen_lib::ir::VarType::RealArray(_))),
+        "detrender_Even carried as a fixed double[3] array"
+    );
+    // (1) gate stripped: the steady loop no longer references `startIdx`.
+    let mut steady_vars = std::collections::BTreeSet::new();
+    for s in &m.steady_stmts {
+        streaming::stmt_var_names(s, &mut steady_vars);
+    }
+    assert!(
+        !steady_vars.contains("startIdx"),
+        "the output gate must be stripped from the steady loop"
+    );
+    // The whole plan validates as an ordinary Loop model.
+    assert!(matches!(
+        streaming::validate_streamable(&f, &lookup()),
+        Ok(streaming::StreamPlan::Loop(_))
+    ));
+}
+
+#[test]
+fn carried_parity_and_gate_strip_recognized_in_isolation() {
+    // A minimal synthetic body carrying BOTH HT traits (a `today % 2` branch and
+    // an `if (today >= startIdx)` output gate) over a plain scalar recurrence —
+    // isolates the two recognizers from HT_DCPERIOD's real source, so this
+    // coverage survives any future edit to ht_dcperiod.c. Borrows ht_dcperiod's
+    // YAML shape (one real input, one real output).
+    let src = r#"
+TA_RetCode ht_dcperiod( int startIdx, int endIdx,
+   const double inReal[],
+   int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   int outIdx, today;
+   double acc;
+   if( startIdx < 1 )
+      startIdx = 1;
+   if( startIdx > endIdx )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_SUCCESS;
+   }
+   *outBegIdx = startIdx;
+   today = 0;
+   acc = 0.0;
+   outIdx = 0;
+   while( today <= endIdx )
+   {
+      if( (today%2) == 0 )
+         acc = (0.5*acc) + inReal[today];
+      else
+         acc = (0.2*acc) + inReal[today];
+      if( today >= startIdx )
+         outReal[outIdx++] = acc;
+      today++;
+   }
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let f = load_with_source("ht_dcperiod", src);
+    let m = streaming::analyze(&f).expect("synthetic HT body analyzes after normalization");
+    assert!(m.parity.is_some(), "carried parity recognized");
+    assert!(m.state.iter().any(|(n, _)| n == "acc"), "the recurrence carries `acc`");
+    // build_transition must succeed (no `today` leak): validate through the C
+    // emitter, which builds the transition and would panic on a leak.
+    assert!(streaming::validate_streamable(&f, &lookup()).is_ok());
+}
+
+#[test]
+fn transition_build_rejects_saved_cursor_index() {
+    // Pins the STAGE-2 build_transition guard "index variable `i` leaks into the
+    // transition body": a function whose steady loop SAVES the absolute cursor
+    // into a carried scalar and then reads that absolute index passes analysis
+    // but cannot have a transition built (a stream cannot reconstruct an absolute
+    // bar number). This is the exact wall the pre-refactor CDLHIKKAKE tripped;
+    // keeping a fixture here means the guard stays covered now that CDLHIKKAKE streams.
+    let src = r#"
+TA_RetCode cdlhikkake( int startIdx, int endIdx,
+   const double inOpen[], const double inHigh[], const double inLow[], const double inClose[],
+   int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   int i, outIdx, savedIdx;
+   if( startIdx < 5 )
+      startIdx = 5;
+   if( startIdx > endIdx )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_SUCCESS;
+   }
+   savedIdx = 0;
+   outIdx = 0;
+   for( i = startIdx; i <= endIdx; i++ )
+   {
+      if( inHigh[i] > inHigh[i-1] )
+         savedIdx = i;
+      outInteger[outIdx++] = i - savedIdx;
+   }
+   *outNBElement = outIdx;
+   *outBegIdx = startIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let f = load_with_source("cdlhikkake", src);
+    assert!(streaming::analyze(&f).is_ok(), "analysis alone passes (a plain endIdx loop)");
     assert!(
         streaming::validate_streamable(&f, &lookup()).is_err(),
-        "transition build must reject the cursor leak"
+        "the saved absolute cursor must reject at transition build"
     );
 }
 
 /* ---- TC composed tier: dispatch plans ---- */
+
+/// FOREVER CONTRACT (user-mandated): every `MAType` must be streamable.
+///
+/// A function with a `MAType` parameter — TA_MA and everything that composes
+/// over it (BBANDS, STOCH, STOCHF, MACDEXT) — can only stream a given `MAType`
+/// bit-exact-vs-batch if the UNDERLYING MA function streams. A `MAType` whose
+/// function does not stream makes EVERY such function's stream reject (not
+/// bit-exact) for that type. So each `MAType`'s function must carry a stream,
+/// with a shrinking allowlist of known deep blockers.
+///
+/// This ratchets: the test fails if (a) a non-blocked `MAType`'s function LOSES
+/// its stream (a regression that would silently narrow every consumer), or (b)
+/// a blocked function GAINS a stream (the allowlist is stale — remove it so the
+/// contract tightens). When the allowlist empties, every `MAType` streams.
+#[test]
+fn every_matype_is_streamable_except_tracked_blockers() {
+    use ta_codegen_lib::streaming::CalleeLookup;
+    let lk = lookup();
+    // Each `TA_MAType_*` value and its input-level function name, in enum order.
+    let matypes = [
+        ("SMA", "sma"),
+        ("EMA", "ema"),
+        ("WMA", "wma"),
+        ("DEMA", "dema"),
+        ("TEMA", "tema"),
+        ("TRIMA", "trima"),
+        ("KAMA", "kama"),
+        ("MAMA", "mama"),
+        ("T3", "t3"),
+    ];
+    // Not-yet-streamable MAType functions (deep blockers). MUST ONLY SHRINK.
+    // NOW EMPTY: MAMA streamed in M7c (it is an ordinary HT function — WMA ring +
+    // Hilbert arrays + `today % 2` parity + the two outputs mama/fama in an output
+    // gate — covered by the same strip_cursor_output_gate + carry_cursor_parity
+    // normalizations, no circbuf/window, no `startIdx` read in its steady loop).
+    // Every MAType function now streams. (MA's *dispatch* still rejects MAType_MAMA
+    // at Open — mama has two outputs and MA routes one, feeding the FAMA output to a
+    // discarded scratch buffer, so that arm is not a 1:1 whole-range delegation; that
+    // dispatch-shape reject is separate from mama's own streamability and is pinned
+    // by ma_derives_dispatch_plan.)
+    let blocked: [&str; 0] = [];
+    for (ty, func) in matypes {
+        let streams = lk.callee(func).is_some_and(|s| s.streaming);
+        let is_blocked = blocked.contains(&func);
+        assert_eq!(
+            streams, !is_blocked,
+            "MAType streaming contract: {ty} ({func}) streams={streams}, blocked={is_blocked}. \
+             Every MAType function must stream; a non-blocked one that stopped streaming is a \
+             regression, and a blocked one that now streams means the allowlist is stale — \
+             remove it."
+        );
+    }
+    // The allowlist is exactly the un-streamable MATypes — no stale entries.
+    for func in blocked {
+        assert!(
+            matypes.iter().any(|(_, f)| *f == func),
+            "blocklist entry `{func}` is not a MAType"
+        );
+    }
+}
 
 #[test]
 fn ma_derives_dispatch_plan() {
@@ -284,12 +582,14 @@ fn ma_derives_dispatch_plan() {
         .collect();
     assert_eq!(
         supported,
-        ["sma", "ema", "wma", "dema", "tema", "kama", "t3"],
-        "supported arms follow the callee stream flags, in batch order"
+        ["sma", "ema", "wma", "dema", "tema", "trima", "kama", "t3"],
+        "supported arms follow the callee stream flags, in batch order (TRIMA \
+         joined automatically when its dual-mode stream landed in M6c)"
     );
     // Labels are TA-stripped in the IR (the C renderer restores the prefix).
+    // MAMA is now the ONLY reject arm (dummy FAMA buffer, discarded output).
     let rejected: Vec<&str> = dp.unsupported_labels();
-    assert_eq!(rejected, ["MAType_TRIMA", "MAType_MAMA"]);
+    assert_eq!(rejected, ["MAType_MAMA"]);
     // T3's arm forwards the fixed vfactor literal positionally.
     let t3 = dp.arms.iter().find(|a| a.callee == "t3").unwrap();
     assert_eq!(t3.opt_args.len(), 2, "period + literal 0.7 vfactor");
@@ -324,12 +624,26 @@ fn dispatch_hard_errors_when_flagged_callee_arm_loses_shape() {
 #[test]
 fn dispatch_hard_errors_when_flagged_delegation_hides_behind_unflagged_call() {
     // The review-confirmed silent-downgrade hole: an arm whose FIRST
-    // indicator call is unflagged (trima) but which then whole-range
+    // indicator call is unflagged (the wrapper) but which then whole-range
     // delegates to a stream-flagged callee (dema) must be a hard gate
     // error — never a reject arm the verify precheck would bless.
+    // TRIMA now really streams (M6c), so we override it back to unflagged in the
+    // lookup — the test pins the GATE BEHAVIOR (a hidden flagged delegation),
+    // not TRIMA's flag.
     use ta_codegen_lib::ir::{Expr, Statement};
+    struct TrimaUnflagged<'a>(&'a dyn streaming::CalleeLookup);
+    impl streaming::CalleeLookup for TrimaUnflagged<'_> {
+        fn callee(&self, name: &str) -> Option<streaming::CalleeSig> {
+            let mut sig = self.0.callee(name)?;
+            if name == "trima" {
+                sig.streaming = false;
+            }
+            Some(sig)
+        }
+    }
     let mut f = load("ma");
-    let lk = lookup();
+    let real = lookup();
+    let lk = TrimaUnflagged(&real);
     fn visit(stmts: &mut [Statement]) {
         for s in stmts {
             if let Statement::Switch { cases, .. } = s {
