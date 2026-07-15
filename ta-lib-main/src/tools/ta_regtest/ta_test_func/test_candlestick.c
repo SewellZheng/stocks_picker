@@ -351,6 +351,57 @@ static ErrorNumber pb_check( const char *name, PbCdlFn fn )
    return TA_TEST_PASS;
 }
 
+/* ---- MC/DC gate helpers for the marquee multi-candle patterns (issue #109) ---
+ * Same idea as the Hikkake gate above, for single-sign patterns: a detection
+ * scenario that fires the exact value, then one near-miss per structural
+ * predicate (that predicate flipped false, the rest held) asserting 0 — so every
+ * decision boundary is exercised in both directions. Each scenario self-primes
+ * and is separated by flat filler so the candle-setting averages reset between
+ * them. Every scenario was validated against the shipped library. */
+
+/* Valid-candle bar: clamps high>=max(o,c), low<=min(o,c). Returns its index. */
+static int pb_bar( double o, double h, double l, double c )
+{
+   double hi=h, lo=l;
+   if(hi<o)hi=o; if(hi<c)hi=c;
+   if(lo>o)lo=o; if(lo>c)lo=c;
+   return pb_bar4(o,hi,lo,c);
+}
+/* k alternating small-body bars (real body ~bd, half-range ~hr) around base:
+ * seeds the BodyLong/Short/Doji/shadow averages small, matching fuzz_cdl_primer. */
+static void pb_primer( int k, double base, double bd, double hr )
+{
+   int i;
+   for(i=0;i<k;i++){ double o=(i&1)?base:base+bd, c=(i&1)?base+bd:base;
+      pb_bar(o, base+bd+hr, base-hr, c); }
+}
+/* Single-sign check: every pb_expect must match, AND at least one expected
+ * NON-zero must actually fire (else the gate is vacuous). */
+static ErrorNumber pb_check_mcdc( const char *name, PbCdlFn fn )
+{
+   int out[PB_N], begIdx=0, nb=0, k, fails=0, sawNonzero=0;
+   TA_RetCode rc = fn(0, pbCur-1, pbO, pbH, pbL, pbC, &begIdx, &nb, out);
+   if( rc != TA_SUCCESS ) { printf("  %s MC/DC: retCode %d\n", name, rc); return TA_TSTCDL_PREDICATE_MISMATCH; }
+   for( k=0; k<pbNe; k++ )
+   {
+      int oi = pbEi[k]-begIdx;
+      int got = (oi>=0 && oi<nb) ? out[oi] : -99999;
+      if( got != pbEv[k] )
+      {
+         printf("  %s MC/DC FAIL bar=%d expected=%d got=%d  (%s)\n", name, pbEi[k], pbEv[k], got, pbEl[k]);
+         fails++;
+      }
+      if( pbEv[k] != 0 && got == pbEv[k] ) sawNonzero = 1;
+   }
+   if( fails ) return TA_TSTCDL_PREDICATE_MISMATCH;
+   if( !sawNonzero )
+   {
+      printf("  %s MC/DC VACUOUS: no expected non-zero output fired\n", name);
+      return TA_TSTCDL_PREDICATE_VACUOUS;
+   }
+   return TA_TEST_PASS;
+}
+
 static ErrorNumber test_hikkake_predicate_coverage( void )
 {
    ErrorNumber e;
@@ -410,6 +461,499 @@ static ErrorNumber test_hikkake_predicate_coverage( void )
    return TA_TEST_PASS;
 }
 
+/* CDL2CROWS MC/DC: detection (-100) + one flip per structural predicate. */
+static void build_2crows( void )
+{
+  pb_flat(6);
+  /* DETECTION: 1st long white, 2nd black gap-up, 3rd black opening in 2nd rb & closing in 1st rb */
+  pb_primer(12,100,2,1);
+  pb_bar(100,106,99,105);                 /* 1st: long white  body[100,105] rb=5>avg2 */
+  pb_bar(110,111,106,107);                /* 2nd: black gap-up body[107,110] min107>105 */
+  int d=pb_bar(109,110,102,103);          /* 3rd: black open109 in(107,110), close103 in(100,105) */
+  pb_expect(d,-100,"detect");
+  pb_flat(8);
+  /* FLIP 1: break 1st-white==1  (make 1st BLACK)  [also breaks close3<close1 - coupled] */
+  pb_primer(12,100,2,1);
+  pb_bar(102,103,98,99);                  /* 1st BLACK body[99,102] rb=3>2 */
+  pb_bar(110,111,106,107);
+  int f1=pb_bar(109,110,102,103);
+  pb_expect(f1,0,"break 1st-white");
+  pb_flat(8);
+  /* FLIP 2: break 1st-long  (rb==avg, not > ) */
+  pb_primer(12,100,2,1);
+  pb_bar(102,106,99,104);                 /* 1st white SHORT body[102,104] rb=2, 2>2 false */
+  pb_bar(110,111,106,107);
+  int f2=pb_bar(109,110,102,103);
+  pb_expect(f2,0,"break 1st-long");
+  pb_flat(8);
+  /* FLIP 3: break 2nd-black==-1  (make 2nd WHITE)  [also breaks open3>close2 - coupled] */
+  pb_primer(12,100,2,1);
+  pb_bar(100,106,99,105);
+  pb_bar(110,112,106,111);                /* 2nd WHITE body[110,111] */
+  int f3=pb_bar(109,110,102,103);
+  pb_expect(f3,0,"break 2nd-black");
+  pb_flat(8);
+  /* FLIP 4: break gap-up  (2nd body overlaps 1st: min104 <= max105) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,106,99,105);
+  pb_bar(110,111,103,104);                /* 2nd black body[104,110] min104 !> 105 */
+  int f4=pb_bar(109,110,102,103);
+  pb_expect(f4,0,"break gapup");
+  pb_flat(8);
+  /* FLIP 5: break 3rd-black==-1  (make 3rd WHITE)  [also breaks close3<close1 - coupled] */
+  pb_primer(12,100,2,1);
+  pb_bar(100,106,99,105);
+  pb_bar(110,111,106,107);
+  int f5=pb_bar(109,111,108,110);         /* 3rd WHITE body[109,110] */
+  pb_expect(f5,0,"break 3rd-black");
+  pb_flat(8);
+  /* FLIP 6: break open3<open2  (open3=111 >= open2=110) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,106,99,105);
+  pb_bar(110,111,106,107);
+  int f6=pb_bar(111,112,102,103);
+  pb_expect(f6,0,"break open3<open2");
+  pb_flat(8);
+  /* FLIP 7: break open3>close2  (open3=106 <= close2=107) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,106,99,105);
+  pb_bar(110,111,106,107);
+  int f7=pb_bar(106,107,102,103);
+  pb_expect(f7,0,"break open3>close2");
+  pb_flat(8);
+  /* FLIP 8: break close3>open1  (close3=99 <= open1=100) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,106,99,105);
+  pb_bar(110,111,106,107);
+  int f8=pb_bar(109,110,98,99);
+  pb_expect(f8,0,"break close3>open1");
+  pb_flat(8);
+  /* FLIP 9: break close3<close1  (close3=106 >= close1=105) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,106,99,105);
+  pb_bar(110,111,106,107);
+  int f9=pb_bar(109,110,104,106);
+  pb_expect(f9,0,"break close3<close1");
+  pb_flat(8);
+}
+
+/* CDL3BLACKCROWS MC/DC: detection (-100) + one flip per structural predicate. */
+static void build_3blackcrows( void )
+{
+  pb_flat(6);
+  /* ===== DETECTION =====
+     A white, B/C/D three declining black crows, each opens within prior body,
+     each near-zero lower shadow, A.high > B.close. */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);        /* A  white */
+  pb_bar(103,103.5,101,101);      /* B  1st black */
+  pb_bar(102,102.5,99,99);        /* C  2nd black */
+  int d=pb_bar(101,101.5,97,97);  /* D  3rd black */
+  pb_expect(d,-100,"detect");
+  pb_flat(8);
+
+  /* FLIP 1 : break p1  colorA==white -> make A black (only p1) */
+  pb_primer(12,100,2,1);
+  pb_bar(104,105,100,100);        /* A  black */
+  pb_bar(103,103.5,101,101);
+  pb_bar(102,102.5,99,99);
+  int f1=pb_bar(101,101.5,97,97);
+  pb_expect(f1,0,"break p1 colorA-white");
+  pb_flat(8);
+
+  /* FLIP 2 : break p2  colorB==black -> B doji/white (p6 co-flips: coupled) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,103,103);      /* B  doji -> white */
+  pb_bar(102,102.5,99,99);
+  int f2=pb_bar(101,101.5,97,97);
+  pb_expect(f2,0,"break p2 colorB-black");
+  pb_flat(8);
+
+  /* FLIP 3 : break p3  colorC==black -> C doji/white (p8,p10 co-flip: coupled) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,101,101);
+  pb_bar(102,102.5,102,102);      /* C  doji -> white */
+  int f3=pb_bar(101,101.5,97,97);
+  pb_expect(f3,0,"break p3 colorC-black");
+  pb_flat(8);
+
+  /* FLIP 4 : break p4  colorD==black -> D doji/white (p11 co-flips: coupled) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,101,101);
+  pb_bar(102,102.5,99,99);
+  int f4=pb_bar(101,101.5,101,101); /* D  doji -> white */
+  pb_expect(f4,0,"break p4 colorD-black");
+  pb_flat(8);
+
+  /* FLIP 5 : break p5  openC<openB -> openC above openB (only p5) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,101,101);
+  pb_bar(103.5,104,99,99);        /* C  opens above B.open=103 */
+  int f5=pb_bar(101,101.5,97,97);
+  pb_expect(f5,0,"break p5 openC<openB");
+  pb_flat(8);
+
+  /* FLIP 6 : break p6  openC>closeB -> openC below closeB (only p6) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,101,101);
+  pb_bar(100,100.5,99,99);        /* C  opens below B.close=101 */
+  int f6=pb_bar(99.5,100,97,97);  /* D  re-fit inside C body (99,100) */
+  pb_expect(f6,0,"break p6 openC>closeB");
+  pb_flat(8);
+
+  /* FLIP 7 : break p7  openD<openC -> openD above openC (only p7) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,101,101);
+  pb_bar(102,102.5,99,99);
+  int f7=pb_bar(102.5,103,97,97); /* D  opens above C.open=102 */
+  pb_expect(f7,0,"break p7 openD<openC");
+  pb_flat(8);
+
+  /* FLIP 8 : break p8  openD>closeC -> openD below closeC (only p8) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,101,101);
+  pb_bar(102,102.5,99,99);
+  int f8=pb_bar(98,98.5,97,97);   /* D  opens below C.close=99 */
+  pb_expect(f8,0,"break p8 openD>closeC");
+  pb_flat(8);
+
+  /* FLIP 9 : break p9  highA>closeB -> A.high below B.close (only p9) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,100.9,100,100.8);    /* A  white, high 100.9 < B.close 101 */
+  pb_bar(103,103.5,101,101);
+  pb_bar(102,102.5,99,99);
+  int f9=pb_bar(101,101.5,97,97);
+  pb_expect(f9,0,"break p9 highA>closeB");
+  pb_flat(8);
+
+  /* FLIP 10: break p10 closeB>closeC -> B.close below C.close (only p10) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,98.5,98.5);    /* B  close 98.5 <= C.close 99 */
+  pb_bar(102,102.5,99,99);
+  int f10=pb_bar(101,101.5,97,97);
+  pb_expect(f10,0,"break p10 closeB>closeC");
+  pb_flat(8);
+
+  /* FLIP 11: break p11 closeC>closeD -> D.close above C.close (only p11) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,101,101);
+  pb_bar(102,102.5,99,99);
+  int f11=pb_bar(101,101.5,99.5,99.5); /* D  close 99.5 >= C.close 99 */
+  pb_expect(f11,0,"break p11 closeC>closeD");
+  pb_flat(8);
+
+  /* FLIP 12: break p12 B lower shadow short -> long lower shadow (only p12) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,100,101);      /* B  lowershadow = 101-100 = 1 > ~0.4 */
+  pb_bar(102,102.5,99,99);
+  int f12=pb_bar(101,101.5,97,97);
+  pb_expect(f12,0,"break p12 shadowB-short");
+  pb_flat(8);
+
+  /* FLIP 13: break p13 C lower shadow short -> long lower shadow (only p13) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,101,101);
+  pb_bar(102,102.5,97,99);        /* C  lowershadow = 99-97 = 2 > ~0.4 */
+  int f13=pb_bar(101,101.5,97,97);
+  pb_expect(f13,0,"break p13 shadowC-short");
+  pb_flat(8);
+
+  /* FLIP 14: break p14 D lower shadow short -> long lower shadow (only p14) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,105,100,104);
+  pb_bar(103,103.5,101,101);
+  pb_bar(102,102.5,99,99);
+  int f14=pb_bar(101,101.5,95,97); /* D  lowershadow = 97-95 = 2 > ~0.4 */
+  pb_expect(f14,0,"break p14 shadowD-short");
+  pb_flat(8);
+}
+
+/* CDL3WHITESOLDIERS MC/DC: detection (100) + one flip per structural predicate. */
+static void build_3whitesoldiers( void )
+{
+  pb_flat(6);
+  /* ---- DETECTION: three ascending white soldiers ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);          /* b1 white rb6 */
+  pb_bar(104,112.2,103.8,112);         /* b2 white rb8 */
+  int d=pb_bar(110,118.2,109.8,118);   /* b3 white rb8 -> 100 */
+  pb_expect(d,100,"detect");
+  pb_flat(8);
+  /* ---- FLIP P1: 1st NOT white (black) ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(103,103.2,100.8,101);         /* b1 BLACK (c<o) */
+  pb_bar(104,112.2,103.8,112);
+  int f1=pb_bar(110,118.2,109.8,118);
+  pb_expect(f1,0,"break P1 1st-white");
+  pb_flat(8);
+  /* ---- FLIP P2: 1st upper shadow NOT very short ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,108,99.8,106);            /* b1 tall upper shadow (2.0 >= 1.8) */
+  pb_bar(104,112.2,103.8,112);
+  int f2=pb_bar(110,118.2,109.8,118);
+  pb_expect(f2,0,"break P2 1st-uppershadow");
+  pb_flat(8);
+  /* ---- FLIP P3: 2nd NOT white (black) ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(109,109.2,106.8,107);         /* b2 BLACK (c<o), still c2>c1 & o2<=c1+Near */
+  int f3=pb_bar(109.5,118.2,109.3,118);
+  pb_expect(f3,0,"break P3 2nd-white");
+  pb_flat(8);
+  /* ---- FLIP P4: 2nd upper shadow NOT very short ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(104,115,103.8,112);           /* b2 tall upper shadow (3.0 >= 1.684) */
+  int f4=pb_bar(110,118.2,109.8,118);
+  pb_expect(f4,0,"break P4 2nd-uppershadow");
+  pb_flat(8);
+  /* ---- FLIP P5: 3rd NOT white (black) ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,102.2,88,102);            /* b1 small white, big HL to fatten Near/Far */
+  pb_bar(103,105.2,102.8,105);         /* b2 small white */
+  int f5=pb_bar(108,108.2,105.3,105.5);/* b3 BLACK, rb2.5>BodyShort2.0, o3<=c2+Near */
+  pb_expect(f5,0,"break P5 3rd-white");
+  pb_flat(8);
+  /* ---- FLIP P6: 3rd upper shadow NOT very short ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(104,112.2,103.8,112);
+  int f6=pb_bar(110,121,109.8,118);    /* b3 tall upper shadow (3.0 >= 1.588) */
+  pb_expect(f6,0,"break P6 3rd-uppershadow");
+  pb_flat(8);
+  /* ---- FLIP P7: NOT c3>c2 ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(104,112.2,103.8,112);
+  int f7=pb_bar(107,111.2,106.8,111);  /* c3=111 <= c2=112, rb3=4 keeps P14/P15 */
+  pb_expect(f7,0,"break P7 c3>c2");
+  pb_flat(8);
+  /* ---- FLIP P8: NOT c2>c1 ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(104,105.2,103.8,105);         /* c2=105 <= c1=106 */
+  int f8=pb_bar(107,115.2,106.8,115);  /* o3 lowered so P12 holds under lower c2 */
+  pb_expect(f8,0,"break P8 c2>c1");
+  pb_flat(8);
+  /* ---- FLIP P9: NOT o2>o1 ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(100,112.2,99.8,112);          /* o2=100 == o1=100 */
+  int f9=pb_bar(110,118.2,109.8,118);
+  pb_expect(f9,0,"break P9 o2>o1");
+  pb_flat(8);
+  /* ---- FLIP P10: NOT o2<=c1+Near ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(110,112.2,109.8,112);         /* o2=110 > c1+Near=109.6 */
+  int f10=pb_bar(111,118.2,110.8,118); /* o3 raised so P11 (o3>o2) holds */
+  pb_expect(f10,0,"break P10 o2<=c1+Near");
+  pb_flat(8);
+  /* ---- FLIP P11: NOT o3>o2 ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(104,112.2,103.8,112);
+  int f11=pb_bar(104,118.2,103.8,118); /* o3=104 == o2=104 */
+  pb_expect(f11,0,"break P11 o3>o2");
+  pb_flat(8);
+  /* ---- FLIP P12: NOT o3<=c2+Near ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(104,112.2,103.8,112);
+  int f12=pb_bar(116,124.2,115.8,124); /* o3=116 > c2+Near=115.136 */
+  pb_expect(f12,0,"break P12 o3<=c2+Near");
+  pb_flat(8);
+  /* ---- FLIP P13: NOT rb2>rb1-Far ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,115.2,99.8,115);          /* b1 rb15 */
+  pb_bar(116,117.2,115.8,117);         /* b2 rb1 <= rb1-Far=4.2 */
+  int f13=pb_bar(118,126.2,117.8,126);
+  pb_expect(f13,0,"break P13 rb2>rb1-Far");
+  pb_flat(8);
+  /* ---- FLIP P14: NOT rb3>rb2-Far ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,102.2,95.8,102);          /* b1 rb2 */
+  pb_bar(105,125.2,104.8,125);         /* b2 rb20 */
+  int f14=pb_bar(126,131.2,125.8,131); /* rb3=5 <= rb2-Far=10.592, >BodyShort=3.8 */
+  pb_expect(f14,0,"break P14 rb3>rb2-Far");
+  pb_flat(8);
+  /* ---- FLIP P15: NOT rb3>BodyShort ---- */
+  pb_primer(12,100,2,8);
+  pb_bar(100,106.2,99.8,106);
+  pb_bar(104,112.2,103.8,112);
+  int f15=pb_bar(113,115.2,112.8,115); /* rb3=2 <= BodyShort=3.0 */
+  pb_expect(f15,0,"break P15 rb3>BodyShort");
+  pb_flat(8);
+}
+
+/* CDL3STARSINSOUTH MC/DC: detection (100) + one flip per structural predicate. */
+static void build_3starsinsouth( void )
+{
+  int d,f;
+  pb_flat(6);
+
+  /* DETECTION: valid Three Stars in the South -> 100 */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);            /* C1: long black, long lower shadow */
+  pb_bar(118,118,100,112);           /* C2: smaller black, opens higher within range, lower shadow */
+  d=pb_bar(106,106.3,104.7,105);     /* C3: small black marubozu engulfed */
+  pb_expect(d,100,"detect");
+  pb_flat(8);
+
+  /* P1: break color(1st)==-1 -> make C1 white (close>=open) */
+  pb_primer(12,100,2,1);
+  pb_bar(100,121,85,110);            /* white body [100,110] */
+  pb_bar(118,118,100,112);
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p1 color1st");
+  pb_flat(8);
+
+  /* P2: break color(2nd)==-1 -> make C2 white */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(113,116,100,116);           /* white body [113,116] */
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p2 color2nd");
+  pb_flat(8);
+
+  /* P3: break color(3rd)==-1 -> make C3 white */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(118,118,100,112);
+  f=pb_bar(105,106.3,104.7,106);     /* white body [105,106] */
+  pb_expect(f,0,"break p3 color3rd");
+  pb_flat(8);
+
+  /* P4: break realbody(1st) > BodyLong avg -> C1 short body (2nd shrunk to keep p6) */
+  pb_primer(12,100,2,1);
+  pb_bar(111.9,121,95,110);          /* body 1.9 <= 2 */
+  pb_bar(113,113,100,112);           /* body 1 (< 1.9 keeps p6) */
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p4 bodyLong1st");
+  pb_flat(8);
+
+  /* P5: break lowershadow(1st) > ShadowLong avg -> lower shadow == threshold */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,100,110);           /* lowsh=10 == realbody=10 */
+  pb_bar(118,118,100,112);
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p5 lowerShadow1st");
+  pb_flat(8);
+
+  /* P6: break realbody(2nd) < realbody(1st) -> C2 body bigger than C1 */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(120,120,100,108);           /* body 12 >= 10 */
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p6 smaller2nd");
+  pb_flat(8);
+
+  /* P7: break open(2nd) > close(1st) -> open2 == close1 */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(110,110,100,105);           /* open2=110=close1 */
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p7 open2GTclose1");
+  pb_flat(8);
+
+  /* P8: break open(2nd) <= high(1st) -> open2 above high1 */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(122,122,100,118);           /* open2=122 > high1=121 */
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p8 open2LEhigh1");
+  pb_flat(8);
+
+  /* P9: break low(2nd) < close(1st) -> lower close1 to == low2 */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,75,100);            /* close1=100 == low2 */
+  pb_bar(118,118,100,112);
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p9 low2LTclose1");
+  pb_flat(8);
+
+  /* P10: break low(2nd) >= low(1st) -> low2 below low1 */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(118,118,90,112);            /* low2=90 < low1=95 */
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p10 low2GElow1");
+  pb_flat(8);
+
+  /* P11: break lowershadow(2nd) > ShadowVeryShort avg -> C2 tiny lower shadow (C3 raised) */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(112,112,105.7,106);         /* lowsh2=0.3 < ~0.62 */
+  f=pb_bar(109,109.3,107.7,108);     /* engulfed above low2=105.7 */
+  pb_expect(f,0,"break p11 lowerShadow2nd");
+  pb_flat(8);
+
+  /* P12: break realbody(3rd) < BodyShort avg -> C3 big body */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(118,118,100,112);
+  f=pb_bar(108,108.3,102.7,103);     /* body 5 > ~3.2 */
+  pb_expect(f,0,"break p12 bodyShort3rd");
+  pb_flat(8);
+
+  /* P13: break lowershadow(3rd) < ShadowVeryShort avg -> C3 big lower shadow */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(118,118,100,112);
+  f=pb_bar(106,106.3,103,105);       /* lowsh3=2 > ~0.76 */
+  pb_expect(f,0,"break p13 lowerShadow3rd");
+  pb_flat(8);
+
+  /* P14: break uppershadow(3rd) < ShadowVeryShort avg -> C3 big upper shadow */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(118,118,100,112);
+  f=pb_bar(106,108,104.7,105);       /* uppsh3=2 > ~0.76 */
+  pb_expect(f,0,"break p14 upperShadow3rd");
+  pb_flat(8);
+
+  /* P15: break low(3rd) > low(2nd) -> raise low2 above low3 */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(118,118,106,112);           /* low2=106 > low3=104.7 */
+  f=pb_bar(106,106.3,104.7,105);
+  pb_expect(f,0,"break p15 low3GTlow2");
+  pb_flat(8);
+
+  /* P16: break high(3rd) < high(2nd) -> raise C3 above high2 */
+  pb_primer(12,100,2,1);
+  pb_bar(120,121,95,110);
+  pb_bar(118,118,100,112);
+  f=pb_bar(118,118.3,116.7,117);     /* high3=118.3 > high2=118 */
+  pb_expect(f,0,"break p16 high3LThigh2");
+}
+
+/* Predicate-coverage (MC/DC) gate for the marquee multi-candle patterns. Runs
+ * the actual TA function over detection + per-predicate near-miss scenarios and
+ * asserts the exact integer output at each (the rarer multi-candle patterns that
+ * random fuzz data never triggers). Complements the FUZZ_CANDLE differential/
+ * stream coverage; extended one pattern at a time (issue #109). */
+static ErrorNumber test_marquee_predicate_coverage( void )
+{
+   ErrorNumber e;
+   pb_reset(); build_2crows();      e = pb_check_mcdc("CDL2CROWS",      TA_CDL2CROWS);      if( e != TA_TEST_PASS ) return e;
+   pb_reset(); build_3blackcrows(); e = pb_check_mcdc("CDL3BLACKCROWS", TA_CDL3BLACKCROWS); if( e != TA_TEST_PASS ) return e;
+   pb_reset(); build_3whitesoldiers(); e = pb_check_mcdc("CDL3WHITESOLDIERS", TA_CDL3WHITESOLDIERS); if( e != TA_TEST_PASS ) return e;
+   pb_reset(); build_3starsinsouth(); e = pb_check_mcdc("CDL3STARSINSOUTH", TA_CDL3STARSINSOUTH); if( e != TA_TEST_PASS ) return e;
+   return TA_TEST_PASS;
+}
+
 ErrorNumber test_candlestick( TA_History *history )
 {
    unsigned int i;
@@ -422,6 +966,14 @@ ErrorNumber test_candlestick( TA_History *history )
    if( retValue != TA_TEST_PASS )
    {
       printf( "Failed: Hikkake predicate-coverage test (retValue=%d)\n", retValue );
+      return retValue;
+   }
+
+   /* MC/DC gate for the marquee multi-candle patterns (issue #109). */
+   retValue = test_marquee_predicate_coverage();
+   if( retValue != TA_TEST_PASS )
+   {
+      printf( "Failed: marquee predicate-coverage test (retValue=%d)\n", retValue );
       return retValue;
    }
 

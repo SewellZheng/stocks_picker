@@ -3086,8 +3086,19 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
  *                uncapped bound would balloon to ~2 deg; the cap holds it near
  *                ANGLE's true worst-case drift (measured 0.065 deg) so a real
  *                future ANGLE regression can't hide, while realistic-scale cases
- *                (bound ~1e-7 deg) are unaffected (cap never binds there). */
-enum { TOL_ABS = 0, TOL_REL_IN = 1 };
+ *                (bound ~1e-7 deg) are unaffected (cap never binds there).
+ *
+ *   TOL_NAN_TO : 0.6.4 emitted NaN from an unguarded x/0 in a *successful* call;
+ *                the fix substitutes a defined neutral value. This is NOT a
+ *                numeric bound — it is the categorical divergence NaN(0.6.4) ->
+ *                finite. Tolerated ONLY when 0.6.4 is NaN AND current equals the
+ *                authorized value carried in `tol` (e.g. IMI #112: 50.0). Any
+ *                other element diff for such a function is a real failure, so a
+ *                regression that returns a *different* value where 0.6.4 was NaN
+ *                (or diverges anywhere 0.6.4 was finite) still fails. Kept
+ *                maximally tight by requiring the exact neutral value, not merely
+ *                "any finite". */
+enum { TOL_ABS = 0, TOL_REL_IN = 1, TOL_NAN_TO = 2 };
 static const struct { const char *name; int mode; double tol; double cap; } FUZZ_064_TOL[] = {
     { "CCI",                 TOL_ABS,    1e-9, 0.0 },  /* #7   near-zero identical-price fix */
     { "LINEARREG",           TOL_REL_IN, 1e-9, 0.0 },  /* #103 O(1) sliding-sum recurrence   */
@@ -3095,6 +3106,7 @@ static const struct { const char *name; int mode; double tol; double cap; } FUZZ
     { "LINEARREG_INTERCEPT", TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
     { "LINEARREG_ANGLE",     TOL_REL_IN, 1e-9, 0.5 },  /* #103 bounded degrees -> capped 0.5 */
     { "TSF",                 TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
+    { "IMI",                 TOL_NAN_TO, 50.0, 0.0 },  /* #112 all-flat window 0/0 -> NaN, now 50.0 */
 };
 
 /* Look up a function's authorized tolerance; returns NULL if it must be exact. */
@@ -3168,6 +3180,17 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
             {
                 double a = p->outRealBufs[o][j], b = g_fz064Real[o][j];
                 if( memcmp(&a, &b, sizeof(double)) == 0 ) continue;
+                /* NaN-to-neutral manifest case (#112): 0.6.4's successful call
+                 * emitted NaN (an unguarded x/0); the fix substitutes a defined
+                 * neutral value. Tolerate ONLY when 0.6.4 is NaN AND current is
+                 * exactly the authorized value; any other diff is real. (b != b
+                 * is true only for NaN — catches -nan too.) */
+                if( tolEntry && tolMode == TOL_NAN_TO )
+                {
+                    if( (b != b) && a == tolVal ) tolDiff = 1;
+                    else { realDiff = 1; if( firstO < 0 ) { firstO = (int)o; firstJ = j; } }
+                    continue;
+                }
                 double d = a - b; if( d < 0 ) d = -d;
                 if( a == b ) benignDiff = 1;        /* numerically equal => signed zero */
                 else if( tolEntry && d <= tolBound ) tolDiff = 1; /* within manifest bound */
@@ -3374,7 +3397,7 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                                              vec[k], inScale, (int)curRc, curBeg, curNb,
                                              refRc, refBeg, refNb);
                 if( cls == 0 )      ctx->failures++;
-                else if( cls == 2 ) ctx->cciTol++;   /* CCI issue-#7 near-zero (not a failure) */
+                else if( cls == 2 ) ctx->cciTol++;   /* manifest-tolerated (CCI #7 / LINEARREG #103 / IMI #112) — not a failure */
                 else                ctx->benign++;
             }
         }
@@ -3385,10 +3408,15 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     {
         int tm = 0; double tv = 0.0, tc = 0.0;
         fuzz_064_tol_lookup(funcInfo->name, &tm, &tv, &tc);
-        printf("  TOLERATED TA_%s: %lld case(s) within %g%s%s vs 0.6.4 (authorized manifest bound)\n",
-               funcInfo->name, ctx->cciTol - cciTolBefore, tv,
-               tm == TOL_REL_IN ? " * max|input|" : "",
-               (tm == TOL_REL_IN && tc > 0.0) ? " (capped)" : "");
+        if( tm == TOL_NAN_TO )
+            printf("  TOLERATED TA_%s: %lld case(s) where v0.6.4 emitted NaN (x/0) and current "
+                   "returns the guarded %g (authorized manifest)\n",
+                   funcInfo->name, ctx->cciTol - cciTolBefore, tv);
+        else
+            printf("  TOLERATED TA_%s: %lld case(s) within %g%s%s vs 0.6.4 (authorized manifest bound)\n",
+                   funcInfo->name, ctx->cciTol - cciTolBefore, tv,
+                   tm == TOL_REL_IN ? " * max|input|" : "",
+                   (tm == TOL_REL_IN && tc > 0.0) ? " (capped)" : "");
     }
     else if( ctx->benign > benignBefore )
     {
@@ -3449,11 +3477,11 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     printf("functions: %d not-in-0.6.4 (skipped), %d with benign-only diffs, %d with real failures\n",
            ctx.funcsSkipped, ctx.funcsBenign, ctx.funcsWithFailures);
     if( ctx.skipped98 > 0 )
-        printf("skipped: %lld TRIX/NATR partial-range case(s) — fixed in 0.7.2, issue #98\n",
+        printf("skipped: %lld TRIX/NATR partial-range case(s) — fixed in 0.8.1, issue #98\n",
                ctx.skipped98);
     if( ctx.cciTol > 0 )
-        printf("manifest-tolerated: %lld case(s) within an authorized latest->0.6.4 bound "
-               "(CCI #7 near-zero; LINEARREG family + TSF #103 sliding-sum)\n", ctx.cciTol);
+        printf("manifest-tolerated: %lld case(s) under an authorized latest->0.6.4 entry "
+               "(CCI #7 near-zero; LINEARREG family + TSF #103 sliding-sum; IMI #112 NaN->50.0)\n", ctx.cciTol);
     if( ctx.stochRsiSkipped > 0 )
         printf("stochrsi-skipped: %lld STOCHRSI case(s) — intentionally diverges from 0.6.4 (issue #107); pinned by test_stoch.c\n",
                ctx.stochRsiSkipped);
@@ -3467,7 +3495,7 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     if( ctx.failures == 0 && ctx.error == TA_TEST_PASS )
     {
         printf("PASS — current library is bit-identical to v0.6.4 at period>=2"
-               " (benign signed-zero and CCI issue-#7 tolerance aside; STOCHRSI excluded, issue #107).\n");
+               " (benign signed-zero and authorized manifest tolerances aside; STOCHRSI excluded, issue #107).\n");
         return TA_TEST_PASS;
     }
     printf("FAIL — %lld real divergence(s) across %d function(s).\n",
@@ -3475,38 +3503,208 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     return ctx.error != TA_TEST_PASS ? ctx.error : TA_CODEGEN_OUTPUT_MISMATCH;
 }
 
-/* Guard the FUZZ_CANDLE data shape (fuzz_data.h) that makes the candlestick
- * streams and the v0.6.4 differential non-vacuous: it must actually FIRE the
- * inside-bar patterns (detection AND confirmation, both directions). If a future
- * edit to that generator stops producing patterns, fuzz-064 and stream_verify
- * would silently go vacuous (all-zero == all-zero) for CDLHIKKAKE(MOD). The
- * deterministic MC/DC gate (test_candlestick.c) is the independent backstop for
- * the refactor itself; this only guards the differential/stream coverage. */
-static ErrorNumber verify_fuzz_candle_nonvacuous(void)
+/* ------------------------------------------------------------------------ *
+ * Non-vacuity guard for candlestick pattern coverage (issue #109).
+ *
+ * A candlestick differential/stream test passes VACUOUSLY when the input data
+ * never triggers the pattern: every output is 0, and all-zero == all-zero holds
+ * regardless of the implementation. Both the fuzz-064 (current vs frozen v0.6.4)
+ * and stream_verify (stream vs batch) gates draw their inputs from fuzz_gen()
+ * shapes, so a pattern that fires on NO shape has its bit-exactness asserted
+ * against all-zero output — its real decision logic goes unverified.
+ *
+ * This guard asserts that EVERY candlestick fires at least one non-zero output
+ * on the shapes the candlestick sweeps actually run — the "stream shape set"
+ * {RANDWALK, CONSTANT, TIE_HEAVY, EXTREME, WITH_ZEROS, CANDLE, ZEROSUM} — at
+ * BOTH the stream size (240) and the guard's larger size (512). MONO_UP /
+ * MONO_DOWN are excluded because the candlestick stream legs skip them, so a
+ * pattern firing only there would still be stream-vacuous. The pattern-rich
+ * FUZZ_CANDLE shape (fuzz_data.h) is grown with deterministic per-family windows
+ * so the rarer multi-candle patterns fire; this guard fails loudly if any
+ * non-exempt pattern's coverage is (or becomes) vacuous.
+ *
+ * cdl_pending[] lists patterns not yet covered by a deterministic window
+ * (tracked in issue #109); they are exempt from the assertion and the list
+ * shrinks to empty as each family's window lands. The Hikkake pair additionally
+ * keeps the stronger 4-output-class check (detection AND +/-200 confirmation,
+ * both directions); the MC/DC gate in test_candlestick.c is the independent
+ * backstop for the pattern logic itself. */
+
+/* Shapes the candlestick stream/fuzz sweeps actually run for a pattern. */
+static const int CDL_STREAM_SHAPES[] =
+    { FUZZ_RANDWALK, FUZZ_CONSTANT, FUZZ_TIE_HEAVY, FUZZ_EXTREME,
+      FUZZ_WITH_ZEROS, FUZZ_CANDLE, FUZZ_ZEROSUM };
+#define CDL_NSTREAM_SHAPES ((int)(sizeof(CDL_STREAM_SHAPES)/sizeof(int)))
+
+/* Patterns not yet covered by a deterministic FUZZ_CANDLE window (issue #109).
+ * Exempt from the assertion until their family's window lands. The allowlist is
+ * now EMPTY — every candlestick fires on a stream-run shape (the whole catalog
+ * of once-vacuous families has landed). The lone NULL keeps the table valid ISO
+ * C; re-add a name here (with a #109-tracked reason) only if a pattern is ever
+ * found that deterministic geometry genuinely cannot trigger. */
+static const char * const cdl_pending[] = {
+    NULL
+};
+#define CDL_NPENDING ((int)(sizeof(cdl_pending)/sizeof(cdl_pending[0])))
+
+static int cdl_is_pending(const char *name)
+{
+    int i;
+    for( i = 0; i < CDL_NPENDING; i++ )
+        if( cdl_pending[i] && strcmp(name, cdl_pending[i]) == 0 ) return 1;
+    return 0;
+}
+
+/* Patterns with a deterministic FUZZ_CANDLE window (fuzz_data.h, issue #109).
+ * These are held to a STRONGER standard: they must fire on FUZZ_CANDLE (shape 7)
+ * specifically, not merely on some stream-run shape. That way a window that rots
+ * (an edit to fuzz_data.h that stops producing the pattern) is caught even for
+ * patterns that also happen to fire on the random shapes — otherwise the random
+ * firing would mask the broken window. Grows as each family's window lands. */
+static const char * const cdl_catalog[] = {
+    "CDL2CROWS", "CDL3BLACKCROWS", "CDL3WHITESOLDIERS", "CDL3STARSINSOUTH",
+    "CDL3LINESTRIKE", "CDLCONCEALBABYSWALL", "CDLMATHOLD", "CDLRISEFALL3METHODS",
+    "CDLADVANCEBLOCK", "CDLINNECK", "CDLUNIQUE3RIVER",
+    "CDLKICKING",
+    "CDLKICKINGBYLENGTH",
+    "CDLDARKCLOUDCOVER",
+    "CDLPIERCING",
+    "CDLTHRUSTING",
+    "CDLHOMINGPIGEON",
+    "CDL3INSIDE",
+    "CDLIDENTICAL3CROWS",
+    "CDLSTALLEDPATTERN",
+    "CDLUPSIDEGAP2CROWS",
+    "CDLBREAKAWAY",
+    "CDLLADDERBOTTOM",
+    "CDLXSIDEGAP3METHODS"
+};
+#define CDL_NCATALOG ((int)(sizeof(cdl_catalog)/sizeof(cdl_catalog[0])))
+
+static int cdl_in_catalog(const char *name)
+{
+    int i;
+    for( i = 0; i < CDL_NCATALOG; i++ )
+        if( strcmp(name, cdl_catalog[i]) == 0 ) return 1;
+    return 0;
+}
+
+/* Count non-zero outputs of a candlestick on one (shape,seed,n) fuzz case. */
+static int cdl_fire_on(const TA_FuncHandle *handle, int shape, int seed, int n)
 {
     static double o[512], h[512], l[512], c[512], vv[512], oi[512];
     static int out[512];
-    struct { const char *nm;
-             TA_RetCode (*fn)(int,int,const double*,const double*,const double*,const double*,int*,int*,int*); }
-        F[2] = { { "CDLHIKKAKE", TA_CDLHIKKAKE }, { "CDLHIKKAKEMOD", TA_CDLHIKKAKEMOD } };
-    int fi;
-    for( fi = 0; fi < 2; fi++ )
-    {
-        int p100=0, n100=0, p200=0, n200=0, seed;
+    TA_ParamHolder *ph; int beg = 0, nb = 0, k, cnt = 0;
+    if( n > 512 ) n = 512;
+    fuzz_gen(shape, seed, n, o, h, l, c, vv, oi);
+    if( TA_ParamHolderAlloc(handle, &ph) != TA_SUCCESS ) return -1;
+    TA_SetInputParamPricePtr(ph, 0, o, h, l, c, vv, oi);
+    TA_SetOutputParamIntegerPtr(ph, 0, out);
+    if( TA_CallFunc(ph, 0, n - 1, &beg, &nb) == TA_SUCCESS )
+        for( k = 0; k < nb; k++ ) if( out[k] ) cnt++;
+    TA_ParamHolderFree(ph);
+    return cnt;
+}
+
+/* Fires on at least one stream-run shape at size n (seeds 1..6)? */
+static int cdl_fires_at_size(const TA_FuncHandle *handle, int n)
+{
+    int si, seed;
+    for( si = 0; si < CDL_NSTREAM_SHAPES; si++ )
         for( seed = 1; seed <= 6; seed++ )
+            if( cdl_fire_on(handle, CDL_STREAM_SHAPES[si], seed, n) > 0 ) return 1;
+    return 0;
+}
+
+/* Fires on FUZZ_CANDLE specifically at size n (seeds 1..6)? */
+static int cdl_fires_candle_at_size(const TA_FuncHandle *handle, int n)
+{
+    int seed;
+    for( seed = 1; seed <= 6; seed++ )
+        if( cdl_fire_on(handle, FUZZ_CANDLE, seed, n) > 0 ) return 1;
+    return 0;
+}
+
+/* Collector for TA_ForEachFunc: gather candlestick handles + names. */
+typedef struct { const TA_FuncHandle *h[128]; const char *nm[128]; int n; } CdlList;
+static void cdl_collect(const TA_FuncInfo *fi, void *opaque)
+{
+    CdlList *L = (CdlList *)opaque;
+    if( (fi->flags & TA_FUNC_FLG_CANDLESTICK) && L->n < 128 )
+    { L->h[L->n] = fi->handle; L->nm[L->n] = fi->name; L->n++; }
+}
+
+static ErrorNumber verify_fuzz_candle_nonvacuous(void)
+{
+    CdlList L; int i, failed = 0;
+    L.n = 0;
+    TA_ForEachFunc(cdl_collect, &L);
+    for( i = 0; i < L.n; i++ )
+    {
+        int f240 = cdl_fires_at_size(L.h[i], 240);
+        int f512 = cdl_fires_at_size(L.h[i], 512);
+        if( cdl_is_pending(L.nm[i]) )
         {
-            int bi=0, nb=0, k;
-            fuzz_gen(FUZZ_CANDLE, seed, 512, o, h, l, c, vv, oi);
-            if( F[fi].fn(0, 511, o, h, l, c, &bi, &nb, out) != TA_SUCCESS ) continue;
-            for( k = 0; k < nb; k++ ) { int val=out[k];
-                if(val==100)p100++; else if(val==-100)n100++; else if(val==200)p200++; else if(val==-200)n200++; }
+            if( f240 && f512 )
+                printf("NOTE: pending candlestick %s now fires on the stream "
+                       "shapes — promote it out of cdl_pending[] (issue #109).\n",
+                       L.nm[i]);
+            continue;
         }
-        if( !(p100 && n100 && p200 && n200) )
+        if( !(f240 && f512) )
         {
-            printf("FUZZ_CANDLE VACUOUS for %s: +100=%d -100=%d +200=%d -200=%d "
-                   "(the pattern shape must fire detection AND confirmation)\n",
-                   F[fi].nm, p100, n100, p200, n200);
-            return TA_TSTCDL_PREDICATE_VACUOUS;
+            printf("CANDLE VACUOUS: %s fires on no stream-run shape "
+                   "(N=240:%d N=512:%d) — its fuzz-064/stream coverage is "
+                   "all-zero==all-zero. Add a deterministic FUZZ_CANDLE window "
+                   "(issue #109) or list it in cdl_pending[].\n",
+                   L.nm[i], f240, f512);
+            failed++;
+        }
+        else if( cdl_in_catalog(L.nm[i]) )
+        {
+            /* Held to the stronger FUZZ_CANDLE-specific standard. */
+            int c240 = cdl_fires_candle_at_size(L.h[i], 240);
+            int c512 = cdl_fires_candle_at_size(L.h[i], 512);
+            if( !(c240 && c512) )
+            {
+                printf("CANDLE WINDOW BROKEN: %s is listed in cdl_catalog[] but no "
+                       "longer fires on FUZZ_CANDLE (N=240:%d N=512:%d) — its "
+                       "deterministic window in fuzz_data.h regressed (issue #109).\n",
+                       L.nm[i], c240, c512);
+                failed++;
+            }
+        }
+    }
+    if( failed )
+        return TA_TSTCDL_PREDICATE_VACUOUS;
+
+    /* Stronger check for the Hikkake pair: the pattern shape must fire ALL FOUR
+     * output classes (detection AND +/-200 confirmation, both directions). */
+    {
+        static double o[512], h[512], l[512], c[512], vv[512], oi[512];
+        static int out[512];
+        struct { const char *nm;
+                 TA_RetCode (*fn)(int,int,const double*,const double*,const double*,const double*,int*,int*,int*); }
+            F[2] = { { "CDLHIKKAKE", TA_CDLHIKKAKE }, { "CDLHIKKAKEMOD", TA_CDLHIKKAKEMOD } };
+        int fi;
+        for( fi = 0; fi < 2; fi++ )
+        {
+            int p100=0, n100=0, p200=0, n200=0, seed;
+            for( seed = 1; seed <= 6; seed++ )
+            {
+                int bi=0, nb=0, k;
+                fuzz_gen(FUZZ_CANDLE, seed, 512, o, h, l, c, vv, oi);
+                if( F[fi].fn(0, 511, o, h, l, c, &bi, &nb, out) != TA_SUCCESS ) continue;
+                for( k = 0; k < nb; k++ ) { int val=out[k];
+                    if(val==100)p100++; else if(val==-100)n100++; else if(val==200)p200++; else if(val==-200)n200++; }
+            }
+            if( !(p100 && n100 && p200 && n200) )
+            {
+                printf("FUZZ_CANDLE VACUOUS for %s: +100=%d -100=%d +200=%d -200=%d "
+                       "(the pattern shape must fire detection AND confirmation)\n",
+                       F[fi].nm, p100, n100, p200, n200);
+                return TA_TSTCDL_PREDICATE_VACUOUS;
+            }
         }
     }
     return TA_TEST_PASS;
