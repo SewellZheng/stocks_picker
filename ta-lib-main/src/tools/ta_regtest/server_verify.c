@@ -2,6 +2,17 @@
  *
  * Uses ta_abstract metadata to build JSON requests internally, so test files
  * only pass inputs/params/outputs in signature order without any JSON knowledge.
+ *
+ * The hard-coded tests already validate in-process C vs the expected constants
+ * at a legitimate tolerance. This module runs the OTHER, transitive check —
+ * feed the SAME inputs to another language and compare to what C computed — and
+ * that must be EXACT: same algorithm, same inputs => same bits (issue #115). It
+ * is the same "in-process C <=> language server, bit-for-bit" operation as
+ * --xlang-hash (issue #113), differing only in input source: here the inputs are
+ * the test's exact arrays, sent losslessly as hex-of-IEEE-bits strings, and the
+ * server returns a full-precision out_hash we diff via the shared
+ * codegen_hash_compare(). Zero tolerance for C/Rust/.NET; a narrow tolerance for
+ * Java on transcendental-using functions only (fdlibm != system libm ~1 ULP).
  */
 
 #include <stdio.h>
@@ -10,17 +21,24 @@
 #include <math.h>
 
 #include "server_verify.h"
+#include "test_codegen.h"   /* codegen_output_hash / codegen_hash_compare / XHash* */
 #include "ta_abstract.h"
 
 /* ---- Configuration ---- */
 
 #define SV_BUF_SIZE (256 * 1024)   /* 256KB request/response buffers */
-#define SV_MAX_OUTPUT 512          /* max output elements per call */
-#define SV_EPSILON 1e-6            /* absolute tolerance for real comparison */
+
+/* The Java-transcendental tolerance (CODEGEN_JAVA_TRANSCENDENTAL_TOL), the
+ * transcendental-call test (codegen_call_is_transcendental), the lossless
+ * hex-bits input writer (codegen_write_hexbits_array), and the tolerance
+ * element-compare (codegen_compare_tol) are all shared with the --xlang-hash
+ * gate via test_codegen.h — the two run the identical "in-process C <=> language
+ * server, bit-for-bit (tolerance only for Java transcendentals)" operation. */
 
 /* ---- Global state ---- */
 
 static CodegenPipe *g_pipes[SV_MAX_PIPES];
+static const char  *g_pipeLang[SV_MAX_PIPES];          /* "c"/"rust"/"java"/"dotnet" */
 static int          g_nbPipes = 0;
 static char        *g_reqBuf  = NULL;
 static char        *g_respBuf = NULL;
@@ -69,105 +87,10 @@ static TA_FuncUnstId sv_func_unst_id(const char *name)
     return TA_FUNC_UNST_NONE;
 }
 
-/* ---- Minimal JSON helpers ---- */
-
-static int sv_json_write_double_array(char *buf, int buf_size,
-                                      const TA_Real *data, int count)
-{
-    int pos = 0;
-    buf[pos++] = '[';
-    for( int i = 0; i < count; i++ )
-    {
-        if( i > 0 )
-            pos += snprintf(buf + pos, buf_size - pos, ",");
-        pos += snprintf(buf + pos, buf_size - pos, "%.15g", data[i]);
-    }
-    buf[pos++] = ']';
-    buf[pos] = '\0';
-    return pos;
-}
-
-static const char *sv_json_find_field(const char *json, const char *field, int *len)
-{
-    char pattern[256];
-    snprintf(pattern, sizeof(pattern), "\"%s\":", field);
-    const char *p = strstr(json, pattern);
-    if( !p ) return NULL;
-    p += strlen(pattern);
-    while( *p == ' ' ) p++;
-
-    const char *start = p;
-    if( *p == '"' )
-    {
-        p++;
-        while( *p && *p != '"' ) p++;
-        if( *p == '"' ) p++;
-    }
-    else if( *p == '[' )
-    {
-        int depth = 1;
-        p++;
-        while( *p && depth > 0 )
-        {
-            if( *p == '[' ) depth++;
-            else if( *p == ']' ) depth--;
-            p++;
-        }
-    }
-    else
-    {
-        while( *p && *p != ',' && *p != '}' ) p++;
-    }
-
-    *len = (int)(p - start);
-    return start;
-}
-
-static int sv_json_get_int(const char *json, const char *field)
-{
-    int len;
-    const char *val = sv_json_find_field(json, field, &len);
-    if( !val ) return 0;
-    return atoi(val);
-}
-
-static int sv_json_get_double_array(const char *json, const char *field,
-                                    TA_Real *out, int max_count)
-{
-    int len;
-    const char *val = sv_json_find_field(json, field, &len);
-    if( !val || *val != '[' ) return 0;
-
-    int count = 0;
-    const char *p = val + 1;
-    while( *p && *p != ']' && count < max_count )
-    {
-        while( *p == ' ' || *p == ',' ) p++;
-        if( *p == ']' ) break;
-        out[count] = strtod(p, (char **)&p);
-        count++;
-    }
-    return count;
-}
-
-static int sv_json_get_int_array(const char *json, const char *field,
-                                 TA_Integer *out, int max_count)
-{
-    int len;
-    const char *val = sv_json_find_field(json, field, &len);
-    if( !val || *val != '[' ) return 0;
-
-    int count = 0;
-    const char *p = val + 1;
-    while( *p && *p != ']' && count < max_count )
-    {
-        while( *p == ' ' || *p == ',' ) p++;
-        if( *p == ']' ) break;
-        out[count] = (TA_Integer)strtol(p, (char **)&p, 10);
-        count++;
-    }
-    return count;
-}
+/* ---- Minimal JSON helpers ----
+ * The field/array parsers and the hex-bits writer live in test_codegen.c (shared
+ * with --xlang-hash); server_verify uses codegen_write_hexbits_array to serialize
+ * inputs and codegen_compare_tol to parse+compare the Java-transcendental path. */
 
 static int sv_json_is_error(const char *json)
 {
@@ -196,13 +119,16 @@ static int          g_unstInitialized[SV_MAX_PIPES];
 
 /* ---- Init / shutdown ---- */
 
-void server_verify_init(CodegenPipe *pipes[], int nbPipes)
+void server_verify_init(CodegenPipe *pipes[], const char *langs[], int nbPipes)
 {
     g_nbPipes = 0;
     for( int i = 0; i < nbPipes && i < SV_MAX_PIPES; i++ )
     {
         if( pipes[i] )
-            g_pipes[g_nbPipes++] = pipes[i];
+        {
+            g_pipeLang[g_nbPipes] = langs ? langs[i] : NULL;
+            g_pipes[g_nbPipes++]  = pipes[i];
+        }
     }
     if( g_nbPipes > 0 )
     {
@@ -225,6 +151,7 @@ void server_verify_shutdown(void)
     {
         g_lastCompatibility[p] = -1;
         g_unstInitialized[p] = 0;
+        g_pipeLang[p] = NULL;
     }
 }
 
@@ -306,13 +233,19 @@ static ErrorNumber sync_compatibility(int pipeIdx)
     return TA_TEST_PASS;
 }
 
-/* ---- Build JSON request from ta_abstract metadata ---- */
-
+/* ---- Build JSON request from ta_abstract metadata ----
+ *
+ * Inputs are always serialized losslessly (hex-of-IEEE-bits). When wantHash,
+ * the request carries "want_hash":1 so the server returns an out_hash digest of
+ * its raw outputs instead of %.15g arrays (the bitwise path); otherwise it
+ * returns arrays (the Java-transcendental tolerance path). Returns -1 if the
+ * function is not in ta_abstract (graceful skip). */
 static int build_request(const char *funcName,
                          TA_Integer startIdx, TA_Integer endIdx,
                          int nbBars,
                          const TA_Real *inputs[],
-                         const double optParams[], int nbOptParams)
+                         const double optParams[], int nbOptParams,
+                         int wantHash)
 {
     const TA_FuncHandle *handle;
     const TA_FuncInfo   *fi;
@@ -364,8 +297,8 @@ static int build_request(const char *funcName,
             realInputCount++;
 
             pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos, ",\"%s\":", key);
-            pos += sv_json_write_double_array(g_reqBuf + pos, SV_BUF_SIZE - pos,
-                                              inputs[inputIdx], nbBars);
+            pos += codegen_write_hexbits_array(g_reqBuf + pos, SV_BUF_SIZE - pos,
+                                               inputs[inputIdx], nbBars);
             inputIdx++;
         }
         else if( info->type == TA_Input_Price )
@@ -378,8 +311,8 @@ static int build_request(const char *funcName,
                         return -1;
                     pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos,
                                    ",\"%s\":", PRICE_COMPONENTS[c].jsonKey);
-                    pos += sv_json_write_double_array(g_reqBuf + pos, SV_BUF_SIZE - pos,
-                                                     inputs[inputIdx], nbBars);
+                    pos += codegen_write_hexbits_array(g_reqBuf + pos, SV_BUF_SIZE - pos,
+                                                       inputs[inputIdx], nbBars);
                     inputIdx++;
                 }
             }
@@ -390,8 +323,8 @@ static int build_request(const char *funcName,
             if( !inputs || !inputs[inputIdx] )
                 return -1;
             pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos, ",\"%s\":", info->paramName);
-            pos += sv_json_write_double_array(g_reqBuf + pos, SV_BUF_SIZE - pos,
-                                              inputs[inputIdx], nbBars);
+            pos += codegen_write_hexbits_array(g_reqBuf + pos, SV_BUF_SIZE - pos,
+                                               inputs[inputIdx], nbBars);
             inputIdx++;
         }
     }
@@ -432,128 +365,124 @@ static int build_request(const char *funcName,
                         ",\"unstablePeriod\":%d", unstPeriod);
     }
 
+    if( wantHash )
+        pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos, ",\"want_hash\":1");
+
     pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos, "}}");
     return pos;
 }
 
-/* ---- Compare server response with C output ---- */
+/* ---- Golden output hash (in-process C outputs, logical order) ---- */
 
-static ErrorNumber compare_output(const char *funcName,
-                                  const char *resp,
-                                  TA_RetCode crefRetCode,
-                                  TA_Integer crefOutBegIdx,
-                                  TA_Integer crefOutNbElement,
-                                  const TA_Real *outReal[],
-                                  const TA_Integer *outInteger[])
+/* Reconstruct the C outputs in ta_abstract (logical) order, mapping the test's
+ * separate outReal[]/outInteger[] per-type buffer lists into the flat
+ * outBufs[3]/isInt[3] the shared codegen_* core consumes. Returns nbOutput (0 if
+ * the function is unknown). The lists must be complete (one buffer per output) —
+ * both codegen_output_hash and codegen_compare_tol index every output. */
+static unsigned int sv_output_bufs(const char *funcName,
+                                   const TA_Real *outReal[],
+                                   const TA_Integer *outInteger[],
+                                   const void *bufs[3], int isInt[3])
 {
-    int srvRetCode = sv_json_get_int(resp, "retCode");
-    if( srvRetCode != (int)crefRetCode )
+    const TA_FuncHandle *handle;
+    const TA_FuncInfo   *fi;
+    if( TA_GetFuncHandle(funcName, &handle) != TA_SUCCESS ) return 0;
+    if( TA_GetFuncInfo(handle, &fi) != TA_SUCCESS ) return 0;
+
+    int realIdx = 0, intIdx = 0;
+    for( unsigned int o = 0; o < fi->nbOutput && o < 3; o++ )
     {
+        const TA_OutputParameterInfo *oinfo;
+        TA_GetOutputParameterInfo(handle, o, &oinfo);
+        if( oinfo->type == TA_Output_Integer )
+        {
+            isInt[o] = 1;
+            bufs[o]  = outInteger ? (const void *)outInteger[intIdx++] : NULL;
+        }
+        else
+        {
+            isInt[o] = 0;
+            bufs[o]  = outReal ? (const void *)outReal[realIdx++] : NULL;
+        }
+    }
+    return fi->nbOutput;
+}
+
+/* Hash the C reference outputs the test already computed, in the same logical
+ * order (and byte layout) the servers hash their out_hash — via the shared
+ * codegen_output_hash. */
+static unsigned long long sv_golden_hash(const char *funcName,
+                                         TA_Integer nbElement,
+                                         const TA_Real *outReal[],
+                                         const TA_Integer *outInteger[])
+{
+    const void *bufs[3];
+    int isInt[3];
+    unsigned int nbOutput = sv_output_bufs(funcName, outReal, outInteger, bufs, isInt);
+    if( nbOutput == 0 ) return 0;
+    return codegen_output_hash(nbOutput, isInt, bufs, (int)nbElement);
+}
+
+/* ---- Tolerance-based element compare (Java transcendental path only) ----
+ *
+ * fdlibm != system libm means Java cannot be bit-compared on the transcendental
+ * calls, so its %.15g arrays are element-compared at `tol` (integers still
+ * exact) via the shared codegen_compare_tol — the same primitive --xlang-hash's
+ * Java leg uses. This wrapper just reconstructs the C outputs in logical order
+ * and translates the verdict into server_verify's messages and error codes. */
+static ErrorNumber compare_output_tol(const char *funcName,
+                                      const char *resp,
+                                      TA_RetCode crefRetCode,
+                                      TA_Integer crefOutBegIdx,
+                                      TA_Integer crefOutNbElement,
+                                      const TA_Real *outReal[],
+                                      const TA_Integer *outInteger[],
+                                      double tol)
+{
+    const void *bufs[3];
+    int isInt[3];
+    unsigned int nbOutput = sv_output_bufs(funcName, outReal, outInteger, bufs, isInt);
+    if( nbOutput == 0 )
+        return TA_TEST_PASS;   /* not in ta_abstract — graceful skip */
+
+    CTolDetail d;
+    CTolVerdict v = codegen_compare_tol(resp, nbOutput, isInt, bufs,
+                                        crefRetCode, (int)crefOutBegIdx,
+                                        (int)crefOutNbElement, tol, &d);
+    switch( v )
+    {
+    case CTOL_MATCH:
+        return TA_TEST_PASS;
+    case CTOL_RETCODE:
         printf("  SV FAIL [%s] (pipe %d): retCode C=%d server=%d\n",
-               funcName, g_curPipe, (int)crefRetCode, srvRetCode);
+               funcName, g_curPipe, (int)crefRetCode, d.rc);
         return TA_SV_RETCODE_MISMATCH;
-    }
-
-    /* If both returned error, no output to compare */
-    if( crefRetCode != TA_SUCCESS )
-        return TA_TEST_PASS;
-
-    int srvBegIdx = sv_json_get_int(resp, "outBegIdx");
-    int srvNbElement = sv_json_get_int(resp, "outNBElement");
-
-    if( srvBegIdx != (int)crefOutBegIdx )
-    {
-        printf("  SV FAIL [%s] (pipe %d): outBegIdx C=%d server=%d\n",
-               funcName, g_curPipe, (int)crefOutBegIdx, srvBegIdx);
-        return TA_SV_BEGIDX_MISMATCH;
-    }
-
-    if( srvNbElement != (int)crefOutNbElement )
-    {
+    case CTOL_SHAPE:
+        if( d.begIdx != (int)crefOutBegIdx )
+        {
+            printf("  SV FAIL [%s] (pipe %d): outBegIdx C=%d server=%d\n",
+                   funcName, g_curPipe, (int)crefOutBegIdx, d.begIdx);
+            return TA_SV_BEGIDX_MISMATCH;
+        }
         printf("  SV FAIL [%s] (pipe %d): outNbElement C=%d server=%d\n",
-               funcName, g_curPipe, (int)crefOutNbElement, srvNbElement);
+               funcName, g_curPipe, (int)crefOutNbElement, d.nbElement);
         return TA_SV_NBELEMENT_MISMATCH;
+    case CTOL_COUNT:
+        printf("  SV FAIL [%s]: %soutput %d count C=%d server=%d\n",
+               funcName, d.isInt ? "int " : "", d.output,
+               (int)crefOutNbElement, d.srvCount);
+        return TA_SV_OUTPUT_MISMATCH;
+    case CTOL_VALUE:
+    default:
+        if( d.isInt )
+            printf("  SV FAIL [%s]: int output %d [%d] C=%d server=%d\n",
+                   funcName, d.output, d.element, d.cInt, d.sInt);
+        else
+            printf("  SV FAIL [%s]: output %d [%d] C=%.15g server=%.15g (diff=%.15g)\n",
+                   funcName, d.output, d.element, d.cReal, d.sReal,
+                   fabs(d.cReal - d.sReal));
+        return TA_SV_OUTPUT_MISMATCH;
     }
-
-    if( crefOutNbElement == 0 )
-        return TA_TEST_PASS;
-
-    /* Compare real outputs */
-    if( outReal )
-    {
-        TA_Real srvBuf[SV_MAX_OUTPUT];
-        for( int outIdx = 0; outReal[outIdx] != NULL; outIdx++ )
-        {
-            const char *key;
-            char keyBuf[32];
-            if( outIdx == 0 )
-                key = "outReal";
-            else
-            {
-                snprintf(keyBuf, sizeof(keyBuf), "outReal%d", outIdx);
-                key = keyBuf;
-            }
-
-            int srvCount = sv_json_get_double_array(resp, key, srvBuf, SV_MAX_OUTPUT);
-            if( srvCount != (int)crefOutNbElement )
-            {
-                printf("  SV FAIL [%s]: output %d count C=%d server=%d\n",
-                       funcName, outIdx, (int)crefOutNbElement, srvCount);
-                return TA_SV_OUTPUT_MISMATCH;
-            }
-
-            for( int j = 0; j < (int)crefOutNbElement; j++ )
-            {
-                double diff = fabs(outReal[outIdx][j] - srvBuf[j]);
-                double absVal = fabs(outReal[outIdx][j]);
-                double tol = (absVal > 1.0) ? SV_EPSILON * absVal : SV_EPSILON;
-                if( diff > tol )
-                {
-                    printf("  SV FAIL [%s]: output %d [%d] C=%.15g server=%.15g (diff=%.15g)\n",
-                           funcName, outIdx, j, outReal[outIdx][j], srvBuf[j], diff);
-                    return TA_SV_OUTPUT_MISMATCH;
-                }
-            }
-        }
-    }
-
-    /* Compare integer outputs */
-    if( outInteger )
-    {
-        TA_Integer srvIntBuf[SV_MAX_OUTPUT];
-        for( int outIdx = 0; outInteger[outIdx] != NULL; outIdx++ )
-        {
-            const char *key;
-            char keyBuf[32];
-            if( outIdx == 0 )
-                key = "outInteger";
-            else
-            {
-                snprintf(keyBuf, sizeof(keyBuf), "outInteger%d", outIdx);
-                key = keyBuf;
-            }
-
-            int srvCount = sv_json_get_int_array(resp, key, srvIntBuf, SV_MAX_OUTPUT);
-            if( srvCount != (int)crefOutNbElement )
-            {
-                printf("  SV FAIL [%s]: int output %d count C=%d server=%d\n",
-                       funcName, outIdx, (int)crefOutNbElement, srvCount);
-                return TA_SV_OUTPUT_MISMATCH;
-            }
-
-            for( int j = 0; j < (int)crefOutNbElement; j++ )
-            {
-                if( outInteger[outIdx][j] != srvIntBuf[j] )
-                {
-                    printf("  SV FAIL [%s]: int output %d [%d] C=%d server=%d\n",
-                           funcName, outIdx, j, outInteger[outIdx][j], srvIntBuf[j]);
-                    return TA_SV_OUTPUT_MISMATCH;
-                }
-            }
-        }
-    }
-
-    return TA_TEST_PASS;
 }
 
 /* ---- Main entry point ---- */
@@ -580,20 +509,28 @@ ErrorNumber server_verify(
     if( crefRetCode != TA_SUCCESS )
         return TA_TEST_PASS;
 
-    /* Build JSON request using ta_abstract metadata */
-    int reqLen = build_request(funcName, startIdx, endIdx, nbBars,
-                               inputs, optParams, nbOptParams);
-    if( reqLen < 0 )
-    {
-        printf("  SV WARN [%s]: failed to build request (function not in ta_abstract?)\n",
-               funcName);
-        return TA_TEST_PASS; /* graceful skip */
-    }
+    /* Golden hash of the C reference outputs (bitwise path). */
+    unsigned long long goldHash =
+        sv_golden_hash(funcName, crefOutNbElement, outReal, outInteger);
 
-    /* Send to each active server and compare */
+    /* Decide transcendental-ness once (per call — it depends on the MAType
+     * argument, not just the function name). Only Java relaxes to a tolerance
+     * for these; C/Rust/.NET stay bitwise even here. */
+    const TA_FuncHandle *handle = NULL;
+    int isTranscendental = 0;
+    if( TA_GetFuncHandle(funcName, &handle) == TA_SUCCESS )
+        isTranscendental = codegen_call_is_transcendental(handle,
+                                                          optParams, nbOptParams);
+
+    /* Send to each active server and compare. Each pipe gets its own request:
+     * the bitwise pipes ask for want_hash, the Java-transcendental pipe asks for
+     * arrays (tolerance path). */
     for( int p = 0; p < g_nbPipes; p++ )
     {
         g_curPipe = p;
+        const char *lang = g_pipeLang[p];
+        int bitwise = !(lang && strcmp(lang, "java") == 0 && isTranscendental);
+
         /* Sync global state (unstable periods + compatibility) */
         ErrorNumber err = sync_unstable_periods(p);
         if( err != TA_TEST_PASS )
@@ -608,6 +545,16 @@ ErrorNumber server_verify(
             continue;
         }
 
+        /* Build JSON request using ta_abstract metadata */
+        int reqLen = build_request(funcName, startIdx, endIdx, nbBars,
+                                   inputs, optParams, nbOptParams, bitwise);
+        if( reqLen < 0 )
+        {
+            printf("  SV WARN [%s]: failed to build request (function not in ta_abstract?)\n",
+                   funcName);
+            return TA_TEST_PASS; /* graceful skip — same for every pipe */
+        }
+
         /* Send function call */
         err = codegen_pipe_call(g_pipes[p], g_reqBuf, g_respBuf, SV_BUF_SIZE);
         if( err != TA_TEST_PASS )
@@ -616,19 +563,45 @@ ErrorNumber server_verify(
             continue;
         }
 
-        /* Skip if server doesn't know this function */
+        /* Skip if server doesn't know this function (never happens: all servers
+         * carry all 161 — this is a safety net). */
         if( sv_json_is_error(g_respBuf) )
-        {
-            /* Not a failure — server may not implement this function yet */
             continue;
-        }
 
-        /* Compare output */
-        err = compare_output(funcName, g_respBuf,
-                             crefRetCode, crefOutBegIdx, crefOutNbElement,
-                             outReal, outInteger);
-        if( err != TA_TEST_PASS )
-            return err;
+        if( bitwise )
+        {
+            XHashParsed hp;
+            XHashVerdict v = codegen_hash_compare(g_respBuf, crefRetCode,
+                                                  (int)crefOutBegIdx,
+                                                  (int)crefOutNbElement, goldHash, &hp);
+            if( v == XHASH_NO_HASH )
+            {
+                printf("  SV FAIL [%s] (pipe %d, %s): response has no out_hash "
+                       "(server lacks want_hash support?)\n",
+                       funcName, p, g_pipeLang[p] ? g_pipeLang[p] : "?");
+                return TA_SV_OUTPUT_MISMATCH;
+            }
+            if( v != XHASH_MATCH )
+            {
+                printf("  SV FAIL [%s] (pipe %d, %s): BITWISE mismatch vs in-process C\n",
+                       funcName, p, g_pipeLang[p] ? g_pipeLang[p] : "?");
+                codegen_hash_report(g_pipeLang[p] ? g_pipeLang[p] : "server",
+                                    crefRetCode, (int)crefOutBegIdx,
+                                    (int)crefOutNbElement, goldHash, &hp);
+                return (v == XHASH_RETCODE) ? TA_SV_RETCODE_MISMATCH
+                     : (v == XHASH_SHAPE)   ? TA_SV_NBELEMENT_MISMATCH
+                                            : TA_SV_OUTPUT_MISMATCH;
+            }
+        }
+        else
+        {
+            /* Java transcendental: element compare at the narrow tolerance. */
+            err = compare_output_tol(funcName, g_respBuf,
+                                     crefRetCode, crefOutBegIdx, crefOutNbElement,
+                                     outReal, outInteger, CODEGEN_JAVA_TRANSCENDENTAL_TOL);
+            if( err != TA_TEST_PASS )
+                return err;
+        }
     }
 
     return TA_TEST_PASS;

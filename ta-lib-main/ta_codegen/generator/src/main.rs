@@ -595,7 +595,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         backends::cmake_lists::generate(all_funcs, &root.join("CMakeLists.txt"), &root);
 
         let c_lib_src = root.join("ta_codegen/generator/templates/c");
-        let c_dir = root.join("ta_codegen/output/c");
+        let c_dir = root.join("ta_codegen/output/c/tools");
         std::fs::create_dir_all(&c_dir).unwrap();
         // Single-entry file list, kept as a loop to match the sibling copy loops below.
         #[allow(clippy::single_element_loop)]
@@ -643,7 +643,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     // java/src/com/tictactec/ta/lib/ (the Rust/.NET bindings have no canonical home
     // and stay under ta_codegen/output/, but Java — like C — is a shipped product).
     if backends_to_run.contains(&"java") {
-        let java_pkg = root.join("java/src/com/tictactec/ta/lib");
+        let java_pkg = root.join("ta_codegen/output/java/library/src/com/tictactec/ta/lib");
         // FuncUnstId.java depends only on enums.yaml — always safe to regenerate.
         backends::java_enums::generate(&enums, &java_pkg.join("FuncUnstId.java"));
         // Core.java's GENCODE section and CoreAnnotated.java splice ALL indicators
@@ -817,7 +817,7 @@ fn generate_bench(backend_filter: Option<&str>) {
     let out_base = root.join("ta_codegen/output");
     for backend in &backends {
         if *backend == "c" {
-            let dir = out_base.join("c");
+            let dir = out_base.join("c/tools");
             std::fs::create_dir_all(&dir).unwrap();
             ta_codegen_lib::bench_gen::write_c_bench(&funcs, &dir);
             ta_codegen_lib::bench_gen::write_c_stream_bench(&funcs, &dir);
@@ -827,9 +827,13 @@ fn generate_bench(backend_filter: Option<&str>) {
     }
 }
 
-/// Optimization/link flags shared by every gcc invocation in the build pipeline.
-/// Centralized so the C server, C bench, and shared-library builds cannot drift.
-const COMMON_GCC_FLAGS: &[&str] = &["-lm", "-O3", "-flto", "-DNDEBUG", "-Wno-parentheses-equality"];
+/// Optimization/link flags shared by the C server, C bench, and shared-library
+/// builds (centralized so they cannot drift). `-ffp-contract=off` is load-bearing
+/// for the FMA contract (PR #96), matching the CMake/autotools library build:
+/// without it the single-TU `target_clones` `.fma` clone auto-contracts the
+/// un-fused `a*b+c` sites, breaking bitwise batch-vs-stream stream_verify.
+const COMMON_GCC_FLAGS: &[&str] =
+    &["-lm", "-O3", "-flto", "-DNDEBUG", "-ffp-contract=off", "-Wno-parentheses-equality"];
 
 /// Verify the hand-maintained Rust `FuncUnstId` enum matches enums.yaml.
 ///
@@ -928,7 +932,7 @@ fn build_servers(backend_filter: Option<&str>) {
         match *backend {
             "c" => {
                 print!("  Building C server... ");
-                let c_dir = out_base.join("c");
+                let c_dir = out_base.join("c/tools");
                 let include_dir = root.join("include");
                 let src_dir = root.join("src");
                 // Option B: the whole C library (indicators + ta_common + the generated
@@ -972,11 +976,11 @@ fn build_servers(backend_filter: Option<&str>) {
                     }
                 }
                 // Also build direct-call benchmark binary if source exists
-                let bench_src = out_base.join("c/ta_bench_cg.c");
+                let bench_src = out_base.join("c/tools/ta_bench_cg.c");
                 if bench_src.exists() {
                     print!("  Building C bench... ");
                     let bench_dst = bin_dir.join("ta_bench_cg");
-                    let bench_inc_c = out_base.join("c");
+                    let bench_inc_c = out_base.join("c/tools");
                     match std::process::Command::new("gcc")
                         .args([
                             "-o",
@@ -1003,11 +1007,11 @@ fn build_servers(backend_filter: Option<&str>) {
                     }
                 }
                 // Also build the streaming benchmark binary if source exists
-                let sbench_src = out_base.join("c/ta_bench_stream.c");
+                let sbench_src = out_base.join("c/tools/ta_bench_stream.c");
                 if sbench_src.exists() {
                     print!("  Building C stream bench... ");
                     let sbench_dst = bin_dir.join("ta_bench_stream");
-                    let bench_inc_c = out_base.join("c");
+                    let bench_inc_c = out_base.join("c/tools");
                     match std::process::Command::new("gcc")
                         .args([
                             "-o",
@@ -1036,7 +1040,7 @@ fn build_servers(backend_filter: Option<&str>) {
             }
             "java" => {
                 print!("  Building Java server... ");
-                let java_dir = out_base.join("java");
+                let java_dir = out_base.join("java/tools");
                 let class_dir = bin_dir.join("ta_codegen_java");
                 std::fs::create_dir_all(&class_dir).ok();
                 match std::process::Command::new("javac")
@@ -1065,7 +1069,7 @@ fn build_servers(backend_filter: Option<&str>) {
                 }
 
                 print!("  Building .NET server... ");
-                let dotnet_dir = out_base.join("dotnet");
+                let dotnet_dir = out_base.join("dotnet/tools");
                 let dotnet_out = bin_dir.join("ta_codegen_dotnet");
                 std::fs::create_dir_all(&dotnet_out).ok();
 
@@ -1234,7 +1238,7 @@ fn build_shared_lib(out_base: &Path, bin_dir: &Path) -> bool {
         unity_src.push_str(&format!("#include \"{}\"\n", name));
     }
 
-    let unity_path = out_base.join("c").join("ta_codegen_funcs.c");
+    let unity_path = out_base.join("c/tools").join("ta_codegen_funcs.c");
     std::fs::write(&unity_path, &unity_src).unwrap();
 
     let include_dir = root.join("include");
@@ -1501,19 +1505,28 @@ fn generate_rust_crate_scaffolding(out_base: &Path, funcs: &[ir::FuncDef], types
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", version_path.display()))
         .trim()
         .to_string();
-    let rust_dir = out_base.join("rust");
-    let src_dir = rust_dir.join("src");
+    // Two-crate Cargo workspace: `library/` is the published `ta-lib` crate;
+    // `tools/` holds the JSON-RPC server/bench — a layer on top of the library.
+    let rust_dir = out_base.join("rust"); // workspace root
+    let lib_dir = rust_dir.join("library");
+    let src_dir = lib_dir.join("src");
     let ta_func_dir = src_dir.join("ta_func");
-    let bin_dir = src_dir.join("bin");
+    let tools_dir = rust_dir.join("tools");
+    let bin_dir = tools_dir.join("src/bin");
 
     std::fs::create_dir_all(&ta_func_dir).unwrap();
     std::fs::create_dir_all(&bin_dir).unwrap();
 
-    // --- Cargo.toml ---
-    let cargo_toml_head = format!(
+    // --- workspace Cargo.toml (virtual manifest — profiles apply at the root) ---
+    let workspace_toml = "[workspace]\nmembers = [\"library\", \"tools\"]\nresolver = \"2\"\n\n\
+        [profile.release]\nlto = \"thin\"\ncodegen-units = 1\n";
+    std::fs::write(rust_dir.join("Cargo.toml"), workspace_toml).unwrap();
+
+    // --- library/Cargo.toml (the published `ta-lib` crate — no bin, no deps) ---
+    let lib_toml_head = format!(
         "[package]\nname = \"ta-lib\"\nversion = \"{crate_version}\"\nedition = \"2021\""
     );
-    let cargo_toml_tail = r#"
+    let lib_toml_tail = r#"
 description = "Technical analysis library: 161 indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, Stochastic, candlestick patterns) — the official Rust port of TA-Lib, verified against the C reference."
 license = "BSD-3-Clause"
 homepage = "https://ta-lib.org"
@@ -1526,21 +1539,21 @@ categories = ["finance", "mathematics", "algorithms"]
 [lib]
 name = "ta_lib"
 path = "src/lib.rs"
-
-[[bin]]
-name = "ta_codegen_serve"
-path = "src/bin/ta_codegen_serve.rs"
-
-[dependencies]
-serde_json = "1"
-
-[profile.release]
-lto = "thin"
-codegen-units = 1
 "#;
-    let cargo_path = rust_dir.join("Cargo.toml");
-    std::fs::write(&cargo_path, format!("{cargo_toml_head}{cargo_toml_tail}")).unwrap();
-    println!("  Scaffolding -> {}", cargo_path.display());
+    let lib_cargo_path = lib_dir.join("Cargo.toml");
+    std::fs::write(&lib_cargo_path, format!("{lib_toml_head}{lib_toml_tail}")).unwrap();
+    println!("  Scaffolding -> {}", lib_cargo_path.display());
+
+    // --- tools/Cargo.toml (server/bench crate; depends on the library) ---
+    let tools_toml = format!(
+        "[package]\nname = \"ta-lib-tools\"\nversion = \"{crate_version}\"\nedition = \"2021\"\n\
+         publish = false\n\n[[bin]]\nname = \"ta_codegen_serve\"\n\
+         path = \"src/bin/ta_codegen_serve.rs\"\n\n[dependencies]\n\
+         ta-lib = {{ path = \"../library\" }}\nserde_json = \"1\"\n"
+    );
+    let tools_cargo_path = tools_dir.join("Cargo.toml");
+    std::fs::write(&tools_cargo_path, tools_toml).unwrap();
+    println!("  Scaffolding -> {}", tools_cargo_path.display());
 
     // --- .cargo/config.toml ---
     let cargo_config_dir = rust_dir.join(".cargo");
@@ -1709,7 +1722,7 @@ indicator calls) without locking. To change a setting, build a new `Core`.
 
 BSD-3-Clause — see [LICENSE](https://github.com/TA-Lib/ta-lib/blob/main/LICENSE).
 "#;
-    let readme_path = rust_dir.join("README.md");
+    let readme_path = lib_dir.join("README.md");
     std::fs::write(&readme_path, readme).unwrap();
     println!("  Scaffolding -> {}", readme_path.display());
 
@@ -1770,6 +1783,10 @@ fn clean_generated_files(out_base: &Path, backend: &str) {
     let Some(backend) = backends::get(backend) else {
         return;
     };
+    // Server-only backends (e.g. .NET) emit no per-indicator files to clean.
+    if !backend.emits_lib_files() {
+        return;
+    }
     let dir = backend.lib_output_dir(out_base);
     if !dir.exists() {
         return;
@@ -1809,6 +1826,10 @@ fn generate_backend(
         eprintln!("Unknown backend: {}", backend);
         return;
     };
+    // Server-only backends (e.g. .NET P/Invoke) emit no per-indicator library files.
+    if !backend.emits_lib_files() {
+        return;
+    }
     let output = backend.generate(func_def, enums, registry, helpers);
     let dir = backend.lib_output_dir(out_base);
     std::fs::create_dir_all(&dir).unwrap();

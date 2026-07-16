@@ -14,6 +14,16 @@ AM_PROG_AR
 AC_PROG_CC
 LT_INIT
 
+# FMA numerical contract (PR #96) — mirrors CMakeLists.txt: -ffp-contract=off makes
+# explicit fma() the only fusion (no auto-contraction of the un-fused a*b+c), for
+# cross-clone/-language determinism. Added only if the compiler accepts it.
+save_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -ffp-contract=off"
+AC_MSG_CHECKING([whether $CC accepts -ffp-contract=off])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [])],
+  [AC_MSG_RESULT([yes])],
+  [AC_MSG_RESULT([no]); CFLAGS="$save_CFLAGS"])
+
 # Autoupdate added the next two lines to ensure that your configure
 # script's behavior did not change.  They are probably safe to remove.
 AC_CHECK_INCLUDES_DEFAULT

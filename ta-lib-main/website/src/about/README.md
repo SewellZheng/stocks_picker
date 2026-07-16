@@ -31,10 +31,11 @@ The people behind some of TA-Lib's major features.
 | **Angelo Ciceri** | Candlestick pattern recognition — the complete family of `CDL*` functions. |
 | **Chad Furman** — [@chadfurman](https://github.com/chadfurman) | Native Rust port and co-designer of `ta_codegen`, which now automates maintenance of every backend (C, Rust, Java, .NET, docs, streaming API) from a single source of truth. |
 | **Barry Tsung** | Early Java `Core`: candle-settings initialization, compatibility and unstable-period APIs. |
+| **Richard Gomes** | Java abstract/reflection layer — the `meta` package: annotation-based RTTI and late-bound (dynamic) TA-function invocation. |
 | **Paweł Konieczny** | Early contributor to `ta_regtest`, the build system and the now-defunct `ta_data` feature. |
 | **Alexander Trufanov** — [@trufanov-nok](https://github.com/trufanov-nok) | Numerical-robustness improvements and streaming-API inspiration. |
 
-### Language wrappers
+### Language wrappers {#wrappers}
 
 TA-Lib reaches many languages thanks to the maintainers of these wrappers:
 
@@ -46,7 +47,7 @@ TA-Lib reaches many languages thanks to the maintainers of these wrappers:
 | **Marcelo Teixeira Monteiro** — [@tuxmonteiro](https://github.com/tuxmonteiro) | PostgreSQL — [ta_pg](https://github.com/TA-Lib/ta_pg) |
 | **Victor Yang** — [@Youngv](https://github.com/Youngv) | Ruby — [ta-lib-ruby](https://github.com/TA-Lib/ta-lib-ruby) |
 | **Serkan Korkmaz** — [@serkor1](https://github.com/serkor1) | R — [ta-lib-R](https://github.com/serkor1/ta-lib-R) |
-| **Kevin Johnson** — [@twopirllc](https://github.com/twopirllc) | pandas — [pandas-ta](https://github.com/twopirllc/pandas-ta) |
+| **Kevin Johnson** — [@twopirllc](https://github.com/twopirllc) (original author) · **[@xgboosted](https://github.com/xgboosted)** (current maintainer) | pandas — [pandas-ta-classic](https://github.com/xgboosted/pandas-ta-classic) |
 
 ## Other Code Contributors
 

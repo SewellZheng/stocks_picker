@@ -80,6 +80,7 @@ TA_LIB_API int TA_ADOSC_Lookback( int optInFastPeriod, int optInSlowPeriod )
    return TA_EMA_Lookback(slowestPeriod);
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_ADOSC( int    startIdx,
                                 int    endIdx,
                                 const double inHigh[],
@@ -219,8 +220,8 @@ TA_LIB_API TA_RetCode TA_ADOSC( int    startIdx,
          ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
       }
       today += 1;
-      fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-      slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+      fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+      slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
    }
    /* Perform the calculation for the requested range */
    outIdx = 0;
@@ -235,14 +236,15 @@ TA_LIB_API TA_RetCode TA_ADOSC( int    startIdx,
          ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
       }
       today += 1;
-      fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-      slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+      fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+      slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
       outReal[outIdx++] = fastEMA - slowEMA;
    }
    *outNBElement= outIdx;
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_ADOSC_Unguarded( int    startIdx,
                                           int    endIdx,
                                           const double inHigh[],
@@ -318,8 +320,8 @@ TA_LIB_API TA_RetCode TA_ADOSC_Unguarded( int    startIdx,
          ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
       }
       today += 1;
-      fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-      slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+      fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+      slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
    }
    outIdx = 0;
    while( today <= endIdx )
@@ -333,14 +335,15 @@ TA_LIB_API TA_RetCode TA_ADOSC_Unguarded( int    startIdx,
          ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
       }
       today += 1;
-      fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-      slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+      fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+      slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
       outReal[outIdx++] = fastEMA - slowEMA;
    }
    *outNBElement= outIdx;
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_RetCode TA_S_ADOSC( int    startIdx,
                        int    endIdx,
                        const float inHigh[],
@@ -440,8 +443,8 @@ TA_RetCode TA_S_ADOSC( int    startIdx,
          ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
       }
       today += 1;
-      fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-      slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+      fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+      slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
    }
    outIdx = 0;
    while( today <= endIdx )
@@ -455,14 +458,15 @@ TA_RetCode TA_S_ADOSC( int    startIdx,
          ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
       }
       today += 1;
-      fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-      slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+      fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+      slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
       outReal[outIdx++] = fastEMA - slowEMA;
    }
    *outNBElement= outIdx;
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_RetCode TA_S_ADOSC_Unguarded( int    startIdx,
                                  int    endIdx,
                                  const float inHigh[],
@@ -538,8 +542,8 @@ TA_RetCode TA_S_ADOSC_Unguarded( int    startIdx,
          ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
       }
       today += 1;
-      fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-      slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+      fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+      slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
    }
    outIdx = 0;
    while( today <= endIdx )
@@ -553,8 +557,8 @@ TA_RetCode TA_S_ADOSC_Unguarded( int    startIdx,
          ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
       }
       today += 1;
-      fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-      slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+      fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+      slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
       outReal[outIdx++] = fastEMA - slowEMA;
    }
    *outNBElement= outIdx;
@@ -591,13 +595,13 @@ static void TA_ADOSC_StepInternal( struct TA_ADOSC_Stream *sp, double inHigh, do
    {
       sp->ad += (close - low - (high - close)) / tmp * (double)inVolume;
    }
-   sp->fastEMA = sp->fastk * sp->ad + sp->one_minus_fastk * sp->fastEMA;
-   sp->slowEMA = sp->slowk * sp->ad + sp->one_minus_slowk * sp->slowEMA;
+   sp->fastEMA = fma(sp->one_minus_fastk, sp->fastEMA, sp->fastk * sp->ad);
+   sp->slowEMA = fma(sp->one_minus_slowk, sp->slowEMA, sp->slowk * sp->ad);
    *outReal= sp->fastEMA - sp->slowEMA;
 }
 
 /* Private function, not in public API. */
-TA_RetCode TA_ADOSC_OpenInternal( int optInFastPeriod, int optInSlowPeriod, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, struct TA_ADOSC_Stream **stream, double *outReal )
+TA_RetCode TA_ADOSC_OpenInternal( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, double *outReal )
 {
    struct TA_ADOSC_Stream *sp;
    int endIdx;
@@ -727,8 +731,8 @@ TA_RetCode TA_ADOSC_OpenInternal( int optInFastPeriod, int optInSlowPeriod, cons
             ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
          }
          today += 1;
-         fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-         slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+         fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+         slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
       }
       /* Perform the calculation for the requested range */
       outIdx = 0;
@@ -743,8 +747,8 @@ TA_RetCode TA_ADOSC_OpenInternal( int optInFastPeriod, int optInSlowPeriod, cons
             ad += (close - low - (high - close)) / tmp * (double)inVolume[today];
          }
          today += 1;
-         fastEMA = fastk * ad + one_minus_fastk * fastEMA;
-         slowEMA = slowk * ad + one_minus_slowk * slowEMA;
+         fastEMA = fma(one_minus_fastk, fastEMA, fastk * ad);
+         slowEMA = fma(one_minus_slowk, slowEMA, slowk * ad);
          lastValue_outReal = fastEMA - slowEMA;
       }
       dummyNBElement = outIdx;
@@ -768,9 +772,9 @@ TA_RetCode TA_ADOSC_OpenInternal( int optInFastPeriod, int optInSlowPeriod, cons
    }
 }
 
-TA_LIB_API TA_RetCode TA_ADOSC_Open( int optInFastPeriod, int optInSlowPeriod, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int historyLen, TA_ADOSC_Stream **stream, double *outReal )
+TA_LIB_API TA_RetCode TA_ADOSC_Open( TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int historyLen, int optInFastPeriod, int optInSlowPeriod, double *outReal )
 {
-   return TA_ADOSC_OpenInternal( optInFastPeriod, optInSlowPeriod, inHigh, inLow, inClose, inVolume, 0, historyLen, stream, outReal );
+   return TA_ADOSC_OpenInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInFastPeriod, optInSlowPeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_ADOSC_Update( TA_ADOSC_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal )

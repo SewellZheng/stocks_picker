@@ -198,7 +198,7 @@ jobs:
   # non-default-parameter ref differential sweep. POSIX-only (the server
   # harness uses fork/exec), hence no Windows leg.
   cross-language:
-    name: Cross-language codegen tests
+    name: "xlang: all langs vs pre-cutover C"
     needs: test
     runs-on: ubuntu-latest
 
@@ -242,7 +242,7 @@ jobs:
   # run_edge_range_sweep) against it, so any such overflow becomes a hard
   # failure. Rust-only (no JDK/.NET), gated on the C hero job.
   cross-language-rust-debug:
-    name: Rust codegen tests (debug profile — overflow gate)
+    name: Rust tests (debug profile — overflow gate)
     needs: test
     runs-on: ubuntu-latest
 
@@ -314,7 +314,7 @@ jobs:
   # at period>=2, fail on any real divergence. C-only, gated on 'test'.
   # fetch-depth: 0 so the v0.6.4 tag is available. See ta_regtest/CLAUDE.md.
   fuzz-vs-064:
-    name: Bit-exact fuzz vs released v0.6.4
+    name: C Latest vs released v0.6.4
     needs: test
     # Run after 'test' but don't let an unrelated failure (e.g. the Windows leg)
     # silently skip this release gate — it has its own checkout+build.
@@ -336,6 +336,79 @@ jobs:
       - name: Fuzz current library vs frozen v0.6.4
         shell: bash
         run: python3 scripts/build.py fuzz-064
+
+  # Cross-language BITWISE parity gate (issue #113): the generated language
+  # servers must compute BIT-IDENTICAL outputs to the shipped in-process C library
+  # (no tolerance — the seed/hex + hash design routes around the JSON-RPC
+  # float-serialization limit that forces --codegen's 1e-6). Rust crosses the
+  # boundary with a seed (gen_present); Java with lossless hex inputs (#114), its
+  # transcendental-using calls relaxed to a tolerance (fdlibm != the C libm).
+  # cmake+gcc+cargo are preinstalled on ubuntu-latest; the Java server needs the
+  # JDK (no .NET — it P/Invokes C == C by construction).
+  xlang-hash:
+    name: xlang matching (C vs Rust + Java, seed/hex+hash)
+    needs: test
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install JDK
+        shell: bash
+        run: |
+          sudo apt update
+          sudo apt install -y openjdk-21-jdk
+
+      - name: Bitwise-diff each language server vs the in-process C library
+        shell: bash
+        run: python3 scripts/build.py xlang-hash
+
+  # musllinux build gate (PR #96): regression guard that the library still BUILDS
+  # on musl with FMA dispatch excluded. target_clones/ifunc is glibc-only (musl has
+  # no ifunc; a guard wrongly widened to __linux__ would fail the compile here), so
+  # a musl build must emit ZERO ifunc and still compute correctly. Checkout on the
+  # ubuntu host (Alpine lacks Node for actions/checkout); build + test in an Alpine
+  # container. Pinned to `dev`; pre-merge use scripts/verify-musl-fma.sh.
+  musl-build:
+    name: musllinux build (FMA dispatch correctly excluded)
+    needs: test
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      - name: Build under musl — must compile, emit no ifunc, and compute correctly
+        shell: bash
+        run: |
+          docker run --rm -v "$PWD":/src -w /src alpine:3.20 sh -c '
+            set -e
+            apk add --no-cache build-base cmake >/dev/null
+            echo "== musl target: alpine $(cat /etc/alpine-release) =="
+            # (1) Must COMPILE. A guard wrongly widened to include musl would
+            #     hard-error here on the target_clones attribute in the fused .c.
+            cmake -S . -B /tmp/bm -DCMAKE_BUILD_TYPE=Release >/dev/null
+            cmake --build /tmp/bm -j"$(nproc)" >/dev/null
+            SO=$(find /tmp/bm -name "libta-lib.so*" -type f | head -1)
+            echo "DSO: $SO"
+            # (2) Guard must have EXCLUDED musl: ZERO ifunc dispatch symbols.
+            n=$(readelf -sW "$SO" | grep -c IFUNC || true); echo "IFUNC symbols in DSO (must be 0 on musl): $n"; test "$n" -eq 0
+            # (3) The plain software-fma library must still be correct on musl.
+            REG=$(find /tmp/bm -name ta_regtest -type f | head -1)
+            echo "== running C reference suite (software fma on musl) =="
+            LD_LIBRARY_PATH="$(dirname "$SO")" "$REG"'
 
   # Memory-safety gate (#94): build the library + ta_regtest with
   # AddressSanitizer + UBSan and run the full C reference suite, including the

@@ -32,6 +32,7 @@ use super::c::{
     c_decl, emit_opt_param_validation, render_c_switch_label, render_expression,
     render_statement, render_statement_stream,
 };
+use super::fma;
 
 /// C name mapping for the transition rewrite: state fields through the
 /// handle pointer, current bars as same-named scalar params, outputs as
@@ -140,9 +141,9 @@ pub fn open_signature(func: &FuncDef) -> String {
         let _ = write!(history, "const double {a}[], ");
     }
     format!(
-        "TA_LIB_API TA_RetCode TA_{n}_Open( {}{}int historyLen, TA_{n}_Stream **stream, {} )",
-        opt_params_sig(func),
+        "TA_LIB_API TA_RetCode TA_{n}_Open( TA_{n}_Stream **stream, {}int historyLen, {}{} )",
         history,
+        opt_params_sig(func),
         out_params_sig(func)
     )
 }
@@ -169,9 +170,9 @@ pub fn open_internal_signature(func: &FuncDef) -> String {
     // the definition (a bare `struct X` first seen in a prototype would otherwise
     // get prototype scope and collide).
     format!(
-        "TA_RetCode TA_{n}_OpenInternal( {}{}int startIdx, int historyLen, struct TA_{n}_Stream **stream, {} )",
-        opt_params_sig(func),
+        "TA_RetCode TA_{n}_OpenInternal( struct TA_{n}_Stream **stream, {}int startIdx, int historyLen, {}{} )",
         history,
+        opt_params_sig(func),
         out_params_sig(func)
     )
 }
@@ -180,21 +181,22 @@ pub fn open_internal_signature(func: &FuncDef) -> String {
 /// startIdx = 0 (the standalone/public default).
 fn emit_open_wrapper(o: &mut String, func: &FuncDef) {
     let n = uname(func);
-    let mut fwd = String::new();
-    for p in &func.optional_inputs {
-        let _ = write!(fwd, "{}, ", p.name);
-    }
+    let mut hist = String::new();
     for a in streaming::input_array_names(func) {
-        let _ = write!(fwd, "{a}, ");
+        let _ = write!(hist, "{a}, ");
     }
-    let outs: String = func
+    let mut opts = String::new();
+    for p in &func.optional_inputs {
+        let _ = write!(opts, "{}, ", p.name);
+    }
+    let outputs: String = func
         .outputs
         .iter()
         .map(|out| out.name.clone())
         .collect::<Vec<_>>()
         .join(", ");
     let _ = writeln!(o, "{}\n{{", open_signature(func));
-    let _ = writeln!(o, "   return TA_{n}_OpenInternal( {fwd}0, historyLen, stream, {outs} );");
+    let _ = writeln!(o, "   return TA_{n}_OpenInternal( stream, {hist}0, historyLen, {opts}{outputs} );");
     let _ = writeln!(o, "}}\n");
 }
 
@@ -307,6 +309,26 @@ pub fn generate(
     );
     let plan = streaming::validate_streamable(func, registry)
         .unwrap_or_else(|e| panic!("streaming gate: {e}"));
+
+    // Install this function's FMA fusion sets for the crate-public render entry
+    // points (render_statement*/render_expression) used throughout this call, so
+    // the streamed per-bar code fuses `a*b+c` at the same sites as the batch body
+    // (keeps the bitwise batch-vs-stream stream_verify gate green under FMA). The
+    // detector strips the transition rewrite's `sp->`/`cur_` qualifiers (see
+    // fma::stream_base), so state/series operands classify by their batch name;
+    // the per-bar bar inputs become bare scalar params (`inClose[i]` -> `inClose`)
+    // that carry no prefix, so seed them into real_vars explicitly — else a
+    // non-power-of-two input weight would fuse in the batch/Open replay but not in
+    // Update. Cleared when the guard drops.
+    let mut stream_fma = fma::build_fma_var_sets(
+        &func.private_body,
+        &func.outputs,
+        &fma::UNGUARDED_INDEX_SEEDS,
+    );
+    for input in streaming::input_array_names(func) {
+        stream_fma.real_vars.insert(input);
+    }
+    let _stream_fma_guard = super::c::StreamFmaGuard::new(stream_fma);
 
     let counter = Cell::new(0usize);
     let mut o = String::new();
@@ -864,7 +886,7 @@ fn emit_composed_sub_open(
     let _ = writeln!(o, "      {{");
     let _ = writeln!(
         o,
-        "         subRc = {cpfx}_OpenInternal( {opt_str}{src_ptrs}, ({s_arg}), ({e_arg}) + 1, &sub{si}, {out_dummies} );"
+        "         subRc = {cpfx}_OpenInternal( &sub{si}, {src_ptrs}, ({s_arg}), ({e_arg}) + 1, {opt_str}{out_dummies} );"
     );
     let _ = writeln!(o, "         if( subRc != TA_SUCCESS )");
     let _ = writeln!(o, "         {{");
@@ -1345,7 +1367,7 @@ fn emit_dispatch(
         let _ = writeln!(o, "         {cp}_Stream *sub = NULL;");
         let _ = writeln!(
             o,
-            "         retCode = {cp}_OpenInternal( {opt_str}{bar_args}, startIdx, historyLen, &sub, {out_args} );",
+            "         retCode = {cp}_OpenInternal( &sub, {bar_args}, startIdx, historyLen, {opt_str}{out_args} );",
         );
         let _ = writeln!(o, "         sp->sub = sub;");
         let _ = writeln!(o, "      }}");
@@ -2099,7 +2121,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "   {{");
     let _ = writeln!(
         o,
-        "      retCode = {pre}_OpenInternal( {open_opts}, {price}, subStart, historyLen, &sp->bank[k], &sp->scratch[k] );"
+        "      retCode = {pre}_OpenInternal( &sp->bank[k], {price}, subStart, historyLen, {open_opts}, &sp->scratch[k] );"
     );
     let _ = writeln!(o, "      if( retCode != TA_SUCCESS )");
     let _ = writeln!(o, "      {{");

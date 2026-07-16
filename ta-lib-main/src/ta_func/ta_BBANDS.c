@@ -89,6 +89,7 @@ TA_LIB_API int TA_BBANDS_Lookback( int optInTimePeriod, double optInNbDevUp, dou
    return TA_MA_Lookback(optInTimePeriod,optInMAType);
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
                                  int    endIdx,
                                  const double inReal[],
@@ -239,7 +240,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
          {
             tempReal = tempBuffer2[i];
             tempReal2 = outRealMiddleBand[i];
-            outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
+            outRealUpperBand[i] = fma(tempReal, optInNbDevUp, tempReal2);
             outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
          }
       }
@@ -313,7 +314,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
       for( i = 0; i < (int)*outNBElement; i += 1 )
       {
          tempReal2 = outRealMiddleBand[i];
-         outRealUpperBand[i] = tempReal2 + tempBuffer2[i] * optInNbDevUp;
+         outRealUpperBand[i] = fma(tempBuffer2[i], optInNbDevUp, tempReal2);
          outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
       }
    }
@@ -322,6 +323,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_BBANDS_Unguarded( int    startIdx,
                                            int    endIdx,
                                            const double inReal[],
@@ -427,7 +429,7 @@ TA_LIB_API TA_RetCode TA_BBANDS_Unguarded( int    startIdx,
          {
             tempReal = tempBuffer2[i];
             tempReal2 = outRealMiddleBand[i];
-            outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
+            outRealUpperBand[i] = fma(tempReal, optInNbDevUp, tempReal2);
             outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
          }
       }
@@ -483,7 +485,7 @@ TA_LIB_API TA_RetCode TA_BBANDS_Unguarded( int    startIdx,
       for( i = 0; i < (int)*outNBElement; i += 1 )
       {
          tempReal2 = outRealMiddleBand[i];
-         outRealUpperBand[i] = tempReal2 + tempBuffer2[i] * optInNbDevUp;
+         outRealUpperBand[i] = fma(tempBuffer2[i], optInNbDevUp, tempReal2);
          outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
       }
    }
@@ -492,6 +494,7 @@ TA_LIB_API TA_RetCode TA_BBANDS_Unguarded( int    startIdx,
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_RetCode TA_S_BBANDS( int    startIdx,
                         int    endIdx,
                         const float inReal[],
@@ -623,7 +626,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
          {
             tempReal = tempBuffer2[i];
             tempReal2 = outRealMiddleBand[i];
-            outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
+            outRealUpperBand[i] = fma(tempReal, optInNbDevUp, tempReal2);
             outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
          }
       }
@@ -679,7 +682,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
       for( i = 0; i < (int)*outNBElement; i += 1 )
       {
          tempReal2 = outRealMiddleBand[i];
-         outRealUpperBand[i] = tempReal2 + tempBuffer2[i] * optInNbDevUp;
+         outRealUpperBand[i] = fma(tempBuffer2[i], optInNbDevUp, tempReal2);
          outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
       }
    }
@@ -688,6 +691,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_RetCode TA_S_BBANDS_Unguarded( int    startIdx,
                                   int    endIdx,
                                   const float inReal[],
@@ -793,7 +797,7 @@ TA_RetCode TA_S_BBANDS_Unguarded( int    startIdx,
          {
             tempReal = tempBuffer2[i];
             tempReal2 = outRealMiddleBand[i];
-            outRealUpperBand[i] = tempReal2 + tempReal * optInNbDevUp;
+            outRealUpperBand[i] = fma(tempReal, optInNbDevUp, tempReal2);
             outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
          }
       }
@@ -849,7 +853,7 @@ TA_RetCode TA_S_BBANDS_Unguarded( int    startIdx,
       for( i = 0; i < (int)*outNBElement; i += 1 )
       {
          tempReal2 = outRealMiddleBand[i];
-         outRealUpperBand[i] = tempReal2 + tempBuffer2[i] * optInNbDevUp;
+         outRealUpperBand[i] = fma(tempBuffer2[i], optInNbDevUp, tempReal2);
          outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
       }
    }
@@ -903,7 +907,7 @@ static void TA_BBANDS_StepInternal( struct TA_BBANDS_Stream *sp, double inReal, 
    } else 
    {
       tempReal2 = cur_tempBuffer1;
-      cur_outRealUpperBand = tempReal2 + cur_tempBuffer2 * sp->optInNbDevUp;
+      cur_outRealUpperBand = fma(cur_tempBuffer2, sp->optInNbDevUp, tempReal2);
       cur_outRealLowerBand = tempReal2 - cur_tempBuffer2 * sp->optInNbDevDn;
    }
    *outRealUpperBand = cur_outRealUpperBand;
@@ -912,7 +916,7 @@ static void TA_BBANDS_StepInternal( struct TA_BBANDS_Stream *sp, double inReal, 
 }
 
 /* Private function, not in public API. */
-TA_RetCode TA_BBANDS_OpenInternal( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType, const double inReal[], int startIdx, int historyLen, struct TA_BBANDS_Stream **stream, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
+TA_RetCode TA_BBANDS_OpenInternal( struct TA_BBANDS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
    struct TA_BBANDS_Stream *sp;
    int endIdx;
@@ -997,7 +1001,7 @@ TA_RetCode TA_BBANDS_OpenInternal( int optInTimePeriod, double optInNbDevUp, dou
       /* Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       {
-         subRc = TA_MA_OpenInternal( optInTimePeriod, optInMAType, inReal, (startIdx), (endIdx) + 1, &sub0, &subOpenDummy );
+         subRc = TA_MA_OpenInternal( &sub0, inReal, (startIdx), (endIdx) + 1, optInTimePeriod, optInMAType, &subOpenDummy );
          if( subRc != TA_SUCCESS )
          {
             free(tempBuffer1);
@@ -1021,7 +1025,7 @@ TA_RetCode TA_BBANDS_OpenInternal( int optInTimePeriod, double optInNbDevUp, dou
       /* Sub-stream 1: stddev over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       {
-         subRc = TA_STDDEV_OpenInternal( optInTimePeriod, 1.0, inReal, ((int)dummyBegIdx), (endIdx) + 1, &sub1, &subOpenDummy );
+         subRc = TA_STDDEV_OpenInternal( &sub1, inReal, ((int)dummyBegIdx), (endIdx) + 1, optInTimePeriod, 1.0, &subOpenDummy );
          if( subRc != TA_SUCCESS )
          {
             free(tempBuffer1);
@@ -1071,7 +1075,7 @@ TA_RetCode TA_BBANDS_OpenInternal( int optInTimePeriod, double optInNbDevUp, dou
          for( i = 0; i < (int)dummyNBElement; i += 1 )
          {
             tempReal2 = sc_outRealMiddleBand[i];
-            sc_outRealUpperBand[i] = tempReal2 + tempBuffer2[i] * optInNbDevUp;
+            sc_outRealUpperBand[i] = fma(tempBuffer2[i], optInNbDevUp, tempReal2);
             sc_outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
          }
       }
@@ -1100,9 +1104,9 @@ TA_RetCode TA_BBANDS_OpenInternal( int optInTimePeriod, double optInNbDevUp, dou
    }
 }
 
-TA_LIB_API TA_RetCode TA_BBANDS_Open( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType, const double inReal[], int historyLen, TA_BBANDS_Stream **stream, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
+TA_LIB_API TA_RetCode TA_BBANDS_Open( TA_BBANDS_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
-   return TA_BBANDS_OpenInternal( optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, inReal, 0, historyLen, stream, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
+   return TA_BBANDS_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
 }
 
 TA_LIB_API TA_RetCode TA_BBANDS_Update( TA_BBANDS_Stream *stream, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )

@@ -72,10 +72,10 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, out_base: &
     // Byte-identical to the repo-root ta_func_api.xml (same generator + same input),
     // which C's TA_FunctionDescriptionXML also bakes — so the two are equal.
     let xml = super::func_api_xml::generate_string(funcs);
-    let xml_path = out_base.join("rust/src/ta_func_api.xml");
+    let xml_path = out_base.join("rust/library/src/ta_func_api.xml");
     super::write_if_changed(&xml_path, &xml, "ta_func_api.xml (rust embed)", n);
 
-    let out_path = out_base.join("rust/src/abstract_api.rs");
+    let out_path = out_base.join("rust/library/src/abstract_api.rs");
     super::write_if_changed(&out_path, &o, "abstract_api.rs", n);
 }
 
@@ -173,7 +173,7 @@ const PRICE_ORDER: &[(&str, char, u32)] = &[
 ];
 
 /// The price component an expanded input name refers to, if any.
-fn price_component_of(input_name: &str) -> Option<&'static str> {
+pub(crate) fn price_component_of(input_name: &str) -> Option<&'static str> {
     match input_name {
         "inOpen" => Some("open"),
         "inHigh" => Some("high"),
@@ -188,7 +188,7 @@ fn price_component_of(input_name: &str) -> Option<&'static str> {
 
 /// Canonical `inPriceXXX` name + OHLCV flag bits for a set of components,
 /// reproducing C's `ta_abstract` price-input names (HLC, HLCV, OHLC, ...).
-fn canonical_price(components: &[&str]) -> (String, u32) {
+pub(crate) fn canonical_price(components: &[&str]) -> (String, u32) {
     let mut suffix = String::new();
     let mut bits = 0u32;
     for (key, letter, bit) in PRICE_ORDER {
@@ -395,7 +395,7 @@ fn unst_variant(name: &str) -> Option<&'static str> {
 
 // --- flag bitmask helpers (exact C values from include/ta_abstract.h) ---
 
-fn func_flag_bits(flags: &[String]) -> u32 {
+pub(crate) fn func_flag_bits(flags: &[String]) -> u32 {
     let mut b = 0u32;
     for f in flags {
         match f.as_str() {
@@ -410,7 +410,7 @@ fn func_flag_bits(flags: &[String]) -> u32 {
     b
 }
 
-fn opt_flag_bits(flags: &[String]) -> u32 {
+pub(crate) fn opt_flag_bits(flags: &[String]) -> u32 {
     let mut b = 0u32;
     for f in flags {
         match f.as_str() {
@@ -424,7 +424,7 @@ fn opt_flag_bits(flags: &[String]) -> u32 {
     b
 }
 
-fn output_flag_bits(flags: &[String]) -> u32 {
+pub(crate) fn output_flag_bits(flags: &[String]) -> u32 {
     let mut b = 0u32;
     for f in flags {
         match f.as_str() {

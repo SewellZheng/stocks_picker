@@ -78,6 +78,7 @@ TA_LIB_API int TA_KAMA_Lookback( int optInTimePeriod )
    return optInTimePeriod + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_KAMA,Kama);
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
                                int    endIdx,
                                const double inReal[],
@@ -198,12 +199,12 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
       tempReal = fabs(periodROC / sumROC1);
    }
    /* Calculate the smoothing constant */
-   tempReal = tempReal * constDiff + constMax;
+   tempReal = fma(tempReal, constDiff, constMax);
    tempReal *= tempReal;
    /* Calculate the KAMA like an EMA, using the
     * smoothing constant as the adaptive factor.
     */
-   prevKAMA = (inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+   prevKAMA = fma(inReal[today++] - prevKAMA, tempReal, prevKAMA);
    /* 'today' keep track of where the processing is within the
     * input.
     */
@@ -234,12 +235,12 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
          tempReal = fabs(periodROC / sumROC1);
       }
       /* Calculate the smoothing constant */
-      tempReal = tempReal * constDiff + constMax;
+      tempReal = fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
       /* Calculate the KAMA like an EMA, using the
        * smoothing constant as the adaptive factor.
        */
-      prevKAMA = (inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+      prevKAMA = fma(inReal[today++] - prevKAMA, tempReal, prevKAMA);
    }
    /* Write the first value. */
    outReal[0] = prevKAMA;
@@ -270,18 +271,19 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
          tempReal = fabs(periodROC / sumROC1);
       }
       /* Calculate the smoothing constant */
-      tempReal = tempReal * constDiff + constMax;
+      tempReal = fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
       /* Calculate the KAMA like an EMA, using the
        * smoothing constant as the adaptive factor.
        */
-      prevKAMA = (inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+      prevKAMA = fma(inReal[today++] - prevKAMA, tempReal, prevKAMA);
       outReal[outIdx++] = prevKAMA;
    }
    *outNBElement= outIdx;
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_KAMA_Unguarded( int    startIdx,
                                          int    endIdx,
                                          const double inReal[],
@@ -362,9 +364,9 @@ TA_LIB_API TA_RetCode TA_KAMA_Unguarded( int    startIdx,
    {
       tempReal = fabs(periodROC / sumROC1);
    }
-   tempReal = tempReal * constDiff + constMax;
+   tempReal = fma(tempReal, constDiff, constMax);
    tempReal *= tempReal;
-   prevKAMA = (inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+   prevKAMA = fma(inReal[today++] - prevKAMA, tempReal, prevKAMA);
    while( today <= startIdx )
    {
       tempReal = inReal[today];
@@ -380,9 +382,9 @@ TA_LIB_API TA_RetCode TA_KAMA_Unguarded( int    startIdx,
       {
          tempReal = fabs(periodROC / sumROC1);
       }
-      tempReal = tempReal * constDiff + constMax;
+      tempReal = fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
-      prevKAMA = (inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+      prevKAMA = fma(inReal[today++] - prevKAMA, tempReal, prevKAMA);
    }
    outReal[0] = prevKAMA;
    outIdx = 1;
@@ -402,15 +404,16 @@ TA_LIB_API TA_RetCode TA_KAMA_Unguarded( int    startIdx,
       {
          tempReal = fabs(periodROC / sumROC1);
       }
-      tempReal = tempReal * constDiff + constMax;
+      tempReal = fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
-      prevKAMA = (inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+      prevKAMA = fma(inReal[today++] - prevKAMA, tempReal, prevKAMA);
       outReal[outIdx++] = prevKAMA;
    }
    *outNBElement= outIdx;
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_RetCode TA_S_KAMA( int    startIdx,
                       int    endIdx,
                       const float inReal[],
@@ -505,9 +508,9 @@ TA_RetCode TA_S_KAMA( int    startIdx,
    {
       tempReal = fabs(periodROC / sumROC1);
    }
-   tempReal = tempReal * constDiff + constMax;
+   tempReal = fma(tempReal, constDiff, constMax);
    tempReal *= tempReal;
-   prevKAMA = ((double)inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+   prevKAMA = fma((double)inReal[today++] - prevKAMA, tempReal, prevKAMA);
    while( today <= startIdx )
    {
       tempReal = (double)inReal[today];
@@ -523,9 +526,9 @@ TA_RetCode TA_S_KAMA( int    startIdx,
       {
          tempReal = fabs(periodROC / sumROC1);
       }
-      tempReal = tempReal * constDiff + constMax;
+      tempReal = fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
-      prevKAMA = ((double)inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+      prevKAMA = fma((double)inReal[today++] - prevKAMA, tempReal, prevKAMA);
    }
    outReal[0] = prevKAMA;
    outIdx = 1;
@@ -545,15 +548,16 @@ TA_RetCode TA_S_KAMA( int    startIdx,
       {
          tempReal = fabs(periodROC / sumROC1);
       }
-      tempReal = tempReal * constDiff + constMax;
+      tempReal = fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
-      prevKAMA = ((double)inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+      prevKAMA = fma((double)inReal[today++] - prevKAMA, tempReal, prevKAMA);
       outReal[outIdx++] = prevKAMA;
    }
    *outNBElement= outIdx;
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_RetCode TA_S_KAMA_Unguarded( int    startIdx,
                                 int    endIdx,
                                 const float inReal[],
@@ -634,9 +638,9 @@ TA_RetCode TA_S_KAMA_Unguarded( int    startIdx,
    {
       tempReal = fabs(periodROC / sumROC1);
    }
-   tempReal = tempReal * constDiff + constMax;
+   tempReal = fma(tempReal, constDiff, constMax);
    tempReal *= tempReal;
-   prevKAMA = ((double)inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+   prevKAMA = fma((double)inReal[today++] - prevKAMA, tempReal, prevKAMA);
    while( today <= startIdx )
    {
       tempReal = (double)inReal[today];
@@ -652,9 +656,9 @@ TA_RetCode TA_S_KAMA_Unguarded( int    startIdx,
       {
          tempReal = fabs(periodROC / sumROC1);
       }
-      tempReal = tempReal * constDiff + constMax;
+      tempReal = fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
-      prevKAMA = ((double)inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+      prevKAMA = fma((double)inReal[today++] - prevKAMA, tempReal, prevKAMA);
    }
    outReal[0] = prevKAMA;
    outIdx = 1;
@@ -674,9 +678,9 @@ TA_RetCode TA_S_KAMA_Unguarded( int    startIdx,
       {
          tempReal = fabs(periodROC / sumROC1);
       }
-      tempReal = tempReal * constDiff + constMax;
+      tempReal = fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
-      prevKAMA = ((double)inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+      prevKAMA = fma((double)inReal[today++] - prevKAMA, tempReal, prevKAMA);
       outReal[outIdx++] = prevKAMA;
    }
    *outNBElement= outIdx;
@@ -746,12 +750,12 @@ static void TA_KAMA_StepInternal( struct TA_KAMA_Stream *sp, double inReal, doub
       tempReal = fabs(periodROC / sp->sumROC1);
    }
    /* Calculate the smoothing constant */
-   tempReal = tempReal * sp->constDiff + sp->constMax;
+   tempReal = fma(tempReal, sp->constDiff, sp->constMax);
    tempReal *= tempReal;
    /* Calculate the KAMA like an EMA, using the
     * smoothing constant as the adaptive factor.
     */
-   sp->prevKAMA = (inReal - sp->prevKAMA) * tempReal + sp->prevKAMA;
+   sp->prevKAMA = fma(inReal - sp->prevKAMA, tempReal, sp->prevKAMA);
    *outReal= sp->prevKAMA;
    sp->lag1_inReal = inReal;
    sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx] = inReal;
@@ -763,7 +767,7 @@ static void TA_KAMA_StepInternal( struct TA_KAMA_Stream *sp, double inReal, doub
 }
 
 /* Private function, not in public API. */
-TA_RetCode TA_KAMA_OpenInternal( int optInTimePeriod, const double inReal[], int startIdx, int historyLen, struct TA_KAMA_Stream **stream, double *outReal )
+TA_RetCode TA_KAMA_OpenInternal( struct TA_KAMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
 {
    struct TA_KAMA_Stream *sp;
    int endIdx;
@@ -903,12 +907,12 @@ TA_RetCode TA_KAMA_OpenInternal( int optInTimePeriod, const double inReal[], int
          tempReal = fabs(periodROC / sumROC1);
       }
       /* Calculate the smoothing constant */
-      tempReal = tempReal * constDiff + constMax;
+      tempReal = fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
       /* Calculate the KAMA like an EMA, using the
        * smoothing constant as the adaptive factor.
        */
-      prevKAMA = (inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+      prevKAMA = fma(inReal[today++] - prevKAMA, tempReal, prevKAMA);
       /* 'today' keep track of where the processing is within the
        * input.
        */
@@ -939,12 +943,12 @@ TA_RetCode TA_KAMA_OpenInternal( int optInTimePeriod, const double inReal[], int
             tempReal = fabs(periodROC / sumROC1);
          }
          /* Calculate the smoothing constant */
-         tempReal = tempReal * constDiff + constMax;
+         tempReal = fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
          /* Calculate the KAMA like an EMA, using the
           * smoothing constant as the adaptive factor.
           */
-         prevKAMA = (inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+         prevKAMA = fma(inReal[today++] - prevKAMA, tempReal, prevKAMA);
       }
       /* Write the first value. */
       lastValue_outReal = prevKAMA;
@@ -975,12 +979,12 @@ TA_RetCode TA_KAMA_OpenInternal( int optInTimePeriod, const double inReal[], int
             tempReal = fabs(periodROC / sumROC1);
          }
          /* Calculate the smoothing constant */
-         tempReal = tempReal * constDiff + constMax;
+         tempReal = fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
          /* Calculate the KAMA like an EMA, using the
           * smoothing constant as the adaptive factor.
           */
-         prevKAMA = (inReal[today++] - prevKAMA) * tempReal + prevKAMA;
+         prevKAMA = fma(inReal[today++] - prevKAMA, tempReal, prevKAMA);
          lastValue_outReal = prevKAMA;
       }
       dummyNBElement = outIdx;
@@ -1012,9 +1016,9 @@ TA_RetCode TA_KAMA_OpenInternal( int optInTimePeriod, const double inReal[], int
    }
 }
 
-TA_LIB_API TA_RetCode TA_KAMA_Open( int optInTimePeriod, const double inReal[], int historyLen, TA_KAMA_Stream **stream, double *outReal )
+TA_LIB_API TA_RetCode TA_KAMA_Open( TA_KAMA_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal )
 {
-   return TA_KAMA_OpenInternal( optInTimePeriod, inReal, 0, historyLen, stream, outReal );
+   return TA_KAMA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_KAMA_Update( TA_KAMA_Stream *stream, double inReal, double *outReal )

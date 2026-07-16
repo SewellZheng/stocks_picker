@@ -35,6 +35,14 @@ if(ENABLE_SANITIZERS)
     message(STATUS "ENABLE_SANITIZERS: ON (-fsanitize=address,undefined -fno-sanitize-recover=all)")
 endif()
 
+# FMA numerical contract (PR #96): indicators use explicit fma(); fused ones are
+# marked target_clones for runtime CPU dispatch. -ffp-contract=off makes explicit
+# fma() the ONLY fusion (no compiler auto-contraction of the un-fused a*b+c), for
+# cross-clone/-language determinism. GCC/Clang only; no-op without hardware FMA.
+if(NOT MSVC)
+    add_compile_options(-ffp-contract=off)
+endif()
+
 # Default to Release config
 if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)

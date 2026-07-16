@@ -91,6 +91,7 @@ static const char *functionFilter = NULL;
 static int doCodegenTest = 0;
 static int codegenOnly = 0;
 static int doFuzz064 = 0;
+static int doXlangHash = 0;
 static const char *codegenLanguageFilter = NULL;
 
 /**** Local declarations.              ****/
@@ -179,6 +180,10 @@ int main( int argc, char **argv )
          {
             doFuzz064 = 1;
          }
+         else if( strcmp(argv[i], "--xlang-hash") == 0 )
+         {
+            doXlangHash = 1;
+         }
          else if( strcmp(argv[i], "--no-guarded") == 0 )
          {
             extern int g_hideGuarded;
@@ -214,6 +219,23 @@ int main( int argc, char **argv )
       fuzzRet = fuzz_ref064( functionFilter );
       TA_Shutdown();
       return fuzzRet;
+   }
+
+   /* Opt-in cross-language BITWISE parity gate (issue #113). Self-contained:
+    * init the lib (the in-process C golden), run the gate, done. Must run from
+    * the bin/ directory so the language servers launch (like --fuzz-064). */
+   if( doXlangHash )
+   {
+      ErrorNumber xlangRet;
+      if( TA_Initialize() != TA_SUCCESS )
+      {
+         printf( "TA_Initialize failed\n" );
+         return TA_TESTUTIL_INIT_FAILED;
+      }
+      TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+      xlangRet = xlang_hash( functionFilter, codegenLanguageFilter );
+      TA_Shutdown();
+      return xlangRet;
    }
 
    /* Test utility like List/Stack/Dictionary/Memory Allocation etc... */
@@ -323,6 +345,38 @@ int main( int argc, char **argv )
       }
    }
 
+   /* Java abstract parity (issue #114): metadata RPCs (TA_GetFuncInfo + the
+    * param-info getters) AND the dynamic-dispatch path (abstract_call /
+    * abstract_get_lookback / TA_FunctionDescriptionXML), comparing output VALUES
+    * to the C reference for every function. Java server spawns via
+    * `java -cp ta_codegen_java TaCodegenServe`. */
+   if( retValue == TA_TEST_PASS && doCodegenTest &&
+       ( codegenLanguageFilter == NULL || strstr(codegenLanguageFilter, "java") != NULL ) )
+   {
+      CodegenPipe javaAbstractPipe;
+      const char *const javaArgv[] = {"java", "-cp", "ta_codegen_java", "TaCodegenServe", NULL};
+      if( codegen_pipe_open(&javaAbstractPipe, javaArgv) == TA_TEST_PASS )
+      {
+         ErrorNumber e;
+         printf( "Testing Abstract metadata parity (Java server vs C)\n" );
+         test_abstract_set_server(&javaAbstractPipe);
+         e = test_abstract_server_metadata(functionFilter);
+         if( e == TA_TEST_PASS )
+         {
+            printf( "Testing Abstract dynamic dispatch (Java server vs C)\n" );
+            e = test_abstract();
+         }
+         test_abstract_set_server(NULL);
+         codegen_pipe_close(&javaAbstractPipe);
+         if( retValue == TA_TEST_PASS && e != TA_TEST_PASS )
+            retValue = e;
+      }
+      else
+      {
+         printf( "  (Java server not available, skipping Java abstract parity)\n" );
+      }
+   }
+
    if( retValue != TA_TEST_PASS )
    {
       printf( "Failed: Abstract interface Tests (error number = %d)\n", retValue );
@@ -340,6 +394,7 @@ int main( int argc, char **argv )
           * relative to the bin directory (same as test_codegen.c).
           */
          CodegenPipe svPipes[SV_MAX_PIPES];
+         const char *svPipeLang[SV_MAX_PIPES] = {0};
          int nbSvPipes = 0;
          if( doCodegenTest )
          {
@@ -375,7 +430,10 @@ int main( int argc, char **argv )
                if( !svLanguageEnabled(codegenLanguageFilter, svServers[svIdx].lang) )
                   continue;
                if( codegen_pipe_open(&svPipes[nbSvPipes], svServers[svIdx].argvSv) == TA_TEST_PASS )
+               {
+                  svPipeLang[nbSvPipes] = svServers[svIdx].lang;
                   nbSvPipes++;
+               }
                else
                   printf( "  (%s server not available for hand-written test verification)\n",
                           svServers[svIdx].lang );
@@ -386,7 +444,7 @@ int main( int argc, char **argv )
                int p;
                for( p = 0; p < nbSvPipes; p++ )
                   pipes[p] = &svPipes[p];
-               server_verify_init(pipes, nbSvPipes);
+               server_verify_init(pipes, svPipeLang, nbSvPipes);
                printf( "  (hand-written tests verified against %d language server(s))\n",
                        nbSvPipes );
             }
@@ -624,6 +682,13 @@ static void printUsage(void)
       printf( "\n" );
       printf( "       Requires language server binaries in the bin directory.\n" );
       printf( "       Build with: ta_codegen build\n" );
+      printf( "\n" );
+      printf( "    --xlang-hash\n" );
+      printf( "       Cross-language BITWISE parity gate (issue #113): diff each\n" );
+      printf( "       language server against the in-process C library on\n" );
+      printf( "       seed-generated inputs, comparing full-precision output hashes\n" );
+      printf( "       with no tolerance. Honors --function and --language (rust today).\n" );
+      printf( "       Run from the bin directory (needs the language servers).\n" );
       printf( "\n" );
       printf( "   On success, the exit code is 0.\n" );
       printf( "   On failure, the exit code is a number that can be\n" );

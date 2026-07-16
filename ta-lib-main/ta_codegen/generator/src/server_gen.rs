@@ -506,6 +506,7 @@ pub fn generate_c_server(funcs: &[FuncDef]) -> String {
     s
 }
 
+#[allow(clippy::too_many_lines)]
 fn generate_c_json_helpers() -> String {
     r#"/* ---- Minimal JSON helpers ---- */
 
@@ -539,6 +540,29 @@ static int json_find_double_array(const char *json, const char *field,
     if( !p ) return 0;
     p += strlen(pattern);
     while( *p == ' ' ) p++;
+    if( *p == '"' ) {
+        /* Lossless hex-bits transport (issue #115): a string of concatenated
+         * 16-hex-char groups, each one f64's IEEE-754 bit pattern. Decoded
+         * exactly (no strtod rounding). Every other caller sends a [ ] array. */
+        p++;
+        int count = 0;
+        while( count < max_count && *p && *p != '"' ) {
+            unsigned long long bits = 0;
+            int k;
+            for( k = 0; k < 16 && p[k] && p[k] != '"'; k++ ) {
+                char c = p[k];
+                unsigned int v = (c >= '0' && c <= '9') ? (unsigned int)(c - '0')
+                               : (c >= 'a' && c <= 'f') ? (unsigned int)(c - 'a' + 10)
+                               : (c >= 'A' && c <= 'F') ? (unsigned int)(c - 'A' + 10) : 0u;
+                bits = (bits << 4) | v;
+            }
+            if( k < 16 ) break;   /* truncated trailing group */
+            memcpy(&out[count], &bits, sizeof(double));
+            count++;
+            p += 16;
+        }
+        return count;
+    }
     if( *p != '[' ) return 0;
     p++;
     int count = 0;
@@ -824,7 +848,7 @@ fn emit_sv_dispatch_precheck(
         .collect::<Vec<_>>()
         .join(", ");
     s.push_str(&format!(
-        "        if( {guard} )\n        {{\n            TA_{name}_Stream *st = NULL; {decls} TA_RetCode orc;\n            int rejected;\n            orc = TA_{name}_Open( {pre_opt_args}{pre_in_args}svN, &st, {addrs} );\n            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;\n            if( st ) TA_{name}_Close( st );\n            TA_SetCompatibility((TA_Compatibility)savedCompat);\n            snprintf(resp, resp_size, \"{{\\\"retCode\\\":0,\\\"legs\\\":0,\\\"unsupportedArm\\\":1,\\\"ok\\\":%d,\\\"peek_ok\\\":1}}\", rejected);\n            return;\n        }}\n"
+        "        if( {guard} )\n        {{\n            TA_{name}_Stream *st = NULL; {decls} TA_RetCode orc;\n            int rejected;\n            orc = TA_{name}_Open( &st, {pre_in_args}svN, {pre_opt_args}{addrs} );\n            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;\n            if( st ) TA_{name}_Close( st );\n            TA_SetCompatibility((TA_Compatibility)savedCompat);\n            snprintf(resp, resp_size, \"{{\\\"retCode\\\":0,\\\"legs\\\":0,\\\"unsupportedArm\\\":1,\\\"ok\\\":%d,\\\"peek_ok\\\":1}}\", rejected);\n            return;\n        }}\n"
     ));
 }
 
@@ -1238,7 +1262,7 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
         s.push_str("        if( rc != TA_SUCCESS || svNb <= 0 ) {\n");
         s.push_str("            int openRejects = 0;\n");
         s.push_str(&format!(
-            "            {{ TA_{name}_Stream *st = NULL; {} TA_RetCode orc = TA_{name}_Open({opt_args}{in_args}svN, &st, {});\n",
+            "            {{ TA_{name}_Stream *st = NULL; {} TA_RetCode orc = TA_{name}_Open(&st, {in_args}svN, {opt_args}{});\n",
             out_is_int
                 .iter()
                 .enumerate()
@@ -1304,7 +1328,7 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
             .collect::<Vec<_>>()
             .join(", ");
         s.push_str(&format!(
-            "            rc = TA_{name}_Open({opt_args}{in_args}P, &st, {vout_args});\n"
+            "            rc = TA_{name}_Open(&st, {in_args}P, {opt_args}{vout_args});\n"
         ));
         s.push_str("            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }\n");
         // Compare the open value (bar P-1).
@@ -1378,7 +1402,7 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
             }
             s.push_str(&format!("                    TA_{name}_Stream *stA = NULL;\n"));
             s.push_str(&format!(
-                "                    TA_RetCode arc = TA_{name}_OpenInternal({opt_args}{in_args}Sidx, svN, &stA, {aout});\n"
+                "                    TA_RetCode arc = TA_{name}_OpenInternal(&stA, {in_args}Sidx, svN, {opt_args}{aout});\n"
             ));
             s.push_str("                    if( arc != TA_SUCCESS || !stA ) ok = 0;\n");
             emit_sv_compare(&mut s, &out_is_int, &bbuf, "                    ", "(svN - 1) - svBegS", "svN - 1", "ok &&");
@@ -1579,6 +1603,41 @@ fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
         s.push_str(");\n");
         s.push_str("        }\n"); // end bench_iters loop
         s.push_str("        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;\n");
+
+        // want_hash mode (server_verify / issue #115): after the GUARDED call —
+        // the same public API TA_CallFunc runs in-process for the golden — return
+        // a full-precision FNV digest of the raw output bytes instead of %.15g
+        // arrays, so a same-input C-vs-C build-flag drift becomes a hard mismatch.
+        // fuzz_hash_* live in fuzz_data.h, only present when not TA_REF_SERVE; the
+        // frozen reference server never receives want_hash (server_verify drives
+        // the four generated servers, not ta_ref_serve).
+        s.push_str("#ifndef TA_REF_SERVE\n");
+        s.push_str("        if( json_find_int(json, \"want_hash\") && !json_find_int(json, \"full_output\") ) {\n");
+        s.push_str("            unsigned long long _oh = fuzz_hash_init();\n");
+        s.push_str("            if( rc == TA_SUCCESS && outNBElement > 0 ) {\n");
+        {
+            let mut real_idx = 0usize;
+            let mut int_idx = 0usize;
+            for out in outputs {
+                if out.param_type == ParamType::Integer {
+                    s.push_str(&format!(
+                        "                _oh = fuzz_hash_bytes(_oh, g_outIntBuf{int_idx}, (unsigned long)outNBElement * sizeof(int));\n"
+                    ));
+                    int_idx += 1;
+                } else {
+                    s.push_str(&format!(
+                        "                _oh = fuzz_hash_bytes(_oh, g_outBuf{real_idx}, (unsigned long)outNBElement * sizeof(double));\n"
+                    ));
+                    real_idx += 1;
+                }
+            }
+        }
+        s.push_str("            }\n");
+        s.push_str("            _oh = fuzz_hash_fin(_oh);\n");
+        s.push_str("            snprintf(resp, resp_size, \"{\\\"retCode\\\":%d,\\\"outBegIdx\\\":%d,\\\"outNBElement\\\":%d,\\\"out_hash\\\":\\\"%016llx\\\"}\", (int)rc, outBegIdx, outNBElement, _oh);\n");
+        s.push_str("            return;\n");
+        s.push_str("        }\n");
+        s.push_str("#endif /* TA_REF_SERVE */\n");
 
         // Unguarded timing pass — skipped when built as ta_ref_serve (no _Unguarded in libta-lib.a)
         s.push_str("#ifndef TA_REF_SERVE\n");
@@ -1849,6 +1908,7 @@ fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
 /// (`RetCode` enum, `MInteger`, Core class with methods, main server loop).
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::implicit_hasher)]
+#[allow(clippy::cognitive_complexity)]
 pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     let mut s = String::new();
 
@@ -1985,6 +2045,20 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    static double[] jsonDoubleArray(String json, String field) {\n");
     s.push_str("        int idx = json.indexOf('\"' + field + '\"');\n");
     s.push_str("        if (idx < 0) return new double[0];\n");
+    s.push_str("        idx = json.indexOf(':', idx) + 1;\n");
+    s.push_str("        while (idx < json.length() && json.charAt(idx) == ' ') idx++;\n");
+    // Lossless hex-bits transport (issue #115): a string of concatenated 16-hex
+    // groups, each one double's IEEE-754 bit pattern. Decoded exactly. Every
+    // other caller sends a [ ] number array (fallback below).
+    s.push_str("        if (idx < json.length() && json.charAt(idx) == '\"') {\n");
+    s.push_str("            int hend = json.indexOf('\"', idx + 1);\n");
+    s.push_str("            String hex = json.substring(idx + 1, hend);\n");
+    s.push_str("            int cnt = hex.length() / 16;\n");
+    s.push_str("            double[] r = new double[cnt];\n");
+    s.push_str("            for (int i = 0; i < cnt; i++)\n");
+    s.push_str("                r[i] = Double.longBitsToDouble(Long.parseUnsignedLong(hex.substring(i * 16, i * 16 + 16), 16));\n");
+    s.push_str("            return r;\n");
+    s.push_str("        }\n");
     s.push_str("        idx = json.indexOf('[', idx);\n");
     s.push_str("        int end = json.indexOf(']', idx);\n");
     s.push_str("        String inner = json.substring(idx + 1, end).trim();\n");
@@ -2015,6 +2089,47 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        sb.append(']');\n");
     s.push_str("        return sb.toString();\n");
     s.push_str("    }\n\n");
+
+    // FNV-1a output hasher for want_hash mode (server_verify / issue #115).
+    // Byte-for-byte identical to fuzz_data.h / the Rust fuzz port: FNV-1a over
+    // each value's LITTLE-ENDIAN raw bytes (doubleToRawLongBits preserves -0.0
+    // and NaN payloads) + the fmix64 finalizer. Java's fdlibm makes transcendental
+    // functions differ from the C libm by ~1 ULP, so the driver hashes only the
+    // non-transcendental functions bitwise and tolerances the rest.
+    s.push_str("    static long svHashInit() { return 1469598103934665603L; }\n");
+    s.push_str("    static long svHashF64(long h, double[] a, int n) {\n");
+    s.push_str("        for (int i = 0; i < n; i++) {\n");
+    s.push_str("            long bits = Double.doubleToRawLongBits(a[i]);\n");
+    s.push_str("            for (int b = 0; b < 8; b++) { h ^= (bits >>> (8 * b)) & 0xffL; h *= 1099511628211L; }\n");
+    s.push_str("        }\n");
+    s.push_str("        return h;\n");
+    s.push_str("    }\n");
+    s.push_str("    static long svHashI32(long h, int[] a, int n) {\n");
+    s.push_str("        for (int i = 0; i < n; i++) {\n");
+    s.push_str("            int bits = a[i];\n");
+    s.push_str("            for (int b = 0; b < 4; b++) { h ^= (bits >>> (8 * b)) & 0xffL; h *= 1099511628211L; }\n");
+    s.push_str("        }\n");
+    s.push_str("        return h;\n");
+    s.push_str("    }\n");
+    s.push_str("    static long svHashFin(long h) {\n");
+    s.push_str("        h ^= h >>> 33; h *= 0xFF51AFD7ED558CCDL;\n");
+    s.push_str("        h ^= h >>> 33; h *= 0xC4CEB9FE1A85EC53L;\n");
+    s.push_str("        h ^= h >>> 33; return h;\n");
+    s.push_str("    }\n\n");
+
+    // jsonString — extract a string field's value (funcName for the ta_abstract RPCs).
+    s.push_str("    static String jsonString(String json, String field) {\n");
+    s.push_str("        int idx = json.indexOf('\"' + field + '\"');\n");
+    s.push_str("        if (idx < 0) return \"\";\n");
+    s.push_str("        idx = json.indexOf(':', idx) + 1;\n");
+    s.push_str("        while (idx < json.length() && (json.charAt(idx) == ' ' || json.charAt(idx) == '\"')) idx++;\n");
+    s.push_str("        int end = idx;\n");
+    s.push_str("        while (end < json.length() && json.charAt(end) != '\"' && json.charAt(end) != ',' && json.charAt(end) != '}') end++;\n");
+    s.push_str("        return json.substring(idx, end);\n");
+    s.push_str("    }\n\n");
+
+    // ta_abstract metadata table + introspection RPC handlers (issue #114).
+    s.push_str(&crate::backends::java_abstract::generate(funcs, enums));
 
     // Dispatch method
     s.push_str("    static String handleRequest(String json) {\n");
@@ -2110,6 +2225,16 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            }\n");
     s.push_str("            return \"{\\\"outInteger\\\":\" + intArrayToJson(out, n) + \"}\";\n");
     s.push_str("        }\n");
+
+    // ta_abstract introspection RPCs (issue #114) — metadata parity with C/Rust via test_abstract.c.
+    s.push_str("        else if (json.contains(\"\\\"TA_GetFuncInfo\\\"\")) return handleGetFuncInfo(json);\n");
+    s.push_str("        else if (json.contains(\"\\\"TA_GetInputParameterInfo\\\"\")) return handleGetInputParameterInfo(json);\n");
+    s.push_str("        else if (json.contains(\"\\\"TA_GetOptInputParameterInfo\\\"\")) return handleGetOptInputParameterInfo(json);\n");
+    s.push_str("        else if (json.contains(\"\\\"TA_GetOutputParameterInfo\\\"\")) return handleGetOutputParameterInfo(json);\n");
+    s.push_str("        else if (json.contains(\"\\\"abstract_for_each_func\\\"\")) return handleForEachFunc();\n");
+    s.push_str("        else if (json.contains(\"\\\"TA_FunctionDescriptionXML\\\"\")) return handleFunctionDescriptionXML();\n");
+    s.push_str("        else if (json.contains(\"\\\"abstract_call\\\"\")) return handleAbstractCall(json);\n");
+    s.push_str("        else if (json.contains(\"\\\"abstract_get_lookback\\\"\")) return \"{\\\"lookback\\\":\" + computeLookback(jsonString(json, \"funcName\"), json) + \"}\";\n");
 
     s.push_str("        else {\n");
     s.push_str("            return \"{\\\"error\\\":\\\"Unknown method\\\"}\";\n");
@@ -2235,6 +2360,28 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         // Timing capture
         s.push_str("        long elapsedNs = (System.nanoTime() - startNs) / bench_iters;\n");
 
+        // want_hash mode (server_verify / issue #115): digest of the GUARDED
+        // output (like-for-like with the in-process C golden's TA_CallFunc),
+        // returned before the unguarded rerun.
+        s.push_str("        if (jsonInt(json, \"want_hash\") != 0 && jsonInt(json, \"full_output\") == 0) {\n");
+        s.push_str("            long _h = svHashInit();\n");
+        s.push_str("            if (rc == RetCode.Success && outNBElement.value > 0) {\n");
+        for (k, out) in outputs.iter().enumerate() {
+            if out.param_type == ParamType::Integer {
+                s.push_str(&format!(
+                    "                _h = svHashI32(_h, outArr{k}, outNBElement.value);\n"
+                ));
+            } else {
+                s.push_str(&format!(
+                    "                _h = svHashF64(_h, outArr{k}, outNBElement.value);\n"
+                ));
+            }
+        }
+        s.push_str("            }\n");
+        s.push_str("            _h = svHashFin(_h);\n");
+        s.push_str("            return \"{\\\"retCode\\\":\" + rc.toInt() + \",\\\"outBegIdx\\\":\" + outBegIdx.value + \",\\\"outNBElement\\\":\" + outNBElement.value + \",\\\"out_hash\\\":\\\"\" + String.format(\"%016x\", _h) + \"\\\"}\";\n");
+        s.push_str("        }\n");
+
         // Unguarded timing loop
         let unguarded_name = format!("{func_lower}Unguarded");
         s.push_str("        long startNsUng = System.nanoTime();\n");
@@ -2284,6 +2431,60 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
         s.push_str("    }\n\n");
     }
+
+    // ta_abstract dynamic dispatch (issue #114): abstract_get_lookback + abstract_call.
+    // computeLookback parses a function's opt params (same JSON keys as the per-function
+    // handler) and calls its guarded <name>Lookback; abstract_call reroutes to the
+    // existing per-function handler and prepends the `lookback` the C ta_abstract path returns.
+    s.push_str("    static int computeLookback(String funcName, String json) {\n");
+    s.push_str("        switch (funcName) {\n");
+    for func in funcs {
+        let func_lower = to_java_method_name(&func.name, func.camel_case.as_deref());
+        s.push_str(&format!("        case \"{}\": {{\n", func.name));
+        for opt in &func.optional_inputs {
+            match &opt.param_type {
+                ParamType::Real => s.push_str(&format!(
+                    "            double {} = jsonDouble(json, \"{}\");\n",
+                    opt.name, opt.name
+                )),
+                ParamType::Enum(enum_name) => s.push_str(&format!(
+                    "            {} {} = {}.values()[jsonInt(json, \"{}\")];\n",
+                    enum_name, opt.name, enum_name, opt.name
+                )),
+                _ => s.push_str(&format!(
+                    "            int {} = jsonInt(json, \"{}\");\n",
+                    opt.name, opt.name
+                )),
+            }
+        }
+        let args: Vec<&str> = func.optional_inputs.iter().map(|o| o.name.as_str()).collect();
+        s.push_str(&format!(
+            "            return core.{}Lookback({});\n",
+            func_lower,
+            args.join(", ")
+        ));
+        s.push_str("        }\n");
+    }
+    s.push_str("        default: return -1;\n");
+    s.push_str("        }\n");
+    s.push_str("    }\n\n");
+
+    s.push_str("    static String handleAbstractCall(String json) {\n");
+    s.push_str("        String fn = jsonString(json, \"funcName\");\n");
+    s.push_str("        String resp;\n");
+    s.push_str("        switch (fn) {\n");
+    for func in funcs {
+        s.push_str(&format!(
+            "        case \"{}\": resp = handle_{}(json); break;\n",
+            func.name, func.name
+        ));
+    }
+    s.push_str("        default: return \"{\\\"error\\\":\\\"Unknown function\\\"}\";\n");
+    s.push_str("        }\n");
+    s.push_str("        int lb = computeLookback(fn, json);\n");
+    // The per-function response starts with '{'; splice "lookback" in as the first key.
+    s.push_str("        return \"{\\\"lookback\\\":\" + lb + \",\" + resp.substring(1);\n");
+    s.push_str("    }\n\n");
 
     // Main method
     s.push_str("    public static void main(String[] args) throws Exception {\n");
@@ -2549,6 +2750,28 @@ pub fn generate_dotnet_server(funcs: &[FuncDef]) -> String {
         s.push_str("                }\n"); // end bench_iters loop
         s.push_str("                long elapsedNs = (GetNanoTime() - _t0) / bench_iters;\n");
 
+        // want_hash mode (server_verify / issue #115): digest of the GUARDED
+        // output, returned before the unguarded rerun (rc == 0 is TA_SUCCESS).
+        s.push_str("                if ((p.TryGetProperty(\"want_hash\", out var _wh) ? _wh.GetInt32() : 0) != 0 &&\n");
+        s.push_str("                    (p.TryGetProperty(\"full_output\", out var _fo) ? _fo.GetInt32() : 0) == 0) {\n");
+        s.push_str("                    ulong _h = SvHashInit();\n");
+        s.push_str("                    if (rc == 0 && outNBElement > 0) {\n");
+        for (k, out) in outputs.iter().enumerate() {
+            if out.param_type == ParamType::Integer {
+                s.push_str(&format!(
+                    "                        _h = SvHashI32(_h, outArr{k}, outNBElement);\n"
+                ));
+            } else {
+                s.push_str(&format!(
+                    "                        _h = SvHashF64(_h, outArr{k}, outNBElement);\n"
+                ));
+            }
+        }
+        s.push_str("                    }\n");
+        s.push_str("                    _h = SvHashFin(_h);\n");
+        s.push_str("                    return $\"{{\\\"retCode\\\":{rc},\\\"outBegIdx\\\":{outBegIdx},\\\"outNBElement\\\":{outNBElement},\\\"out_hash\\\":\\\"{_h:x16}\\\"}}\";\n");
+        s.push_str("                }\n");
+
         // Unguarded timing loop
         s.push_str("                long _t0u = GetNanoTime();\n");
         s.push_str("                for (int _biu = 0; _biu < bench_iters; _biu++) {\n");
@@ -2632,13 +2855,49 @@ pub fn generate_dotnet_server(funcs: &[FuncDef]) -> String {
     s.push_str("        }\n");
     s.push_str("    }\n\n");
 
-    // Helper: extract double array from JSON
+    // Helper: extract double array from JSON. Lossless hex-bits transport
+    // (issue #115): a string of concatenated 16-hex groups, each one double's
+    // IEEE-754 bit pattern. Decoded exactly; every other caller sends an array.
     s.push_str("    static double[] GetDoubleArray(JsonElement p, string name) {\n");
     s.push_str("        var arr = p.GetProperty(name);\n");
+    s.push_str("        if (arr.ValueKind == JsonValueKind.String) {\n");
+    s.push_str("            string hex = arr.GetString()!;\n");
+    s.push_str("            int cnt = hex.Length / 16;\n");
+    s.push_str("            double[] r = new double[cnt];\n");
+    s.push_str("            for (int i = 0; i < cnt; i++)\n");
+    s.push_str("                r[i] = BitConverter.Int64BitsToDouble(unchecked((long)Convert.ToUInt64(hex.Substring(i * 16, 16), 16)));\n");
+    s.push_str("            return r;\n");
+    s.push_str("        }\n");
     s.push_str("        double[] result = new double[arr.GetArrayLength()];\n");
     s.push_str("        for (int i = 0; i < result.Length; i++)\n");
     s.push_str("            result[i] = arr[i].GetDouble();\n");
     s.push_str("        return result;\n");
+    s.push_str("    }\n\n");
+
+    // FNV-1a output hasher for want_hash mode (server_verify / issue #115),
+    // byte-for-byte identical to fuzz_data.h: FNV-1a over each value's
+    // LITTLE-ENDIAN raw bytes (DoubleToInt64Bits preserves -0.0 / NaN payloads)
+    // + fmix64 finalizer. .NET P/Invokes the C library, so this is expected
+    // bit-identical to the in-process C golden (a build-flag drift guard).
+    s.push_str("    static ulong SvHashInit() => 1469598103934665603UL;\n");
+    s.push_str("    static ulong SvHashF64(ulong h, double[] a, int n) {\n");
+    s.push_str("        for (int i = 0; i < n; i++) {\n");
+    s.push_str("            long bits = BitConverter.DoubleToInt64Bits(a[i]);\n");
+    s.push_str("            for (int b = 0; b < 8; b++) { h ^= (ulong)((bits >> (8 * b)) & 0xffL); h *= 1099511628211UL; }\n");
+    s.push_str("        }\n");
+    s.push_str("        return h;\n");
+    s.push_str("    }\n");
+    s.push_str("    static ulong SvHashI32(ulong h, int[] a, int n) {\n");
+    s.push_str("        for (int i = 0; i < n; i++) {\n");
+    s.push_str("            int bits = a[i];\n");
+    s.push_str("            for (int b = 0; b < 4; b++) { h ^= (ulong)((bits >> (8 * b)) & 0xff); h *= 1099511628211UL; }\n");
+    s.push_str("        }\n");
+    s.push_str("        return h;\n");
+    s.push_str("    }\n");
+    s.push_str("    static ulong SvHashFin(ulong h) {\n");
+    s.push_str("        h ^= h >> 33; h *= 0xFF51AFD7ED558CCDUL;\n");
+    s.push_str("        h ^= h >> 33; h *= 0xC4CEB9FE1A85EC53UL;\n");
+    s.push_str("        h ^= h >> 33; return h;\n");
     s.push_str("    }\n\n");
 
     // Helper: format a double array as a JSON array string
@@ -2682,6 +2941,13 @@ fn format_default_f64(v: f64) -> String {
     }
 }
 
+/// Bit-exact Rust port of `src/tools/ta_regtest/fuzz_data.h` (seed-based OHLCV
+/// generator + FNV output hasher), embedded verbatim into the Rust server to
+/// power the cross-language bitwise-parity gate (`--xlang-hash`, issue #113).
+/// Verified byte-for-byte against the C generator. Kept as a standalone template
+/// file so it reads/reviews as normal Rust rather than an escaped string blob.
+const RUST_FUZZ: &str = include_str!("../templates/rust/fuzz.rs");
+
 /// Generate a Rust JSON-RPC server source file.
 ///
 /// The generated file is a standalone binary that imports from the `ta_lib` crate.
@@ -2689,6 +2955,7 @@ fn format_default_f64(v: f64) -> String {
 /// implementations, and writes JSON responses to stdout.
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::implicit_hasher)]
+#[allow(clippy::cognitive_complexity)]
 pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     let mut s = String::new();
 
@@ -2704,6 +2971,15 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("use std::time::Instant;\n");
     s.push_str("use ta_lib::{Core, RetCode, FuncUnstId, Compatibility};\n");
     s.push_str("use ta_lib::abstract_api::{self, InputType, OutputType, OptDomain};\n\n");
+
+    // Seed-based fuzz input generator + FNV output hasher — a bit-exact port of
+    // src/tools/ta_regtest/fuzz_data.h. Powers the cross-language bitwise-parity
+    // gate (--xlang-hash, issue #113): the server regenerates the driver's seed
+    // inputs in-process (no JSON float parse) and returns a full-precision hash
+    // of its raw outputs (no %.15g rounding), so ~1e-10 FMA drift cannot hide.
+    s.push_str("// ---- fuzz_data.h port (issue #113 --xlang-hash) ----\n");
+    s.push_str(RUST_FUZZ);
+    s.push_str("\n// ---- end fuzz_data.h port ----\n\n");
 
     // Pre-loaded reference data struct
     s.push_str("const MAX_ARRAY_SIZE: usize = 200000;\n\n");
@@ -2730,8 +3006,32 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    }\n");
     s.push_str("}\n\n");
 
-    // Helper: parse f64 array from JSON value
+    // Helper: parse f64 array from JSON value. Lossless hex-bits transport
+    // (issue #115): an input array may arrive as a string of concatenated
+    // 16-hex-char groups, each the IEEE-754 bit pattern of one f64 (from_bits =>
+    // exact, no JSON float-parse rounding). Every other caller sends a number
+    // array, which takes the fallback path unchanged.
     s.push_str("fn parse_f64_array(val: &Value) -> Vec<f64> {\n");
+    s.push_str("    if let Some(hs) = val.as_str() {\n");
+    s.push_str("        let b = hs.as_bytes();\n");
+    s.push_str("        let mut out = Vec::with_capacity(b.len() / 16);\n");
+    s.push_str("        let mut i = 0;\n");
+    s.push_str("        while i + 16 <= b.len() {\n");
+    s.push_str("            let mut bits: u64 = 0;\n");
+    s.push_str("            for &c in &b[i..i + 16] {\n");
+    s.push_str("                let d = match c {\n");
+    s.push_str("                    b'0'..=b'9' => c - b'0',\n");
+    s.push_str("                    b'a'..=b'f' => c - b'a' + 10,\n");
+    s.push_str("                    b'A'..=b'F' => c - b'A' + 10,\n");
+    s.push_str("                    _ => 0,\n");
+    s.push_str("                };\n");
+    s.push_str("                bits = (bits << 4) | d as u64;\n");
+    s.push_str("            }\n");
+    s.push_str("            out.push(f64::from_bits(bits));\n");
+    s.push_str("            i += 16;\n");
+    s.push_str("        }\n");
+    s.push_str("        return out;\n");
+    s.push_str("    }\n");
     s.push_str("    match val.as_array() {\n");
     s.push_str("        Some(arr) => arr.iter().filter_map(|v| v.as_f64()).collect(),\n");
     s.push_str("        None => Vec::new(),\n");
@@ -2873,6 +3173,16 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
         s.push_str("            let use_preloaded = params[\"use_preloaded\"].as_i64().unwrap_or(0);\n");
         s.push_str("            let bench_iters = std::cmp::max(1, params[\"iters\"].as_i64().unwrap_or(1)) as u64;\n");
+        // --xlang-hash (issue #113): seed-based input generation + out_hash. Absent
+        // (0) for the normal per-function / preloaded paths.
+        s.push_str("            let gen_present = params[\"gen_present\"].as_i64().unwrap_or(0);\n");
+        s.push_str("            let gen_shape = params[\"gen_shape\"].as_i64().unwrap_or(0) as i32;\n");
+        s.push_str("            let gen_seed = params[\"gen_seed\"].as_i64().unwrap_or(0) as i32;\n");
+        s.push_str("            let gen_n = params[\"gen_n\"].as_i64().unwrap_or(0) as usize;\n");
+        s.push_str("            let full_output = params[\"full_output\"].as_i64().unwrap_or(0);\n");
+        // --xlang-hash uses gen_present; server_verify (issue #115) uses want_hash
+        // with explicit lossless inputs. Either drives the same out_hash return.
+        s.push_str("            let want_hash = params[\"want_hash\"].as_i64().unwrap_or(0);\n");
 
         // Declare input arrays: Vec for JSON fallback, &[f64] for actual reference.
         // Preloaded path borrows from ref_data (zero-copy), JSON path owns a Vec.
@@ -2887,8 +3197,39 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             ));
         }
 
-        // Populate from preloaded or JSON
-        s.push_str("            if use_preloaded != 0 && ref_data.n > 0 {\n");
+        // Populate from seed-generated fuzz inputs (--xlang-hash), preloaded, or JSON.
+        // The fuzz convention mirrors the C driver: price components read their OHLCV
+        // series; generic real inputs read real0=close, real1=volume.
+        s.push_str("            if gen_present != 0 {\n");
+        s.push_str("                let mut _fz_o = vec![0.0f64; gen_n];\n");
+        s.push_str("                let mut _fz_h = vec![0.0f64; gen_n];\n");
+        s.push_str("                let mut _fz_l = vec![0.0f64; gen_n];\n");
+        s.push_str("                let mut _fz_c = vec![0.0f64; gen_n];\n");
+        s.push_str("                let mut _fz_v = vec![0.0f64; gen_n];\n");
+        s.push_str("                let mut _fz_oi = vec![0.0f64; gen_n];\n");
+        s.push_str("                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);\n");
+        {
+            let mut fz_real_idx = 0usize;
+            for name in &input_names {
+                let src = match name.as_str() {
+                    "inOpen" => "_fz_o",
+                    "inHigh" => "_fz_h",
+                    "inLow" => "_fz_l",
+                    "inClose" => "_fz_c",
+                    "inVolume" => "_fz_v",
+                    "inOpenInterest" => "_fz_oi",
+                    _ => {
+                        // generic real: real0=close, real1=volume (matches the C driver)
+                        let a = if fz_real_idx == 1 { "_fz_v" } else { "_fz_c" };
+                        fz_real_idx += 1;
+                        a
+                    }
+                };
+                s.push_str(&format!("                _json_{name} = {src}.clone();\n"));
+                s.push_str(&format!("                {name} = &_json_{name};\n"));
+            }
+        }
+        s.push_str("            } else if use_preloaded != 0 && ref_data.n > 0 {\n");
         for (j, name) in input_names.iter().enumerate() {
             let ref_field = if let Some(f) = price_input_to_rust_ref(name) {
                 f.to_string()
@@ -2995,6 +3336,39 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         s.push_str("            );\n");
         s.push_str("            }\n"); // end guarded bench loop
         s.push_str("            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;\n");
+
+        // [fuzz] out_hash mode (--xlang-hash, issue #113): after the GUARDED call —
+        // the public API the C golden's TA_CallFunc also runs — return a
+        // full-precision FNV digest of the raw outputs instead of the arrays, so a
+        // ~1e-10 cross-language divergence cannot be blurred by %.15g. Returns HERE,
+        // deliberately BEFORE the unguarded timing loop, so the digest is of the
+        // guarded output (like-for-like with the C golden) — not the unguarded
+        // rerun. full_output suppresses it (arrays to pinpoint a divergence).
+        // Hashes outputs in logical order; nothing unless the call succeeded.
+        s.push_str("            if (gen_present != 0 || want_hash != 0) && full_output == 0 {\n");
+        s.push_str("                let mut _oh = fuzz_hash_init();\n");
+        s.push_str("                if matches!(rc, RetCode::Success) && outNBElement > 0 {\n");
+        {
+            let mut r2 = 0usize;
+            let mut i2 = 0usize;
+            for out in outputs {
+                if out.param_type == ParamType::Integer {
+                    s.push_str(&format!(
+                        "                    _oh = fuzz_hash_bytes_i32(_oh, &outIntBuf{i2}[..outNBElement]);\n"
+                    ));
+                    i2 += 1;
+                } else {
+                    s.push_str(&format!(
+                        "                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf{r2}[..outNBElement]);\n"
+                    ));
+                    r2 += 1;
+                }
+            }
+        }
+        s.push_str("                }\n");
+        s.push_str("                _oh = fuzz_hash_fin(_oh);\n");
+        s.push_str("                return format!(\"{{\\\"retCode\\\":{},\\\"outBegIdx\\\":{},\\\"outNBElement\\\":{},\\\"out_hash\\\":\\\"{:016x}\\\"}}\", retcode_to_int(rc), outBegIdx, outNBElement, _oh);\n");
+        s.push_str("            }\n");
 
         // Unguarded timing loop (same signature as guarded, no extra params)
         s.push_str("            let start_time_ung = Instant::now();\n");
@@ -3141,6 +3515,24 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("                i32::from(r)\n");
     s.push_str("            }).collect();\n");
     s.push_str("            format!(\"{{\\\"outInteger\\\":{}}}\", json_i32_array(&out))\n");
+    s.push_str("        }\n");
+
+    // fuzz_in_hash — cross-language input-port self-check (--xlang-hash, issue #113).
+    // Generates the OHLCV+OI inputs from (gen_shape,gen_seed,gen_n) and returns a
+    // 64-bit FNV digest of the six raw arrays in O,H,L,C,V,OI order, byte-identical
+    // to the C driver's in-process generation — so a ported-fuzz_gen divergence is
+    // caught as an INPUT mismatch, isolated from any indicator-output divergence.
+    s.push_str("        \"fuzz_in_hash\" => {\n");
+    s.push_str("            let shape = params[\"gen_shape\"].as_i64().unwrap_or(0) as i32;\n");
+    s.push_str("            let seed = params[\"gen_seed\"].as_i64().unwrap_or(0) as i32;\n");
+    s.push_str("            let n = params[\"gen_n\"].as_i64().unwrap_or(0) as usize;\n");
+    s.push_str("            let mut fo = vec![0.0f64; n]; let mut fh = vec![0.0f64; n]; let mut fl = vec![0.0f64; n];\n");
+    s.push_str("            let mut fc = vec![0.0f64; n]; let mut fv = vec![0.0f64; n]; let mut foi = vec![0.0f64; n];\n");
+    s.push_str("            fuzz_gen(shape, seed, n as i32, &mut fo, &mut fh, &mut fl, &mut fc, &mut fv, &mut foi);\n");
+    s.push_str("            let mut h = fuzz_hash_init();\n");
+    s.push_str("            for arr in [&fo, &fh, &fl, &fc, &fv, &foi] { h = fuzz_hash_bytes_f64(h, arr); }\n");
+    s.push_str("            h = fuzz_hash_fin(h);\n");
+    s.push_str("            format!(\"{{\\\"in_hash\\\":\\\"{:016x}\\\"}}\", h)\n");
     s.push_str("        }\n");
 
     // Abstract/introspection metadata handlers (mirror ta_abstract_serve.c),
