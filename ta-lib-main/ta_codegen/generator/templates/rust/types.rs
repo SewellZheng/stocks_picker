@@ -15,6 +15,24 @@ pub enum RetCode {
     InternalError,
 }
 
+impl std::fmt::Display for RetCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            RetCode::Success => "success",
+            RetCode::BadParam => "bad parameter",
+            RetCode::OutOfRangeStartIndex => "start index out of range",
+            RetCode::OutOfRangeEndIndex => "end index out of range",
+            RetCode::AllocErr => "allocation error",
+            RetCode::InternalError => "internal error",
+        };
+        f.write_str(s)
+    }
+}
+
+/// `RetCode` is the error type of the stream tier's `Result`s (`sma_open` and
+/// friends), so it composes with `?` into `Box<dyn Error>`/anyhow contexts.
+impl std::error::Error for RetCode {}
+
 /// Compatibility mode for technical analysis calculations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compatibility {
@@ -62,7 +80,7 @@ pub enum FuncUnstId {
 pub struct CandleSetting {
     /// Range type: 0 = RealBody, 1 = HighLow, 2 = Shadows.
     pub range_type: i32,
-    /// Number of periods for averaging.
+    /// Period length for averaging.
     pub avg_period: i32,
     /// Scaling factor.
     pub factor: f64,

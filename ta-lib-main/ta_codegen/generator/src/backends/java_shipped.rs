@@ -405,7 +405,7 @@ fn emit_output_annotation(o: &mut String, output: &Output, last: bool) {
 
 /// `TA_FuncFlags` numeric value (OR of matched bits; `stream` =
 /// TA_FUNC_FLG_STREAM).
-fn func_flags_value(flags: &[String]) -> u32 {
+pub(crate) fn func_flags_value(flags: &[String]) -> u32 {
     let mut v = 0;
     for f in flags {
         v |= match f.as_str() {
@@ -414,6 +414,7 @@ fn func_flags_value(flags: &[String]) -> u32 {
             "volume" => 0x0400_0000,
             "unstable_period" => 0x0800_0000,
             "candlestick" => 0x1000_0000,
+            "start_dependent" => 0x2000_0000, // TA_FUNC_FLG_START_DEP
             _ => 0,
         };
     }
@@ -421,7 +422,7 @@ fn func_flags_value(flags: &[String]) -> u32 {
 }
 
 /// `TA_OptInputFlags` numeric value.
-fn opt_input_flags_value(flags: &[String]) -> u32 {
+pub(crate) fn opt_input_flags_value(flags: &[String]) -> u32 {
     let mut v = 0;
     for f in flags {
         v |= match f.as_str() {
@@ -436,7 +437,7 @@ fn opt_input_flags_value(flags: &[String]) -> u32 {
 }
 
 /// `TA_OutputFlags` numeric value.
-fn output_flags_value(flags: &[String]) -> u32 {
+pub(crate) fn output_flags_value(flags: &[String]) -> u32 {
     let mut v = 0;
     for f in flags {
         v |= match f.as_str() {
@@ -453,6 +454,7 @@ fn output_flags_value(flags: &[String]) -> u32 {
             "zero" => 0x0000_0400,
             "upper_limit" => 0x0000_0800,
             "lower_limit" => 0x0000_1000,
+            "nullable" => 0x0000_2000,
             _ => 0,
         };
     }

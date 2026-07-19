@@ -1915,6 +1915,26 @@
 /* Generated */ {
 /* Generated */    return TA_CMO_Lookback(params->optIn[0].data.optInInteger /* optInTimePeriod*/ );
 /* Generated */ }
+/* Generated */ TA_RetCode TA_CMOU_FramePP( const TA_ParamHolderPriv *params,
+/* Generated */                           int            startIdx,
+/* Generated */                           int            endIdx,
+/* Generated */                           int           *outBegIdx,
+/* Generated */                           int           *outNBElement )
+/* Generated */ {
+/* Generated */    return TA_CMOU(
+/* Generated */                startIdx,
+/* Generated */                endIdx,
+/* Generated */                params->in[0].data.inReal, /* inReal */
+/* Generated */                params->optIn[0].data.optInInteger, /* optInTimePeriod*/
+/* Generated */                outBegIdx, 
+/* Generated */                outNBElement, 
+/* Generated */                params->out[0].data.outReal /*  outReal */
+/* Generated */                );
+/* Generated */ }
+/* Generated */ unsigned int TA_CMOU_FramePPLB( const TA_ParamHolderPriv *params )
+/* Generated */ {
+/* Generated */    return TA_CMOU_Lookback(params->optIn[0].data.optInInteger /* optInTimePeriod*/ );
+/* Generated */ }
 /* Generated */ TA_RetCode TA_CORREL_FramePP( const TA_ParamHolderPriv *params,
 /* Generated */                           int            startIdx,
 /* Generated */                           int            endIdx,
@@ -2845,6 +2865,27 @@
 /* Generated */ {
 /* Generated */    return TA_NATR_Lookback(params->optIn[0].data.optInInteger /* optInTimePeriod*/ );
 /* Generated */ }
+/* Generated */ TA_RetCode TA_NVI_FramePP( const TA_ParamHolderPriv *params,
+/* Generated */                           int            startIdx,
+/* Generated */                           int            endIdx,
+/* Generated */                           int           *outBegIdx,
+/* Generated */                           int           *outNBElement )
+/* Generated */ {
+/* Generated */    return TA_NVI(
+/* Generated */                startIdx,
+/* Generated */                endIdx,
+/* Generated */                params->in[0].data.inPrice.close, /* inClose */
+/* Generated */                params->in[0].data.inPrice.volume, /* inVolume */
+/* Generated */                outBegIdx, 
+/* Generated */                outNBElement, 
+/* Generated */                params->out[0].data.outReal /*  outReal */
+/* Generated */                );
+/* Generated */ }
+/* Generated */ unsigned int TA_NVI_FramePPLB( const TA_ParamHolderPriv *params )
+/* Generated */ {
+/* Generated */    (void)params;
+/* Generated */    return TA_NVI_Lookback( );
+/* Generated */ }
 /* Generated */ TA_RetCode TA_OBV_FramePP( const TA_ParamHolderPriv *params,
 /* Generated */                           int            startIdx,
 /* Generated */                           int            endIdx,
@@ -2930,6 +2971,51 @@
 /* Generated */ unsigned int TA_PPO_FramePPLB( const TA_ParamHolderPriv *params )
 /* Generated */ {
 /* Generated */    return TA_PPO_Lookback(params->optIn[0].data.optInInteger, /* optInFastPeriod*/
+/* Generated */                     params->optIn[1].data.optInInteger, /* optInSlowPeriod*/
+/* Generated */                     (TA_MAType)params->optIn[2].data.optInInteger /* optInMAType*/ );
+/* Generated */ }
+/* Generated */ TA_RetCode TA_PVI_FramePP( const TA_ParamHolderPriv *params,
+/* Generated */                           int            startIdx,
+/* Generated */                           int            endIdx,
+/* Generated */                           int           *outBegIdx,
+/* Generated */                           int           *outNBElement )
+/* Generated */ {
+/* Generated */    return TA_PVI(
+/* Generated */                startIdx,
+/* Generated */                endIdx,
+/* Generated */                params->in[0].data.inPrice.close, /* inClose */
+/* Generated */                params->in[0].data.inPrice.volume, /* inVolume */
+/* Generated */                outBegIdx, 
+/* Generated */                outNBElement, 
+/* Generated */                params->out[0].data.outReal /*  outReal */
+/* Generated */                );
+/* Generated */ }
+/* Generated */ unsigned int TA_PVI_FramePPLB( const TA_ParamHolderPriv *params )
+/* Generated */ {
+/* Generated */    (void)params;
+/* Generated */    return TA_PVI_Lookback( );
+/* Generated */ }
+/* Generated */ TA_RetCode TA_PVO_FramePP( const TA_ParamHolderPriv *params,
+/* Generated */                           int            startIdx,
+/* Generated */                           int            endIdx,
+/* Generated */                           int           *outBegIdx,
+/* Generated */                           int           *outNBElement )
+/* Generated */ {
+/* Generated */    return TA_PVO(
+/* Generated */                startIdx,
+/* Generated */                endIdx,
+/* Generated */                params->in[0].data.inPrice.volume, /* inVolume */
+/* Generated */                params->optIn[0].data.optInInteger, /* optInFastPeriod*/
+/* Generated */                params->optIn[1].data.optInInteger, /* optInSlowPeriod*/
+/* Generated */                (TA_MAType)params->optIn[2].data.optInInteger, /* optInMAType*/
+/* Generated */                outBegIdx, 
+/* Generated */                outNBElement, 
+/* Generated */                params->out[0].data.outReal /*  outReal */
+/* Generated */                );
+/* Generated */ }
+/* Generated */ unsigned int TA_PVO_FramePPLB( const TA_ParamHolderPriv *params )
+/* Generated */ {
+/* Generated */    return TA_PVO_Lookback(params->optIn[0].data.optInInteger, /* optInFastPeriod*/
 /* Generated */                     params->optIn[1].data.optInInteger, /* optInSlowPeriod*/
 /* Generated */                     (TA_MAType)params->optIn[2].data.optInInteger /* optInMAType*/ );
 /* Generated */ }

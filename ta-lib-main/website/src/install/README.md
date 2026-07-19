@@ -9,7 +9,7 @@ Instructions for installing the shared/static libraries and headers on your syst
 
 Latest release is [0.7.1 on Github](https://github.com/ta-lib/ta-lib/releases/latest)
 
-For python and Rusers, see instead [ta-lib-python](https://github.com/TA-Lib/ta-lib-python) or [ta-lib-R](https://github.com/serkor1/ta-lib-R)
+Both CMake and autotools build systems are included, enabling an optimized build from source on most platforms.
 
 - [Windows](#windows)
     - [Executable Installer (recommended)](#executable-installer-recommended)
@@ -23,6 +23,8 @@ For python and Rusers, see instead [ta-lib-python](https://github.com/TA-Lib/ta-
 - [Linux](#linux)
     - [Debian packages](#linux-debian-packages)
     - [Build from source](#linux-build-from-source)
+
+- [vcpkg](#vcpkg)
 
 - [GitHub Actions](#github-actions)
 
@@ -40,7 +42,7 @@ For python and Rusers, see instead [ta-lib-python](https://github.com/TA-Lib/ta-
 
     To update, just repeat the installation (older version is automatically uninstalled).
 
-    If you choose to uninstall, us the [Add/Remove Apps](https://support.microsoft.com/en-us/windows/uninstall-or-remove-apps-and-programs-in-windows-4b55f974-2cc6-2d2b-d092-5905080eaf98) in windows settings.
+    If you choose to uninstall, use the [Add/Remove Apps](https://support.microsoft.com/en-us/windows/uninstall-or-remove-apps-and-programs-in-windows-4b55f974-2cc6-2d2b-d092-5905080eaf98) in windows settings.
 
  If you prefer a non-interactive installation, you can use msiexec [from the command line](https://learn.microsoft.com/en-us/windows/win32/msi/standard-installer-command-line-options).
 
@@ -57,7 +59,7 @@ Use the .zip packages when you prefer to get the libraries without installing (e
 
 ### Windows Build from Source
 
-Install VSCode 2022 community and do:
+Install Visual Studio 2022 Community and do:
 ```cmd
 C:\ta-lib> "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
 C:\ta-lib> mkdir build
@@ -65,7 +67,7 @@ C:\ta-lib> cd build
 C:\ta-lib\build> cmake ..
 C:\ta-lib\build> cmake --build .
 ```
-You might need to adjust the `vcvarsall.bat` command depending on your VSCode installation and platform.
+You might need to adjust the `vcvarsall.bat` command depending on your Visual Studio installation and platform.
 
 
 ## macOS
@@ -149,7 +151,10 @@ Recommended for all debian-based distributions (e.g. Ubuntu, Mint...)
    ./configure
    make
    sudo make install
+   sudo ldconfig     # refresh the shared-library cache so the linker finds libta-lib.so
    ```
+
+    If you cloned the repository instead of downloading the tarball, the `configure` script is not included; generate it first with `./autogen.sh` (requires the `autoconf`, `automake` and `libtool` packages).
 
     Follow the same procedure for an update (the older version is overwritten, no need to uninstall).
 
@@ -157,6 +162,27 @@ Recommended for all debian-based distributions (e.g. Ubuntu, Mint...)
     ```bash
     sudo make uninstall
     ```
+
+
+## vcpkg
+
+TA-Lib is available as the [`talib`](https://vcpkg.io/en/package/talib) port in
+[vcpkg](https://vcpkg.io/), Microsoft's cross-platform C/C++ package manager
+(Windows, Linux and macOS).
+
+Classic mode:
+```bash
+vcpkg install talib
+```
+
+Manifest mode (add it to your project's `vcpkg.json`):
+```bash
+vcpkg add port talib
+```
+
+The port is updated with each release. See the
+[vcpkg documentation](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started)
+for one-time setup and CMake/MSBuild integration.
 
 
 ## GitHub Actions

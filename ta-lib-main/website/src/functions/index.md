@@ -57,6 +57,7 @@ All technical-analysis functions, grouped by category. Each page documents the f
 - [BOP](/functions/bop) — Balance Of Power
 - [CCI](/functions/cci) — Commodity Channel Index
 - [CMO](/functions/cmo) — Chande Momentum Oscillator
+- [CMOU](/functions/cmou) — Chande Momentum Oscillator (Unsmoothed)
 - [DX](/functions/dx) — Directional Movement Index
 - [IMI](/functions/imi) — Intraday Momentum Index
 - [MACD](/functions/macd) — Moving Average Convergence/Divergence
@@ -196,4 +197,7 @@ All technical-analysis functions, grouped by category. Each page documents the f
 
 - [AD](/functions/ad) — Chaikin A/D Line
 - [ADOSC](/functions/adosc) — Chaikin A/D Oscillator
+- [NVI](/functions/nvi) — Negative Volume Index
 - [OBV](/functions/obv) — On Balance Volume
+- [PVI](/functions/pvi) — Positive Volume Index
+- [PVO](/functions/pvo) — Percentage Volume Oscillator

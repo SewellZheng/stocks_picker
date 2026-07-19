@@ -206,6 +206,11 @@ pub struct CalleeSig {
     pub n_opts: usize,
     /// Number of outputs.
     pub n_outputs: usize,
+    /// Nullability of each output, index-aligned (`out_nullable[k]` ==
+    /// `outputs[k].is_nullable()`). A trailing-NULL dispatch delegation may
+    /// pass NULL only for a nullable callee output (MAMA's FAMA when MA routes
+    /// only the MAMA line — issue #125).
+    pub out_nullable: Vec<bool>,
 }
 
 /// Cross-function lookup for composed/dispatch analysis: maps an input-level
@@ -225,6 +230,7 @@ pub fn callee_sig_of(f: &FuncDef) -> CalleeSig {
         n_inputs: input_array_names(f).len(),
         n_opts: f.optional_inputs.len(),
         n_outputs: f.outputs.len(),
+        out_nullable: f.outputs.iter().map(crate::ir::Output::is_nullable).collect(),
     }
 }
 
@@ -240,6 +246,17 @@ impl CalleeLookup for FuncsLookup<'_> {
     }
 }
 
+/// How one callee output slot maps onto the dispatch func's outputs in a
+/// (possibly trailing-NULL) delegation. `Forward(k)` routes the callee output
+/// into the dispatch func's output `k`; `Discard` passes NULL for a nullable
+/// callee output the dispatch func doesn't want (MAMA's FAMA when MA routes
+/// only the MAMA line — issue #125).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutSlot {
+    Forward(usize),
+    Discard,
+}
+
 /// One arm of a recognized dispatch body.
 #[derive(Debug, Clone)]
 pub struct DispatchArm {
@@ -251,9 +268,14 @@ pub struct DispatchArm {
     /// The callee's optional-input argument expressions, positionally
     /// mapped from the batch call. Meaningful only when `supported`.
     pub opt_args: Vec<Expr>,
+    /// Per callee-output-slot mapping, length == callee's output count. The
+    /// emitter forwards each `Forward(k)` slot to the dispatch output `k` and
+    /// passes NULL for each `Discard`. Empty for reject arms. Meaningful only
+    /// when `supported`.
+    pub out_map: Vec<OutSlot>,
     /// The arm delegates whole-range to a stream-flagged callee: the stream
     /// opens the callee's public stream. Unsupported arms reject at Open
-    /// with BAD_PARAM (documented capability limitation, e.g. MAType=MAMA).
+    /// with BAD_PARAM (documented capability limitation).
     pub supported: bool,
 }
 
@@ -1849,9 +1871,17 @@ pub fn analyze_composed<'a>(
     // start (`tail` therefore has no fast-path block to filter).
     let params_pre: BTreeSet<String> =
         func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+    // Enum (MA-type) optional params: an enum-guarded fast-path block is a
+    // batch-only specialization even without a sub-call. See `is_fastpath_block`.
+    let enum_params: BTreeSet<String> = func
+        .optional_inputs
+        .iter()
+        .filter(|p| matches!(p.param_type, ParamType::Enum(_)))
+        .map(|p| p.name.clone())
+        .collect();
     let region_open: Vec<Statement> = region
         .iter()
-        .filter(|st| !is_fastpath_block(st, &params_pre, lookup))
+        .filter(|st| !is_fastpath_block(st, &params_pre, &enum_params, lookup))
         .cloned()
         .collect();
     // Composed-shaped = the tail delegates to another indicator. A tail of
@@ -2790,15 +2820,18 @@ fn guard_frees_series(st: &Statement, series: &str) -> bool {
                 && matches!(args.first(), Some(Expr::Var(v)) if v == series))
 }
 
-/// A parameter-guarded fast-path block: `if( <param test> ) { ...; return; }`
-/// with an empty else whose body calls a sub-indicator. This is a batch-only
-/// specialization — BBANDS's SMA path reuses the moving average as the mean
-/// instead of a separate STDDEV pass. It is EXCLUDED from the composed pipeline:
-/// the stream composes the GENERAL path (below the block) for every parameter
-/// value, and `stream_verify` proves that path bit-exact against the batch
-/// fast-path across the swept parameters (SMA included). The sub-call requirement
-/// tells it apart from a plain error guard (which never calls an indicator — the
-/// G2 rule) and from a `period == 1` identity path (a plain copy, no sub-call).
+/// A parameter-guarded fast-path block `if( <param test> ) { ...; return; }`
+/// (empty else): a batch-only specialization EXCLUDED from the composed pipeline,
+/// so the stream composes the GENERAL path below for every parameter value.
+///
+/// Qualifies when it ends in `return` and EITHER its body calls a sub-indicator
+/// (MACDEXT's all-EMA shortcut delegates to TA_MACD) OR its guard tests an
+/// MA-type (enum) optional parameter AND it returns success (BBANDS's fused SMA
+/// path, which inlines its work with no sub-call). The success-return requirement
+/// keeps an enum-guarded ERROR guard (`return TA_BAD_PARAM`) in the stream; that
+/// the inlined body reproduces the general path is proven by `stream_verify`. The
+/// enum rule never matches an `optInTimePeriod == 1` identity (integer guard), so
+/// those still stream in place.
 ///
 /// The condition must be a compile-time parameter test: it names at least one
 /// optional parameter and reads no series, pointers or calls (enum constants such
@@ -2806,6 +2839,7 @@ fn guard_frees_series(st: &Statement, series: &str) -> bool {
 fn is_fastpath_block(
     st: &Statement,
     params: &BTreeSet<String>,
+    enum_params: &BTreeSet<String>,
     lookup: &dyn CalleeLookup,
 ) -> bool {
     let Statement::If {
@@ -2821,9 +2855,15 @@ fn is_fastpath_block(
         return false;
     }
     let mut refs_param = false;
+    let mut refs_enum_param = false;
     let mut data_dependent = false;
     walk_expr(condition, &mut |e| match e {
-        Expr::Var(v) if params.contains(v) => refs_param = true,
+        Expr::Var(v) if params.contains(v) => {
+            refs_param = true;
+            if enum_params.contains(v) {
+                refs_enum_param = true;
+            }
+        }
         Expr::ArrayAccess(..) | Expr::PointerDeref(_) | Expr::FuncCall(..) => {
             data_dependent = true;
         }
@@ -2832,14 +2872,31 @@ fn is_fastpath_block(
     if !refs_param || data_dependent {
         return false;
     }
-    let ends_in_return = matches!(
-        then_body
-            .iter()
-            .rev()
-            .find(|s| !matches!(s, Statement::Comment(_))),
-        Some(Statement::Return { .. })
-    );
-    ends_in_return && !find_indicator_calls(then_body, lookup).is_empty()
+    let last_return = then_body
+        .iter()
+        .rev()
+        .find(|s| !matches!(s, Statement::Comment(_)));
+    if !matches!(last_return, Some(Statement::Return { .. })) {
+        return false;
+    }
+    // Delegates to a sub-indicator (MACDEXT's all-EMA shortcut -> TA_MACD): a
+    // proven batch-only specialization, regardless of the value it returns.
+    if !find_indicator_calls(then_body, lookup).is_empty() {
+        return true;
+    }
+    // Otherwise an MA-type (enum) guard whose body inlines a full computation with
+    // no sub-call (BBANDS's fused SMA path). Require a SUCCESS return: an
+    // enum-guarded ERROR guard (`return TA_BAD_PARAM`) must NOT be stripped, so the
+    // streamed call still rejects the MA types the batch call rejects. That the
+    // inlined body actually reproduces the general path is proven bit-exact by
+    // stream_verify. An `optInTimePeriod == 1` identity has an integer guard, so
+    // the enum rule never touches it.
+    refs_enum_param
+        && matches!(
+            last_return,
+            Some(Statement::Return { value: Some(Expr::Var(v)) })
+                if matches!(v.as_str(), "SUCCESS" | "TA_SUCCESS")
+        )
 }
 
 /// A composed-tail guard must be pure control flow over scalars: no
@@ -2934,6 +2991,7 @@ fn parse_dispatch_arm(
         label: label.to_string(),
         callee: callee.to_string(),
         opt_args: Vec::new(),
+        out_map: Vec::new(),
         supported: false,
     };
     let callees = find_indicator_calls(stmts, lookup);
@@ -2944,12 +3002,14 @@ fn parse_dispatch_arm(
 
     // Strict whole-range delegation shape: exactly one statement,
     // `<retvar> = callee(startIdx, endIdx, <own inputs>, <pure opt args>,
-    //                    outBegIdx, outNBElement, <own outputs>)`.
+    //                    outBegIdx, outNBElement, <outputs / NULL for discards>)`.
+    // The callee may have MORE outputs than the dispatch func when the extras are
+    // nullable and passed NULL (MA→MAMA routes the MAMA line, drops FAMA — #125).
     let meaningful: Vec<&Statement> = stmts
         .iter()
         .filter(|s| !matches!(s, Statement::Comment(_)))
         .collect();
-    let strict: Option<Vec<Expr>> = match meaningful.as_slice() {
+    let strict: Option<(Vec<Expr>, Vec<OutSlot>)> = match meaningful.as_slice() {
         [Statement::Assign {
             target: Expr::Var(t),
             value: Expr::FuncCall(name, args),
@@ -2959,11 +3019,12 @@ fn parse_dispatch_arm(
         }
         _ => None,
     };
-    if let (Some(opt_args), true) = (strict, sig.streaming) {
+    if let (Some((opt_args, out_map)), true) = (strict, sig.streaming) {
         return Ok(DispatchArm {
             label: label.to_string(),
             callee,
             opt_args,
+            out_map,
             supported: true,
         });
     }
@@ -2973,18 +3034,13 @@ fn parse_dispatch_arm(
         .filter(|c| lookup.callee(c).is_some_and(|s| s.streaming))
         .map(String::as_str)
         .collect();
-    // A single flagged callee whose OUTPUT arity differs from this dispatch
-    // func's can never be a 1:1 whole-range delegation: MA's MAMA arm feeds
-    // mama's second (FAMA) output into a discarded scratch buffer, so it emits
-    // one output from a two-output callee. That is an honest reject arm (MA
-    // asks for batch on MAType_MAMA) even though `mama` itself streams —
-    // structurally distinct from the hidden-delegation bug below.
-    if let [only] = flagged.as_slice() {
-        let osig = lookup.callee(only).expect("flagged callee resolves");
-        if osig.n_outputs != outputs.len() {
-            return Ok(reject(only));
-        }
-    }
+    // A flagged callee reached here means `delegation_opt_args` rejected the
+    // shape above — a stream-flagged callee that is NOT a clean whole-range
+    // (or trailing-NULL) delegation. That is a hard gate error, never a silent
+    // reject the verify precheck would then bless: an arm like `trima(...);
+    // dema(...)`, or a multi-output callee whose extra outputs are discarded to
+    // a scratch buffer rather than passed NULL (the pre-#125 MAMA shape). The
+    // supported multi-output-with-NULL form is handled by `delegation_opt_args`.
     // If ANY indicator called in the arm is stream-flagged — not just the first
     // one seen — this is a hard gate error: an arm like `trima(...); dema(...)`
     // must never silently become a reject arm the verify precheck then blesses
@@ -3007,10 +3063,13 @@ fn delegation_opt_args(
     sig: &CalleeSig,
     bar_inputs: &[String],
     outputs: &[String],
-) -> Option<Vec<Expr>> {
+) -> Option<(Vec<Expr>, Vec<OutSlot>)> {
     let n = args.len();
+    // The callee must have AT LEAST as many outputs as the dispatch func; the
+    // surplus are discarded (each must be nullable and passed NULL). Arity is
+    // the callee's full TA signature.
     if sig.n_inputs != bar_inputs.len()
-        || sig.n_outputs != outputs.len()
+        || sig.n_outputs < outputs.len()
         || n != 2 + sig.n_inputs + sig.n_opts + 2 + sig.n_outputs
     {
         return None;
@@ -3029,10 +3088,32 @@ fn delegation_opt_args(
     if !is_var(&args[out_meta], "outBegIdx") || !is_var(&args[out_meta + 1], "outNBElement") {
         return None;
     }
-    for (k, out) in outputs.iter().enumerate() {
-        if !is_var(&args[out_meta + 2 + k], out) {
-            return None;
+    // Map each callee output slot: a dispatch output var forwards to that output;
+    // NULL discards (only where the callee output is nullable).
+    let mut out_map: Vec<OutSlot> = Vec::with_capacity(sig.n_outputs);
+    let mut written = vec![false; outputs.len()];
+    for k in 0..sig.n_outputs {
+        match &args[out_meta + 2 + k] {
+            Expr::Var(v) if v == "NULL" => {
+                if !sig.out_nullable.get(k).copied().unwrap_or(false) {
+                    return None; // discarding a non-nullable output is unsound
+                }
+                out_map.push(OutSlot::Discard);
+            }
+            Expr::Var(v) => {
+                let idx = outputs.iter().position(|o| o == v)?;
+                if written[idx] {
+                    return None; // two callee slots into one dispatch output
+                }
+                written[idx] = true;
+                out_map.push(OutSlot::Forward(idx));
+            }
+            _ => return None,
         }
+    }
+    // Every dispatch output must be produced by exactly one forwarded slot.
+    if written.iter().any(|w| !w) {
+        return None;
     }
     // Opt args must be pure over the caller's own params (or literals): they
     // are re-evaluated at Open time to open the sub-stream.
@@ -3049,7 +3130,7 @@ fn delegation_opt_args(
             return None;
         }
     }
-    Some(opt_args)
+    Some((opt_args, out_map))
 }
 
 /// The full argument list of the first `callee` invocation in `stmts` matching
@@ -6045,6 +6126,37 @@ mod tests {
         let bad = func_with_body(vec![Statement::Return { value: None }]);
         let err = validate_streamable(&bad, &NoCallees).unwrap_err();
         assert!(err.contains("not streamable"), "{err}");
+    }
+
+    #[test]
+    fn fastpath_enum_guard_requires_success_return() {
+        // A sub-call-less fast-path block is recognized only when an MA-type (enum)
+        // guard returns SUCCESS -- a full batch-only specialization. An enum-guarded
+        // ERROR guard must NOT be classified as one (else the stream would silently
+        // drop it and accept an MA type the batch API rejects), and an integer
+        // `optInTimePeriod == 1` identity is never matched by the enum rule.
+        let params: BTreeSet<String> =
+            ["optInMAType".to_string(), "optInTimePeriod".to_string()].into_iter().collect();
+        let enum_params: BTreeSet<String> = ["optInMAType".to_string()].into_iter().collect();
+        let eq = |l: Expr, r: Expr| Expr::BinOp(Box::new(l), BinOp::Eq, Box::new(r));
+        let guard = |cond: Expr, ret: &str| Statement::If {
+            condition: cond,
+            then_body: vec![Statement::Return { value: Some(var(ret)) }],
+            else_body: vec![],
+            cond_comments: vec![],
+        };
+
+        // Enum guard + SUCCESS return -> batch-only fast path (excluded from stream).
+        let sma_ok = guard(eq(var("optInMAType"), var("TA_MAType_SMA")), "TA_SUCCESS");
+        assert!(is_fastpath_block(&sma_ok, &params, &enum_params, &NoCallees));
+
+        // Enum guard + ERROR return -> NOT a fast path (the guard must stay).
+        let sma_err = guard(eq(var("optInMAType"), var("TA_MAType_SMA")), "TA_BAD_PARAM");
+        assert!(!is_fastpath_block(&sma_err, &params, &enum_params, &NoCallees));
+
+        // Integer (period == 1) identity guard -> the enum rule never touches it.
+        let p1 = guard(eq(var("optInTimePeriod"), Expr::IntLiteral(1)), "TA_SUCCESS");
+        assert!(!is_fastpath_block(&p1, &params, &enum_params, &NoCallees));
     }
 
     struct TestNames;

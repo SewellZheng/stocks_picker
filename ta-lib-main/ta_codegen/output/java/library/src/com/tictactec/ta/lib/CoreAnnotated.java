@@ -186,7 +186,7 @@ public int adLookback(
 @FuncInfo(
         name  = "AD",
         group = "Volume Indicators",
-        flags = 33554432,
+        flags = 570425344,
         nbInput    = 1,
         nbOptInput = 0,
         nbOutput   = 1
@@ -283,7 +283,7 @@ public int adOscLookback(
 @FuncInfo(
         name  = "ADOSC",
         group = "Volume Indicators",
-        flags = 33554432,
+        flags = 570425344,
         nbInput    = 1,
         nbOptInput = 2,
         nbOutput   = 1
@@ -553,7 +553,7 @@ public RetCode apo(
             )
             @IntegerList(
                     paramName    = "optInMAType",
-                    defaultValue = 0,
+                    defaultValue = 1,
                     value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
                     string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
             )
@@ -4429,6 +4429,65 @@ public RetCode cmo(
 ); }
 
 
+public int cmouLookback(
+        int optInTimePeriod) {
+    return super.cmouLookback(
+        optInTimePeriod); }
+
+@FuncInfo(
+        name  = "CMOU",
+        group = "Momentum Indicators",
+        flags = 33554432,
+        nbInput    = 1,
+        nbOptInput = 1,
+        nbOutput   = 1
+)
+public RetCode cmou(
+            int startIdx,
+            int endIdx,
+            @InputParameterInfo(
+                paramName = "inReal",
+                flags     = 0,
+                type = InputParameterType.TA_Input_Real
+            )
+            double inReal[],
+            @OptInputParameterInfo(
+                paramName    = "optInTimePeriod",
+                displayName  = "Time Period",
+                flags        = 0,
+                type    = OptInputParameterType.TA_OptInput_IntegerRange,
+                dataSet = com.tictactec.ta.lib.meta.annotation.IntegerRange.class
+            )
+            @IntegerRange(
+                    paramName    = "optInTimePeriod",
+                    defaultValue = 14,
+                    min          = 2,
+                    max          = 100000,
+                    suggested_start     = 4,
+                    suggested_end       = 200,
+                    suggested_increment = 1
+            )
+            int optInTimePeriod,
+            MInteger     outBegIdx,
+            MInteger     outNBElement,
+            @OutputParameterInfo(
+                paramName = "outReal",
+                flags     = 1,
+                type = OutputParameterType.TA_Output_Real
+            )
+            double outReal[]
+) {
+    return super.cmou (
+        startIdx,
+        endIdx,
+        inReal,
+        optInTimePeriod,
+        outBegIdx,
+        outNBElement,
+        outReal
+); }
+
+
 public int correlLookback(
         int optInTimePeriod) {
     return super.correlLookback(
@@ -6083,7 +6142,7 @@ public RetCode mama(
             double outMAMA[],
             @OutputParameterInfo(
                 paramName = "outFAMA",
-                flags     = 4,
+                flags     = 8196,
                 type = OutputParameterType.TA_Output_Real
             )
             double outFAMA[]
@@ -7098,6 +7157,49 @@ public RetCode natr(
 ); }
 
 
+public int nviLookback(
+) {
+    return super.nviLookback(
+); }
+
+@FuncInfo(
+        name  = "NVI",
+        group = "Volume Indicators",
+        flags = 570425344,
+        nbInput    = 1,
+        nbOptInput = 0,
+        nbOutput   = 1
+)
+public RetCode nvi(
+            int startIdx,
+            int endIdx,
+            @InputParameterInfo(
+                paramName = "inPriceCV",
+                flags     = 24,
+                type = InputParameterType.TA_Input_Price
+            )
+            double inClose [],
+            double inVolume [],
+            MInteger     outBegIdx,
+            MInteger     outNBElement,
+            @OutputParameterInfo(
+                paramName = "outReal",
+                flags     = 1,
+                type = OutputParameterType.TA_Output_Real
+            )
+            double outReal[]
+) {
+    return super.nvi (
+        startIdx,
+        endIdx,
+        inClose ,
+        inVolume ,
+        outBegIdx,
+        outNBElement,
+        outReal
+); }
+
+
 public int obvLookback(
 ) {
     return super.obvLookback(
@@ -7106,7 +7208,7 @@ public int obvLookback(
 @FuncInfo(
         name  = "OBV",
         group = "Volume Indicators",
-        flags = 33554432,
+        flags = 570425344,
         nbInput    = 2,
         nbOptInput = 0,
         nbOutput   = 1
@@ -7339,7 +7441,7 @@ public RetCode ppo(
             )
             @IntegerList(
                     paramName    = "optInMAType",
-                    defaultValue = 0,
+                    defaultValue = 1,
                     value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
                     string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
             )
@@ -7357,6 +7459,145 @@ public RetCode ppo(
         startIdx,
         endIdx,
         inReal,
+        optInFastPeriod,
+        optInSlowPeriod,
+        optInMAType,
+        outBegIdx,
+        outNBElement,
+        outReal
+); }
+
+
+public int pviLookback(
+) {
+    return super.pviLookback(
+); }
+
+@FuncInfo(
+        name  = "PVI",
+        group = "Volume Indicators",
+        flags = 570425344,
+        nbInput    = 1,
+        nbOptInput = 0,
+        nbOutput   = 1
+)
+public RetCode pvi(
+            int startIdx,
+            int endIdx,
+            @InputParameterInfo(
+                paramName = "inPriceCV",
+                flags     = 24,
+                type = InputParameterType.TA_Input_Price
+            )
+            double inClose [],
+            double inVolume [],
+            MInteger     outBegIdx,
+            MInteger     outNBElement,
+            @OutputParameterInfo(
+                paramName = "outReal",
+                flags     = 1,
+                type = OutputParameterType.TA_Output_Real
+            )
+            double outReal[]
+) {
+    return super.pvi (
+        startIdx,
+        endIdx,
+        inClose ,
+        inVolume ,
+        outBegIdx,
+        outNBElement,
+        outReal
+); }
+
+
+public int pvoLookback(
+        int optInFastPeriod,
+        int optInSlowPeriod,
+        MAType optInMAType) {
+    return super.pvoLookback(
+        optInFastPeriod,
+        optInSlowPeriod,
+        optInMAType); }
+
+@FuncInfo(
+        name  = "PVO",
+        group = "Volume Indicators",
+        flags = 33554432,
+        nbInput    = 1,
+        nbOptInput = 3,
+        nbOutput   = 1
+)
+public RetCode pvo(
+            int startIdx,
+            int endIdx,
+            @InputParameterInfo(
+                paramName = "inPriceV",
+                flags     = 16,
+                type = InputParameterType.TA_Input_Price
+            )
+            double inVolume [],
+            @OptInputParameterInfo(
+                paramName    = "optInFastPeriod",
+                displayName  = "Fast Period",
+                flags        = 0,
+                type    = OptInputParameterType.TA_OptInput_IntegerRange,
+                dataSet = com.tictactec.ta.lib.meta.annotation.IntegerRange.class
+            )
+            @IntegerRange(
+                    paramName    = "optInFastPeriod",
+                    defaultValue = 12,
+                    min          = 2,
+                    max          = 100000,
+                    suggested_start     = 4,
+                    suggested_end       = 200,
+                    suggested_increment = 1
+            )
+            int optInFastPeriod,
+            @OptInputParameterInfo(
+                paramName    = "optInSlowPeriod",
+                displayName  = "Slow Period",
+                flags        = 0,
+                type    = OptInputParameterType.TA_OptInput_IntegerRange,
+                dataSet = com.tictactec.ta.lib.meta.annotation.IntegerRange.class
+            )
+            @IntegerRange(
+                    paramName    = "optInSlowPeriod",
+                    defaultValue = 26,
+                    min          = 2,
+                    max          = 100000,
+                    suggested_start     = 4,
+                    suggested_end       = 200,
+                    suggested_increment = 1
+            )
+            int optInSlowPeriod,
+            @OptInputParameterInfo(
+                paramName    = "optInMAType",
+                displayName  = "MA Type",
+                flags        = 0,
+                type    = OptInputParameterType.TA_OptInput_IntegerList,
+                dataSet = com.tictactec.ta.lib.meta.annotation.IntegerList.class
+            )
+            @IntegerList(
+                    paramName    = "optInMAType",
+                    defaultValue = 1,
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+            )
+            MAType optInMAType,
+            MInteger     outBegIdx,
+            MInteger     outNBElement,
+            @OutputParameterInfo(
+                paramName = "outReal",
+                flags     = 1,
+                type = OutputParameterType.TA_Output_Real
+            )
+            double outReal[]
+) {
+    return super.pvo (
+        startIdx,
+        endIdx,
+        inVolume ,
         optInFastPeriod,
         optInSlowPeriod,
         optInMAType,
@@ -7671,7 +7912,7 @@ public int sarLookback(
 @FuncInfo(
         name  = "SAR",
         group = "Overlap Studies",
-        flags = 50331648,
+        flags = 587202560,
         nbInput    = 1,
         nbOptInput = 2,
         nbOutput   = 1
@@ -7766,7 +8007,7 @@ public int sarExtLookback(
 @FuncInfo(
         name  = "SAREXT",
         group = "Overlap Studies",
-        flags = 50331648,
+        flags = 587202560,
         nbInput    = 1,
         nbOptInput = 8,
         nbOutput   = 1

@@ -491,7 +491,7 @@ fn gen_def_ui_c(enums: &HashMap<String, EnumDef>) -> String {
             "Time Period",
             "TA_DEF_TimePeriod_Positive_Minimum2",
             *default,
-            "Number of period",
+            "Time period",
         );
     }
 
@@ -502,7 +502,7 @@ fn gen_def_ui_c(enums: &HashMap<String, EnumDef>) -> String {
         "Time Period",
         "TA_DEF_TimePeriod_Positive_Minimum5",
         14,
-        "Number of period",
+        "Time period",
     );
 
     for (name, default) in &[
@@ -518,7 +518,7 @@ fn gen_def_ui_c(enums: &HashMap<String, EnumDef>) -> String {
             "Time Period",
             "TA_DEF_TimePeriod_Positive",
             *default,
-            "Number of period",
+            "Time period",
         );
     }
 
@@ -579,12 +579,12 @@ fn gen_def_ui_c(enums: &HashMap<String, EnumDef>) -> String {
     emit_opt_input_int_const(
         &mut o, "TA_DEF_UI_Fast_Period", "optInFastPeriod",
         "Fast Period", "TA_DEF_TimePeriod_Positive_Minimum2", 12,
-        "Number of period for the fast MA",
+        "Period of the fast MA",
     );
     emit_opt_input_int_const(
         &mut o, "TA_DEF_UI_Slow_Period", "optInSlowPeriod",
         "Slow Period", "TA_DEF_TimePeriod_Positive_Minimum2", 26,
-        "Number of period for the slow MA",
+        "Period of the slow MA",
     );
 
     o
@@ -1262,7 +1262,7 @@ fn output_flags_string(flags: &[String]) -> String {
     }
 }
 
-fn output_flag_to_c(flag: &str) -> Option<&'static str> {
+pub(crate) fn output_flag_to_c(flag: &str) -> Option<&'static str> {
     match flag {
         "line" => Some("TA_OUT_LINE"),
         "dot_line" => Some("TA_OUT_DOT_LINE"),
@@ -1277,6 +1277,7 @@ fn output_flag_to_c(flag: &str) -> Option<&'static str> {
         "zero" => Some("TA_OUT_ZERO"),
         "upper_limit" => Some("TA_OUT_UPPER_LIMIT"),
         "lower_limit" => Some("TA_OUT_LOWER_LIMIT"),
+        "nullable" => Some("TA_OUT_NULLABLE"),
         _ => None,
     }
 }
@@ -1506,18 +1507,21 @@ fn sanitize_param_name(name: &str) -> String {
     name.strip_prefix("optIn").unwrap_or(name).to_string()
 }
 
+
+/// Map a YAML opt-input flag to its C constant (one entry per
+/// `TA_OPTIN_*` in include/ta_abstract.h — kept in sync by flag_sync tests).
+pub(crate) fn opt_flag_to_c(flag: &str) -> Option<&'static str> {
+    match flag {
+        "percent" => Some("TA_OPTIN_IS_PERCENT"),
+        "degree" => Some("TA_OPTIN_IS_DEGREE"),
+        "currency" => Some("TA_OPTIN_IS_CURRENCY"),
+        "advanced" => Some("TA_OPTIN_ADVANCED"),
+        _ => None,
+    }
+}
 /// Build the C flags constant for opt-input flags.
 fn opt_input_flags_c(flags: &[String]) -> String {
-    let mapped: Vec<&str> = flags
-        .iter()
-        .filter_map(|f| match f.as_str() {
-            "percent" => Some("TA_OPTIN_IS_PERCENT"),
-            "degree" => Some("TA_OPTIN_IS_DEGREE"),
-            "currency" => Some("TA_OPTIN_IS_CURRENCY"),
-            "advanced" => Some("TA_OPTIN_IS_ADVANCED"),
-            _ => None,
-        })
-        .collect();
+    let mapped: Vec<&str> = flags.iter().filter_map(|f| opt_flag_to_c(f)).collect();
     if mapped.is_empty() {
         "0".to_string()
     } else {
@@ -1525,20 +1529,27 @@ fn opt_input_flags_c(flags: &[String]) -> String {
     }
 }
 
+
+/// Map a YAML function flag to its C constant (one entry per
+/// `TA_FUNC_FLG_*` in include/ta_abstract.h — kept in sync by flag_sync tests).
+pub(crate) fn func_flag_to_c(flag: &str) -> Option<&'static str> {
+    match flag {
+        "overlap" => Some("TA_FUNC_FLG_OVERLAP"),
+        "stream" => Some("TA_FUNC_FLG_STREAM"),
+        "volume" => Some("TA_FUNC_FLG_VOLUME"),
+        "unstable_period" => Some("TA_FUNC_FLG_UNST_PER"),
+        "candlestick" => Some("TA_FUNC_FLG_CANDLESTICK"),
+        "start_dependent" => Some("TA_FUNC_FLG_START_DEP"),
+        _ => None,
+    }
+}
 /// Build the C flags string for function flags. `stream` marks functions
 /// with a generated streaming API (TA_FUNC_FLG_STREAM) so wrappers can
 /// discover the stream surface through ta_abstract.
 fn func_flags_string(flags: &[String]) -> String {
     let mapped: Vec<&str> = flags
         .iter()
-        .filter_map(|f| match f.as_str() {
-            "overlap" => Some("TA_FUNC_FLG_OVERLAP"),
-            "stream" => Some("TA_FUNC_FLG_STREAM"),
-            "volume" => Some("TA_FUNC_FLG_VOLUME"),
-            "unstable_period" => Some("TA_FUNC_FLG_UNST_PER"),
-            "candlestick" => Some("TA_FUNC_FLG_CANDLESTICK"),
-            _ => None,
-        })
+        .filter_map(|f| func_flag_to_c(f))
         .collect();
     if mapped.is_empty() {
         "0".to_string()
@@ -2815,13 +2826,9 @@ fn gen_ta_func_h(funcs: &[&FuncDef]) -> String {
          \n\
          TA_LIB_API unsigned int TA_GetUnstablePeriod( TA_FuncUnstId id );\n\
          \n\
-         /* You can change slightly the behavior of the TA functions\n\
-         \x20* by requesting compatibiliy with some existing software.\n\
-         \x20*\n\
-         \x20* By default, the behavior is as close as the original \n\
-         \x20* author of the TA functions intend it to be.\n\
-         \x20*\n\
-         \x20* See ta_defs.h for the enumeration TA_Compatibility.\n\
+         /* DEPRECATED: TA_SetCompatibility is deprecated and may be removed in\n\
+         \x20* a future release. Avoid it in new code and rely on TA-Lib's default\n\
+         \x20* behavior. See ta_defs.h for the enumeration TA_Compatibility.\n\
          \x20*/\n\
          TA_LIB_API TA_RetCode TA_SetCompatibility( TA_Compatibility value );\n\
          TA_LIB_API TA_Compatibility TA_GetCompatibility( void );\n\

@@ -1,6 +1,6 @@
 # Generated Streaming (Incremental) API for ta_codegen
 
-Status: C tier complete (all 161 functions, bit-exact CI gate); Rust/Java/.NET emitters remaining. Planned for release 0.8.1.
+Status: C, Rust, and Java tiers complete (all 165 functions each, bit-exact CI gates); the managed .NET emitter is the sole remaining streaming work. Planned for release 0.8.1.
 
 ## Design
 
@@ -82,7 +82,57 @@ the surface includes:
 bit-identical, guaranteed by construction: it is the same generated code as
 `update`, run without committing.
 
-Its overhead is a throw away deep-copy of the handle (on every peek).
+Its overhead is a throw away deep-copy of the handle (on every peek). In Rust
+this is literally `self.clone()` — for windowed/composed indicators the clone
+allocates; `update` never allocates (that is the hard constraint, not peek's).
+
+### Full-history output at open (`OpenAndFill`)
+
+`open` returns only the value at the last history bar — yet it already computes the
+whole batch output internally and throws it away, keeping just that last value and the
+warmed-up state. So the common "compute over all of history, then go live" bootstrap
+pays for two passes — `batch(0, n-1)` then `open(history)` — when one already runs
+inside `open`. `OpenAndFill` keeps the discarded output:
+
+- **`open_and_fill(history[], params) → (handle, filled_outputs)` — once.** Does
+  everything `open` does *and* writes the full-history output arrays, bit-identical to
+  `batch(startIdx=0, endIdx=historyLen-1)`, in `open`'s single pass. One call gives you
+  the whole historical series *and* a live handle.
+
+It is a **separate** entry point; `open` is byte-for-byte unchanged. The signature is
+`open`'s input head followed by `batch`'s output tail — one array per output plus
+`outBegIdx`/`outNBElement` (both required). There is no `startIdx`: pinning bar 0 is
+exactly what makes the fill bit-exact (see *Semantic definition*). Because the fill
+writes the outputs and *then* reads the input tail to seed the ring, the output arrays
+must not alias the input or each other (the batch-tier aliasing rule, #108).
+
+Rejection is `open`'s, not `batch`'s: too-short history returns `TA_BAD_PARAM` and
+produces no handle (a handle needs a defined value, so short history is an error here,
+not batch's success-with-empty-output).
+
+```c
+TA_SMA_Stream *s = NULL;
+double warmup[N];                  /* one array per output, caller-sized */
+int begIdx, nbElement;
+
+/* Fills warmup[] == batch(0, N-1) AND returns the live handle, in one pass. */
+TA_RetCode rc = TA_SMA_OpenAndFill( &s, history, N, 14,
+                                    &begIdx, &nbElement, warmup );
+/* ... plot warmup[begIdx .. begIdx+nbElement-1] ... */
+
+for (int i = 0; i < newBars; i++)      /* go live from the same handle */
+    TA_SMA_Update( s, bar[i], &out );
+TA_SMA_Close( s );
+```
+
+**When it helps.** Any "backfill then stream" startup. The saving is one-time warm-up
+work — roughly half of `open`'s cost for the scalar/ring tiers, less for composed — so
+at a few thousand history bars it is microseconds. The real wins are ergonomics, one
+fewer full-history allocation, and closing the two-pass footgun; not steady-state
+throughput.
+
+**Availability.** C first (every streamable function has `OpenAndFill` wherever it has
+`Open` — same `TA_FUNC_FLG_STREAM` gate); Rust/Java/.NET follow their `open` emitters.
 
 ### Semantic definition (the contract tests enforce)
 
@@ -173,8 +223,9 @@ Rust:
 
 ```rust
 let core = Core::builder().build();               // immutable settings (issue #104)
-let mut s = core.sma_open(&history, 14)?;         // &self method on Core; the
-                                                  // handle holds an Arc<Core>
+let (mut s, _last) = core.sma_open(&history, 14)?; // &self method on Core; the
+                                                  // handle holds its own Core
+                                                  // (a cheap by-value clone)
 for &x in new_bars { let v = s.update(x); }        // &mut self, always a value
 let provisional = s.peek(forming_bar_close);       // &self: runs the same
                                                   // transition on a throwaway
@@ -184,6 +235,46 @@ let provisional = s.peek(forming_bar_close);       // &self: runs the same
 Java/.NET: small handle objects with the same `open(history, params)` +
 `update`/`peek` shape. Multi-output return small structs (`(f64, f64, f64)`
 for MACD in Rust; a tiny value class in Java/.NET).
+
+Java (shipped shape — design-panel reviewed):
+
+```java
+Core core = new Core();
+Core.SmaStream s = core.smaOpen(history, 14);   // throws on reject; value() = last-bar value
+double v = s.update(bar);                       // one value per closed bar; never throws
+double p = s.peek(formingBarClose);             // forming bar, non-committing (deep copy)
+Core.SmaStream t = s.copy();                    // independent stream fork
+Core.MacdStream m = core.macdOpen(history, 12, 26, 9);
+Core.MacdStream.Value mv = m.update(bar);       // mv.macd / mv.macdSignal / mv.macdHist
+Core.SmaStream s2 = core.smaOpenAndFill(history, 14, beg, nb, warmup);
+```
+
+- Handles are `public static final` classes **nested in `Core`** (`Core.SmaStream`),
+  named from the Java base method (`movingAverage` → `MovingAverageStream`) — they
+  ride the existing per-function fragment splice into both the shipped `Core.java`
+  and the JSON-RPC server with zero new build plumbing.
+- Open rejections are unchecked exceptions: `InsufficientHistoryException`
+  (an `IllegalArgumentException` subclass — the one routine, data-dependent
+  condition, catchable separately) for `historyLen < lookback + 1`, plain
+  `IllegalArgumentException` for out-of-range parameters and `OpenAndFill`
+  aliasing, `IllegalStateException` for capture invariants. Messages carry the
+  stable prefix `"TA_<NAME> open:"`. `update`/`peek` never throw post-open.
+- `value()` re-reads the last committed value(s) without recomputing (seeded by
+  open, refreshed by `update`, untouched by `peek`); multi-output `update`
+  caches the immutable `Value` it returns, so `value()` is allocation-free.
+- `peek`/`copy()` are the universal deep copy (arrays cloned, sub-handles
+  copied recursively, the `Core` reference shared) — the Java rendering of
+  Rust's clone-peek; `copy()` is named to avoid `ForkJoinTask.fork()`'s
+  async connotation and Java's broken `clone()`.
+- `OpenAndFill` rejects output↔input and output↔output aliasing by reference
+  equality (complete in Java: arrays are identical or disjoint) — Java is the
+  one managed backend where `smaOpenAndFill(history, …, history)` compiles, so
+  the guard is load-bearing (the planned managed .NET emitter must mirror it).
+- `Integer.MIN_VALUE` keeps its batch meaning (use the documented default) in
+  streaming opens; the stream gate asserts `open(MIN_VALUE) == open(default)`
+  bitwise.
+- Handles are deliberately **not serializable**: the sanctioned checkpoint
+  story is retaining history and re-opening (bit-identical by contract).
 
 **Java/.NET handle lifecycle.** Generated Java is pure Java — a stream handle
 is ordinary heap state, so "close" is literally nothing: no `AutoCloseable`,
@@ -207,12 +298,15 @@ above:
   settings, unstable period). Changing a setting means building a new `Core`
   (it is small; cloning is cheap).
 - **`open` is a `&self` method on `Core`.** Compatibility is consumed during
-  seeding; for anything read per-bar (candle settings) the handle keeps a
-  reference (`Arc`) to the immutable `Core` it was opened from — nothing is
-  copied, and settings cannot change for a `Core` by design. Opening and
-  driving streams concurrently from a shared `&Core` is therefore safe.
-  (Unstable period is read once at `open` — it only sizes the required
-  history — and never consulted again.)
+  seeding; for anything read per-bar (candle settings) the handle holds its
+  own `Core` **by value** — a `&self` method cannot mint a shared `Arc`, and a
+  clone of a small, deeply immutable `Core` is observationally identical to a
+  reference while keeping handles free of lifetimes. Settings cannot change
+  for a `Core` by design, so "settings stable over a stream's lifetime" holds
+  by construction even if the original `Core` is dropped. Opening and driving
+  streams concurrently from a shared `&Core` is therefore safe. (Unstable
+  period is read once at `open` — it only sizes the required history — and
+  never consulted again.)
 - **A stream handle is `Send` but single-writer.** `update(&mut self)` makes
   concurrent updates on one handle a compile error, so the "one thread per
   stream" rule is enforced, not merely advised; being `Send`, a handle can
@@ -228,9 +322,14 @@ The Rust guarantees above rest on one rule that holds in every language, each
 enforcing it its own way:
 
 > **A stream's value-affecting settings (compatibility, candle settings) must
-> not change over its lifetime.** Nothing is copied into the handle — settings
-> remain the shared, effectively-static data they already are, so a user
-> maintaining thousands of streams pays zero per-stream settings overhead.
+> not change over its lifetime.** In C nothing is copied into the handle —
+> settings remain the shared, effectively-static data they already are. The
+> managed tiers freeze instead of sharing where that is free or safer: Rust
+> handles embed the (immutable) `Core` by value, and Java handles snapshot the
+> few candle-setting primitives a CDL step reads per bar (~10 ints/doubles on
+> the 61 candle handles only) — so a mid-stream `SetCandleSettings` cannot
+> produce torn per-bar reads there. Under the rule, all three behaviors are
+> observationally identical.
 
 - **Rust.** Enforced by construction: settings live in the immutable `Core`
   (issue #104) the stream was opened from; they cannot change, so a violation
@@ -247,10 +346,16 @@ enforcing it its own way:
   `&mut`).
 - **Java / .NET.** Settings live per-`Core`-instance, so there is no
   process-global hazard; the same documented rule applies per instance: don't
-  mutate a `Core`'s settings while streams opened from it are live.
-  Single-writer per handle; no synchronization in the generated code (safe
-  publication when handing a handle between threads is the caller's usual
-  memory-model responsibility).
+  mutate a `Core`'s settings while streams opened from it are live (candle
+  settings are additionally snapshotted into CDL handles at open — see above).
+  Single-writer per handle — `update`, and `peek`/`value()`/`copy()` count as
+  accesses under that rule; with no concurrent `update`, `peek`/`value()`/
+  `copy()` never write the handle and are safe to call concurrently after safe
+  publication (a stronger guarantee than C documents for `const` peek). No
+  synchronization in the generated code; safe publication when handing a
+  handle between threads is the caller's usual memory-model responsibility.
+  A returned multi-output `Value` is immutable with final fields — safely
+  publishable even through a data race (JLS 17.5).
 
 ### Python (future consumer — exploration, not in scope)
 
@@ -293,10 +398,14 @@ is checked here against how Python *would* wrap it:
 
 ### Non-goals / risks
 - **No behavioral change to the batch tier.** The stream tier is additive.
-- `MAType=MAMA` is the one unsupported case on functions taking an `MAType`
-  parameter — it rejects at `open` (documented), since MAMA's dispatch arm has
-  no bit-exact stream; every other MA type streams. (MAVP's per-bar variable
-  period is supported.)
+- **Every `MAType` streams**, including `MAType=MAMA`. MAMA has two outputs
+  (MAMA + FAMA); when a dispatcher (`MA`/`BBANDS`/`STOCH`/…) selects it, only
+  the MAMA line is wanted. FAMA is a **nullable output** (issue #125,
+  `TA_OUT_NULLABLE`): the dispatcher forwards the MAMA line and passes NULL for
+  FAMA — a supported trailing-NULL delegation, verified bit-exact vs batch.
+  (Historically MAMA's arm rejected at `open` because the batch discarded FAMA
+  into a throwaway malloc buffer, a shape the analyzer would not stream; the
+  malloc is gone. MAVP's per-bar variable period is supported too.)
 - **Single precision:** no `TA_S_*` stream twin; the stream tier is
   double-only.
 - Handle lifetime: the handle is valid only within the exact library version
@@ -593,7 +702,11 @@ claim in *Motivation* gets measured, not asserted).
      DERIVED from the callees' YAML stream flags at generation time —
      TRIMA's arm joins automatically the moment its stream lands; MAMA's
      arm (discarded-FAMA dummy-buffer shape) stays a documented Open
-     `TA_BAD_PARAM`. A stream-flagged callee arm that loses its strict
+     `TA_BAD_PARAM`. **(Superseded 2026-07: issue #125 made FAMA a nullable
+     output, so MA's MAMA arm now streams — it forwards the MAMA line and
+     passes NULL for FAMA. The dummy-buffer malloc is gone. The reject
+     narrative below is a dated record; see "Non-goals / risks" above.)**
+     A stream-flagged callee arm that loses its strict
      whole-range delegation shape is a hard generate error, never a silent
      reject (that would turn a generator regression into a vacuous pass).
      Verification: the driver now sweeps enum (MAType) params — one vector
@@ -719,6 +832,7 @@ claim in *Motivation* gets measured, not asserted).
    normalizations (a carried-parity recognizer and an in-loop output-gate
    strip); MAVP streams via the period-bank tier — a bank of `maxP-minP+1` MA
    sub-streams advanced in lockstep.
-8. **Rust emitter** (re-applying the now-complete C model), then Java/.NET
-   (managed C# emitter, not P/Invoke — see lifecycle section) — the sole
-   remaining streaming work.
+8. **Rust emitter** (re-applying the now-complete C model) — DONE; **Java
+   emitter** (nested handle classes over the same shared transition machinery,
+   verified by the same stream gate) — DONE; .NET (managed C# emitter, not
+   P/Invoke — see lifecycle section) — the sole remaining streaming work.

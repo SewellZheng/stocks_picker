@@ -115,8 +115,6 @@ def show_help():
                         in-process C library (Rust via seed inputs, Java via
                         lossless hex inputs) with no tolerance (except Java's
                         transcendental calls: fdlibm != libm). Needs the JDK.
-    talib-rs-server     Build the third-party talib-rs benchmark server (opt-in;
-                        then: ta_bench --language=cref,c,talib_rs --function=...)
 
   Other:
     clean               Remove cmake-build/ and cmake-build-asan/
@@ -143,22 +141,6 @@ def build_servers(root_dir: str):
     """Generate the JSON-RPC language servers and compile them (cargo)."""
     run_codegen(root_dir, 'run', '--release', '--', 'generate-servers')
     run_codegen(root_dir, 'run', '--release', '--', 'build')
-
-def build_talib_rs_server(root_dir: str):
-    """Build the third-party talib-rs benchmark server (cargo, opt-in).
-
-    Wraps the crates.io `talib-rs` crate in the ta_codegen JSON-RPC protocol so
-    `ta_bench --language=...,talib_rs` can benchmark it alongside the TA-Lib
-    language servers. Never built by default — it downloads a third-party
-    crate.
-    """
-    crate_dir = os.path.join(root_dir, "ta_codegen", "output", "rust", "tools", "talib_rs_serve")
-    subprocess.run(['cargo', 'build', '--release'], check=True, cwd=crate_dir)
-    shutil.copy2(
-        os.path.join(crate_dir, "target", "release", "talib_rs_serve"),
-        os.path.join(root_dir, "bin", "ta_talib_rs_serve"),
-    )
-    print("  talib-rs comparison server -> bin/ta_talib_rs_serve")
 
 def build_fuzz064(root_dir: str, build_dir: str, jobs: int) -> int:
     """Opt-in bit-exact differential fuzz of the current library vs the frozen
@@ -244,25 +226,9 @@ def check_regtest_source_lists(root_dir: str) -> bool:
         print(f"Error: ta_regtest_SOURCES block not found in {am_path}")
         return False
 
-    # The two shipped Visual Studio projects list the same sources a third
-    # and fourth time (ClCompile entries, backslash paths).
-    vcxproj_sets = {}
-    for rel in ('ide/vs2022/lib_proj/ta_regtest/ta_regtest.vcxproj',
-                'ide/vs2012/lib_proj/ta_regtest/ta_regtest.vcxproj'):
-        vpath = os.path.join(root_dir, rel)
-        vset = set()
-        with open(vpath, encoding='utf-8-sig') as f:
-            for m in re.finditer(r'<ClCompile Include="([^"]+)"', f.read()):
-                entry = m.group(1).replace('\\', '/')
-                marker = 'src/tools/ta_regtest/'
-                if marker in entry:
-                    vset.add(entry.split(marker, 1)[1])
-        vcxproj_sets[rel] = vset
-
     ok = True
     lists = [('CMakeLists.txt TA_REGTEST_SOURCES', cmake_set),
              ('src/tools/ta_regtest/Makefile.am ta_regtest_SOURCES', am_set)]
-    lists += [(rel, vset) for rel, vset in vcxproj_sets.items()]
     union = set()
     for _, entries in lists:
         union |= entries
@@ -275,13 +241,12 @@ def check_regtest_source_lists(root_dir: str) -> bool:
         print("Add the missing entries so all build systems compile the same files.")
         return False
 
-    print(f"ta_regtest source lists agree across CMake, autotools and the two "
-          f"VS projects ({len(cmake_set)} files). OK.")
+    print(f"ta_regtest source lists agree across CMake and autotools "
+          f"({len(cmake_set)} files). OK.")
     return True
 
 # Rust targets run cargo directly (no CMake).
-CARGO_TARGETS = {'ta_codegen', 'generate', 'servers', 'format', 'format-check',
-                 'talib-rs-server'}
+CARGO_TARGETS = {'ta_codegen', 'generate', 'servers', 'format', 'format-check'}
 
 # C targets map to a cmake target.
 SIMPLE_TARGETS = {
@@ -300,7 +265,6 @@ TARGET_PREREQS = {
     'format':       PREREQS_BUILD_CODEGEN,
     'format-check': PREREQS_BUILD_CODEGEN,
     'servers':      PREREQS_BUILD_SERVERS,
-    'talib-rs-server': PREREQS_BUILD_CODEGEN,
     'test':         PREREQS_BUILD_BASIC,
     'regtest':      PREREQS_BUILD_SERVERS,
     'regtest-only': PREREQS_BUILD_SERVERS,
@@ -374,8 +338,6 @@ def main():
             run_codegen(root_dir, 'run', '--release', '--', 'format')
         elif args.target == 'format-check':
             run_codegen(root_dir, 'run', '--release', '--', 'format', '--check')
-        elif args.target == 'talib-rs-server':
-            build_talib_rs_server(root_dir)
         else:  # servers
             build_servers(root_dir)
         return

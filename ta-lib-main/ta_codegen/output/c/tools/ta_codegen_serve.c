@@ -101,6 +101,7 @@
 #include "ta_func/ta_CDLXSIDEGAP3METHODS.c"
 #include "ta_func/ta_CEIL.c"
 #include "ta_func/ta_CMO.c"
+#include "ta_func/ta_CMOU.c"
 #include "ta_func/ta_CORREL.c"
 #include "ta_func/ta_COS.c"
 #include "ta_func/ta_COSH.c"
@@ -144,10 +145,13 @@
 #include "ta_func/ta_MOM.c"
 #include "ta_func/ta_MULT.c"
 #include "ta_func/ta_NATR.c"
+#include "ta_func/ta_NVI.c"
 #include "ta_func/ta_OBV.c"
 #include "ta_func/ta_PLUS_DI.c"
 #include "ta_func/ta_PLUS_DM.c"
 #include "ta_func/ta_PPO.c"
+#include "ta_func/ta_PVI.c"
+#include "ta_func/ta_PVO.c"
 #include "ta_func/ta_ROC.c"
 #include "ta_func/ta_ROCP.c"
 #include "ta_func/ta_ROCR.c"
@@ -365,6 +369,8 @@ static double sv_o[SV_MAXN], sv_h[SV_MAXN], sv_l[SV_MAXN];
 static double sv_c[SV_MAXN], sv_v[SV_MAXN], sv_oi[SV_MAXN];
 static double sv_b0[SV_MAXN], sv_b1[SV_MAXN], sv_b2[SV_MAXN];
 static int sv_ib0[SV_MAXN], sv_ib1[SV_MAXN];
+static double sv_f0[SV_MAXN], sv_f1[SV_MAXN], sv_f2[SV_MAXN];
+static int sv_if0[SV_MAXN], sv_if1[SV_MAXN];
 static int sv_bitne(double a, double b) { return memcmp(&a, &b, sizeof(double)) != 0; }
 static void sv_candle_avg(int mode) {
     int i;
@@ -397,6 +403,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ACCBANDS(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0, sv_b1, sv_b2);
         lb = TA_ACCBANDS_Lookback(optInTimePeriod);
@@ -407,6 +414,33 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ACCBANDS_Stream *stf = NULL;
+            TA_RetCode frc = TA_ACCBANDS_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f2[ft], sv_b2[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ACCBANDS_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ACCBANDS_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ACCBANDS_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h, sv_f1, sv_f2);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ACCBANDS_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_ACCBANDS_Stream *saa = NULL;
+            TA_RetCode aarc = TA_ACCBANDS_OpenAndFill(&saa, sv_h, sv_l, sv_c, svN, optInTimePeriod, &aaB, &aaN, sv_f0, sv_f0, sv_f2);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_ACCBANDS_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -468,12 +502,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_ACOS", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ACOS(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_ACOS_Lookback();
@@ -484,6 +520,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ACOS_Stream *stf = NULL;
+            TA_RetCode frc = TA_ACOS_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ACOS_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ACOS_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ACOS_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ACOS_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -535,12 +589,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 5 && strncmp(fn, "TA_AD", 5) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_AD(0, svN - 1, sv_h, sv_l, sv_c, sv_v, &svBeg, &svNb, sv_b0);
         lb = TA_AD_Lookback();
@@ -551,6 +607,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_AD_Stream *stf = NULL;
+            TA_RetCode frc = TA_AD_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_AD_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_AD_Stream *sal = NULL;
+            TA_RetCode alrc = TA_AD_OpenAndFill(&sal, sv_h, sv_l, sv_c, sv_v, svN, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_AD_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -602,12 +676,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_ADD", 6) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ADD(0, svN - 1, sv_c, sv_v, &svBeg, &svNb, sv_b0);
         lb = TA_ADD_Lookback();
@@ -618,6 +694,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ADD_Stream *stf = NULL;
+            TA_RetCode frc = TA_ADD_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ADD_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ADD_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ADD_OpenAndFill(&sal, sv_c, sv_v, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ADD_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -669,7 +763,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 8 && strncmp(fn, "TA_ADOSC", 8) == 0 ) {
@@ -677,6 +772,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(5, (unsigned int)svK);
         rc = TA_ADOSC(0, svN - 1, sv_h, sv_l, sv_c, sv_v, optInFastPeriod, optInSlowPeriod, &svBeg, &svNb, sv_b0);
@@ -689,6 +785,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ADOSC_Stream *stf = NULL;
+            TA_RetCode frc = TA_ADOSC_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, optInFastPeriod, optInSlowPeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ADOSC_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ADOSC_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ADOSC_OpenAndFill(&sal, sv_h, sv_l, sv_c, sv_v, svN, optInFastPeriod, optInSlowPeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ADOSC_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -741,13 +855,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_ADX", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(0, (unsigned int)svK);
         rc = TA_ADX(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -760,6 +876,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ADX_Stream *stf = NULL;
+            TA_RetCode frc = TA_ADX_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ADX_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ADX_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ADX_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ADX_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -812,13 +946,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(0, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_ADXR", 7) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(1, (unsigned int)svK);
         TA_SetUnstablePeriod(0, (unsigned int)svK);
@@ -833,6 +969,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ADXR_Stream *stf = NULL;
+            TA_RetCode frc = TA_ADXR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ADXR_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ADXR_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ADXR_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ADXR_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -886,26 +1040,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(1, 0);
         TA_SetUnstablePeriod(0, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_APO", 6) == 0 ) {
         int optInFastPeriod = json_find_int(json, "optInFastPeriod");
         int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
-        if( ( ( !(optInFastPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) || ( !(optInSlowPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) ) )
-        {
-            TA_APO_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc;
-            int rejected;
-            orc = TA_APO_Open( &st, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &v0 );
-            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
-            if( st ) TA_APO_Close( st );
-            TA_SetCompatibility((TA_Compatibility)savedCompat);
-            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
-            return;
-        }
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(23, (unsigned int)svK);
         TA_SetUnstablePeriod(14, (unsigned int)svK);
@@ -924,6 +1069,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_APO_Stream *stf = NULL;
+            TA_RetCode frc = TA_APO_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_APO_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_APO_Stream *sal = NULL;
+            TA_RetCode alrc = TA_APO_OpenAndFill(&sal, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_APO_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -979,13 +1142,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 8 && strncmp(fn, "TA_AROON", 8) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_AROON(0, svN - 1, sv_h, sv_l, optInTimePeriod, &svBeg, &svNb, sv_b0, sv_b1);
         lb = TA_AROON_Lookback(optInTimePeriod);
@@ -996,6 +1161,32 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_AROON_Stream *stf = NULL;
+            TA_RetCode frc = TA_AROON_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0, sv_f1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_AROON_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_AROON_Stream *sal = NULL;
+            TA_RetCode alrc = TA_AROON_OpenAndFill(&sal, sv_h, sv_l, svN, optInTimePeriod, &alB, &alN, sv_h, sv_f1);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_AROON_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_AROON_Stream *saa = NULL;
+            TA_RetCode aarc = TA_AROON_OpenAndFill(&saa, sv_h, sv_l, svN, optInTimePeriod, &aaB, &aaN, sv_f0, sv_f0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_AROON_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1052,13 +1243,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_AROONOSC", 11) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_AROONOSC(0, svN - 1, sv_h, sv_l, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_AROONOSC_Lookback(optInTimePeriod);
@@ -1069,6 +1262,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_AROONOSC_Stream *stf = NULL;
+            TA_RetCode frc = TA_AROONOSC_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_AROONOSC_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_AROONOSC_Stream *sal = NULL;
+            TA_RetCode alrc = TA_AROONOSC_OpenAndFill(&sal, sv_h, sv_l, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_AROONOSC_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1120,12 +1331,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_ASIN", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ASIN(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_ASIN_Lookback();
@@ -1136,6 +1349,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ASIN_Stream *stf = NULL;
+            TA_RetCode frc = TA_ASIN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ASIN_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ASIN_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ASIN_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ASIN_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1187,12 +1418,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_ATAN", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ATAN(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_ATAN_Lookback();
@@ -1203,6 +1436,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ATAN_Stream *stf = NULL;
+            TA_RetCode frc = TA_ATAN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ATAN_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ATAN_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ATAN_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ATAN_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1254,13 +1505,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_ATR", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(2, (unsigned int)svK);
         rc = TA_ATR(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -1273,6 +1526,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ATR_Stream *stf = NULL;
+            TA_RetCode frc = TA_ATR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ATR_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ATR_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ATR_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ATR_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1325,13 +1596,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(2, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 9 && strncmp(fn, "TA_AVGDEV", 9) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_AVGDEV(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_AVGDEV_Lookback(optInTimePeriod);
@@ -1342,6 +1615,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_AVGDEV_Stream *stf = NULL;
+            TA_RetCode frc = TA_AVGDEV_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_AVGDEV_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_AVGDEV_Stream *sal = NULL;
+            TA_RetCode alrc = TA_AVGDEV_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_AVGDEV_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1393,12 +1684,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_AVGPRICE", 11) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_AVGPRICE(0, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_AVGPRICE_Lookback();
@@ -1409,6 +1702,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_AVGPRICE_Stream *stf = NULL;
+            TA_RetCode frc = TA_AVGPRICE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_AVGPRICE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_AVGPRICE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_AVGPRICE_OpenAndFill(&sal, sv_o, sv_h, sv_l, sv_c, svN, &alB, &alN, sv_o);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_AVGPRICE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1460,7 +1771,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 9 && strncmp(fn, "TA_BBANDS", 9) == 0 ) {
@@ -1468,19 +1780,9 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         double optInNbDevUp = json_find_double(json, "optInNbDevUp");
         double optInNbDevDn = json_find_double(json, "optInNbDevDn");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
-        if( ( ( !(optInTimePeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) ) )
-        {
-            TA_BBANDS_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; double v2 = 0.0; TA_RetCode orc;
-            int rejected;
-            orc = TA_BBANDS_Open( &st, sv_c, svN, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &v0, &v1, &v2 );
-            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
-            if( st ) TA_BBANDS_Close( st );
-            TA_SetCompatibility((TA_Compatibility)savedCompat);
-            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
-            return;
-        }
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(23, (unsigned int)svK);
         TA_SetUnstablePeriod(14, (unsigned int)svK);
@@ -1499,6 +1801,33 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_BBANDS_Stream *stf = NULL;
+            TA_RetCode frc = TA_BBANDS_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f2[ft], sv_b2[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_BBANDS_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_BBANDS_Stream *sal = NULL;
+            TA_RetCode alrc = TA_BBANDS_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &alB, &alN, sv_c, sv_f1, sv_f2);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_BBANDS_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_BBANDS_Stream *saa = NULL;
+            TA_RetCode aarc = TA_BBANDS_OpenAndFill(&saa, sv_c, svN, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &aaB, &aaN, sv_f0, sv_f0, sv_f2);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_BBANDS_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1564,13 +1893,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_BETA", 7) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_BETA(0, svN - 1, sv_c, sv_v, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_BETA_Lookback(optInTimePeriod);
@@ -1581,6 +1912,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_BETA_Stream *stf = NULL;
+            TA_RetCode frc = TA_BETA_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_BETA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_BETA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_BETA_OpenAndFill(&sal, sv_c, sv_v, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_BETA_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1632,12 +1981,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_BOP", 6) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_BOP(0, svN - 1, sv_o, sv_h, sv_l, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_BOP_Lookback();
@@ -1648,6 +1999,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_BOP_Stream *stf = NULL;
+            TA_RetCode frc = TA_BOP_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_BOP_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_BOP_Stream *sal = NULL;
+            TA_RetCode alrc = TA_BOP_OpenAndFill(&sal, sv_o, sv_h, sv_l, sv_c, svN, &alB, &alN, sv_o);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_BOP_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1699,13 +2068,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_CCI", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_CCI(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_CCI_Lookback(optInTimePeriod);
@@ -1716,6 +2087,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CCI_Stream *stf = NULL;
+            TA_RetCode frc = TA_CCI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_CCI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_CCI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_CCI_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_CCI_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1767,12 +2156,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 12 && strncmp(fn, "TA_CDL2CROWS", 12) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -1791,6 +2182,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDL2CROWS_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDL2CROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDL2CROWS_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1844,12 +2246,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 17 && strncmp(fn, "TA_CDL3BLACKCROWS", 17) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -1868,6 +2272,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDL3BLACKCROWS_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDL3BLACKCROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDL3BLACKCROWS_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1921,12 +2336,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 13 && strncmp(fn, "TA_CDL3INSIDE", 13) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -1945,6 +2362,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDL3INSIDE_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDL3INSIDE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDL3INSIDE_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -1998,12 +2426,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 17 && strncmp(fn, "TA_CDL3LINESTRIKE", 17) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2022,6 +2452,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDL3LINESTRIKE_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDL3LINESTRIKE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDL3LINESTRIKE_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2075,12 +2516,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 14 && strncmp(fn, "TA_CDL3OUTSIDE", 14) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2099,6 +2542,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDL3OUTSIDE_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDL3OUTSIDE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDL3OUTSIDE_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2152,12 +2606,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 19 && strncmp(fn, "TA_CDL3STARSINSOUTH", 19) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2176,6 +2632,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDL3STARSINSOUTH_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDL3STARSINSOUTH_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDL3STARSINSOUTH_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2229,12 +2696,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 20 && strncmp(fn, "TA_CDL3WHITESOLDIERS", 20) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2253,6 +2722,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDL3WHITESOLDIERS_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDL3WHITESOLDIERS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDL3WHITESOLDIERS_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2306,13 +2786,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 19 && strncmp(fn, "TA_CDLABANDONEDBABY", 19) == 0 ) {
         double optInPenetration = json_find_double(json, "optInPenetration");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2331,6 +2813,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLABANDONEDBABY_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLABANDONEDBABY_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLABANDONEDBABY_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2384,12 +2877,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 18 && strncmp(fn, "TA_CDLADVANCEBLOCK", 18) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2408,6 +2903,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLADVANCEBLOCK_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLADVANCEBLOCK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLADVANCEBLOCK_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2461,12 +2967,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 14 && strncmp(fn, "TA_CDLBELTHOLD", 14) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2485,6 +2993,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLBELTHOLD_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLBELTHOLD_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLBELTHOLD_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2538,12 +3057,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 15 && strncmp(fn, "TA_CDLBREAKAWAY", 15) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2562,6 +3083,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLBREAKAWAY_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLBREAKAWAY_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLBREAKAWAY_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2615,12 +3147,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 21 && strncmp(fn, "TA_CDLCLOSINGMARUBOZU", 21) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2639,6 +3173,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLCLOSINGMARUBOZU_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLCLOSINGMARUBOZU_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLCLOSINGMARUBOZU_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2692,12 +3237,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 22 && strncmp(fn, "TA_CDLCONCEALBABYSWALL", 22) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2716,6 +3263,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLCONCEALBABYSWALL_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLCONCEALBABYSWALL_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLCONCEALBABYSWALL_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2769,12 +3327,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 19 && strncmp(fn, "TA_CDLCOUNTERATTACK", 19) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2793,6 +3353,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLCOUNTERATTACK_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLCOUNTERATTACK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLCOUNTERATTACK_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2846,13 +3417,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 20 && strncmp(fn, "TA_CDLDARKCLOUDCOVER", 20) == 0 ) {
         double optInPenetration = json_find_double(json, "optInPenetration");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2871,6 +3444,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLDARKCLOUDCOVER_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLDARKCLOUDCOVER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLDARKCLOUDCOVER_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -2924,12 +3508,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 10 && strncmp(fn, "TA_CDLDOJI", 10) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -2948,6 +3534,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLDOJI_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLDOJI_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3001,12 +3598,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 14 && strncmp(fn, "TA_CDLDOJISTAR", 14) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3025,6 +3624,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLDOJISTAR_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLDOJISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLDOJISTAR_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3078,12 +3688,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 19 && strncmp(fn, "TA_CDLDRAGONFLYDOJI", 19) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3102,6 +3714,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLDRAGONFLYDOJI_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLDRAGONFLYDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLDRAGONFLYDOJI_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3155,12 +3778,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 15 && strncmp(fn, "TA_CDLENGULFING", 15) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3179,6 +3804,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLENGULFING_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLENGULFING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLENGULFING_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3232,13 +3868,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 21 && strncmp(fn, "TA_CDLEVENINGDOJISTAR", 21) == 0 ) {
         double optInPenetration = json_find_double(json, "optInPenetration");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3257,6 +3895,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLEVENINGDOJISTAR_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLEVENINGDOJISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLEVENINGDOJISTAR_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3310,13 +3959,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 17 && strncmp(fn, "TA_CDLEVENINGSTAR", 17) == 0 ) {
         double optInPenetration = json_find_double(json, "optInPenetration");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3335,6 +3986,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLEVENINGSTAR_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLEVENINGSTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLEVENINGSTAR_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3388,12 +4050,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 22 && strncmp(fn, "TA_CDLGAPSIDESIDEWHITE", 22) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3412,6 +4076,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLGAPSIDESIDEWHITE_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLGAPSIDESIDEWHITE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLGAPSIDESIDEWHITE_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3465,12 +4140,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 20 && strncmp(fn, "TA_CDLGRAVESTONEDOJI", 20) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3489,6 +4166,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLGRAVESTONEDOJI_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLGRAVESTONEDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLGRAVESTONEDOJI_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3542,12 +4230,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 12 && strncmp(fn, "TA_CDLHAMMER", 12) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3566,6 +4256,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLHAMMER_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLHAMMER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLHAMMER_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3619,12 +4320,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 16 && strncmp(fn, "TA_CDLHANGINGMAN", 16) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3643,6 +4346,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLHANGINGMAN_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLHANGINGMAN_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLHANGINGMAN_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3696,12 +4410,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 12 && strncmp(fn, "TA_CDLHARAMI", 12) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3720,6 +4436,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLHARAMI_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLHARAMI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLHARAMI_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3773,12 +4500,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 17 && strncmp(fn, "TA_CDLHARAMICROSS", 17) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3797,6 +4526,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLHARAMICROSS_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLHARAMICROSS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLHARAMICROSS_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3850,12 +4590,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 14 && strncmp(fn, "TA_CDLHIGHWAVE", 14) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3874,6 +4616,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLHIGHWAVE_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLHIGHWAVE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLHIGHWAVE_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -3927,12 +4680,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 13 && strncmp(fn, "TA_CDLHIKKAKE", 13) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -3951,6 +4706,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLHIKKAKE_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLHIKKAKE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLHIKKAKE_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4004,12 +4770,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 16 && strncmp(fn, "TA_CDLHIKKAKEMOD", 16) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4028,6 +4796,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLHIKKAKEMOD_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLHIKKAKEMOD_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLHIKKAKEMOD_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4081,12 +4860,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 18 && strncmp(fn, "TA_CDLHOMINGPIGEON", 18) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4105,6 +4886,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLHOMINGPIGEON_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLHOMINGPIGEON_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLHOMINGPIGEON_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4158,12 +4950,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 21 && strncmp(fn, "TA_CDLIDENTICAL3CROWS", 21) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4182,6 +4976,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLIDENTICAL3CROWS_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLIDENTICAL3CROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLIDENTICAL3CROWS_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4235,12 +5040,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 12 && strncmp(fn, "TA_CDLINNECK", 12) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4259,6 +5066,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLINNECK_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLINNECK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLINNECK_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4312,12 +5130,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 20 && strncmp(fn, "TA_CDLINVERTEDHAMMER", 20) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4336,6 +5156,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLINVERTEDHAMMER_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLINVERTEDHAMMER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLINVERTEDHAMMER_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4389,12 +5220,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 13 && strncmp(fn, "TA_CDLKICKING", 13) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4413,6 +5246,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLKICKING_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLKICKING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLKICKING_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4466,12 +5310,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 21 && strncmp(fn, "TA_CDLKICKINGBYLENGTH", 21) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4490,6 +5336,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLKICKINGBYLENGTH_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLKICKINGBYLENGTH_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLKICKINGBYLENGTH_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4543,12 +5400,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 18 && strncmp(fn, "TA_CDLLADDERBOTTOM", 18) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4567,6 +5426,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLLADDERBOTTOM_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLLADDERBOTTOM_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLLADDERBOTTOM_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4620,12 +5490,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 20 && strncmp(fn, "TA_CDLLONGLEGGEDDOJI", 20) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4644,6 +5516,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLLONGLEGGEDDOJI_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLLONGLEGGEDDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLLONGLEGGEDDOJI_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4697,12 +5580,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 14 && strncmp(fn, "TA_CDLLONGLINE", 14) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4721,6 +5606,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLLONGLINE_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLLONGLINE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLLONGLINE_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4774,12 +5670,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 14 && strncmp(fn, "TA_CDLMARUBOZU", 14) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4798,6 +5696,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLMARUBOZU_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLMARUBOZU_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLMARUBOZU_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4851,12 +5760,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 17 && strncmp(fn, "TA_CDLMATCHINGLOW", 17) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4875,6 +5786,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLMATCHINGLOW_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLMATCHINGLOW_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLMATCHINGLOW_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -4928,13 +5850,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 13 && strncmp(fn, "TA_CDLMATHOLD", 13) == 0 ) {
         double optInPenetration = json_find_double(json, "optInPenetration");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -4953,6 +5877,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLMATHOLD_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLMATHOLD_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLMATHOLD_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5006,13 +5941,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 21 && strncmp(fn, "TA_CDLMORNINGDOJISTAR", 21) == 0 ) {
         double optInPenetration = json_find_double(json, "optInPenetration");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5031,6 +5968,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLMORNINGDOJISTAR_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLMORNINGDOJISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLMORNINGDOJISTAR_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5084,13 +6032,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 17 && strncmp(fn, "TA_CDLMORNINGSTAR", 17) == 0 ) {
         double optInPenetration = json_find_double(json, "optInPenetration");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5109,6 +6059,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLMORNINGSTAR_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLMORNINGSTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLMORNINGSTAR_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5162,12 +6123,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 12 && strncmp(fn, "TA_CDLONNECK", 12) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5186,6 +6149,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLONNECK_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLONNECK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLONNECK_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5239,12 +6213,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 14 && strncmp(fn, "TA_CDLPIERCING", 14) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5263,6 +6239,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLPIERCING_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLPIERCING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLPIERCING_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5316,12 +6303,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 17 && strncmp(fn, "TA_CDLRICKSHAWMAN", 17) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5340,6 +6329,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLRICKSHAWMAN_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLRICKSHAWMAN_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLRICKSHAWMAN_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5393,12 +6393,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 22 && strncmp(fn, "TA_CDLRISEFALL3METHODS", 22) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5417,6 +6419,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLRISEFALL3METHODS_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLRISEFALL3METHODS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLRISEFALL3METHODS_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5470,12 +6483,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 21 && strncmp(fn, "TA_CDLSEPARATINGLINES", 21) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5494,6 +6509,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLSEPARATINGLINES_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLSEPARATINGLINES_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLSEPARATINGLINES_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5547,12 +6573,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 18 && strncmp(fn, "TA_CDLSHOOTINGSTAR", 18) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5571,6 +6599,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLSHOOTINGSTAR_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLSHOOTINGSTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLSHOOTINGSTAR_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5624,12 +6663,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 15 && strncmp(fn, "TA_CDLSHORTLINE", 15) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5648,6 +6689,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLSHORTLINE_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLSHORTLINE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLSHORTLINE_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5701,12 +6753,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 17 && strncmp(fn, "TA_CDLSPINNINGTOP", 17) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5725,6 +6779,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLSPINNINGTOP_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLSPINNINGTOP_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLSPINNINGTOP_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5778,12 +6843,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 20 && strncmp(fn, "TA_CDLSTALLEDPATTERN", 20) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5802,6 +6869,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLSTALLEDPATTERN_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLSTALLEDPATTERN_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLSTALLEDPATTERN_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5855,12 +6933,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 19 && strncmp(fn, "TA_CDLSTICKSANDWICH", 19) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5879,6 +6959,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLSTICKSANDWICH_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLSTICKSANDWICH_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLSTICKSANDWICH_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -5932,12 +7023,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 12 && strncmp(fn, "TA_CDLTAKURI", 12) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -5956,6 +7049,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLTAKURI_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLTAKURI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLTAKURI_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6009,12 +7113,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 15 && strncmp(fn, "TA_CDLTASUKIGAP", 15) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -6033,6 +7139,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLTASUKIGAP_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLTASUKIGAP_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLTASUKIGAP_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6086,12 +7203,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 15 && strncmp(fn, "TA_CDLTHRUSTING", 15) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -6110,6 +7229,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLTHRUSTING_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLTHRUSTING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLTHRUSTING_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6163,12 +7293,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 13 && strncmp(fn, "TA_CDLTRISTAR", 13) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -6187,6 +7319,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLTRISTAR_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLTRISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLTRISTAR_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6240,12 +7383,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 18 && strncmp(fn, "TA_CDLUNIQUE3RIVER", 18) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -6264,6 +7409,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLUNIQUE3RIVER_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLUNIQUE3RIVER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLUNIQUE3RIVER_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6317,12 +7473,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 21 && strncmp(fn, "TA_CDLUPSIDEGAP2CROWS", 21) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -6341,6 +7499,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLUPSIDEGAP2CROWS_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLUPSIDEGAP2CROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLUPSIDEGAP2CROWS_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6394,12 +7563,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 22 && strncmp(fn, "TA_CDLXSIDEGAP3METHODS", 22) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         int rounds = svCandle ? 4 : 1; int rd, lgi = 0;
         pos = snprintf(resp, resp_size, "{\"retCode\":0");
@@ -6418,6 +7589,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
             pos += snprintf(resp + pos, resp_size - pos, ",\"rrc\":%d,\"legs\":%d,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":%d}", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CDLXSIDEGAP3METHODS_Stream *stf = NULL;
+            TA_RetCode frc = TA_CDLXSIDEGAP3METHODS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_CDLXSIDEGAP3METHODS_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6471,12 +7653,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"beg\":%d,\"nb\":%d,\"legs\":%d,\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_CEIL", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_CEIL(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_CEIL_Lookback();
@@ -6487,6 +7671,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CEIL_Stream *stf = NULL;
+            TA_RetCode frc = TA_CEIL_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_CEIL_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_CEIL_Stream *sal = NULL;
+            TA_RetCode alrc = TA_CEIL_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_CEIL_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6538,13 +7740,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_CMO", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(3, (unsigned int)svK);
         rc = TA_CMO(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -6557,6 +7761,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CMO_Stream *stf = NULL;
+            TA_RetCode frc = TA_CMO_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_CMO_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_CMO_Stream *sal = NULL;
+            TA_RetCode alrc = TA_CMO_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_CMO_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1 + ((svCompat == 1) ? 1 : 0); pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6609,13 +7831,103 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(3, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 7 && strncmp(fn, "TA_CMOU", 7) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int pref[4]; int pc[4];
+        rc = TA_CMOU(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_CMOU_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_CMOU_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_CMOU_Open(&st, sv_c, svN, optInTimePeriod, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_CMOU_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CMOU_Stream *stf = NULL;
+            TA_RetCode frc = TA_CMOU_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_CMOU_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_CMOU_Stream *sal = NULL;
+            TA_RetCode alrc = TA_CMOU_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_CMOU_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_CMOU_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_CMOU_Open(&st, sv_c, P, optInTimePeriod, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_CMOU_Peek(st, sv_c[t], &pk0);
+                TA_CMOU_Update(st, sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_CMOU_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_CMOU(Sidx, svN - 1, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_CMOU_Stream *stA = NULL;
+                    TA_RetCode arc = TA_CMOU_OpenInternal(&stA, sv_c, Sidx, svN, optInTimePeriod, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_CMOU_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 9 && strncmp(fn, "TA_CORREL", 9) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_CORREL(0, svN - 1, sv_c, sv_v, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_CORREL_Lookback(optInTimePeriod);
@@ -6626,6 +7938,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_CORREL_Stream *stf = NULL;
+            TA_RetCode frc = TA_CORREL_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_CORREL_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_CORREL_Stream *sal = NULL;
+            TA_RetCode alrc = TA_CORREL_OpenAndFill(&sal, sv_c, sv_v, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_CORREL_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6677,12 +8007,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_COS", 6) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_COS(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_COS_Lookback();
@@ -6693,6 +8025,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_COS_Stream *stf = NULL;
+            TA_RetCode frc = TA_COS_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_COS_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_COS_Stream *sal = NULL;
+            TA_RetCode alrc = TA_COS_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_COS_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6744,12 +8094,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_COSH", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_COSH(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_COSH_Lookback();
@@ -6760,6 +8112,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_COSH_Stream *stf = NULL;
+            TA_RetCode frc = TA_COSH_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_COSH_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_COSH_Stream *sal = NULL;
+            TA_RetCode alrc = TA_COSH_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_COSH_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6811,13 +8181,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_DEMA", 7) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(5, (unsigned int)svK);
         rc = TA_DEMA(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -6830,6 +8202,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_DEMA_Stream *stf = NULL;
+            TA_RetCode frc = TA_DEMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_DEMA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_DEMA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_DEMA_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_DEMA_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6882,12 +8272,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_DIV", 6) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_DIV(0, svN - 1, sv_c, sv_v, &svBeg, &svNb, sv_b0);
         lb = TA_DIV_Lookback();
@@ -6898,6 +8290,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_DIV_Stream *stf = NULL;
+            TA_RetCode frc = TA_DIV_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_DIV_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_DIV_Stream *sal = NULL;
+            TA_RetCode alrc = TA_DIV_OpenAndFill(&sal, sv_c, sv_v, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_DIV_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -6949,13 +8359,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 5 && strncmp(fn, "TA_DX", 5) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(4, (unsigned int)svK);
         rc = TA_DX(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -6968,6 +8380,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_DX_Stream *stf = NULL;
+            TA_RetCode frc = TA_DX_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_DX_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_DX_Stream *sal = NULL;
+            TA_RetCode alrc = TA_DX_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_DX_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7020,13 +8450,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(4, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_EMA", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(5, (unsigned int)svK);
         rc = TA_EMA(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -7039,6 +8471,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_EMA_Stream *stf = NULL;
+            TA_RetCode frc = TA_EMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_EMA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_EMA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_EMA_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_EMA_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7091,12 +8541,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_EXP", 6) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_EXP(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_EXP_Lookback();
@@ -7107,6 +8559,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_EXP_Stream *stf = NULL;
+            TA_RetCode frc = TA_EXP_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_EXP_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_EXP_Stream *sal = NULL;
+            TA_RetCode alrc = TA_EXP_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_EXP_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7158,12 +8628,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 8 && strncmp(fn, "TA_FLOOR", 8) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_FLOOR(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_FLOOR_Lookback();
@@ -7174,6 +8646,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_FLOOR_Stream *stf = NULL;
+            TA_RetCode frc = TA_FLOOR_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_FLOOR_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_FLOOR_Stream *sal = NULL;
+            TA_RetCode alrc = TA_FLOOR_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_FLOOR_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7225,12 +8715,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 14 && strncmp(fn, "TA_HT_DCPERIOD", 14) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(6, (unsigned int)svK);
         rc = TA_HT_DCPERIOD(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
@@ -7243,6 +8735,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_HT_DCPERIOD_Stream *stf = NULL;
+            TA_RetCode frc = TA_HT_DCPERIOD_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_HT_DCPERIOD_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_HT_DCPERIOD_Stream *sal = NULL;
+            TA_RetCode alrc = TA_HT_DCPERIOD_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_HT_DCPERIOD_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7295,12 +8805,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(6, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 13 && strncmp(fn, "TA_HT_DCPHASE", 13) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(7, (unsigned int)svK);
         rc = TA_HT_DCPHASE(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
@@ -7313,6 +8825,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_HT_DCPHASE_Stream *stf = NULL;
+            TA_RetCode frc = TA_HT_DCPHASE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_HT_DCPHASE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_HT_DCPHASE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_HT_DCPHASE_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_HT_DCPHASE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7365,12 +8895,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(7, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 12 && strncmp(fn, "TA_HT_PHASOR", 12) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(8, (unsigned int)svK);
         rc = TA_HT_PHASOR(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0, sv_b1);
@@ -7383,6 +8915,32 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_HT_PHASOR_Stream *stf = NULL;
+            TA_RetCode frc = TA_HT_PHASOR_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0, sv_f1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_HT_PHASOR_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_HT_PHASOR_Stream *sal = NULL;
+            TA_RetCode alrc = TA_HT_PHASOR_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c, sv_f1);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_HT_PHASOR_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_HT_PHASOR_Stream *saa = NULL;
+            TA_RetCode aarc = TA_HT_PHASOR_OpenAndFill(&saa, sv_c, svN, &aaB, &aaN, sv_f0, sv_f0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_HT_PHASOR_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7440,12 +8998,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(8, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 10 && strncmp(fn, "TA_HT_SINE", 10) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(9, (unsigned int)svK);
         rc = TA_HT_SINE(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0, sv_b1);
@@ -7458,6 +9018,32 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_HT_SINE_Stream *stf = NULL;
+            TA_RetCode frc = TA_HT_SINE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0, sv_f1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_HT_SINE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_HT_SINE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_HT_SINE_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c, sv_f1);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_HT_SINE_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_HT_SINE_Stream *saa = NULL;
+            TA_RetCode aarc = TA_HT_SINE_OpenAndFill(&saa, sv_c, svN, &aaB, &aaN, sv_f0, sv_f0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_HT_SINE_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7515,12 +9101,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(9, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 15 && strncmp(fn, "TA_HT_TRENDLINE", 15) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(10, (unsigned int)svK);
         rc = TA_HT_TRENDLINE(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
@@ -7533,6 +9121,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_HT_TRENDLINE_Stream *stf = NULL;
+            TA_RetCode frc = TA_HT_TRENDLINE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_HT_TRENDLINE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_HT_TRENDLINE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_HT_TRENDLINE_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_HT_TRENDLINE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7585,12 +9191,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(10, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 15 && strncmp(fn, "TA_HT_TRENDMODE", 15) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(11, (unsigned int)svK);
         rc = TA_HT_TRENDMODE(0, svN - 1, sv_c, &svBeg, &svNb, sv_ib0);
@@ -7603,6 +9211,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_HT_TRENDMODE_Stream *stf = NULL;
+            TA_RetCode frc = TA_HT_TRENDMODE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_HT_TRENDMODE_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7655,13 +9274,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(11, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_IMI", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_IMI(0, svN - 1, sv_o, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_IMI_Lookback(optInTimePeriod);
@@ -7672,6 +9293,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_IMI_Stream *stf = NULL;
+            TA_RetCode frc = TA_IMI_OpenAndFill(&stf, sv_o, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_IMI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_IMI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_IMI_OpenAndFill(&sal, sv_o, sv_c, svN, optInTimePeriod, &alB, &alN, sv_o);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_IMI_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7723,13 +9362,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_KAMA", 7) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(13, (unsigned int)svK);
         rc = TA_KAMA(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -7742,6 +9383,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_KAMA_Stream *stf = NULL;
+            TA_RetCode frc = TA_KAMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_KAMA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_KAMA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_KAMA_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_KAMA_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7794,13 +9453,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(13, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 12 && strncmp(fn, "TA_LINEARREG", 12) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_LINEARREG(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_LINEARREG_Lookback(optInTimePeriod);
@@ -7811,6 +9472,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_LINEARREG_Stream *stf = NULL;
+            TA_RetCode frc = TA_LINEARREG_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_LINEARREG_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_LINEARREG_Stream *sal = NULL;
+            TA_RetCode alrc = TA_LINEARREG_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_LINEARREG_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7862,13 +9541,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 18 && strncmp(fn, "TA_LINEARREG_ANGLE", 18) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_LINEARREG_ANGLE(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_LINEARREG_ANGLE_Lookback(optInTimePeriod);
@@ -7879,6 +9560,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_LINEARREG_ANGLE_Stream *stf = NULL;
+            TA_RetCode frc = TA_LINEARREG_ANGLE_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_LINEARREG_ANGLE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_LINEARREG_ANGLE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_LINEARREG_ANGLE_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_LINEARREG_ANGLE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7930,13 +9629,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 22 && strncmp(fn, "TA_LINEARREG_INTERCEPT", 22) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_LINEARREG_INTERCEPT(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_LINEARREG_INTERCEPT_Lookback(optInTimePeriod);
@@ -7947,6 +9648,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_LINEARREG_INTERCEPT_Stream *stf = NULL;
+            TA_RetCode frc = TA_LINEARREG_INTERCEPT_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_LINEARREG_INTERCEPT_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_LINEARREG_INTERCEPT_Stream *sal = NULL;
+            TA_RetCode alrc = TA_LINEARREG_INTERCEPT_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_LINEARREG_INTERCEPT_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -7998,13 +9717,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 18 && strncmp(fn, "TA_LINEARREG_SLOPE", 18) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_LINEARREG_SLOPE(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_LINEARREG_SLOPE_Lookback(optInTimePeriod);
@@ -8015,6 +9736,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_LINEARREG_SLOPE_Stream *stf = NULL;
+            TA_RetCode frc = TA_LINEARREG_SLOPE_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_LINEARREG_SLOPE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_LINEARREG_SLOPE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_LINEARREG_SLOPE_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_LINEARREG_SLOPE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8066,12 +9805,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 5 && strncmp(fn, "TA_LN", 5) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_LN(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_LN_Lookback();
@@ -8082,6 +9823,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_LN_Stream *stf = NULL;
+            TA_RetCode frc = TA_LN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_LN_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_LN_Stream *sal = NULL;
+            TA_RetCode alrc = TA_LN_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_LN_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8133,12 +9892,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 8 && strncmp(fn, "TA_LOG10", 8) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_LOG10(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_LOG10_Lookback();
@@ -8149,6 +9910,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_LOG10_Stream *stf = NULL;
+            TA_RetCode frc = TA_LOG10_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_LOG10_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_LOG10_Stream *sal = NULL;
+            TA_RetCode alrc = TA_LOG10_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_LOG10_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8200,25 +9979,16 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 5 && strncmp(fn, "TA_MA", 5) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
-        if( ( !(optInTimePeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) )
-        {
-            TA_MA_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc;
-            int rejected;
-            orc = TA_MA_Open( &st, sv_c, svN, optInTimePeriod, optInMAType, &v0 );
-            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
-            if( st ) TA_MA_Close( st );
-            TA_SetCompatibility((TA_Compatibility)savedCompat);
-            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
-            return;
-        }
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(23, (unsigned int)svK);
         TA_SetUnstablePeriod(14, (unsigned int)svK);
@@ -8237,6 +10007,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MA_Stream *stf = NULL;
+            TA_RetCode frc = TA_MA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MA_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, optInMAType, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MA_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8292,7 +10080,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_MACD", 7) == 0 ) {
@@ -8301,6 +10090,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(5, (unsigned int)svK);
         rc = TA_MACD(0, svN - 1, sv_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &svBeg, &svNb, sv_b0, sv_b1, sv_b2);
@@ -8313,6 +10103,33 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MACD_Stream *stf = NULL;
+            TA_RetCode frc = TA_MACD_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f2[ft], sv_b2[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MACD_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MACD_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MACD_OpenAndFill(&sal, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &alB, &alN, sv_c, sv_f1, sv_f2);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MACD_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_MACD_Stream *saa = NULL;
+            TA_RetCode aarc = TA_MACD_OpenAndFill(&saa, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &aaB, &aaN, sv_f0, sv_f0, sv_f2);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_MACD_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8375,7 +10192,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 10 && strncmp(fn, "TA_MACDEXT", 10) == 0 ) {
@@ -8385,19 +10203,9 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_MAType optInSlowMAType = (TA_MAType)json_find_int(json, "optInSlowMAType");
         int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
         TA_MAType optInSignalMAType = (TA_MAType)json_find_int(json, "optInSignalMAType");
-        if( ( ( !(optInSlowPeriod == 1) && ( optInSlowMAType == TA_MAType_MAMA ) ) || ( !(optInFastPeriod == 1) && ( optInFastMAType == TA_MAType_MAMA ) ) || ( !(optInSignalPeriod == 1) && ( optInSignalMAType == TA_MAType_MAMA ) ) ) )
-        {
-            TA_MACDEXT_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; double v2 = 0.0; TA_RetCode orc;
-            int rejected;
-            orc = TA_MACDEXT_Open( &st, sv_c, svN, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &v0, &v1, &v2 );
-            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
-            if( st ) TA_MACDEXT_Close( st );
-            TA_SetCompatibility((TA_Compatibility)savedCompat);
-            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
-            return;
-        }
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(23, (unsigned int)svK);
         TA_SetUnstablePeriod(14, (unsigned int)svK);
@@ -8416,6 +10224,33 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MACDEXT_Stream *stf = NULL;
+            TA_RetCode frc = TA_MACDEXT_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f2[ft], sv_b2[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MACDEXT_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MACDEXT_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MACDEXT_OpenAndFill(&sal, sv_c, svN, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &alB, &alN, sv_c, sv_f1, sv_f2);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MACDEXT_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_MACDEXT_Stream *saa = NULL;
+            TA_RetCode aarc = TA_MACDEXT_OpenAndFill(&saa, sv_c, svN, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &aaB, &aaN, sv_f0, sv_f0, sv_f2);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_MACDEXT_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8481,13 +10316,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 10 && strncmp(fn, "TA_MACDFIX", 10) == 0 ) {
         int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(5, (unsigned int)svK);
         rc = TA_MACDFIX(0, svN - 1, sv_c, optInSignalPeriod, &svBeg, &svNb, sv_b0, sv_b1, sv_b2);
@@ -8500,6 +10337,33 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MACDFIX_Stream *stf = NULL;
+            TA_RetCode frc = TA_MACDFIX_OpenAndFill(&stf, sv_c, svN, optInSignalPeriod, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f2[ft], sv_b2[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MACDFIX_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MACDFIX_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MACDFIX_OpenAndFill(&sal, sv_c, svN, optInSignalPeriod, &alB, &alN, sv_c, sv_f1, sv_f2);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MACDFIX_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_MACDFIX_Stream *saa = NULL;
+            TA_RetCode aarc = TA_MACDFIX_OpenAndFill(&saa, sv_c, svN, optInSignalPeriod, &aaB, &aaN, sv_f0, sv_f0, sv_f2);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_MACDFIX_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8562,7 +10426,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_MAMA", 7) == 0 ) {
@@ -8570,6 +10435,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         double optInSlowLimit = json_find_double(json, "optInSlowLimit");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(14, (unsigned int)svK);
         rc = TA_MAMA(0, svN - 1, sv_c, optInFastLimit, optInSlowLimit, &svBeg, &svNb, sv_b0, sv_b1);
@@ -8582,6 +10448,32 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MAMA_Stream *stf = NULL;
+            TA_RetCode frc = TA_MAMA_OpenAndFill(&stf, sv_c, svN, optInFastLimit, optInSlowLimit, &fBeg, &fNb, sv_f0, sv_f1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MAMA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MAMA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MAMA_OpenAndFill(&sal, sv_c, svN, optInFastLimit, optInSlowLimit, &alB, &alN, sv_c, sv_f1);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MAMA_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_MAMA_Stream *saa = NULL;
+            TA_RetCode aarc = TA_MAMA_OpenAndFill(&saa, sv_c, svN, optInFastLimit, optInSlowLimit, &aaB, &aaN, sv_f0, sv_f0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_MAMA_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8639,7 +10531,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(14, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_MAVP", 7) == 0 ) {
@@ -8647,19 +10540,9 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInMaxPeriod = json_find_int(json, "optInMaxPeriod");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
         { int _pi; for( _pi = 0; _pi < svN; _pi++ ) sv_v[_pi] = (double)(optInMinPeriod + (_pi % (optInMaxPeriod - optInMinPeriod + 3)) - 1); }
-        if( ( !(optInMaxPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) )
-        {
-            TA_MAVP_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc;
-            int rejected;
-            orc = TA_MAVP_Open( &st, sv_c, sv_v, svN, optInMinPeriod, optInMaxPeriod, optInMAType, &v0 );
-            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
-            if( st ) TA_MAVP_Close( st );
-            TA_SetCompatibility((TA_Compatibility)savedCompat);
-            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
-            return;
-        }
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(23, (unsigned int)svK);
         TA_SetUnstablePeriod(14, (unsigned int)svK);
@@ -8678,6 +10561,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MAVP_Stream *stf = NULL;
+            TA_RetCode frc = TA_MAVP_OpenAndFill(&stf, sv_c, sv_v, svN, optInMinPeriod, optInMaxPeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MAVP_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MAVP_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MAVP_OpenAndFill(&sal, sv_c, sv_v, svN, optInMinPeriod, optInMaxPeriod, optInMAType, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MAVP_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8733,13 +10634,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_MAX", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MAX(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_MAX_Lookback(optInTimePeriod);
@@ -8750,6 +10653,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MAX_Stream *stf = NULL;
+            TA_RetCode frc = TA_MAX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MAX_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MAX_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MAX_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MAX_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8801,13 +10722,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_MAXINDEX", 11) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MAXINDEX(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_ib0);
         lb = TA_MAXINDEX_Lookback(optInTimePeriod);
@@ -8818,6 +10741,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MAXINDEX_Stream *stf = NULL;
+            TA_RetCode frc = TA_MAXINDEX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_MAXINDEX_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8869,12 +10803,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_MEDPRICE", 11) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MEDPRICE(0, svN - 1, sv_h, sv_l, &svBeg, &svNb, sv_b0);
         lb = TA_MEDPRICE_Lookback();
@@ -8885,6 +10821,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MEDPRICE_Stream *stf = NULL;
+            TA_RetCode frc = TA_MEDPRICE_OpenAndFill(&stf, sv_h, sv_l, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MEDPRICE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MEDPRICE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MEDPRICE_OpenAndFill(&sal, sv_h, sv_l, svN, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MEDPRICE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -8936,13 +10890,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_MFI", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MFI(0, svN - 1, sv_h, sv_l, sv_c, sv_v, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_MFI_Lookback(optInTimePeriod);
@@ -8953,6 +10909,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MFI_Stream *stf = NULL;
+            TA_RetCode frc = TA_MFI_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MFI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MFI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MFI_OpenAndFill(&sal, sv_h, sv_l, sv_c, sv_v, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MFI_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9004,13 +10978,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_MIDPOINT", 11) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MIDPOINT(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_MIDPOINT_Lookback(optInTimePeriod);
@@ -9021,6 +10997,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MIDPOINT_Stream *stf = NULL;
+            TA_RetCode frc = TA_MIDPOINT_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MIDPOINT_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MIDPOINT_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MIDPOINT_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MIDPOINT_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9072,13 +11066,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_MIDPRICE", 11) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MIDPRICE(0, svN - 1, sv_h, sv_l, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_MIDPRICE_Lookback(optInTimePeriod);
@@ -9089,6 +11085,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MIDPRICE_Stream *stf = NULL;
+            TA_RetCode frc = TA_MIDPRICE_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MIDPRICE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MIDPRICE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MIDPRICE_OpenAndFill(&sal, sv_h, sv_l, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MIDPRICE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9140,13 +11154,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_MIN", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MIN(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_MIN_Lookback(optInTimePeriod);
@@ -9157,6 +11173,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MIN_Stream *stf = NULL;
+            TA_RetCode frc = TA_MIN_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MIN_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MIN_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MIN_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MIN_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9208,13 +11242,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_MININDEX", 11) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MININDEX(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_ib0);
         lb = TA_MININDEX_Lookback(optInTimePeriod);
@@ -9225,6 +11261,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MININDEX_Stream *stf = NULL;
+            TA_RetCode frc = TA_MININDEX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_if0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_MININDEX_Close(stf);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9276,13 +11323,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 9 && strncmp(fn, "TA_MINMAX", 9) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MINMAX(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0, sv_b1);
         lb = TA_MINMAX_Lookback(optInTimePeriod);
@@ -9293,6 +11342,32 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MINMAX_Stream *stf = NULL;
+            TA_RetCode frc = TA_MINMAX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0, sv_f1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MINMAX_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MINMAX_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MINMAX_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c, sv_f1);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MINMAX_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_MINMAX_Stream *saa = NULL;
+            TA_RetCode aarc = TA_MINMAX_OpenAndFill(&saa, sv_c, svN, optInTimePeriod, &aaB, &aaN, sv_f0, sv_f0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_MINMAX_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9349,13 +11424,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 14 && strncmp(fn, "TA_MINMAXINDEX", 14) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MINMAXINDEX(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_ib0, sv_ib1);
         lb = TA_MINMAXINDEX_Lookback(optInTimePeriod);
@@ -9366,6 +11443,25 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MINMAXINDEX_Stream *stf = NULL;
+            TA_RetCode frc = TA_MINMAXINDEX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_if0, sv_if1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
+                if( sv_if1[ft] != sv_ib1[ft] ) fillOk = 0;
+            }
+            if( stf ) TA_MINMAXINDEX_Close(stf);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_MINMAXINDEX_Stream *saa = NULL;
+            TA_RetCode aarc = TA_MINMAXINDEX_OpenAndFill(&saa, sv_c, svN, optInTimePeriod, &aaB, &aaN, sv_if0, sv_if0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_MINMAXINDEX_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9422,13 +11518,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_MINUS_DI", 11) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(16, (unsigned int)svK);
         rc = TA_MINUS_DI(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -9441,6 +11539,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MINUS_DI_Stream *stf = NULL;
+            TA_RetCode frc = TA_MINUS_DI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MINUS_DI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MINUS_DI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MINUS_DI_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MINUS_DI_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9493,13 +11609,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(16, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_MINUS_DM", 11) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(17, (unsigned int)svK);
         rc = TA_MINUS_DM(0, svN - 1, sv_h, sv_l, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -9512,6 +11630,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MINUS_DM_Stream *stf = NULL;
+            TA_RetCode frc = TA_MINUS_DM_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MINUS_DM_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MINUS_DM_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MINUS_DM_OpenAndFill(&sal, sv_h, sv_l, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MINUS_DM_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9564,13 +11700,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(17, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_MOM", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MOM(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_MOM_Lookback(optInTimePeriod);
@@ -9581,6 +11719,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MOM_Stream *stf = NULL;
+            TA_RetCode frc = TA_MOM_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MOM_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MOM_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MOM_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MOM_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9632,12 +11788,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_MULT", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_MULT(0, svN - 1, sv_c, sv_v, &svBeg, &svNb, sv_b0);
         lb = TA_MULT_Lookback();
@@ -9648,6 +11806,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MULT_Stream *stf = NULL;
+            TA_RetCode frc = TA_MULT_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_MULT_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MULT_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MULT_OpenAndFill(&sal, sv_c, sv_v, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MULT_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9699,13 +11875,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_NATR", 7) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(18, (unsigned int)svK);
         rc = TA_NATR(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -9718,6 +11896,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_NATR_Stream *stf = NULL;
+            TA_RetCode frc = TA_NATR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_NATR_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_NATR_Stream *sal = NULL;
+            TA_RetCode alrc = TA_NATR_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_NATR_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9770,12 +11966,101 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(18, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 6 && strncmp(fn, "TA_NVI", 6) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int pref[4]; int pc[4];
+        rc = TA_NVI(0, svN - 1, sv_c, sv_v, &svBeg, &svNb, sv_b0);
+        lb = TA_NVI_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_NVI_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_NVI_Open(&st, sv_c, sv_v, svN, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_NVI_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_NVI_Stream *stf = NULL;
+            TA_RetCode frc = TA_NVI_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_NVI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_NVI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_NVI_OpenAndFill(&sal, sv_c, sv_v, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_NVI_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_NVI_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_NVI_Open(&st, sv_c, sv_v, P, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_NVI_Peek(st, sv_c[t], sv_v[t], &pk0);
+                TA_NVI_Update(st, sv_c[t], sv_v[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_NVI_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_NVI(Sidx, svN - 1, sv_c, sv_v, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_NVI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_NVI_OpenInternal(&stA, sv_c, sv_v, Sidx, svN, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_NVI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_OBV", 6) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_OBV(0, svN - 1, sv_c, sv_v, &svBeg, &svNb, sv_b0);
         lb = TA_OBV_Lookback();
@@ -9786,6 +12071,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_OBV_Stream *stf = NULL;
+            TA_RetCode frc = TA_OBV_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_OBV_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_OBV_Stream *sal = NULL;
+            TA_RetCode alrc = TA_OBV_OpenAndFill(&sal, sv_c, sv_v, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_OBV_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9837,13 +12140,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 10 && strncmp(fn, "TA_PLUS_DI", 10) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(19, (unsigned int)svK);
         rc = TA_PLUS_DI(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -9856,6 +12161,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_PLUS_DI_Stream *stf = NULL;
+            TA_RetCode frc = TA_PLUS_DI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_PLUS_DI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_PLUS_DI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_PLUS_DI_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_PLUS_DI_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9908,13 +12231,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(19, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 10 && strncmp(fn, "TA_PLUS_DM", 10) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(20, (unsigned int)svK);
         rc = TA_PLUS_DM(0, svN - 1, sv_h, sv_l, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -9927,6 +12252,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_PLUS_DM_Stream *stf = NULL;
+            TA_RetCode frc = TA_PLUS_DM_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_PLUS_DM_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_PLUS_DM_Stream *sal = NULL;
+            TA_RetCode alrc = TA_PLUS_DM_OpenAndFill(&sal, sv_h, sv_l, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_PLUS_DM_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -9979,26 +12322,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(20, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_PPO", 6) == 0 ) {
         int optInFastPeriod = json_find_int(json, "optInFastPeriod");
         int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
-        if( ( ( !(optInFastPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) || ( !(optInSlowPeriod == 1) && ( optInMAType == TA_MAType_MAMA ) ) ) )
-        {
-            TA_PPO_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc;
-            int rejected;
-            orc = TA_PPO_Open( &st, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &v0 );
-            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
-            if( st ) TA_PPO_Close( st );
-            TA_SetCompatibility((TA_Compatibility)savedCompat);
-            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
-            return;
-        }
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(23, (unsigned int)svK);
         TA_SetUnstablePeriod(14, (unsigned int)svK);
@@ -10017,6 +12351,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_PPO_Stream *stf = NULL;
+            TA_RetCode frc = TA_PPO_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_PPO_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_PPO_Stream *sal = NULL;
+            TA_RetCode alrc = TA_PPO_OpenAndFill(&sal, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_PPO_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10072,13 +12424,204 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 6 && strncmp(fn, "TA_PVI", 6) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int pref[4]; int pc[4];
+        rc = TA_PVI(0, svN - 1, sv_c, sv_v, &svBeg, &svNb, sv_b0);
+        lb = TA_PVI_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_PVI_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_PVI_Open(&st, sv_c, sv_v, svN, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_PVI_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_PVI_Stream *stf = NULL;
+            TA_RetCode frc = TA_PVI_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_PVI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_PVI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_PVI_OpenAndFill(&sal, sv_c, sv_v, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_PVI_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_PVI_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_PVI_Open(&st, sv_c, sv_v, P, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_PVI_Peek(st, sv_c[t], sv_v[t], &pk0);
+                TA_PVI_Update(st, sv_c[t], sv_v[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_PVI_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_PVI(Sidx, svN - 1, sv_c, sv_v, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_PVI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_PVI_OpenInternal(&stA, sv_c, sv_v, Sidx, svN, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_PVI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
+        return;
+    }
+    else if( fnLen == 6 && strncmp(fn, "TA_PVO", 6) == 0 ) {
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(23, (unsigned int)svK);
+        TA_SetUnstablePeriod(14, (unsigned int)svK);
+        TA_SetUnstablePeriod(13, (unsigned int)svK);
+        TA_SetUnstablePeriod(5, (unsigned int)svK);
+        rc = TA_PVO(0, svN - 1, sv_v, optInFastPeriod, optInSlowPeriod, optInMAType, &svBeg, &svNb, sv_b0);
+        lb = TA_PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_PVO_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_PVO_Open(&st, sv_v, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_PVO_Close(st); }
+            TA_SetUnstablePeriod(23, 0);
+            TA_SetUnstablePeriod(14, 0);
+            TA_SetUnstablePeriod(13, 0);
+            TA_SetUnstablePeriod(5, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_PVO_Stream *stf = NULL;
+            TA_RetCode frc = TA_PVO_OpenAndFill(&stf, sv_v, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_PVO_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_PVO_Stream *sal = NULL;
+            TA_RetCode alrc = TA_PVO_OpenAndFill(&sal, sv_v, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &alB, &alN, sv_v);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_PVO_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = snprintf(resp, resp_size, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_PVO_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_PVO_Open(&st, sv_v, P, optInFastPeriod, optInSlowPeriod, optInMAType, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_bitne(v0, sv_b0[(P - 1) - svBeg]) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_PVO_Peek(st, sv_v[t], &pk0);
+                TA_PVO_Update(st, sv_v[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_bitne(v0, sv_b0[t - svBeg]) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_PVO_Close(st);
+            pos += snprintf(resp + pos, resp_size - pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_PVO(Sidx, svN - 1, sv_v, optInFastPeriod, optInSlowPeriod, optInMAType, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_PVO_Stream *stA = NULL;
+                    TA_RetCode arc = TA_PVO_OpenInternal(&stA, sv_v, Sidx, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_bitne(v0, sv_b0[(svN - 1) - svBegS]) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_PVO_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(23, 0);
+        TA_SetUnstablePeriod(14, 0);
+        TA_SetUnstablePeriod(13, 0);
+        TA_SetUnstablePeriod(5, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_ROC", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ROC(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_ROC_Lookback(optInTimePeriod);
@@ -10089,6 +12632,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ROC_Stream *stf = NULL;
+            TA_RetCode frc = TA_ROC_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ROC_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ROC_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ROC_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ROC_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10140,13 +12701,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_ROCP", 7) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ROCP(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_ROCP_Lookback(optInTimePeriod);
@@ -10157,6 +12720,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ROCP_Stream *stf = NULL;
+            TA_RetCode frc = TA_ROCP_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ROCP_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ROCP_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ROCP_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ROCP_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10208,13 +12789,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_ROCR", 7) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ROCR(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_ROCR_Lookback(optInTimePeriod);
@@ -10225,6 +12808,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ROCR_Stream *stf = NULL;
+            TA_RetCode frc = TA_ROCR_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ROCR_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ROCR_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ROCR_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ROCR_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10276,13 +12877,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 10 && strncmp(fn, "TA_ROCR100", 10) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ROCR100(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_ROCR100_Lookback(optInTimePeriod);
@@ -10293,6 +12896,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ROCR100_Stream *stf = NULL;
+            TA_RetCode frc = TA_ROCR100_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ROCR100_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ROCR100_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ROCR100_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ROCR100_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10344,13 +12965,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_RSI", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(21, (unsigned int)svK);
         rc = TA_RSI(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -10363,6 +12986,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_RSI_Stream *stf = NULL;
+            TA_RetCode frc = TA_RSI_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_RSI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_RSI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_RSI_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_RSI_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1 + ((svCompat == 1) ? 1 : 0); pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10415,7 +13056,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(21, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_SAR", 6) == 0 ) {
@@ -10423,6 +13065,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         double optInMaximum = json_find_double(json, "optInMaximum");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_SAR(0, svN - 1, sv_h, sv_l, optInAcceleration, optInMaximum, &svBeg, &svNb, sv_b0);
         lb = TA_SAR_Lookback(optInAcceleration, optInMaximum);
@@ -10433,6 +13076,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_SAR_Stream *stf = NULL;
+            TA_RetCode frc = TA_SAR_OpenAndFill(&stf, sv_h, sv_l, svN, optInAcceleration, optInMaximum, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_SAR_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_SAR_Stream *sal = NULL;
+            TA_RetCode alrc = TA_SAR_OpenAndFill(&sal, sv_h, sv_l, svN, optInAcceleration, optInMaximum, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_SAR_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10484,7 +13145,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 9 && strncmp(fn, "TA_SAREXT", 9) == 0 ) {
@@ -10498,6 +13160,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         double optInAccelerationMaxShort = json_find_double(json, "optInAccelerationMaxShort");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_SAREXT(0, svN - 1, sv_h, sv_l, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &svBeg, &svNb, sv_b0);
         lb = TA_SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort);
@@ -10508,6 +13171,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_SAREXT_Stream *stf = NULL;
+            TA_RetCode frc = TA_SAREXT_OpenAndFill(&stf, sv_h, sv_l, svN, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_SAREXT_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_SAREXT_Stream *sal = NULL;
+            TA_RetCode alrc = TA_SAREXT_OpenAndFill(&sal, sv_h, sv_l, svN, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_SAREXT_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10559,12 +13240,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_SIN", 6) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_SIN(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_SIN_Lookback();
@@ -10575,6 +13258,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_SIN_Stream *stf = NULL;
+            TA_RetCode frc = TA_SIN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_SIN_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_SIN_Stream *sal = NULL;
+            TA_RetCode alrc = TA_SIN_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_SIN_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10626,12 +13327,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_SINH", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_SINH(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_SINH_Lookback();
@@ -10642,6 +13345,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_SINH_Stream *stf = NULL;
+            TA_RetCode frc = TA_SINH_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_SINH_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_SINH_Stream *sal = NULL;
+            TA_RetCode alrc = TA_SINH_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_SINH_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10693,13 +13414,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_SMA", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_SMA(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_SMA_Lookback(optInTimePeriod);
@@ -10710,6 +13433,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_SMA_Stream *stf = NULL;
+            TA_RetCode frc = TA_SMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_SMA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_SMA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_SMA_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_SMA_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10761,12 +13502,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_SQRT", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_SQRT(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_SQRT_Lookback();
@@ -10777,6 +13520,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_SQRT_Stream *stf = NULL;
+            TA_RetCode frc = TA_SQRT_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_SQRT_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_SQRT_Stream *sal = NULL;
+            TA_RetCode alrc = TA_SQRT_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_SQRT_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10828,7 +13589,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 9 && strncmp(fn, "TA_STDDEV", 9) == 0 ) {
@@ -10836,6 +13598,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         double optInNbDev = json_find_double(json, "optInNbDev");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_STDDEV(0, svN - 1, sv_c, optInTimePeriod, optInNbDev, &svBeg, &svNb, sv_b0);
         lb = TA_STDDEV_Lookback(optInTimePeriod, optInNbDev);
@@ -10846,6 +13609,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_STDDEV_Stream *stf = NULL;
+            TA_RetCode frc = TA_STDDEV_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInNbDev, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_STDDEV_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_STDDEV_Stream *sal = NULL;
+            TA_RetCode alrc = TA_STDDEV_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, optInNbDev, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_STDDEV_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10897,7 +13678,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 8 && strncmp(fn, "TA_STOCH", 8) == 0 ) {
@@ -10906,19 +13688,9 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_MAType optInSlowK_MAType = (TA_MAType)json_find_int(json, "optInSlowK_MAType");
         int optInSlowD_Period = json_find_int(json, "optInSlowD_Period");
         TA_MAType optInSlowD_MAType = (TA_MAType)json_find_int(json, "optInSlowD_MAType");
-        if( ( ( !(optInSlowK_Period == 1) && ( optInSlowK_MAType == TA_MAType_MAMA ) ) || ( !(optInSlowD_Period == 1) && ( optInSlowD_MAType == TA_MAType_MAMA ) ) ) )
-        {
-            TA_STOCH_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc;
-            int rejected;
-            orc = TA_STOCH_Open( &st, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &v0, &v1 );
-            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
-            if( st ) TA_STOCH_Close( st );
-            TA_SetCompatibility((TA_Compatibility)savedCompat);
-            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
-            return;
-        }
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(23, (unsigned int)svK);
         TA_SetUnstablePeriod(14, (unsigned int)svK);
@@ -10937,6 +13709,32 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_STOCH_Stream *stf = NULL;
+            TA_RetCode frc = TA_STOCH_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &fBeg, &fNb, sv_f0, sv_f1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_STOCH_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_STOCH_Stream *sal = NULL;
+            TA_RetCode alrc = TA_STOCH_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &alB, &alN, sv_h, sv_f1);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_STOCH_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_STOCH_Stream *saa = NULL;
+            TA_RetCode aarc = TA_STOCH_OpenAndFill(&saa, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &aaB, &aaN, sv_f0, sv_f0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_STOCH_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -10997,26 +13795,17 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 9 && strncmp(fn, "TA_STOCHF", 9) == 0 ) {
         int optInFastK_Period = json_find_int(json, "optInFastK_Period");
         int optInFastD_Period = json_find_int(json, "optInFastD_Period");
         TA_MAType optInFastD_MAType = (TA_MAType)json_find_int(json, "optInFastD_MAType");
-        if( ( ( !(optInFastD_Period == 1) && ( optInFastD_MAType == TA_MAType_MAMA ) ) ) )
-        {
-            TA_STOCHF_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc;
-            int rejected;
-            orc = TA_STOCHF_Open( &st, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &v0, &v1 );
-            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
-            if( st ) TA_STOCHF_Close( st );
-            TA_SetCompatibility((TA_Compatibility)savedCompat);
-            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
-            return;
-        }
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(23, (unsigned int)svK);
         TA_SetUnstablePeriod(14, (unsigned int)svK);
@@ -11035,6 +13824,32 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_STOCHF_Stream *stf = NULL;
+            TA_RetCode frc = TA_STOCHF_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &fBeg, &fNb, sv_f0, sv_f1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_STOCHF_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_STOCHF_Stream *sal = NULL;
+            TA_RetCode alrc = TA_STOCHF_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &alB, &alN, sv_h, sv_f1);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_STOCHF_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_STOCHF_Stream *saa = NULL;
+            TA_RetCode aarc = TA_STOCHF_OpenAndFill(&saa, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &aaB, &aaN, sv_f0, sv_f0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_STOCHF_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11095,7 +13910,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_STOCHRSI", 11) == 0 ) {
@@ -11103,19 +13919,9 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInFastK_Period = json_find_int(json, "optInFastK_Period");
         int optInFastD_Period = json_find_int(json, "optInFastD_Period");
         TA_MAType optInFastD_MAType = (TA_MAType)json_find_int(json, "optInFastD_MAType");
-        if( ( ( ( !(optInFastD_Period == 1) && ( optInFastD_MAType == TA_MAType_MAMA ) ) ) ) )
-        {
-            TA_STOCHRSI_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc;
-            int rejected;
-            orc = TA_STOCHRSI_Open( &st, sv_c, svN, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &v0, &v1 );
-            rejected = ( orc != TA_SUCCESS && !st ) ? 1 : 0;
-            if( st ) TA_STOCHRSI_Close( st );
-            TA_SetCompatibility((TA_Compatibility)savedCompat);
-            snprintf(resp, resp_size, "{\"retCode\":0,\"legs\":0,\"unsupportedArm\":1,\"ok\":%d,\"peek_ok\":1}", rejected);
-            return;
-        }
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(22, (unsigned int)svK);
         TA_SetUnstablePeriod(23, (unsigned int)svK);
@@ -11138,6 +13944,32 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_STOCHRSI_Stream *stf = NULL;
+            TA_RetCode frc = TA_STOCHRSI_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &fBeg, &fNb, sv_f0, sv_f1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+                if( sv_bitne(sv_f1[ft], sv_b1[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_STOCHRSI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_STOCHRSI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_STOCHRSI_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &alB, &alN, sv_c, sv_f1);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_STOCHRSI_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_STOCHRSI_Stream *saa = NULL;
+            TA_RetCode aarc = TA_STOCHRSI_OpenAndFill(&saa, sv_c, svN, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &aaB, &aaN, sv_f0, sv_f0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_STOCHRSI_Close(saa);
         }
         npref = 0;
         pc[0] = lb + 1 + ((svCompat == 1) ? 1 : 0); pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11200,12 +14032,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(5, 0);
         TA_SetUnstablePeriod(21, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_SUB", 6) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_SUB(0, svN - 1, sv_c, sv_v, &svBeg, &svNb, sv_b0);
         lb = TA_SUB_Lookback();
@@ -11216,6 +14050,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_SUB_Stream *stf = NULL;
+            TA_RetCode frc = TA_SUB_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_SUB_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_SUB_Stream *sal = NULL;
+            TA_RetCode alrc = TA_SUB_OpenAndFill(&sal, sv_c, sv_v, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_SUB_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11267,13 +14119,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_SUM", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_SUM(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_SUM_Lookback(optInTimePeriod);
@@ -11284,6 +14138,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_SUM_Stream *stf = NULL;
+            TA_RetCode frc = TA_SUM_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_SUM_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_SUM_Stream *sal = NULL;
+            TA_RetCode alrc = TA_SUM_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_SUM_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11335,7 +14207,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 5 && strncmp(fn, "TA_T3", 5) == 0 ) {
@@ -11343,6 +14216,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         double optInVFactor = json_find_double(json, "optInVFactor");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(23, (unsigned int)svK);
         rc = TA_T3(0, svN - 1, sv_c, optInTimePeriod, optInVFactor, &svBeg, &svNb, sv_b0);
@@ -11355,6 +14229,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_T3_Stream *stf = NULL;
+            TA_RetCode frc = TA_T3_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInVFactor, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_T3_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_T3_Stream *sal = NULL;
+            TA_RetCode alrc = TA_T3_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, optInVFactor, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_T3_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11407,12 +14299,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(23, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_TAN", 6) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_TAN(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_TAN_Lookback();
@@ -11423,6 +14317,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_TAN_Stream *stf = NULL;
+            TA_RetCode frc = TA_TAN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_TAN_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_TAN_Stream *sal = NULL;
+            TA_RetCode alrc = TA_TAN_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_TAN_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11474,12 +14386,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_TANH", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_TANH(0, svN - 1, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_TANH_Lookback();
@@ -11490,6 +14404,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_TANH_Stream *stf = NULL;
+            TA_RetCode frc = TA_TANH_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_TANH_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_TANH_Stream *sal = NULL;
+            TA_RetCode alrc = TA_TANH_OpenAndFill(&sal, sv_c, svN, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_TANH_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11541,13 +14473,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_TEMA", 7) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(5, (unsigned int)svK);
         rc = TA_TEMA(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -11560,6 +14494,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_TEMA_Stream *stf = NULL;
+            TA_RetCode frc = TA_TEMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_TEMA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_TEMA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_TEMA_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_TEMA_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11612,12 +14564,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 9 && strncmp(fn, "TA_TRANGE", 9) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_TRANGE(0, svN - 1, sv_h, sv_l, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_TRANGE_Lookback();
@@ -11628,6 +14582,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_TRANGE_Stream *stf = NULL;
+            TA_RetCode frc = TA_TRANGE_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_TRANGE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_TRANGE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_TRANGE_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_TRANGE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11679,13 +14651,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 8 && strncmp(fn, "TA_TRIMA", 8) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_TRIMA(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_TRIMA_Lookback(optInTimePeriod);
@@ -11696,6 +14670,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_TRIMA_Stream *stf = NULL;
+            TA_RetCode frc = TA_TRIMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_TRIMA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_TRIMA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_TRIMA_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_TRIMA_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11747,13 +14739,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 7 && strncmp(fn, "TA_TRIX", 7) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         TA_SetUnstablePeriod(5, (unsigned int)svK);
         rc = TA_TRIX(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
@@ -11766,6 +14760,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_TRIX_Stream *stf = NULL;
+            TA_RetCode frc = TA_TRIX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_TRIX_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_TRIX_Stream *sal = NULL;
+            TA_RetCode alrc = TA_TRIX_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_TRIX_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11818,13 +14830,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         }
         TA_SetUnstablePeriod(5, 0);
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_TSF", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_TSF(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_TSF_Lookback(optInTimePeriod);
@@ -11835,6 +14849,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_TSF_Stream *stf = NULL;
+            TA_RetCode frc = TA_TSF_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_TSF_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_TSF_Stream *sal = NULL;
+            TA_RetCode alrc = TA_TSF_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_TSF_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11886,12 +14918,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_TYPPRICE", 11) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_TYPPRICE(0, svN - 1, sv_h, sv_l, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_TYPPRICE_Lookback();
@@ -11902,6 +14936,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_TYPPRICE_Stream *stf = NULL;
+            TA_RetCode frc = TA_TYPPRICE_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_TYPPRICE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_TYPPRICE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_TYPPRICE_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_TYPPRICE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -11953,7 +15005,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 9 && strncmp(fn, "TA_ULTOSC", 9) == 0 ) {
@@ -11962,6 +15015,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         int optInTimePeriod3 = json_find_int(json, "optInTimePeriod3");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_ULTOSC(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &svBeg, &svNb, sv_b0);
         lb = TA_ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
@@ -11972,6 +15026,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_ULTOSC_Stream *stf = NULL;
+            TA_RetCode frc = TA_ULTOSC_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_ULTOSC_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_ULTOSC_Stream *sal = NULL;
+            TA_RetCode alrc = TA_ULTOSC_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_ULTOSC_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -12023,7 +15095,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_VAR", 6) == 0 ) {
@@ -12031,6 +15104,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         double optInNbDev = json_find_double(json, "optInNbDev");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_VAR(0, svN - 1, sv_c, optInTimePeriod, optInNbDev, &svBeg, &svNb, sv_b0);
         lb = TA_VAR_Lookback(optInTimePeriod, optInNbDev);
@@ -12041,6 +15115,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_VAR_Stream *stf = NULL;
+            TA_RetCode frc = TA_VAR_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInNbDev, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_VAR_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_VAR_Stream *sal = NULL;
+            TA_RetCode alrc = TA_VAR_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, optInNbDev, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_VAR_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -12092,12 +15184,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 11 && strncmp(fn, "TA_WCLPRICE", 11) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_WCLPRICE(0, svN - 1, sv_h, sv_l, sv_c, &svBeg, &svNb, sv_b0);
         lb = TA_WCLPRICE_Lookback();
@@ -12108,6 +15202,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_WCLPRICE_Stream *stf = NULL;
+            TA_RetCode frc = TA_WCLPRICE_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_WCLPRICE_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_WCLPRICE_Stream *sal = NULL;
+            TA_RetCode alrc = TA_WCLPRICE_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_WCLPRICE_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -12159,13 +15271,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 8 && strncmp(fn, "TA_WILLR", 8) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_WILLR(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_WILLR_Lookback(optInTimePeriod);
@@ -12176,6 +15290,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_WILLR_Stream *stf = NULL;
+            TA_RetCode frc = TA_WILLR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_WILLR_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_WILLR_Stream *sal = NULL;
+            TA_RetCode alrc = TA_WILLR_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_WILLR_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -12227,13 +15359,15 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     else if( fnLen == 6 && strncmp(fn, "TA_WMA", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
         int pref[4]; int pc[4];
         rc = TA_WMA(0, svN - 1, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
         lb = TA_WMA_Lookback(optInTimePeriod);
@@ -12244,6 +15378,24 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             TA_SetCompatibility((TA_Compatibility)savedCompat);
             snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
             return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_WMA_Stream *stf = NULL;
+            TA_RetCode frc = TA_WMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_bitne(sv_f0[ft], sv_b0[ft]) ) fillOk = 0;
+            }
+            if( stf ) TA_WMA_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_WMA_Stream *sal = NULL;
+            TA_RetCode alrc = TA_WMA_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_WMA_Close(sal);
         }
         npref = 0;
         pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
@@ -12295,7 +15447,8 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
             }
         }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
-        pos += snprintf(resp + pos, resp_size - pos, ",\"ok\":%d,\"peek_ok\":%d}", allOk, peekAll);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos += snprintf(resp + pos, resp_size - pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d}", fillChecked, fillOk, allOk, peekAll);
         return;
     }
     TA_SetCompatibility((TA_Compatibility)savedCompat);
@@ -19229,6 +22382,78 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos += json_write_double_array(resp + pos, resp_size - pos, g_outBuf0, outNBElement);
         pos += snprintf(resp + pos, resp_size - pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
     }
+    else if ( methodLen == 7 && strncmp(method, "TA_CMOU", 7) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(1, 0);
+        } else {
+            json_find_double_array(json, "inReal", g_inBuf0, MAX_ARRAY_SIZE);
+        }
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(1, 0);
+        }
+        long _t0 = get_nanotime();
+        for( int _bi = 0; _bi < bench_iters; _bi++ ) {
+        rc = TA_CMOU(
+            startIdx, endIdx,
+            g_inBuf0,
+            optInTimePeriod,
+            &outBegIdx, &outNBElement, g_outBuf0);
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+#ifndef TA_REF_SERVE
+        long _t0_ung = get_nanotime();
+        for( int _biu = 0; _biu < bench_iters; _biu++ ) {
+        rc = TA_CMOU_Unguarded(
+            startIdx, endIdx,
+            g_inBuf0,
+            optInTimePeriod,
+            &outBegIdx, &outNBElement, g_outBuf0);
+        }
+        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
+#else
+        long elapsed_ns_ung = 0;
+#endif /* TA_REF_SERVE */
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            rc = TA_S_CMOU(
+                startIdx, endIdx,
+                g_sinBuf0,
+                optInTimePeriod,
+                &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+            rc = TA_S_CMOU_Unguarded(
+                startIdx, endIdx,
+                g_sinBuf0,
+                optInTimePeriod,
+                &outBegIdx, &outNBElement, g_outBuf0);
+#endif /* TA_REF_SERVE */
+        }
+        int pos = snprintf(resp, resp_size,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"outReal\":");
+        pos += json_write_double_array(resp + pos, resp_size - pos, g_outBuf0, outNBElement);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+    }
     else if ( methodLen == 9 && strncmp(method, "TA_CORREL", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
         int endIdx = json_find_int(json, "endIdx");
@@ -22525,6 +25750,79 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos += json_write_double_array(resp + pos, resp_size - pos, g_outBuf0, outNBElement);
         pos += snprintf(resp + pos, resp_size - pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
     }
+    else if ( methodLen == 6 && strncmp(method, "TA_NVI", 6) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(2, 1);
+        } else {
+            json_find_double_array(json, "inClose", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inVolume", g_inBuf1, MAX_ARRAY_SIZE);
+        }
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(2, 1);
+        }
+        long _t0 = get_nanotime();
+        for( int _bi = 0; _bi < bench_iters; _bi++ ) {
+        rc = TA_NVI(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            &outBegIdx, &outNBElement, g_outBuf0);
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+#ifndef TA_REF_SERVE
+        long _t0_ung = get_nanotime();
+        for( int _biu = 0; _biu < bench_iters; _biu++ ) {
+        rc = TA_NVI_Unguarded(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            &outBegIdx, &outNBElement, g_outBuf0);
+        }
+        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
+#else
+        long elapsed_ns_ung = 0;
+#endif /* TA_REF_SERVE */
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            rc = TA_S_NVI(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+            rc = TA_S_NVI_Unguarded(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                &outBegIdx, &outNBElement, g_outBuf0);
+#endif /* TA_REF_SERVE */
+        }
+        int pos = snprintf(resp, resp_size,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"outReal\":");
+        pos += json_write_double_array(resp + pos, resp_size - pos, g_outBuf0, outNBElement);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+    }
     else if ( methodLen == 6 && strncmp(method, "TA_OBV", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
         int endIdx = json_find_int(json, "endIdx");
@@ -22829,6 +26127,161 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 &outBegIdx, &outNBElement, g_outBuf0);
 #ifndef TA_REF_SERVE
             rc = TA_S_PPO_Unguarded(
+                startIdx, endIdx,
+                g_sinBuf0,
+                optInFastPeriod,
+                optInSlowPeriod,
+                optInMAType,
+                &outBegIdx, &outNBElement, g_outBuf0);
+#endif /* TA_REF_SERVE */
+        }
+        int pos = snprintf(resp, resp_size,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"outReal\":");
+        pos += json_write_double_array(resp + pos, resp_size - pos, g_outBuf0, outNBElement);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+    }
+    else if ( methodLen == 6 && strncmp(method, "TA_PVI", 6) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(2, 1);
+        } else {
+            json_find_double_array(json, "inClose", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inVolume", g_inBuf1, MAX_ARRAY_SIZE);
+        }
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(2, 1);
+        }
+        long _t0 = get_nanotime();
+        for( int _bi = 0; _bi < bench_iters; _bi++ ) {
+        rc = TA_PVI(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            &outBegIdx, &outNBElement, g_outBuf0);
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+#ifndef TA_REF_SERVE
+        long _t0_ung = get_nanotime();
+        for( int _biu = 0; _biu < bench_iters; _biu++ ) {
+        rc = TA_PVI_Unguarded(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            &outBegIdx, &outNBElement, g_outBuf0);
+        }
+        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
+#else
+        long elapsed_ns_ung = 0;
+#endif /* TA_REF_SERVE */
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            rc = TA_S_PVI(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+            rc = TA_S_PVI_Unguarded(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                &outBegIdx, &outNBElement, g_outBuf0);
+#endif /* TA_REF_SERVE */
+        }
+        int pos = snprintf(resp, resp_size,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"outReal\":");
+        pos += json_write_double_array(resp + pos, resp_size - pos, g_outBuf0, outNBElement);
+        pos += snprintf(resp + pos, resp_size - pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+    }
+    else if ( methodLen == 6 && strncmp(method, "TA_PVO", 6) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(1, 1);
+        } else {
+            json_find_double_array(json, "inVolume", g_inBuf0, MAX_ARRAY_SIZE);
+        }
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(1, 1);
+        }
+        long _t0 = get_nanotime();
+        for( int _bi = 0; _bi < bench_iters; _bi++ ) {
+        rc = TA_PVO(
+            startIdx, endIdx,
+            g_inBuf0,
+            optInFastPeriod,
+            optInSlowPeriod,
+            optInMAType,
+            &outBegIdx, &outNBElement, g_outBuf0);
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+#ifndef TA_REF_SERVE
+        long _t0_ung = get_nanotime();
+        for( int _biu = 0; _biu < bench_iters; _biu++ ) {
+        rc = TA_PVO_Unguarded(
+            startIdx, endIdx,
+            g_inBuf0,
+            optInFastPeriod,
+            optInSlowPeriod,
+            optInMAType,
+            &outBegIdx, &outNBElement, g_outBuf0);
+        }
+        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
+#else
+        long elapsed_ns_ung = 0;
+#endif /* TA_REF_SERVE */
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            rc = TA_S_PVO(
+                startIdx, endIdx,
+                g_sinBuf0,
+                optInFastPeriod,
+                optInSlowPeriod,
+                optInMAType,
+                &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+            rc = TA_S_PVO_Unguarded(
                 startIdx, endIdx,
                 g_sinBuf0,
                 optInFastPeriod,
@@ -25691,6 +29144,12 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
+    else if ( methodLen == 16 && strncmp(method, "TA_CMOU_Lookback", 16) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        int lookback = TA_CMOU_Lookback(optInTimePeriod);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
     else if ( methodLen == 18 && strncmp(method, "TA_CORREL_Lookback", 18) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         int lookback = TA_CORREL_Lookback(optInTimePeriod);
@@ -25951,6 +29410,11 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
+    else if ( methodLen == 15 && strncmp(method, "TA_NVI_Lookback", 15) == 0 ) {
+        int lookback = TA_NVI_Lookback();
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
     else if ( methodLen == 15 && strncmp(method, "TA_OBV_Lookback", 15) == 0 ) {
         int lookback = TA_OBV_Lookback();
         snprintf(resp, resp_size,
@@ -25973,6 +29437,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
         int lookback = TA_PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
+    else if ( methodLen == 15 && strncmp(method, "TA_PVI_Lookback", 15) == 0 ) {
+        int lookback = TA_PVI_Lookback();
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
+    else if ( methodLen == 15 && strncmp(method, "TA_PVO_Lookback", 15) == 0 ) {
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
+        int lookback = TA_PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
@@ -26259,6 +29736,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_CDLXSIDEGAP3METHODS\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_CEIL\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_CMO\"");
+        pos += snprintf(resp + pos, resp_size - pos, ",\"TA_CMOU\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_CORREL\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_COS\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_COSH\"");
@@ -26303,10 +29781,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_MOM\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_MULT\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_NATR\"");
+        pos += snprintf(resp + pos, resp_size - pos, ",\"TA_NVI\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_OBV\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_PLUS_DI\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_PLUS_DM\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_PPO\"");
+        pos += snprintf(resp + pos, resp_size - pos, ",\"TA_PVI\"");
+        pos += snprintf(resp + pos, resp_size - pos, ",\"TA_PVO\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_ROC\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_ROCP\"");
         pos += snprintf(resp + pos, resp_size - pos, ",\"TA_ROCR\"");

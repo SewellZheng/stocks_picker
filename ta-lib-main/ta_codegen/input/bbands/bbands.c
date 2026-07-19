@@ -21,6 +21,10 @@
  *  071126 MF,CC  Split into an SMA fast path (reuses the moving average as the
  *                mean) and a general MA + STDDEV path, so BBANDS streams as a
  *                composition of the TA_MA and TA_STDDEV streams. Bit-identical.
+ *  071626 MF,CC  #117 speed optimization: fuse the SMA fast path's moving
+ *                average and standard deviation into a single pass. Bit-identical.
+ *  071726 MF,CC  #118 SMA-path deviation now uses the cancellation-free variance
+ *                (var.c); two recurrences in one pass. Bit-identical.
  *
  */
 
@@ -60,10 +64,9 @@ TA_RetCode bbands(int startIdx, int endIdx,
 
    if( optInMAType == TA_MAType_SMA )
    {
-      /* SMA fast path: the middle band is a simple moving average, which is
-       * also the mean the standard deviation is measured against - so the SMA
-       * is reused instead of recomputing the mean. Bit-identical to the general
-       * MA + STDDEV path below (which the stream composes for every MA type).
+      /* SMA fast path: the middle band (SMA) and the standard deviation share one
+       * pass over the window below. Bit-identical to the general MA + STDDEV path
+       * (which the stream composes for every MA type).
        *
        * Identify TWO temporary buffers among the outputs so the calculation
        * needs no memory allocation; whenever possible make tempBuffer1 be the
@@ -95,49 +98,102 @@ TA_RetCode bbands(int startIdx, int endIdx,
       if( (tempBuffer1 == inReal) || (tempBuffer2 == inReal) )
          return TA_BAD_PARAM;
 
-      retCode = ma( startIdx, endIdx, inReal,
-         optInTimePeriod, optInMAType,
-         outBegIdx, outNBElement, tempBuffer1 );
-
-      if( (retCode != TA_SUCCESS ) || ((int)*outNBElement == 0) )
+      /* One pass with two independent recurrences: the SMA running sum (maTotal,
+       * mean -> tempBuffer1, bit-identical to TA_MA(SMA)) and the shifted-data
+       * variance (-> tempBuffer2, bit-identical to TA_STDDEV/TA_VAR - see var.c).
+       * The variance carries its own shift and reseed; the SMA sum is untouched by
+       * it. tempBuffer1/2 never alias inReal (checked above). */
       {
-         *outNBElement = 0;
-         return retCode;
-      }
+         double maTotal, shift, varTotal1, varTotal2, meanValue1, variance, _invPeriod, _tempReal;
+         int _i, _j, _outIdx, _trailingIdx, _windowStart, _lookbackTotal, _barsSinceReseed;
 
-      /* Calculate the standard deviation into tempBuffer2, re-using the
-       * already calculated SMA (Inline stddev_using_precalc_ma).
-       */
-      {
-         double _tempReal, _periodTotal2, _meanValue2;
-         int _outIdx;
-         int _startSum, _endSum;
-         _startSum = 1 + (int)*outBegIdx - optInTimePeriod;
-         _endSum = (int)*outBegIdx;
-         _periodTotal2 = 0;
-         for( _outIdx = _startSum; _outIdx < _endSum; _outIdx++ )
+         _lookbackTotal = optInTimePeriod - 1;
+         if( startIdx < _lookbackTotal )
+            startIdx = _lookbackTotal;
+
+         if( startIdx > endIdx )
          {
-            _tempReal = inReal[_outIdx];
-            _tempReal *= _tempReal;
-            _periodTotal2 += _tempReal;
+            *outBegIdx = 0;
+            *outNBElement = 0;
+            return TA_SUCCESS;
          }
-         for( _outIdx = 0; _outIdx < (int)*outNBElement; _outIdx++, _startSum++, _endSum++ )
+
+         _invPeriod = 1.0 / (double)optInTimePeriod;
+         _trailingIdx = startIdx - _lookbackTotal;
+         shift = inReal[_trailingIdx];
+
+         maTotal = 0.0;
+         varTotal1 = 0.0;
+         varTotal2 = 0.0;
+         for( _j=_trailingIdx; _j < startIdx; _j++ )
          {
-            _tempReal = inReal[_endSum];
+            maTotal += inReal[_j];
+            _tempReal = inReal[_j] - shift;
+            varTotal1 += _tempReal;
             _tempReal *= _tempReal;
-            _periodTotal2 += _tempReal;
-            _meanValue2 = _periodTotal2 / optInTimePeriod;
-            _tempReal = inReal[_startSum];
+            varTotal2 += _tempReal;
+         }
+
+         _i = startIdx;
+         _outIdx = 0;
+         _barsSinceReseed = 32 * optInTimePeriod;
+         do
+         {
+            maTotal += inReal[_i];
+            _tempReal = inReal[_i] - shift;
+            varTotal1 += _tempReal;
             _tempReal *= _tempReal;
-            _periodTotal2 -= _tempReal;
-            _tempReal = tempBuffer1[_outIdx];
+            varTotal2 += _tempReal;
+
+            meanValue1 = varTotal1 * _invPeriod;
+            variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+            tempBuffer1[_outIdx] = maTotal / optInTimePeriod;
+
+            maTotal -= inReal[_trailingIdx];
+            _tempReal = inReal[_trailingIdx] - shift;
+            varTotal1 -= _tempReal;
             _tempReal *= _tempReal;
-            _meanValue2 -= _tempReal;
-            if( !TA_IS_ZERO_OR_NEG(_meanValue2) )
-               tempBuffer2[_outIdx] = sqrt(_meanValue2);
+            varTotal2 -= _tempReal;
+            _trailingIdx++;
+
+            _barsSinceReseed--;
+            if( variance < 0.000001 * ( varTotal2 * _invPeriod )
+               || _tempReal > 1000000.0 * varTotal2
+               || _barsSinceReseed <= 0 )
+            {
+               _barsSinceReseed = 32 * optInTimePeriod;
+               _windowStart = _i - _lookbackTotal;
+               _tempReal = 0.0;
+               for( _j=_windowStart; _j <= _i; _j++ )
+                  _tempReal += inReal[_j];
+               shift = _tempReal * _invPeriod;
+               varTotal1 = 0.0;
+               varTotal2 = 0.0;
+               for( _j=_windowStart; _j <= _i; _j++ )
+               {
+                  _tempReal = inReal[_j] - shift;
+                  varTotal1 += _tempReal;
+                  _tempReal *= _tempReal;
+                  varTotal2 += _tempReal;
+               }
+               meanValue1 = varTotal1 * _invPeriod;
+               variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+               _tempReal = inReal[_windowStart] - shift;
+               varTotal1 -= _tempReal;
+               _tempReal *= _tempReal;
+               varTotal2 -= _tempReal;
+            }
+
+            if( !TA_IS_ZERO_OR_NEG(variance) )
+               tempBuffer2[_outIdx] = sqrt(variance);
             else
                tempBuffer2[_outIdx] = 0.0;
-         }
+            _outIdx++;
+            _i++;
+         } while( _i <= endIdx );
+
+         *outNBElement = _outIdx;
+         *outBegIdx = startIdx;
       }
 
       /* Copy the MA calculation into the middle band ouput, unless

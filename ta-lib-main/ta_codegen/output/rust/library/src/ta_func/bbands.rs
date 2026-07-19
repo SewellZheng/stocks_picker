@@ -62,6 +62,10 @@
  *  071126 MF,CC  Split into an SMA fast path (reuses the moving average as the
  *                mean) and a general MA + STDDEV path, so BBANDS streams as a
  *                composition of the TA_MA and TA_STDDEV streams. Bit-identical.
+ *  071626 MF,CC  #117 speed optimization: fuse the SMA fast path's moving
+ *                average and standard deviation into a single pass. Bit-identical.
+ *  071726 MF,CC  #118 SMA-path deviation now uses the cancellation-free variance
+ *                (var.c); two recurrences in one pass. Bit-identical.
  */
 
 // Import types from parent module
@@ -217,10 +221,9 @@ impl Core {
         let mut tempBuffer1: Vec<f64> = Vec::new();
         let mut tempBuffer2: Vec<f64> = Vec::new();
         if (optInMAType) as usize == 0 {
-            // SMA fast path: the middle band is a simple moving average, which is
-            // also the mean the standard deviation is measured against - so the SMA
-            // is reused instead of recomputing the mean. Bit-identical to the general
-            // MA + STDDEV path below (which the stream composes for every MA type).
+            // SMA fast path: the middle band (SMA) and the standard deviation share one
+            // pass over the window below. Bit-identical to the general MA + STDDEV path
+            // (which the stream composes for every MA type).
             //
             // Identify TWO temporary buffers among the outputs so the calculation
             // needs no memory allocation; whenever possible make tempBuffer1 be the
@@ -243,52 +246,106 @@ impl Core {
             if tempBuffer1.as_ptr() == inReal.as_ptr() || tempBuffer2.as_ptr() == inReal.as_ptr() {
                 return RetCode::BadParam;
             }
-            retCode = self.ma_unguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, &mut tempBuffer1[..]);
-            if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
-                (*outNBElement) = 0;
-                return retCode;
-            }
-            // Calculate the standard deviation into tempBuffer2, re-using the
-            // already calculated SMA (Inline stddev_using_precalc_ma).
+            // One pass with two independent recurrences: the SMA running sum (maTotal,
+            // mean -> tempBuffer1, bit-identical to TA_MA(SMA)) and the shifted-data
+            // variance (-> tempBuffer2, bit-identical to TA_STDDEV/TA_VAR - see var.c).
+            // The variance carries its own shift and reseed; the SMA sum is untouched by
+            // it. tempBuffer1/2 never alias inReal (checked above).
+            let mut maTotal: f64 = 0.0_f64;
+            let mut shift: f64 = 0.0_f64;
+            let mut varTotal1: f64 = 0.0_f64;
+            let mut varTotal2: f64 = 0.0_f64;
+            let mut meanValue1: f64 = 0.0_f64;
+            let mut variance: f64 = 0.0_f64;
+            let mut _invPeriod: f64 = 0.0_f64;
             let mut _tempReal: f64 = 0.0_f64;
-            let mut _periodTotal2: f64 = 0.0_f64;
-            let mut _meanValue2: f64 = 0.0_f64;
+            let mut _i: usize = 0_usize;
+            let mut _j: usize = 0_usize;
             let mut _outIdx: usize = 0_usize;
-            let mut _startSum: usize = 0_usize;
-            let mut _endSum: usize = 0_usize;
-            _startSum = (1 + ((*outBegIdx) as usize) - (optInTimePeriod) as usize) as usize;
-            _endSum = ((*outBegIdx) as usize) as usize;
-            _periodTotal2 = 0.0;
-            // for( _outIdx = _startSum; _outIdx < _endSum; _outIdx += 1 )
-            _outIdx = _startSum;
-            while _outIdx < _endSum {
-                _tempReal = inReal[_outIdx];
-                _tempReal *= _tempReal;
-                _periodTotal2 += _tempReal;
-                _outIdx += 1;
+            let mut _trailingIdx: usize = 0_usize;
+            let mut _windowStart: usize = 0_usize;
+            let mut _lookbackTotal: usize = 0_usize;
+            let mut _barsSinceReseed: usize = 0_usize;
+            _lookbackTotal = (optInTimePeriod - 1) as usize;
+            if startIdx < _lookbackTotal {
+                startIdx = _lookbackTotal;
             }
-            // for( _outIdx = 0; _outIdx < (((*outNBElement) as usize)) as usize; _outIdx += 1, _startSum += 1, _endSum += 1 )
+            if startIdx > endIdx {
+                (*outBegIdx) = 0;
+                (*outNBElement) = 0;
+                return RetCode::Success;
+            }
+            _invPeriod = 1.0 / (optInTimePeriod as f64);
+            _trailingIdx = startIdx - _lookbackTotal;
+            shift = inReal[_trailingIdx];
+            maTotal = 0.0;
+            varTotal1 = 0.0;
+            varTotal2 = 0.0;
+            // for( _j = _trailingIdx; _j < startIdx; _j += 1 )
+            _j = _trailingIdx;
+            while _j < startIdx {
+                maTotal += inReal[_j];
+                _tempReal = inReal[_j] - shift;
+                varTotal1 += _tempReal;
+                _tempReal *= _tempReal;
+                varTotal2 += _tempReal;
+                _j += 1;
+            }
+            _i = startIdx;
             _outIdx = 0;
-            while _outIdx < (((*outNBElement) as usize)) as usize {
-                _tempReal = inReal[_endSum];
+            _barsSinceReseed = (32 * optInTimePeriod) as usize;
+            loop {
+                maTotal += inReal[_i];
+                _tempReal = inReal[_i] - shift;
+                varTotal1 += _tempReal;
                 _tempReal *= _tempReal;
-                _periodTotal2 += _tempReal;
-                _meanValue2 = _periodTotal2 / ((optInTimePeriod) as f64);
-                _tempReal = inReal[_startSum];
+                varTotal2 += _tempReal;
+                meanValue1 = varTotal1 * _invPeriod;
+                variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+                tempBuffer1[_outIdx] = maTotal / ((optInTimePeriod) as f64);
+                maTotal -= inReal[_trailingIdx];
+                _tempReal = inReal[_trailingIdx] - shift;
+                varTotal1 -= _tempReal;
                 _tempReal *= _tempReal;
-                _periodTotal2 -= _tempReal;
-                _tempReal = tempBuffer1[_outIdx];
-                _tempReal *= _tempReal;
-                _meanValue2 -= _tempReal;
-                if !((_meanValue2) < 1e-14) {
-                    tempBuffer2[_outIdx] = (_meanValue2).sqrt();
+                varTotal2 -= _tempReal;
+                _trailingIdx += 1;
+                _barsSinceReseed -= 1;
+                if variance < 0.000001 * (varTotal2 * _invPeriod) || _tempReal > 1000000.0 * varTotal2 || _barsSinceReseed <= 0 {
+                    _barsSinceReseed = (32 * optInTimePeriod) as usize;
+                    _windowStart = _i - _lookbackTotal;
+                    _tempReal = 0.0;
+                    for _j in (_windowStart as usize)..(_i as usize) + 1 {
+                        _tempReal += inReal[_j];
+                    }
+                    _j = (_i as usize) + 1;
+                    shift = _tempReal * _invPeriod;
+                    varTotal1 = 0.0;
+                    varTotal2 = 0.0;
+                    for _j in (_windowStart as usize)..(_i as usize) + 1 {
+                        _tempReal = inReal[_j] - shift;
+                        varTotal1 += _tempReal;
+                        _tempReal *= _tempReal;
+                        varTotal2 += _tempReal;
+                    }
+                    _j = (_i as usize) + 1;
+                    meanValue1 = varTotal1 * _invPeriod;
+                    variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+                    _tempReal = inReal[_windowStart] - shift;
+                    varTotal1 -= _tempReal;
+                    _tempReal *= _tempReal;
+                    varTotal2 -= _tempReal;
+                }
+                if !((variance) < 1e-14) {
+                    tempBuffer2[_outIdx] = (variance).sqrt();
                 } else {
                     tempBuffer2[_outIdx] = 0.0;
                 }
                 _outIdx += 1;
-                _startSum += 1;
-                _endSum += 1;
+                _i += 1;
+                if !(_i <= endIdx) { break; }
             }
+            (*outNBElement) = _outIdx;
+            (*outBegIdx) = startIdx;
             // Copy the MA calculation into the middle band ouput, unless
             // the calculation was done into it already!
             if tempBuffer1.as_ptr() != outRealMiddleBand.as_ptr() {
@@ -438,50 +495,101 @@ impl Core {
             if tempBuffer1.as_ptr() == inReal.as_ptr() || tempBuffer2.as_ptr() == inReal.as_ptr() {
                 return RetCode::BadParam;
             }
-            retCode = self.ma_unguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, &mut tempBuffer1[..]);
-            if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
-                (*outNBElement) = 0;
-                return retCode;
-            }
+            let mut maTotal: f64 = 0.0_f64;
+            let mut shift: f64 = 0.0_f64;
+            let mut varTotal1: f64 = 0.0_f64;
+            let mut varTotal2: f64 = 0.0_f64;
+            let mut meanValue1: f64 = 0.0_f64;
+            let mut variance: f64 = 0.0_f64;
+            let mut _invPeriod: f64 = 0.0_f64;
             let mut _tempReal: f64 = 0.0_f64;
-            let mut _periodTotal2: f64 = 0.0_f64;
-            let mut _meanValue2: f64 = 0.0_f64;
+            let mut _i: usize = 0_usize;
+            let mut _j: usize = 0_usize;
             let mut _outIdx: usize = 0_usize;
-            let mut _startSum: usize = 0_usize;
-            let mut _endSum: usize = 0_usize;
-            _startSum = (1 + ((*outBegIdx) as usize) - (optInTimePeriod) as usize) as usize;
-            _endSum = ((*outBegIdx) as usize) as usize;
-            _periodTotal2 = 0.0;
-            // for( _outIdx = _startSum; _outIdx < _endSum; _outIdx += 1 )
-            _outIdx = _startSum;
-            while _outIdx < _endSum {
-                _tempReal = inReal[_outIdx];
-                _tempReal *= _tempReal;
-                _periodTotal2 += _tempReal;
-                _outIdx += 1;
+            let mut _trailingIdx: usize = 0_usize;
+            let mut _windowStart: usize = 0_usize;
+            let mut _lookbackTotal: usize = 0_usize;
+            let mut _barsSinceReseed: usize = 0_usize;
+            _lookbackTotal = (optInTimePeriod - 1) as usize;
+            if startIdx < _lookbackTotal {
+                startIdx = _lookbackTotal;
             }
-            // for( _outIdx = 0; _outIdx < (((*outNBElement) as usize)) as usize; _outIdx += 1, _startSum += 1, _endSum += 1 )
+            if startIdx > endIdx {
+                (*outBegIdx) = 0;
+                (*outNBElement) = 0;
+                return RetCode::Success;
+            }
+            _invPeriod = 1.0 / (optInTimePeriod as f64);
+            _trailingIdx = startIdx - _lookbackTotal;
+            shift = inReal[_trailingIdx];
+            maTotal = 0.0;
+            varTotal1 = 0.0;
+            varTotal2 = 0.0;
+            // for( _j = _trailingIdx; _j < startIdx; _j += 1 )
+            _j = _trailingIdx;
+            while _j < startIdx {
+                maTotal += inReal[_j];
+                _tempReal = inReal[_j] - shift;
+                varTotal1 += _tempReal;
+                _tempReal *= _tempReal;
+                varTotal2 += _tempReal;
+                _j += 1;
+            }
+            _i = startIdx;
             _outIdx = 0;
-            while _outIdx < (((*outNBElement) as usize)) as usize {
-                _tempReal = inReal[_endSum];
+            _barsSinceReseed = (32 * optInTimePeriod) as usize;
+            loop {
+                maTotal += inReal[_i];
+                _tempReal = inReal[_i] - shift;
+                varTotal1 += _tempReal;
                 _tempReal *= _tempReal;
-                _periodTotal2 += _tempReal;
-                _meanValue2 = _periodTotal2 / ((optInTimePeriod) as f64);
-                _tempReal = inReal[_startSum];
+                varTotal2 += _tempReal;
+                meanValue1 = varTotal1 * _invPeriod;
+                variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+                tempBuffer1[_outIdx] = maTotal / ((optInTimePeriod) as f64);
+                maTotal -= inReal[_trailingIdx];
+                _tempReal = inReal[_trailingIdx] - shift;
+                varTotal1 -= _tempReal;
                 _tempReal *= _tempReal;
-                _periodTotal2 -= _tempReal;
-                _tempReal = tempBuffer1[_outIdx];
-                _tempReal *= _tempReal;
-                _meanValue2 -= _tempReal;
-                if !((_meanValue2) < 1e-14) {
-                    tempBuffer2[_outIdx] = (_meanValue2).sqrt();
+                varTotal2 -= _tempReal;
+                _trailingIdx += 1;
+                _barsSinceReseed -= 1;
+                if variance < 0.000001 * (varTotal2 * _invPeriod) || _tempReal > 1000000.0 * varTotal2 || _barsSinceReseed <= 0 {
+                    _barsSinceReseed = (32 * optInTimePeriod) as usize;
+                    _windowStart = _i - _lookbackTotal;
+                    _tempReal = 0.0;
+                    for _j in (_windowStart as usize)..(_i as usize) + 1 {
+                        _tempReal += inReal[_j];
+                    }
+                    _j = (_i as usize) + 1;
+                    shift = _tempReal * _invPeriod;
+                    varTotal1 = 0.0;
+                    varTotal2 = 0.0;
+                    for _j in (_windowStart as usize)..(_i as usize) + 1 {
+                        _tempReal = inReal[_j] - shift;
+                        varTotal1 += _tempReal;
+                        _tempReal *= _tempReal;
+                        varTotal2 += _tempReal;
+                    }
+                    _j = (_i as usize) + 1;
+                    meanValue1 = varTotal1 * _invPeriod;
+                    variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+                    _tempReal = inReal[_windowStart] - shift;
+                    varTotal1 -= _tempReal;
+                    _tempReal *= _tempReal;
+                    varTotal2 -= _tempReal;
+                }
+                if !((variance) < 1e-14) {
+                    tempBuffer2[_outIdx] = (variance).sqrt();
                 } else {
                     tempBuffer2[_outIdx] = 0.0;
                 }
                 _outIdx += 1;
-                _startSum += 1;
-                _endSum += 1;
+                _i += 1;
+                if !(_i <= endIdx) { break; }
             }
+            (*outNBElement) = _outIdx;
+            (*outBegIdx) = startIdx;
             if tempBuffer1.as_ptr() != outRealMiddleBand.as_ptr() {
                 {
             let _n = ((*outNBElement) * 1) as usize;
@@ -560,6 +668,369 @@ impl Core {
         return RetCode::Success;
     }
 }
+/**** Streaming API *****/
+
+/// Live BBANDS stream: one value per closed bar, bit-identical to [`Core::bbands`]
+/// over the same series. Open with [`Core::bbands_open`]; dropping the handle
+/// closes the stream. Cloning it forks an independent stream.
+#[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
+#[derive(Debug, Clone)]
+#[doc(alias = "TA_BBANDS_Stream")]
+pub struct BbandsStream {
+    core: Core,
+    state: BbandsStreamState,
+}
+
+#[derive(Debug, Clone)]
+#[allow(non_snake_case, dead_code)]
+struct BbandsStreamState {
+    optInTimePeriod: i32,
+    optInNbDevUp: f64,
+    optInNbDevDn: f64,
+    optInMAType: i32,
+    sub0: MaStream,
+    sub1: StddevStream,
+}
+
+#[allow(non_snake_case)]
+#[allow(unused_variables)]
+#[allow(dead_code)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
+impl Core {
+    fn bbands_step_internal(&self, sp: &mut BbandsStreamState, inReal: f64, outRealUpperBand: &mut f64, outRealMiddleBand: &mut f64, outRealLowerBand: &mut f64) {
+        let mut tempReal: f64 = 0.0_f64;
+        let mut tempReal2: f64 = 0.0_f64;
+        let mut cur_tempBuffer1: f64 = 0.0_f64;
+        let mut cur_tempBuffer2: f64 = 0.0_f64;
+        let mut cur_outRealUpperBand: f64 = 0.0_f64;
+        let mut cur_outRealLowerBand: f64 = 0.0_f64;
+
+        // Pipeline the new bar through the sub-streams (batch tail order).
+        cur_tempBuffer1 = sp.sub0.update(inReal);
+        cur_tempBuffer2 = sp.sub1.update(inReal);
+        // Combine map (batch tail, per bar).
+        if sp.optInNbDevUp == sp.optInNbDevDn {
+            tempReal = cur_tempBuffer2 * sp.optInNbDevUp;
+            tempReal2 = cur_tempBuffer1;
+            cur_outRealUpperBand = tempReal2 + tempReal;
+            cur_outRealLowerBand = tempReal2 - tempReal;
+        } else {
+            tempReal2 = cur_tempBuffer1;
+            cur_outRealUpperBand = (cur_tempBuffer2 as f64).mul_add(sp.optInNbDevUp, tempReal2);
+            cur_outRealLowerBand = tempReal2 - cur_tempBuffer2 * sp.optInNbDevDn;
+        }
+        (*outRealUpperBand) = cur_outRealUpperBand;
+        (*outRealMiddleBand) = cur_tempBuffer1;
+        (*outRealLowerBand) = cur_outRealLowerBand;
+    }
+
+    /// Internal startIdx-anchored open behind [`Core::bbands_open`] (composition seam).
+    pub(crate) fn bbands_open_internal(
+        &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInNbDevUp: f64, mut optInNbDevDn: f64, mut optInMAType: i32,
+    ) -> Result<(BbandsStream, (f64, f64, f64)), RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::BadParam);
+        }
+        if inReal.len() > i32::MAX as usize {
+            return Err(RetCode::BadParam);
+        }
+        if ((optInTimePeriod) as i32) == (i32::MIN) {
+            optInTimePeriod = 5;
+        } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        let historyLen: usize = inReal.len();
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
+        let mut dummyBegIdx: usize = 0;
+        let mut dummyNBElement: usize = 0;
+        let mut lastValue_outRealUpperBand: f64 = 0.0_f64;
+        let mut lastValue_outRealMiddleBand: f64 = 0.0_f64;
+        let mut lastValue_outRealLowerBand: f64 = 0.0_f64;
+        let mut _begStore: usize = 0;
+        let mut _nbStore: usize = 0;
+        let outBegIdx: &mut usize = &mut _begStore;
+        let outNBElement: &mut usize = &mut _nbStore;
+        let mut sc_outRealUpperBand: Vec<f64> = vec![0.0_f64; historyLen];
+        let mut sc_outRealMiddleBand: Vec<f64> = vec![0.0_f64; historyLen];
+        let mut sc_outRealLowerBand: Vec<f64> = vec![0.0_f64; historyLen];
+        let mut retCode: RetCode = RetCode::Success;
+        let mut i: usize = 0_usize;
+        let mut maBegIdx: usize = 0_usize;
+        let mut shiftIdx: usize = 0_usize;
+        let mut tempReal: f64 = 0.0_f64;
+        let mut tempReal2: f64 = 0.0_f64;
+        let mut tempBuffer1: Vec<f64> = Vec::new();
+        let mut tempBuffer2: Vec<f64> = Vec::new();
+        // General path (every MA type other than SMA): the middle band is the moving
+        // average and the deviation is the standard deviation of the input, combined
+        // at the same bar. Two intermediate buffers are allocated so the input may
+        // safely alias an output (it is only read here).
+        tempBuffer1 = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
+        tempBuffer2 = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
+        // Calculate the middle band moving average.
+        // Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
+        // sub-call's own startIdx (the seeding point).
+        let (sub0, _) = self.ma_open_internal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInTimePeriod, optInMAType)?;
+        retCode = self.ma_unguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, &mut tempBuffer1[..]);
+        if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
+            (*outNBElement) = 0;
+            return Err(retCode);
+        }
+        // Remember where the moving average begins, to realign it below.
+        maBegIdx = ((*outBegIdx) as usize) as usize;
+        // Calculate the Standard Deviation into tempBuffer2.
+        // Sub-stream 1: stddev over `inReal`, warmed from bar 0 up to the
+        // sub-call's own startIdx (the seeding point).
+        let (sub1, _) = self.stddev_open_internal(&inReal[..((endIdx) as usize) + 1], (((*outBegIdx) as usize) as usize), optInTimePeriod, 1.0)?;
+        retCode = self.stddev_unguarded(((*outBegIdx) as usize) as usize, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, &mut tempBuffer2[..]);
+        if retCode != RetCode::Success {
+            (*outNBElement) = 0;
+            return Err(retCode);
+        }
+        // When the standard deviation (lookback optInTimePeriod-1) clamps to a later
+        // begIdx than the moving average did - as with TA_MAType_MAMA (constant
+        // lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
+        // at the earlier maBegIdx. Copy it forward from that shift into the middle
+        // band so each band value pairs the moving average and standard deviation of
+        // the same bar. The guarded subtraction keeps shiftIdx non-negative even when
+        // the standard deviation produced no output (an empty range leaves *outBegIdx
+        // at 0), which the unconditional copy below then handles as a zero-length move.
+        if (((*outBegIdx) as usize)) as usize > maBegIdx {
+            shiftIdx = (((*outBegIdx) as usize)) as usize - maBegIdx;
+        } else {
+            shiftIdx = 0;
+        }
+        {
+            let _n = ((*outNBElement) * 1) as usize;
+            let _di = (0) as usize;
+            let _si = (shiftIdx) as usize;
+            sc_outRealMiddleBand[_di.._di + _n].copy_from_slice(&tempBuffer1[_si.._si + _n]);
+        };
+        // Now do a tight loop to calculate the upper/lower band at the same time.
+        if optInNbDevUp == optInNbDevDn {
+            // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
+            i = 0;
+            while i < (((*outNBElement) as usize)) as usize {
+                tempReal = tempBuffer2[i] * optInNbDevUp;
+                tempReal2 = sc_outRealMiddleBand[i];
+                sc_outRealUpperBand[i] = tempReal2 + tempReal;
+                sc_outRealLowerBand[i] = tempReal2 - tempReal;
+                i += 1;
+            }
+        } else {
+            // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
+            i = 0;
+            while i < (((*outNBElement) as usize)) as usize {
+                tempReal2 = sc_outRealMiddleBand[i];
+                sc_outRealUpperBand[i] = (tempBuffer2[i] as f64).mul_add(optInNbDevUp, tempReal2);
+                sc_outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
+                i += 1;
+            }
+        }
+
+        // Capture the live producer state + sub handles.
+        if *outNBElement < 1 {
+            return Err(RetCode::BadParam);
+        }
+        let state = BbandsStreamState {
+            optInTimePeriod,
+            optInNbDevUp,
+            optInNbDevDn,
+            optInMAType,
+            sub0,
+            sub1,
+        };
+        Ok((BbandsStream { core: self.clone(), state }, (sc_outRealUpperBand[*outNBElement - 1], sc_outRealMiddleBand[*outNBElement - 1], sc_outRealLowerBand[*outNBElement - 1])))
+    }
+
+    /// Open a live BBANDS stream over the warm-up history; returns the handle and
+    /// the value at the last history bar — bit-identical to [`Core::bbands`] at that bar.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
+    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    ///
+    /// let core = Core::new();
+    /// let (mut s, _last) = core.bbands_open(&data, 5, 2.0, 2.0, 0).expect("enough history");
+    /// let peeked = s.peek(100.9);
+    /// let updated = s.update(100.9);
+    /// assert_eq!(peeked.0.to_bits(), updated.0.to_bits());
+    /// assert_eq!(peeked.1.to_bits(), updated.1.to_bits());
+    /// assert_eq!(peeked.2.to_bits(), updated.2.to_bits());
+    /// ```
+    #[doc(alias = "TA_BBANDS_Open")]
+    pub fn bbands_open(&self, inReal: &[f64], optInTimePeriod: i32, optInNbDevUp: f64, optInNbDevDn: f64, optInMAType: i32) -> Result<(BbandsStream, (f64, f64, f64)), RetCode> {
+        self.bbands_open_internal(inReal, 0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)
+    }
+
+    /// [`Core::bbands_open`] that also fills the output array(s) bit-identically to
+    /// [`Core::bbands`] over `0..len` in the same single pass. Output slices must hold
+    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    #[doc(alias = "TA_BBANDS_OpenAndFill")]
+    pub fn bbands_open_and_fill(
+        &self, inReal: &[f64], mut optInTimePeriod: i32, mut optInNbDevUp: f64, mut optInNbDevDn: f64, mut optInMAType: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outRealUpperBand: &mut [f64], outRealMiddleBand: &mut [f64], outRealLowerBand: &mut [f64],
+    ) -> Result<BbandsStream, RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::BadParam);
+        }
+        if inReal.len() > i32::MAX as usize {
+            return Err(RetCode::BadParam);
+        }
+        if outRealUpperBand.as_ptr() == outRealMiddleBand.as_ptr() {
+            return Err(RetCode::BadParam);
+        }
+        if outRealUpperBand.as_ptr() == outRealLowerBand.as_ptr() {
+            return Err(RetCode::BadParam);
+        }
+        if outRealMiddleBand.as_ptr() == outRealLowerBand.as_ptr() {
+            return Err(RetCode::BadParam);
+        }
+        if ((optInTimePeriod) as i32) == (i32::MIN) {
+            optInTimePeriod = 5;
+        } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        let historyLen: usize = inReal.len();
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx: usize = 0;
+        let mut dummyBegIdx: usize = 0;
+        let mut dummyNBElement: usize = 0;
+        let mut sc_outRealUpperBand: Vec<f64> = vec![0.0_f64; historyLen];
+        let mut sc_outRealMiddleBand: Vec<f64> = vec![0.0_f64; historyLen];
+        let mut sc_outRealLowerBand: Vec<f64> = vec![0.0_f64; historyLen];
+        let mut retCode: RetCode = RetCode::Success;
+        let mut i: usize = 0_usize;
+        let mut maBegIdx: usize = 0_usize;
+        let mut shiftIdx: usize = 0_usize;
+        let mut tempReal: f64 = 0.0_f64;
+        let mut tempReal2: f64 = 0.0_f64;
+        let mut tempBuffer1: Vec<f64> = Vec::new();
+        let mut tempBuffer2: Vec<f64> = Vec::new();
+        // General path (every MA type other than SMA): the middle band is the moving
+        // average and the deviation is the standard deviation of the input, combined
+        // at the same bar. Two intermediate buffers are allocated so the input may
+        // safely alias an output (it is only read here).
+        tempBuffer1 = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
+        tempBuffer2 = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
+        // Calculate the middle band moving average.
+        // Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
+        // sub-call's own startIdx (the seeding point).
+        let (sub0, _) = self.ma_open_internal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInTimePeriod, optInMAType)?;
+        retCode = self.ma_unguarded(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, &mut tempBuffer1[..]);
+        if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
+            (*outNBElement) = 0;
+            return Err(retCode);
+        }
+        // Remember where the moving average begins, to realign it below.
+        maBegIdx = ((*outBegIdx) as usize) as usize;
+        // Calculate the Standard Deviation into tempBuffer2.
+        // Sub-stream 1: stddev over `inReal`, warmed from bar 0 up to the
+        // sub-call's own startIdx (the seeding point).
+        let (sub1, _) = self.stddev_open_internal(&inReal[..((endIdx) as usize) + 1], (((*outBegIdx) as usize) as usize), optInTimePeriod, 1.0)?;
+        retCode = self.stddev_unguarded(((*outBegIdx) as usize) as usize, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, &mut tempBuffer2[..]);
+        if retCode != RetCode::Success {
+            (*outNBElement) = 0;
+            return Err(retCode);
+        }
+        // When the standard deviation (lookback optInTimePeriod-1) clamps to a later
+        // begIdx than the moving average did - as with TA_MAType_MAMA (constant
+        // lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
+        // at the earlier maBegIdx. Copy it forward from that shift into the middle
+        // band so each band value pairs the moving average and standard deviation of
+        // the same bar. The guarded subtraction keeps shiftIdx non-negative even when
+        // the standard deviation produced no output (an empty range leaves *outBegIdx
+        // at 0), which the unconditional copy below then handles as a zero-length move.
+        if (((*outBegIdx) as usize)) as usize > maBegIdx {
+            shiftIdx = (((*outBegIdx) as usize)) as usize - maBegIdx;
+        } else {
+            shiftIdx = 0;
+        }
+        {
+            let _n = ((*outNBElement) * 1) as usize;
+            let _di = (0) as usize;
+            let _si = (shiftIdx) as usize;
+            sc_outRealMiddleBand[_di.._di + _n].copy_from_slice(&tempBuffer1[_si.._si + _n]);
+        };
+        // Now do a tight loop to calculate the upper/lower band at the same time.
+        if optInNbDevUp == optInNbDevDn {
+            // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
+            i = 0;
+            while i < (((*outNBElement) as usize)) as usize {
+                tempReal = tempBuffer2[i] * optInNbDevUp;
+                tempReal2 = sc_outRealMiddleBand[i];
+                sc_outRealUpperBand[i] = tempReal2 + tempReal;
+                sc_outRealLowerBand[i] = tempReal2 - tempReal;
+                i += 1;
+            }
+        } else {
+            // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
+            i = 0;
+            while i < (((*outNBElement) as usize)) as usize {
+                tempReal2 = sc_outRealMiddleBand[i];
+                sc_outRealUpperBand[i] = (tempBuffer2[i] as f64).mul_add(optInNbDevUp, tempReal2);
+                sc_outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
+                i += 1;
+            }
+        }
+
+        // Capture the live producer state + sub handles.
+        if *outNBElement < 1 {
+            return Err(RetCode::BadParam);
+        }
+        let state = BbandsStreamState {
+            optInTimePeriod,
+            optInNbDevUp,
+            optInNbDevDn,
+            optInMAType,
+            sub0,
+            sub1,
+        };
+        outRealUpperBand[..*outNBElement].copy_from_slice(&sc_outRealUpperBand[..*outNBElement]);
+        outRealMiddleBand[..*outNBElement].copy_from_slice(&sc_outRealMiddleBand[..*outNBElement]);
+        outRealLowerBand[..*outNBElement].copy_from_slice(&sc_outRealLowerBand[..*outNBElement]);
+        Ok(BbandsStream { core: self.clone(), state })
+    }
+
+}
+
+#[allow(non_snake_case)]
+#[allow(unused_variables)]
+impl BbandsStream {
+    /// Commit one closed bar; always produces a value. Never allocates.
+    #[doc(alias = "TA_BBANDS_Update")]
+    pub fn update(&mut self, inReal: f64) -> (f64, f64, f64) {
+        let mut outRealUpperBand: f64 = 0.0_f64;
+        let mut outRealMiddleBand: f64 = 0.0_f64;
+        let mut outRealLowerBand: f64 = 0.0_f64;
+        self.core.bbands_step_internal(&mut self.state, inReal, &mut outRealUpperBand, &mut outRealMiddleBand, &mut outRealLowerBand);
+        (outRealUpperBand, outRealMiddleBand, outRealLowerBand)
+    }
+
+    /// Evaluate a forming bar without committing — bit-identical to what the
+    /// next `update` with the same bar would return (it is the same code, run on
+    /// a throwaway clone). Clones the internal state (allocates for windowed
+    /// indicators).
+    #[doc(alias = "TA_BBANDS_Peek")]
+    #[must_use]
+    pub fn peek(&self, inReal: f64) -> (f64, f64, f64) {
+        let mut scratch = self.clone();
+        scratch.update(inReal)
+    }
+}
+
+const _: () = {
+    const fn _assert_auto<T: Send + Sync + Clone>() {}
+    _assert_auto::<BbandsStream>();
+};
+
 /***************/
 /* End of File */
 /***************/

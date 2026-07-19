@@ -231,9 +231,14 @@ static int json_is_error(const char *json)
 /* ---- Unstable period lookup ---- */
 
 /* Map function name to TA_FuncUnstId for range-sweep tolerance selection.
- * Entries are the 22 functions that carry TA_FUNC_FLG_UNST_PER, plus the 6
- * EMA-derived functions (DEMA/TEMA/TRIX/MACD/MACDEXT/MACDFIX) that converge
- * like EMA. IMI and MFI are deliberately excluded (finite-window, stable).
+ * Entries are the 22 functions that carry TA_FUNC_FLG_UNST_PER, plus the 8
+ * EMA-derived functions (DEMA/TEMA/TRIX/MACD/MACDEXT/MACDFIX + APO/PPO) that
+ * converge like EMA. APO and PPO now default to EMA (issue #120), so their
+ * default-parameter range sweep is EMA-converging and needs the loose convergence
+ * envelope; the envelope is a safe superset for their finite-window (SMA/WMA/…)
+ * parameterisations too. (MACDEXT defaults to SMA but is in this list on the same
+ * safe-superset basis — it converges only when an optional MA type is set to EMA.)
+ * IMI and MFI are deliberately excluded (finite-window, stable).
  */
 typedef struct {
     const char   *name;
@@ -277,6 +282,9 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     {"MACD",         TA_FUNC_UNST_EMA},
     {"MACDEXT",      TA_FUNC_UNST_EMA},
     {"MACDFIX",      TA_FUNC_UNST_EMA},
+    /* APO/PPO default to EMA (#120) -> EMA-converging, like MACDEXT. */
+    {"APO",          TA_FUNC_UNST_EMA},
+    {"PPO",          TA_FUNC_UNST_EMA},
 };
 #define NUM_UNSTABLE_MAP (sizeof(UNSTABLE_MAP) / sizeof(UNSTABLE_MAP[0]))
 
@@ -1020,7 +1028,11 @@ static unsigned int get_integer_tolerance(const TA_FuncInfo *funcInfo)
      * startIdx and path-dependent state machines cannot converge.
      * Tolerances mirror the hand-written tests (test_adx.c, test_1in_*.c),
      * extended to the whole Wilder family for sampling robustness. */
-    static const char *rangeDependent[] = { "AD", "ADOSC", "OBV", "SAR", "SAREXT" };
+    /* The start-dependent set is declared at the function definition site by the
+     * `start_dependent` YAML flag (issue #127), surfaced through ta_abstract as
+     * TA_FUNC_FLG_START_DEP — a single source of truth read here from the same
+     * flags every ta_abstract consumer sees, no hand-edited second list for each
+     * new cumulative / seed-anchored indicator. */
     static const struct { const char *name; unsigned int tol; } perFuncTol[] = {
         { "MINUS_DI", 2 }, { "PLUS_DI", 2 }, { "DX", 2 },
         { "ADX", 2 }, { "ADXR", 2 },
@@ -1029,11 +1041,8 @@ static unsigned int get_integer_tolerance(const TA_FuncInfo *funcInfo)
         { "HT_DCPHASE", 360 },
         { "HT_SINE", 10 },
     };
-    for( unsigned int i = 0; i < sizeof(rangeDependent)/sizeof(rangeDependent[0]); i++ )
-    {
-        if( strcmp(funcInfo->name, rangeDependent[i]) == 0 )
-            return TA_DO_NOT_COMPARE;
-    }
+    if( funcInfo->flags & TA_FUNC_FLG_START_DEP )
+        return TA_DO_NOT_COMPARE;
     for( unsigned int i = 0; i < sizeof(perFuncTol)/sizeof(perFuncTol[0]); i++ )
     {
         if( strcmp(funcInfo->name, perFuncTol[i].name) == 0 )
@@ -1064,8 +1073,10 @@ static unsigned int get_integer_tolerance(const TA_FuncInfo *funcInfo)
 static TA_RangeStability stability_class(const TA_FuncInfo *funcInfo)
 {
     /* SKIP is NOT maintained as a second list here: it is exactly the set that
-     * get_integer_tolerance() marks TA_DO_NOT_COMPARE (accumulations seeded at
-     * startIdx and path-dependent state machines -- AD, ADOSC, OBV, SAR, SAREXT).
+     * get_integer_tolerance() marks TA_DO_NOT_COMPARE -- the functions carrying
+     * the `start_dependent` YAML flag (accumulations seeded at startIdx and
+     * path-dependent state machines), surfaced through ta_abstract as
+     * TA_FUNC_FLG_START_DEP (issue #127).
      * Deriving it from that single source guarantees the real-output skip (this
      * class, via dataWithinReasonableRange) and the integer-output skip
      * (doRangeTestFixSize, keyed on the same DO_NOT_COMPARE) can never drift
@@ -1105,10 +1116,13 @@ static TA_RangeStability stability_class(const TA_FuncInfo *funcInfo)
      * only by ~1e-9 FP rounding across ranges. This is also the default for any
      * function not listed above, so the array need only carry MFI (issue #4) as a
      * documented archetype. Audited running-accumulator functions that rely on
-     * that default: ACCBANDS, APO, BBANDS, BETA, CCI, CORREL, MA, MAVP, PPO, SMA,
-     * STDDEV, STOCH, STOCHF, SUM, TRIMA, ULTOSC, VAR, WMA. MACDEXT stays
-     * CONVERGING (it is EPSILON only at the default SMA type, but carries the EMA
-     * unstable-period id for its EMA-type parameterisations). */
+     * that default: ACCBANDS, BBANDS, BETA, CCI, CORREL, MA, MAVP, SMA,
+     * STDDEV, STOCH, STOCHF, SUM, TRIMA, ULTOSC, VAR, WMA. MACDEXT — and now
+     * APO/PPO (issue #120) — stay CONVERGING: they are EPSILON at the SMA MA type
+     * but carry the EMA unstable-period id (via UNSTABLE_MAP), so the convergence
+     * envelope covers every MA-type sweep. APO/PPO default to EMA (their default
+     * sweep is genuinely converging); MACDEXT defaults to SMA and is listed on the
+     * safe-superset basis (converging only for its EMA-type parameterisations). */
     static const char *epsilon[] = { "MFI" };
 
     for( unsigned int i = 0; i < sizeof(exact)/sizeof(exact[0]); i++ )
@@ -1194,6 +1208,9 @@ typedef struct {
     const char       *functionFilter;
     CodegenPipe      *cp;
     CodegenPipe      *refCp;       /* ta_ref_serve oracle (shared across languages) */
+    const char       *refFuncList; /* ta_ref_serve list_functions payload (subset
+                                    * gate: skip functions the frozen reference
+                                    * lacks — post-tag additions have no baseline) */
     char             *requestBuf;
     char             *responseBuf;
     ErrorNumber       error;
@@ -1210,6 +1227,7 @@ typedef struct {
     int               streamLegs;
     int               streamSkipped;
     int               streamRejectArms;
+    int               streamFillFunctions; /* funcs whose OpenAndFill == batch(0,n-1) bitwise */
 } ForEachFuncContext;
 
 static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
@@ -1223,6 +1241,19 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     /* Apply function filter */
     if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) )
         return;
+
+    /* Subset gate: the comparison baseline is the FROZEN ta_ref_serve, so a
+     * function added after the pinned reference tag has no baseline there
+     * (ta_ref_serve omits it from list_functions and stubs its symbol — see
+     * scripts/serve_version.py). Skip it rather than hard-fail on the missing
+     * baseline; it stays covered by server_verify, --xlang-hash and its
+     * hard-coded tests. Mirrors the --fuzz-064 subset gate. */
+    if( ctx->refFuncList )
+    {
+        char needle[80];
+        snprintf(needle, sizeof(needle), "\"TA_%s\"", funcInfo->name);
+        if( !strstr(ctx->refFuncList, needle) ) { ctx->skipped++; return; }
+    }
 
     /* Skip functions with integer inputs (very rare, no test data) */
     unsigned int hasIntegerInput = 0;
@@ -1732,6 +1763,15 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     if( funcInfo->nbOptInput == 0 || funcInfo->nbOptInput > SWEEP_MAX_OPT )
         return;
 
+    /* Subset gate: this sweep diffs against the FROZEN ta_ref_serve too, so skip
+     * functions the reference lacks (post-tag additions — see test_one_function). */
+    if( ctx->refFuncList )
+    {
+        char needle[80];
+        snprintf(needle, sizeof(needle), "\"TA_%s\"", funcInfo->name);
+        if( !strstr(ctx->refFuncList, needle) ) return;
+    }
+
     /* Skip functions with integer inputs (same rule as the main pass). */
     for( i = 0; i < funcInfo->nbInput; i++ )
     {
@@ -2186,6 +2226,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     int vecIsEnum[STREAM_MAX_VEC];
     int vecIsMin[STREAM_MAX_VEC];
     int nvec, v, variant, legs = 0, rejArms = 0, vecOverflow = 0;
+    int fillChecked = 0;   /* set once any leg reports OpenAndFill was verified */
     int isUnstable;
 
     if( ctx->error != TA_TEST_PASS ) return;
@@ -2289,6 +2330,25 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 ctx->error = TA_CODEGEN_STREAM_MISMATCH;
                 return;
             }
+            /* OpenAndFill leg (loop tier today): the whole filled array ==
+             * batch(0,n-1) bitwise. Checked before the generic ok flag so a
+             * fill-only regression reports its own message; folded into ok
+             * server-side too, so it fails even if this check regresses. */
+            if( stream_flag(ctx->responseBuf, "\"fill_checked\":") == 1 )
+            {
+                fillChecked = 1;
+                if( stream_flag(ctx->responseBuf, "\"fill_ok\":") != 1 )
+                {
+                    printf("STREAM FILL MISMATCH [TA_%s] vector=%d K=%d compat=%d "
+                           "(OpenAndFill array != batch(0,n-1))\n"
+                           "  request:  %s\n  response: %s\n",
+                           funcInfo->name, v, K, compat,
+                           ctx->requestBuf, ctx->responseBuf);
+                    ctx->failed++;
+                    ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                    return;
+                }
+            }
             if( stream_flag(ctx->responseBuf, "\"ok\":") != 1 ||
                 stream_flag(ctx->responseBuf, "\"peek_ok\":") != 1 )
             {
@@ -2324,6 +2384,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     ctx->streamFunctions++;
     ctx->streamLegs += legs;
     ctx->streamRejectArms += rejArms;
+    if( fillChecked ) ctx->streamFillFunctions++;
 }
 
 /* ---- Test orchestration (Task 9) ---- */
@@ -2421,6 +2482,46 @@ static ErrorNumber test_predicate_parity(CodegenPipe *cp, const CodegenLanguage 
     return TA_TEST_PASS;
 }
 
+/* Fuzz-port self-check for stream-capable servers (capability-gated): a
+ * server that PORTS fuzz_gen (Java FuzzData, Rust fuzz.rs) must reproduce the
+ * driver's inputs byte-identically, or every stream leg silently exercises
+ * different data. Servers that compile fuzz_data.h directly (the C server)
+ * answer no fuzz_in_hash and are skipped. Returns the number of mismatched
+ * shapes (0 = port bit-identical or no port to check). */
+#ifndef FUZZ_MAXN
+#define FUZZ_MAXN 256   /* bars per config (kept equal to the fuzz section's define) */
+#endif
+static unsigned long long xlang_in_hash_local(int shape, int seed, int n);
+static unsigned long long xlang_parse_hash(const char *resp, const char *field, int *present);
+static int stream_fuzz_port_selfcheck(CodegenPipe *cp, char *requestBuf, char *responseBuf)
+{
+    int fuzzChecked = 0, fuzzFails = 0, shape;
+    int n = 240;
+    if( n > FUZZ_MAXN ) n = FUZZ_MAXN;
+    for( shape = 0; shape < FUZZ_NSHAPES; shape++ )
+    {
+        int present = 0;
+        unsigned long long ih;
+        sprintf(requestBuf,
+                "{\"method\":\"fuzz_in_hash\",\"params\":{"
+                "\"gen_shape\":%d,\"gen_seed\":7,\"gen_n\":%d}}", shape, n);
+        if( codegen_pipe_call(cp, requestBuf, responseBuf, JSON_BUF_SIZE) != TA_TEST_PASS )
+            break;
+        ih = xlang_parse_hash(responseBuf, "in_hash", &present);
+        if( !present ) break;   /* in-process fuzz (C server) — nothing to check */
+        fuzzChecked++;
+        if( ih != xlang_in_hash_local(shape, 7, n) )
+        {
+            printf("  STREAM FUZZ PORT MISMATCH shape=%d (server fuzz_gen != C)\n", shape);
+            fuzzFails++;
+        }
+    }
+    if( fuzzChecked > 0 )
+        printf("  Fuzz-port self-check: %d/%d shapes bit-identical\n",
+               fuzzChecked - fuzzFails, fuzzChecked);
+    return fuzzFails;
+}
+
 static ErrorNumber test_codegen_for_language(
     const CodegenLanguage *lang,
     int langIndex,
@@ -2475,6 +2576,22 @@ static ErrorNumber test_codegen_for_language(
     ctx.langIndex      = langIndex;
     ctx.lang           = lang;
 
+    /* Cache the frozen reference's supported-function set for the subset gate:
+     * functions added after the pinned tag have no ta_ref_serve baseline and are
+     * skipped (see test_one_function / sweep_one_function). Mirrors --fuzz-064. */
+    char *refFuncList = NULL;
+    if( refCp )
+    {
+        refFuncList = malloc(JSON_BUF_SIZE);
+        if( refFuncList
+            && codegen_pipe_call(refCp, "{\"method\":\"list_functions\",\"params\":{}}",
+                                 refFuncList, JSON_BUF_SIZE) == TA_TEST_PASS
+            && strstr(refFuncList, "\"functions\"") )
+            ctx.refFuncList = refFuncList;
+        else
+            printf("  (warning: ta_ref_serve list_functions failed — subset gate disabled)\n");
+    }
+
     TA_ForEachFunc(test_one_function, &ctx);
 
     /* Cross-language boolean-builtin parity (IS_ZERO family) vs the in-process
@@ -2516,15 +2633,35 @@ static ErrorNumber test_codegen_for_language(
         probeErr = codegen_pipe_call(&cp, requestBuf, responseBuf, JSON_BUF_SIZE);
         if( probeErr == TA_TEST_PASS && strstr(responseBuf, "not_streamable") )
         {
-            ctx.streamFunctions   = 0;
-            ctx.streamLegs        = 0;
-            ctx.streamSkipped     = 0;
-            ctx.streamRejectArms  = 0;
+            if( stream_fuzz_port_selfcheck(&cp, requestBuf, responseBuf) > 0 )
+                ctx.error = TA_CODEGEN_OUTPUT_MISMATCH;
+            ctx.streamFunctions     = 0;
+            ctx.streamLegs          = 0;
+            ctx.streamSkipped       = 0;
+            ctx.streamRejectArms    = 0;
+            ctx.streamFillFunctions = 0;
             TA_ForEachFunc(stream_one_function, &ctx);
             printf("  Stream verify: %d functions, %d legs bit-exact vs batch, "
-                   "%d expected-reject probes, %d without a stream\n",
+                   "%d expected-reject probes, %d without a stream\n"
+                   "  OpenAndFill verify: %d functions, filled array == batch(0,n-1) bitwise\n",
                    ctx.streamFunctions, ctx.streamLegs, ctx.streamRejectArms,
-                   ctx.streamSkipped);
+                   ctx.streamSkipped, ctx.streamFillFunctions);
+            /* Coverage ratchet: every function with a server stream must ALSO
+             * verify OpenAndFill (the emit side and this verify side both gate on
+             * the same has_open_and_fill, so they cannot desync silently — but if
+             * a future tier stops emitting OpenAndFill, that function still streams
+             * and passes the legs floor while emitting no fill leg. This floor
+             * fails loudly the moment fill coverage drops below stream coverage,
+             * the OpenAndFill analogue of the legs<=0 STREAM VACUOUS floor. */
+            if( ctx.error == TA_TEST_PASS &&
+                ctx.streamFillFunctions != ctx.streamFunctions )
+            {
+                printf("STREAM FILL VACUOUS: only %d of %d streaming functions "
+                       "verified OpenAndFill — every streamable function must also "
+                       "gate-verify its fill array\n",
+                       ctx.streamFillFunctions, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
         }
         else if( probeErr == TA_TEST_PASS )
         {
@@ -2538,6 +2675,7 @@ static ErrorNumber test_codegen_for_language(
 
     free(requestBuf);
     free(responseBuf);
+    free(refFuncList);
     codegen_pipe_close(&cp);
 
     if( ctx.error != TA_TEST_PASS )
@@ -2948,6 +3086,7 @@ typedef struct {
     long long    fmaTol;      /* cases tolerated by the one-time FMA re-baselining gate (PR #96) */
     double       maxFmaRel;   /* largest FMA-tolerated relative divergence observed (evidence vs the 1e-9 contract) */
     long long    stochRsiSkipped; /* STOCHRSI cases skipped: intentionally diverges from 0.6.4 (issue #107) */
+    long long    varianceSkipped; /* VAR/STDDEV/BBANDS cases skipped: cancellation-free variance re-baseline (issue #118) */
     int          reportedThisFunc;
     int          funcsWithFailures, funcsBenign, funcsSkipped;
     int          serverRestarts;
@@ -3387,6 +3526,17 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
      * (STOCH/STOCHF on raw OHLC do NOT diverge and stay strictly compared.) */
     if( strcmp(funcInfo->name, "STOCHRSI") == 0 ) { ctx->stochRsiSkipped++; return; }
 
+    /* VAR/STDDEV/BBANDS intentionally diverge from 0.6.4 (issue #118): their
+     * variance moved from the catastrophically-cancelling E[x^2]-mean^2 to a
+     * cancellation-free shifted-data form, so on ill-conditioned windows 0.6.4
+     * (which collapsed - SourceForge bug 90) is the wrong oracle. Excluded from the
+     * differential fuzz; the new behaviour is pinned by test_stddev.c and the
+     * BBANDS stable-variance test, and stays bitwise cross-language (--xlang-hash)
+     * and batch==stream (stream_verify). */
+    if( strcmp(funcInfo->name, "VAR") == 0 ||
+        strcmp(funcInfo->name, "STDDEV") == 0 ||
+        strcmp(funcInfo->name, "BBANDS") == 0 ) { ctx->varianceSkipped++; return; }
+
     for( i = 0; i < funcInfo->nbInput; i++ )
     {
         const TA_InputParameterInfo *ii;
@@ -3633,6 +3783,9 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     if( ctx.stochRsiSkipped > 0 )
         printf("stochrsi-skipped: %lld STOCHRSI case(s) — intentionally diverges from 0.6.4 (issue #107); pinned by test_stoch.c\n",
                ctx.stochRsiSkipped);
+    if( ctx.varianceSkipped > 0 )
+        printf("variance-skipped: %lld VAR/STDDEV/BBANDS case(s) — cancellation-free variance re-baseline (issue #118); pinned by test_stddev.c + BBANDS stable-variance test\n",
+               ctx.varianceSkipped);
     if( ctx.serverRestarts )
         printf("oracle restarts (recovered crashes): %d\n", ctx.serverRestarts);
     if( ctx.comparisons == 0 )
@@ -4359,7 +4512,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
     if( inFails == 0 && ctx.error == TA_TEST_PASS )
     {
         printf("\nOutput parity gate (%d function(s) x shapes x seeds x sizes x params x subranges)...\n",
-               161);
+               162);
         TA_ForEachFunc(xlang_one_function, &ctx);
     }
     else if( inFails > 0 )

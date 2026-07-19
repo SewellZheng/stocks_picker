@@ -186,6 +186,16 @@ typedef int TA_FuncFlags;
                                           * unstable period. See Documentation.
                                           */
 #define TA_FUNC_FLG_CANDLESTICK 0x10000000 /* Output shall be a candlestick */
+#define TA_FUNC_FLG_START_DEP 0x20000000 /* Output value is start-dependent: it
+                                          * depends on the requested startIdx and
+                                          * never converges across ranges (a
+                                          * running accumulation seeded at the
+                                          * first bar, or a path-dependent state
+                                          * machine), so the same bar computed
+                                          * from a different startIdx can differ.
+                                          * e.g. AD, ADOSC, OBV, NVI, PVI, SAR,
+                                          * SAREXT.
+                                          */
 
 typedef struct TA_FuncInfo
 {
@@ -372,6 +382,9 @@ typedef int TA_OutputFlags;
 #define TA_OUT_ZERO              0x00000400 /* Output can be zero */
 #define TA_OUT_UPPER_LIMIT       0x00000800 /* Indicates that the values represent an upper limit. */
 #define TA_OUT_LOWER_LIMIT       0x00001000 /* Indicates that the values represent a lower limit. */
+#define TA_OUT_NULLABLE          0x00002000 /* The output pointer may be NULL: the caller can discard
+                                             * this output (it is computed but not written). E.g. MAMA's
+                                             * FAMA line when only the MAMA line is wanted. */
 
 
 /* The following 3 structures will exist for each input, optional

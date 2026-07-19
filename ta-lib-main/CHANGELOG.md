@@ -11,17 +11,36 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - (#81) Microsoft VCPKG support. Thanks @greenTableWork !
 - (#78) CMake can now opt out of building the static or the shared library (both built by default). Thanks @BwL1289 !
 - (#75) More docs for DEMA, TEMA, T3, MFI, ULTOSC, KAMA and TRIX. Thanks @nehemiah888 !
-
-### Changed
-- API: `TA_FUNC_UNST_MFI` and `TA_FUNC_UNST_IMI` enum constants removed
+- Rust streaming API: every indicator gains `<name>_open` / `<name>_open_and_fill` on `Core` plus an owned
+  handle with infallible `update`/`peek` (drop = close), bit-identical to batch and verified by the same
+  stream gate as C.
+- Java streaming API: every indicator gains `xxxOpen` / `xxxOpenAndFill` on `Core` returning a nested
+  handle class (`Core.SmaStream`) with `update`/`peek`/`value()`/`copy()` (no close — GC suffices),
+  bit-identical to batch and verified by the same stream gate as C and Rust. Too little history throws
+  the new `InsufficientHistoryException`.
+- New TA Functions:
+  - PVO: Percentage Volume Oscillator (#119)
+  - CMOU: Chande Momentum Oscillator, Unsmoothed (#124)
+  - NVI: Negative Volume Index (#126)
+  - PVI: Positive Volume Index (#126)
+- (#125) Optional (nullable) outputs: an output can be skipped by passing `NULL`, advertised by the new `TA_OUT_NULLABLE` flag in `ta_abstract`. MAMA's FAMA line is the first — `TA_MAMA(..., outMAMA, NULL)` computes only the MAMA line, and `MAType=MAMA` now works inside `MA`/`BBANDS`/`STOCH`/`MACDEXT`/`APO`/`PPO`/`MAVP` without an internal scratch buffer.
+- (#127) New `TA_FUNC_FLG_START_DEP` flag in `ta_abstract` marks the functions whose output is *start-dependent* — its absolute value depends on the requested start index and never converges across ranges (a running accumulation seeded at the first bar, or a path-dependent state machine): AD, ADOSC, OBV, NVI, PVI, SAR, SAREXT.
 - Algo Optimisations:
-  - 3x to 7x faster: DEMA, TEMA and TRIX
+  - ~3x to 7x faster: DEMA, TEMA and TRIX
   - ~8x faster: MACD and MACDFIX
   - ~8x faster: MACDEXT when all three MA types are EMA.
-  - ~10% faster: ATR and NATR
   - ~2.4x faster: ACCBANDS
+  - ~20% faster: VAR, STDDEV, BBANDS
+  - ~10% faster: ATR and NATR
+
+### Changed
+- (#120) PPO and APO now default `optInMAType` to EMA (was SMA), matching Gerald Appel's original PPO/MACD definition. Pass `TA_MAType_SMA` explicitly to keep the previous behavior.
+- (#96) Fused multiply-add and other floating-point re-ordering produce minor output differences; an intentional modernization.
+- API: `TA_FUNC_UNST_MFI` and `TA_FUNC_UNST_IMI` enum constants removed
+- (#122) Removed the `ide/` directory (Visual Studio/Xcode/MSVC project files). Use autotools, CMake and vcpkg instead.
 
 ### Fixed
+- (#118) VAR, STDDEV and BBANDS more precise and faster.
 - (#33) Float overflow in the single-precision (`TA_S_*`) functions. Thanks @iglesias !
 - (#64) Website docs mixing up CDL3LINESTRIKE with CDL3OUTSIDE's description. Thanks @mw66 !
 - (#7) CCI returned a spurious value when all prices over the period were identical; Thanks @trufanov-nok for identifying and resolving this!
@@ -30,9 +49,9 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - (#107) MFI and STOCHRSI could return a wrong value when floating-point rounding left a near-zero result that was then compared exactly against zero. Thanks @Caleblgx, @trufanov-nok and @mrjbq7 !
 - (#4,#14) MFI and IMI are no longer flagged as having an unstable period. Thanks @mw66 and @wony-zheng !
 - (#99) BBANDS with `TA_MAType_MAMA` and a period >= 34 returned a misaligned middle band.
-- (#77) The CMake shared library now links libm directly, so it declares its own math-library dependency instead of relying on the consuming program to provide it. Thanks @BwL1289 !
+- (#77) CMake shared library now links libm directly, so it declares its own math-library dependency instead of relying on the consuming program to provide it. Thanks @BwL1289 !
 - (#102) Fixed ULTOSC and CDL3INSIDE performance regression (only in 0.7.1)
-- (#112) IMI returned NaN from a successful call on an all-flat window (every bar `close == open`, e.g. a halted/illiquid instrument or a constant series): the `0/0` is now guarded to return IMI's neutral center, 50.0.
+- (#112) IMI returned NaN on an all-flat window (every bar `close == open`); now returns the neutral 50.0.
 
 ## [0.7.1] 2026-07-03
 ### Added

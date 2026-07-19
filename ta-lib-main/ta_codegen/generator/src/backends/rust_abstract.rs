@@ -404,6 +404,7 @@ pub(crate) fn func_flag_bits(flags: &[String]) -> u32 {
             "volume" => b |= 0x0400_0000,
             "unstable_period" => b |= 0x0800_0000,
             "candlestick" => b |= 0x1000_0000,
+            "start_dependent" => b |= 0x2000_0000, // TA_FUNC_FLG_START_DEP
             _ => {}
         }
     }
@@ -441,6 +442,7 @@ pub(crate) fn output_flag_bits(flags: &[String]) -> u32 {
             "zero" => b |= 0x0000_0400,
             "upper_limit" => b |= 0x0000_0800,
             "lower_limit" => b |= 0x0000_1000,
+            "nullable" => b |= 0x0000_2000,
             _ => {}
         }
     }
@@ -649,6 +651,7 @@ flag_newtype!(FuncFlags {
     VOLUME = 0x0400_0000,
     UNSTABLE_PERIOD = 0x0800_0000,
     CANDLESTICK = 0x1000_0000,
+    START_DEPENDENT = 0x2000_0000,
 });
 flag_newtype!(InputFlags {
     PRICE_OPEN = 0x0000_0001,
@@ -679,6 +682,7 @@ flag_newtype!(OutputFlags {
     ZERO = 0x0000_0400,
     UPPER_LIMIT = 0x0000_0800,
     LOWER_LIMIT = 0x0000_1000,
+    NULLABLE = 0x0000_2000,
 });
 
 /// A required input parameter.

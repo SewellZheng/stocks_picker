@@ -628,6 +628,7 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_sar,      "SAR,SAREXT" );
    DO_TEST( test_func_stoch,    "STOCH,STOCHF,STOCHRSI" );
    DO_TEST( test_func_per_hlcv, "MFI,AD,ADOSC" );
+   DO_TEST( test_func_per_cv,   "NVI,PVI" );
    DO_TEST( test_func_1in_2out, "PHASOR,SINE" );
    DO_TEST( test_func_per_ema,  "TRIX" );
    DO_TEST( test_func_macd,     "MACD,MACDFIX,MACDEXT" );
@@ -639,6 +640,8 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_period_boundary, "PERIOD1/BOUNDARY" );
    DO_TEST( test_func_s_overflow, "MATH,ADD,SUB,MULT,DIV" );
    DO_TEST( test_candlestick,   "All Candlesticks" );
+   DO_TEST( test_func_composite, "PVO,COMPOSITE" );
+   DO_TEST( test_func_cmou,      "CMOU" );
 
    return TA_TEST_PASS; /* All tests succeeded. */
 }

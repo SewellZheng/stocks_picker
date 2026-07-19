@@ -8,6 +8,8 @@ Percentage Price Oscillator: the difference between a fast and slow moving avera
 
 PPO = ((fastMA(inReal) - slowMA(inReal)) / slowMA(inReal)) * 100, both MAs of type optInMAType; output = 0 when slowMA == 0
 
+The standard form is exponential with periods 12 and 26 — ((12-day EMA - 26-day EMA) / 26-day EMA) * 100, i.e. the MACD oscillator expressed as a percentage. `optInMAType` therefore **defaults to EMA** — the moving average Gerald Appel used for the original PPO/MACD; pass another type (e.g. `TA_MAType_SMA`) to override.
+
 ## Inputs
 
 - `inReal` — Input data series
@@ -41,3 +43,7 @@ Percentage Price Oscillator
 ## See Also
 
 APO · MACD · MA
+
+## References
+
+- Gerald Appel, creator of the PPO and MACD (MACD introduced 1979 in his *Systems and Forecasts* newsletter). The PPO is the MACD expressed as a percentage of the slow moving average. Appel's original definition uses **exponential** moving averages (periods 12, 26).

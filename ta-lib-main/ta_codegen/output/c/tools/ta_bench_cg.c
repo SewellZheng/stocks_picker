@@ -101,6 +101,7 @@
 #include "ta_CDLXSIDEGAP3METHODS.c"
 #include "ta_CEIL.c"
 #include "ta_CMO.c"
+#include "ta_CMOU.c"
 #include "ta_CORREL.c"
 #include "ta_COS.c"
 #include "ta_COSH.c"
@@ -148,6 +149,7 @@
 #include "ta_PLUS_DI.c"
 #include "ta_PLUS_DM.c"
 #include "ta_PPO.c"
+#include "ta_PVO.c"
 #include "ta_ROC.c"
 #include "ta_ROCP.c"
 #include "ta_ROCR.c"
@@ -363,7 +365,7 @@ static void bench_all(const char *filter, int iters) {
             int outBegIdx, outNBElement;
             long long t0 = get_nanotime();
             for( int it = 0; it < iters; it++ ) {
-                TA_APO(0, g_nPoints - 1, g_close, 12, 26, 0, &outBegIdx, &outNBElement, g_outBuf0);
+                TA_APO(0, g_nPoints - 1, g_close, 12, 26, 1, &outBegIdx, &outNBElement, g_outBuf0);
             }
             long long elapsed = get_nanotime() - t0;
             if( !best || elapsed < best ) best = elapsed;
@@ -1560,6 +1562,22 @@ static void bench_all(const char *filter, int iters) {
         printf("CMO %lld\n", best / iters);
         fflush(stdout);
     }
+    if( func_matches(filter, "CMOU") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_CMOU(0, g_nPoints - 1, g_close, 14, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+        }
+        printf("CMOU %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "CORREL") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -2329,7 +2347,7 @@ static void bench_all(const char *filter, int iters) {
             int outBegIdx, outNBElement;
             long long t0 = get_nanotime();
             for( int it = 0; it < iters; it++ ) {
-                TA_PPO(0, g_nPoints - 1, g_close, 12, 26, 0, &outBegIdx, &outNBElement, g_outBuf0);
+                TA_PPO(0, g_nPoints - 1, g_close, 12, 26, 1, &outBegIdx, &outNBElement, g_outBuf0);
             }
             long long elapsed = get_nanotime() - t0;
             if( !best || elapsed < best ) best = elapsed;
@@ -2337,6 +2355,22 @@ static void bench_all(const char *filter, int iters) {
             g_sink += (int)g_outBuf0[0];
         }
         printf("PPO %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "PVO") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_PVO(0, g_nPoints - 1, g_volume, 12, 26, 1, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+        }
+        printf("PVO %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "ROC") ) {

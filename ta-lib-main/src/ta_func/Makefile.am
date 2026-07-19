@@ -85,6 +85,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_CDLXSIDEGAP3METHODS.c \
 	ta_CEIL.c \
 	ta_CMO.c \
+	ta_CMOU.c \
 	ta_CORREL.c \
 	ta_COS.c \
 	ta_COSH.c \
@@ -129,10 +130,13 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_MOM.c \
 	ta_MULT.c \
 	ta_NATR.c \
+	ta_NVI.c \
 	ta_OBV.c \
 	ta_PLUS_DI.c \
 	ta_PLUS_DM.c \
 	ta_PPO.c \
+	ta_PVI.c \
+	ta_PVO.c \
 	ta_ROC.c \
 	ta_ROCP.c \
 	ta_ROCR.c \

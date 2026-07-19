@@ -77,7 +77,7 @@ impl Core {
     ///
     /// * `optInFastPeriod` — Period of the fast moving average (default 12, range 2..=100000)
     /// * `optInSlowPeriod` — Period of the slow moving average (default 26, range 2..=100000)
-    /// * `optInMAType` — Moving-average type used for both MAs (default 0 = SMA, values: 0=SMA,
+    /// * `optInMAType` — Moving-average type used for both MAs (default 1 = EMA, values: 0=SMA,
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
     ///
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
@@ -105,6 +105,8 @@ impl Core {
     ///
     /// ```text
     /// $APO = MA_{fast}(inReal) - MA_{slow}(inReal)$, both MAs of type optInMAType
+    ///
+    /// The standard form is exponential — APO with EMA and periods 12/26 is the fast-minus-slow EMA construction underlying the MACD (in price units). `optInMAType` therefore **defaults to EMA** — the moving average Gerald Appel used for the original MACD; pass another type (e.g. `TA_MAType_SMA`) to override.
     /// ```
     ///
     /// # Arguments
@@ -114,7 +116,7 @@ impl Core {
     /// * `inReal` — Source data series.
     /// * `optInFastPeriod` — Period of the fast moving average (default 12, range 2..=100000)
     /// * `optInSlowPeriod` — Period of the slow moving average (default 26, range 2..=100000)
-    /// * `optInMAType` — Moving-average type used for both MAs (default 0 = SMA, values: 0=SMA,
+    /// * `optInMAType` — Moving-average type used for both MAs (default 1 = EMA, values: 0=SMA,
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
     /// * `outBegIdx` — Set to the input index of the first output value.
     /// * `outNBElement` — Set to the number of output values written.
@@ -146,7 +148,7 @@ impl Core {
     /// let mut out = vec![0.0; 252];
     ///
     /// let ret = core.apo(
-    ///     0, data.len() - 1, &data, 12, 26, 0,
+    ///     0, data.len() - 1, &data, 12, 26, 1,
     ///     &mut out_beg, &mut out_nb, &mut out,
     /// );
     /// assert_eq!(ret, RetCode::Success);
@@ -156,6 +158,13 @@ impl Core {
     /// # See also
     ///
     /// [`Core::ppo`] · [`Core::macd`] · [`Core::ma`] · [`Core::ema`] · [`Core::sma`]
+    ///
+    /// # References
+    ///
+    /// * Gerald Appel, creator of the MACD (introduced 1979 in his *Systems and Forecasts*
+    ///   newsletter). The APO is the same fast-minus-slow moving-average oscillator in price units;
+    ///   with exponential moving averages and periods 12/26 it is the oscillator underlying the
+    ///   MACD line. Appel's original definition uses **exponential** moving averages.
     ///
     /// Further reading: [ta-lib.org/functions/apo](https://ta-lib.org/functions/apo/)
     #[doc(alias = "AbsolutePriceOscillator")]
@@ -279,6 +288,280 @@ impl Core {
         return RetCode::Success;
     }
 }
+/**** Streaming API *****/
+
+/// Live APO stream: one value per closed bar, bit-identical to [`Core::apo`]
+/// over the same series. Open with [`Core::apo_open`]; dropping the handle
+/// closes the stream. Cloning it forks an independent stream.
+#[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
+#[derive(Debug, Clone)]
+#[doc(alias = "TA_APO_Stream")]
+pub struct ApoStream {
+    core: Core,
+    state: ApoStreamState,
+}
+
+#[derive(Debug, Clone)]
+#[allow(non_snake_case, dead_code)]
+struct ApoStreamState {
+    optInFastPeriod: i32,
+    optInSlowPeriod: i32,
+    optInMAType: i32,
+    sub0: MaStream,
+    sub1: MaStream,
+}
+
+#[allow(non_snake_case)]
+#[allow(unused_variables)]
+#[allow(dead_code)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
+impl Core {
+    fn apo_step_internal(&self, sp: &mut ApoStreamState, inReal: f64, outReal: &mut f64) {
+        let mut cur_tempBuffer: f64 = 0.0_f64;
+        let mut cur_outReal: f64 = 0.0_f64;
+
+        // Pipeline the new bar through the sub-streams (batch tail order).
+        cur_tempBuffer = sp.sub0.update(inReal);
+        cur_outReal = sp.sub1.update(inReal);
+        // Combine map (batch tail, per bar).
+        cur_outReal = cur_tempBuffer - cur_outReal;
+        (*outReal) = cur_outReal;
+    }
+
+    /// Internal startIdx-anchored open behind [`Core::apo_open`] (composition seam).
+    pub(crate) fn apo_open_internal(
+        &self, inReal: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: i32,
+    ) -> Result<(ApoStream, f64), RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::BadParam);
+        }
+        if inReal.len() > i32::MAX as usize {
+            return Err(RetCode::BadParam);
+        }
+        if ((optInFastPeriod) as i32) == (i32::MIN) {
+            optInFastPeriod = 12;
+        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if ((optInSlowPeriod) as i32) == (i32::MIN) {
+            optInSlowPeriod = 26;
+        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        let historyLen: usize = inReal.len();
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
+        let mut dummyBegIdx: usize = 0;
+        let mut dummyNBElement: usize = 0;
+        let mut lastValue_outReal: f64 = 0.0_f64;
+        let mut _begStore: usize = 0;
+        let mut _nbStore: usize = 0;
+        let outBegIdx: &mut usize = &mut _begStore;
+        let outNBElement: &mut usize = &mut _nbStore;
+        let mut sc_outReal: Vec<f64> = vec![0.0_f64; historyLen];
+        let mut tempBuffer: Vec<f64> = Vec::new();
+        let mut retCode: RetCode = RetCode::Success;
+        let mut tempInteger: usize = 0_usize;
+        let mut fastBeg: usize = 0_usize;
+        let mut fastNb: usize = 0_usize;
+        let mut offset: usize = 0_usize;
+        let mut i: usize = 0_usize;
+        // Allocate an intermediate buffer.
+        tempBuffer = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
+        // Make sure slow is really slower than
+        // the fast period! if not, swap...
+        if optInSlowPeriod < optInFastPeriod {
+            // swap
+            tempInteger = (optInSlowPeriod) as usize;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = (tempInteger) as i32;
+        }
+        // Calculate the fast MA into the tempBuffer.
+        // Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
+        // sub-call's own startIdx (the seeding point).
+        let (sub0, _) = self.ma_open_internal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInFastPeriod, optInMAType)?;
+        retCode = self.ma_unguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, &mut fastBeg, &mut fastNb, &mut tempBuffer[..]);
+        if retCode != RetCode::Success {
+            return Err(retCode);
+        }
+        // Calculate the slow MA into the output.
+        // Sub-stream 1: ma over `inReal`, warmed from bar 0 up to the
+        // sub-call's own startIdx (the seeding point).
+        let (sub1, _) = self.ma_open_internal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInSlowPeriod, optInMAType)?;
+        retCode = self.ma_unguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, &mut sc_outReal[..]);
+        if retCode != RetCode::Success {
+            return Err(retCode);
+        }
+        // fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
+        // many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
+        // outReal[i], with a non-negative index. An empty slow MA skips the loop.
+        offset = fastNb - (*outNBElement);
+        // Calculate (fast MA)-(slow MA) in the output.
+        // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
+        i = 0;
+        while i < (((*outNBElement) as usize)) as usize {
+            sc_outReal[i] = tempBuffer[i + offset] - sc_outReal[i];
+            i += 1;
+        }
+
+        // Capture the live producer state + sub handles.
+        if *outNBElement < 1 {
+            return Err(RetCode::BadParam);
+        }
+        let state = ApoStreamState {
+            optInFastPeriod,
+            optInSlowPeriod,
+            optInMAType,
+            sub0,
+            sub1,
+        };
+        Ok((ApoStream { core: self.clone(), state }, sc_outReal[*outNBElement - 1]))
+    }
+
+    /// Open a live APO stream over the warm-up history; returns the handle and
+    /// the value at the last history bar — bit-identical to [`Core::apo`] at that bar.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
+    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    ///
+    /// let core = Core::new();
+    /// let (mut s, _last) = core.apo_open(&data, 12, 26, 1).expect("enough history");
+    /// let peeked = s.peek(100.9);
+    /// let updated = s.update(100.9);
+    /// assert_eq!(peeked.to_bits(), updated.to_bits());
+    /// ```
+    #[doc(alias = "TA_APO_Open")]
+    pub fn apo_open(&self, inReal: &[f64], optInFastPeriod: i32, optInSlowPeriod: i32, optInMAType: i32) -> Result<(ApoStream, f64), RetCode> {
+        self.apo_open_internal(inReal, 0, optInFastPeriod, optInSlowPeriod, optInMAType)
+    }
+
+    /// [`Core::apo_open`] that also fills the output array(s) bit-identically to
+    /// [`Core::apo`] over `0..len` in the same single pass. Output slices must hold
+    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    #[doc(alias = "TA_APO_OpenAndFill")]
+    pub fn apo_open_and_fill(
+        &self, inReal: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
+    ) -> Result<ApoStream, RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::BadParam);
+        }
+        if inReal.len() > i32::MAX as usize {
+            return Err(RetCode::BadParam);
+        }
+        if ((optInFastPeriod) as i32) == (i32::MIN) {
+            optInFastPeriod = 12;
+        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if ((optInSlowPeriod) as i32) == (i32::MIN) {
+            optInSlowPeriod = 26;
+        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        let historyLen: usize = inReal.len();
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx: usize = 0;
+        let mut dummyBegIdx: usize = 0;
+        let mut dummyNBElement: usize = 0;
+        let mut sc_outReal: Vec<f64> = vec![0.0_f64; historyLen];
+        let mut tempBuffer: Vec<f64> = Vec::new();
+        let mut retCode: RetCode = RetCode::Success;
+        let mut tempInteger: usize = 0_usize;
+        let mut fastBeg: usize = 0_usize;
+        let mut fastNb: usize = 0_usize;
+        let mut offset: usize = 0_usize;
+        let mut i: usize = 0_usize;
+        // Allocate an intermediate buffer.
+        tempBuffer = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
+        // Make sure slow is really slower than
+        // the fast period! if not, swap...
+        if optInSlowPeriod < optInFastPeriod {
+            // swap
+            tempInteger = (optInSlowPeriod) as usize;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = (tempInteger) as i32;
+        }
+        // Calculate the fast MA into the tempBuffer.
+        // Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
+        // sub-call's own startIdx (the seeding point).
+        let (sub0, _) = self.ma_open_internal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInFastPeriod, optInMAType)?;
+        retCode = self.ma_unguarded(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, &mut fastBeg, &mut fastNb, &mut tempBuffer[..]);
+        if retCode != RetCode::Success {
+            return Err(retCode);
+        }
+        // Calculate the slow MA into the output.
+        // Sub-stream 1: ma over `inReal`, warmed from bar 0 up to the
+        // sub-call's own startIdx (the seeding point).
+        let (sub1, _) = self.ma_open_internal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInSlowPeriod, optInMAType)?;
+        retCode = self.ma_unguarded(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, &mut sc_outReal[..]);
+        if retCode != RetCode::Success {
+            return Err(retCode);
+        }
+        // fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
+        // many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
+        // outReal[i], with a non-negative index. An empty slow MA skips the loop.
+        offset = fastNb - (*outNBElement);
+        // Calculate (fast MA)-(slow MA) in the output.
+        // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
+        i = 0;
+        while i < (((*outNBElement) as usize)) as usize {
+            sc_outReal[i] = tempBuffer[i + offset] - sc_outReal[i];
+            i += 1;
+        }
+
+        // Capture the live producer state + sub handles.
+        if *outNBElement < 1 {
+            return Err(RetCode::BadParam);
+        }
+        let state = ApoStreamState {
+            optInFastPeriod,
+            optInSlowPeriod,
+            optInMAType,
+            sub0,
+            sub1,
+        };
+        outReal[..*outNBElement].copy_from_slice(&sc_outReal[..*outNBElement]);
+        Ok(ApoStream { core: self.clone(), state })
+    }
+
+}
+
+#[allow(non_snake_case)]
+#[allow(unused_variables)]
+impl ApoStream {
+    /// Commit one closed bar; always produces a value. Never allocates.
+    #[doc(alias = "TA_APO_Update")]
+    pub fn update(&mut self, inReal: f64) -> f64 {
+        let mut outReal: f64 = 0.0_f64;
+        self.core.apo_step_internal(&mut self.state, inReal, &mut outReal);
+        outReal
+    }
+
+    /// Evaluate a forming bar without committing — bit-identical to what the
+    /// next `update` with the same bar would return (it is the same code, run on
+    /// a throwaway clone). Clones the internal state (allocates for windowed
+    /// indicators).
+    #[doc(alias = "TA_APO_Peek")]
+    #[must_use]
+    pub fn peek(&self, inReal: f64) -> f64 {
+        let mut scratch = self.clone();
+        scratch.update(inReal)
+    }
+}
+
+const _: () = {
+    const fn _assert_auto<T: Send + Sync + Clone>() {}
+    _assert_auto::<ApoStream>();
+};
+
 /***************/
 /* End of File */
 /***************/

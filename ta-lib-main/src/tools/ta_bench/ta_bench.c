@@ -131,8 +131,8 @@ typedef struct {
     const char *const *argv;
     CodegenPipe cp;
     int active;
-    int optional;   /* 1 = only run when named in --language (third-party
-                       comparison servers, e.g. talib_rs) */
+    int optional;   /* 1 = only run when explicitly named in --language
+                       (e.g. an opt-in third-party comparison server) */
 } BenchLanguage;
 
 static const char *const argv_cref[]   = {"./ta_ref_serve", NULL};
@@ -140,8 +140,6 @@ static const char *const argv_c[]      = {"./ta_codegen_serve_c", NULL};
 static const char *const argv_rust[]   = {"./ta_codegen_serve_rust", NULL};
 static const char *const argv_java[]   = {"java", "-cp", "ta_codegen_java", "TaCodegenServe", NULL};
 static const char *const argv_dotnet[] = {"dotnet", "ta_codegen_dotnet/TaCodegenServe.dll", NULL};
-/* Third-party comparison server (pure-Rust talib-rs crate, opt-in only). */
-static const char *const argv_talib_rs[] = {"./ta_talib_rs_serve", NULL};
 
 static BenchLanguage LANGUAGES[] = {
     {"cref",     "C-ref",    argv_cref,     {0}, 0, 0},
@@ -149,7 +147,6 @@ static BenchLanguage LANGUAGES[] = {
     {"rust",     "Rust",     argv_rust,     {0}, 0, 0},
     {"java",     "Java",     argv_java,     {0}, 0, 0},
     {"dotnet",   ".NET",     argv_dotnet,   {0}, 0, 0},
-    {"talib_rs", "talib-rs", argv_talib_rs, {0}, 0, 1},
 };
 #define NUM_LANGUAGES (sizeof(LANGUAGES)/sizeof(LANGUAGES[0]))
 
@@ -175,6 +172,9 @@ static int send_load_data(BenchLanguage *lang, char *buf, int sz, char *resp, in
 
 /* ---- Build server request (use_preloaded, no inline data) ---- */
 
+/* When >0, overrides any integer optInTimePeriod param (diagnostic period sweep). */
+static int g_period_override = 0;
+
 static int build_bench_request(char *buf, int sz, const TA_FuncInfo *fi,
                                 int startIdx, int endIdx, int iters) {
     int pos = snprintf(buf, sz,
@@ -189,8 +189,11 @@ static int build_bench_request(char *buf, int sz, const TA_FuncInfo *fi,
             pos += snprintf(buf+pos, sz-pos, ",\"%s\":%.15g",
                             optInfo->paramName, optInfo->defaultValue);
         } else {
+            int val = (int)optInfo->defaultValue;
+            if( g_period_override > 0 && strcmp(optInfo->paramName, "optInTimePeriod") == 0 )
+                val = g_period_override;
             pos += snprintf(buf+pos, sz-pos, ",\"%s\":%d",
-                            optInfo->paramName, (int)optInfo->defaultValue);
+                            optInfo->paramName, val);
         }
     }
     pos += snprintf(buf+pos, sz-pos, "}}");
@@ -354,6 +357,7 @@ int main(int argc, char *argv[]) {
         else if( strncmp(argv[i], "--iters=", 8) == 0 )    n_iters = atoi(argv[i]+8);
         else if( strncmp(argv[i], "--language=", 11) == 0 ) lang_filter = argv[i]+11;
         else if( strncmp(argv[i], "--function=", 11) == 0 ) func_filter = argv[i]+11;
+        else if( strncmp(argv[i], "--period=", 9) == 0 )    g_period_override = atoi(argv[i]+9);
     }
     if( n_points > MAX_POINTS ) n_points = MAX_POINTS;
 

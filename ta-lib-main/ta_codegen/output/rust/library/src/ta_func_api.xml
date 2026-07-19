@@ -27,7 +27,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -100,6 +100,7 @@
 		<GroupId>Volume Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Start Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -170,6 +171,7 @@
 		<GroupId>Volume Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Start Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -192,7 +194,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Fast Period</Name>
-				<ShortDescription>Number of period for the fast MA</ShortDescription>
+				<ShortDescription>Period of the fast MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -205,7 +207,7 @@
 			</OptionalInputArgument>
 			<OptionalInputArgument>
 				<Name>Slow Period</Name>
-				<ShortDescription>Number of period for the slow MA</ShortDescription>
+				<ShortDescription>Period of the slow MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -256,7 +258,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -307,7 +309,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -349,7 +351,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Fast Period</Name>
-				<ShortDescription>Number of period for the fast MA</ShortDescription>
+				<ShortDescription>Period of the fast MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -362,7 +364,7 @@
 			</OptionalInputArgument>
 			<OptionalInputArgument>
 				<Name>Slow Period</Name>
-				<ShortDescription>Number of period for the slow MA</ShortDescription>
+				<ShortDescription>Period of the slow MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -377,7 +379,7 @@
 				<Name>MA Type</Name>
 				<ShortDescription>Type of Moving Average</ShortDescription>
 				<Type>MA Type</Type>
-				<DefaultValue>0</DefaultValue>
+				<DefaultValue>1</DefaultValue>
 			</OptionalInputArgument>
 		</OptionalInputArguments>
 		<OutputArguments>
@@ -414,7 +416,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -467,7 +469,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -572,7 +574,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -615,7 +617,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -698,7 +700,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -792,7 +794,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -881,7 +883,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -3503,7 +3505,49 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>100000</SuggestedStart>
+					<SuggestedEnd>100000</SuggestedEnd>
+					<SuggestedIncrement>100000</SuggestedIncrement>
+				</Range>
+				<DefaultValue>14</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- CMOU -->
+	<FinancialFunction>
+		<Abbreviation>CMOU</Abbreviation>
+		<CamelCaseName>Cmou</CamelCaseName>
+		<ShortDescription>Chande Momentum Oscillator (Unsmoothed)</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -3549,7 +3593,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -3646,7 +3690,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -3728,7 +3772,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -3772,7 +3816,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -4055,7 +4099,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4099,7 +4143,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -4142,7 +4186,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4184,7 +4228,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4227,7 +4271,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4269,7 +4313,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4366,7 +4410,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -4414,7 +4458,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Fast Period</Name>
-				<ShortDescription>Number of period for the fast MA</ShortDescription>
+				<ShortDescription>Period of the fast MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4427,7 +4471,7 @@
 			</OptionalInputArgument>
 			<OptionalInputArgument>
 				<Name>Slow Period</Name>
-				<ShortDescription>Number of period for the slow MA</ShortDescription>
+				<ShortDescription>Period of the slow MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4440,7 +4484,7 @@
 			</OptionalInputArgument>
 			<OptionalInputArgument>
 				<Name>Signal Period</Name>
-				<ShortDescription>Smoothing for the signal line (nb of period)</ShortDescription>
+				<ShortDescription>Smoothing for the signal line (period length)</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -4496,7 +4540,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Fast Period</Name>
-				<ShortDescription>Number of period for the fast MA</ShortDescription>
+				<ShortDescription>Period of the fast MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4515,7 +4559,7 @@
 			</OptionalInputArgument>
 			<OptionalInputArgument>
 				<Name>Slow Period</Name>
-				<ShortDescription>Number of period for the slow MA</ShortDescription>
+				<ShortDescription>Period of the slow MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4534,7 +4578,7 @@
 			</OptionalInputArgument>
 			<OptionalInputArgument>
 				<Name>Signal Period</Name>
-				<ShortDescription>Smoothing for the signal line (nb of period)</ShortDescription>
+				<ShortDescription>Smoothing for the signal line (period length)</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -4596,7 +4640,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Signal Period</Name>
-				<ShortDescription>Smoothing for the signal line (nb of period)</ShortDescription>
+				<ShortDescription>Smoothing for the signal line (period length)</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -4694,6 +4738,7 @@
 				<Name>outFAMA</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Nullable</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4785,7 +4830,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4827,7 +4872,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4913,7 +4958,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -4956,7 +5001,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -5003,7 +5048,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -5046,7 +5091,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -5088,7 +5133,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -5131,7 +5176,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -5180,7 +5225,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -5238,7 +5283,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5285,7 +5330,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5327,7 +5372,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5409,7 +5454,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5433,6 +5478,38 @@
 	</FinancialFunction>
 
 
+	<!-- NVI -->
+	<FinancialFunction>
+		<Abbreviation>NVI</Abbreviation>
+		<CamelCaseName>Nvi</CamelCaseName>
+		<ShortDescription>Negative Volume Index</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+			<Flag>Start Dependent</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- OBV -->
 	<FinancialFunction>
 		<Abbreviation>OBV</Abbreviation>
@@ -5441,6 +5518,7 @@
 		<GroupId>Volume Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Start Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5491,7 +5569,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5538,7 +5616,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5580,7 +5658,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Fast Period</Name>
-				<ShortDescription>Number of period for the fast MA</ShortDescription>
+				<ShortDescription>Period of the fast MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -5593,7 +5671,7 @@
 			</OptionalInputArgument>
 			<OptionalInputArgument>
 				<Name>Slow Period</Name>
-				<ShortDescription>Number of period for the slow MA</ShortDescription>
+				<ShortDescription>Period of the slow MA</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -5608,7 +5686,100 @@
 				<Name>MA Type</Name>
 				<ShortDescription>Type of Moving Average</ShortDescription>
 				<Type>MA Type</Type>
-				<DefaultValue>0</DefaultValue>
+				<DefaultValue>1</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- PVI -->
+	<FinancialFunction>
+		<Abbreviation>PVI</Abbreviation>
+		<CamelCaseName>Pvi</CamelCaseName>
+		<ShortDescription>Positive Volume Index</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+			<Flag>Start Dependent</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- PVO -->
+	<FinancialFunction>
+		<Abbreviation>PVO</Abbreviation>
+		<CamelCaseName>Pvo</CamelCaseName>
+		<ShortDescription>Percentage Volume Oscillator</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Fast Period</Name>
+				<ShortDescription>Period of the fast MA</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>100000</SuggestedStart>
+					<SuggestedEnd>100000</SuggestedEnd>
+					<SuggestedIncrement>100000</SuggestedIncrement>
+				</Range>
+				<DefaultValue>12</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Slow Period</Name>
+				<ShortDescription>Period of the slow MA</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>100000</SuggestedStart>
+					<SuggestedEnd>100000</SuggestedEnd>
+					<SuggestedIncrement>100000</SuggestedIncrement>
+				</Range>
+				<DefaultValue>26</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>MA Type</Name>
+				<ShortDescription>Type of Moving Average</ShortDescription>
+				<Type>MA Type</Type>
+				<DefaultValue>1</DefaultValue>
 			</OptionalInputArgument>
 		</OptionalInputArguments>
 		<OutputArguments>
@@ -5641,7 +5812,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5683,7 +5854,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5725,7 +5896,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5767,7 +5938,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -5810,7 +5981,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -5843,6 +6014,7 @@
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Start Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5905,6 +6077,7 @@
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Start Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6115,7 +6288,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -6184,7 +6357,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -6412,7 +6585,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -6524,7 +6697,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -6568,7 +6741,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -6679,7 +6852,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -6757,7 +6930,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -6799,7 +6972,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -6842,7 +7015,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -6996,7 +7169,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
@@ -7096,7 +7269,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
@@ -7139,7 +7312,7 @@
 		<OptionalInputArguments>
 			<OptionalInputArgument>
 				<Name>Time Period</Name>
-				<ShortDescription>Number of period</ShortDescription>
+				<ShortDescription>Time period</ShortDescription>
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
