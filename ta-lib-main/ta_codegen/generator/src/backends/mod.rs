@@ -5,7 +5,6 @@ pub mod cmake_lists;
 pub mod common;
 pub mod docs_patch;
 pub mod docs_site;
-pub mod dotnet;
 pub mod expr_walk;
 pub mod fma;
 pub mod func_api_xml;
@@ -248,14 +247,16 @@ impl LanguageBackend for DotNetBackend {
     fn emits_lib_files(&self) -> bool {
         false
     }
+    /// No per-indicator source is generated for .NET (see `emits_lib_files`);
+    /// the P/Invoke server in `generate_server` is the whole backend.
     fn generate(
         &self,
-        func: &FuncDef,
-        enums: &HashMap<String, EnumDef>,
-        registry: &Registry,
-        helpers: &HelperRegistry,
+        _func: &FuncDef,
+        _enums: &HashMap<String, EnumDef>,
+        _registry: &Registry,
+        _helpers: &HelperRegistry,
     ) -> String {
-        dotnet::generate(func, enums, registry, helpers)
+        String::new()
     }
     fn out_subdir(&self) -> &'static str {
         "dotnet"
@@ -328,9 +329,8 @@ pub fn write_if_changed_silent(path: &std::path::Path, content: &str) {
 /// drift apart. Every function in `ta_codegen/input/`, upper-cased and sorted.
 ///
 /// Returns `(sorted_stems, extras)`; `extras` is always empty (kept for the callers'
-/// signature). The former un-ported `src/ta_func/` stubs (NVI/PVI) are dropped in the
-/// canonical cutover — they are dead (absent from `include/` and the `ta_abstract`
-/// tables, not in the 161-function set).
+/// signature) — every shipped `.c` comes from `ta_codegen/input/`, nothing is picked up
+/// by scanning `src/ta_func/`.
 pub fn sorted_source_stems(funcs: &[FuncDef], _root: &Path) -> (Vec<String>, Vec<String>) {
     let mut names: Vec<String> = funcs.iter().map(|f| f.name.to_uppercase()).collect();
     names.sort();
