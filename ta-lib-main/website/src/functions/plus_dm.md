@@ -18,7 +18,8 @@ period>1: seed = sum of first (period-1) +DM1; then Wilder smoothing:
 
 ## Inputs
 
-- `inPriceHL` — High and low price series
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
 
 ## Outputs
 
@@ -26,7 +27,19 @@ period>1: seed = sum of first (period-1) +DM1; then Wilder smoothing:
 
 ## Parameters
 
-- `optInTimePeriod` — Wilder smoothing period
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInTimePeriod` | integer | 14 | 1–100000 | Wilder smoothing period |
+
+## Properties
+
+**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

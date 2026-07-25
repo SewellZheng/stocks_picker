@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -109,6 +109,7 @@ impl Core {
     /// let ret = core.ceil(0, data.len() - 1, &data, &mut out_beg, &mut out_nb, &mut out);
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
+    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
     /// ```
     ///
     /// # See also

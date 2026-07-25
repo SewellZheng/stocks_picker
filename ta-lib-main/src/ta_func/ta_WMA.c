@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or
@@ -78,11 +78,11 @@ TA_LIB_API TA_RetCode TA_WMA( int    startIdx,
    int outIdx;
    int i;
    int trailingIdx;
-   int divider;
    double periodSum;
    double periodSub;
    double tempReal;
    double trailingValue;
+   double divider;
    int lookbackTotal;
 
    if( startIdx < 0 )
@@ -123,14 +123,21 @@ TA_LIB_API TA_RetCode TA_WMA( int    startIdx,
    {
       *outBegIdx= startIdx;
       *outNBElement= endIdx - startIdx + 1;
-      memmove(outReal,&inReal[startIdx],(int)*outNBElement * sizeof(double));
+      /* Element loop, not a block copy: the C single-precision variant reads a
+       * float array, so a double-sized byte copy would reinterpret and
+       * over-read it (#137). Forward order keeps the in-place case correct (#94).
+       */
+      inIdx = startIdx;
+      for( i = 0; i < (int)*outNBElement; i += 1 )
+      {
+         outReal[i] = inReal[inIdx++];
+      }
       return TA_SUCCESS;
    }
-   /* Calculate the divider (always an integer value).
-    * By induction: 1+2+3+4+'n' = n(n+1)/2
-    * '>>1' is usually faster than '/2' for unsigned.
+   /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+    * int product n*(n+1) overflows int32 at n>=46341 (#142).
     */
-   divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+   divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
    /* The algo used here use a very basic property of
     * multiplication/addition: (x*2) = x+x
     *
@@ -212,11 +219,11 @@ TA_LIB_API TA_RetCode TA_WMA_Unguarded( int    startIdx,
    int outIdx;
    int i;
    int trailingIdx;
-   int divider;
    double periodSum;
    double periodSub;
    double tempReal;
    double trailingValue;
+   double divider;
    int lookbackTotal;
 
    lookbackTotal = optInTimePeriod - 1;
@@ -234,10 +241,14 @@ TA_LIB_API TA_RetCode TA_WMA_Unguarded( int    startIdx,
    {
       *outBegIdx= startIdx;
       *outNBElement= endIdx - startIdx + 1;
-      memmove(outReal,&inReal[startIdx],(int)*outNBElement * sizeof(double));
+      inIdx = startIdx;
+      for( i = 0; i < (int)*outNBElement; i += 1 )
+      {
+         outReal[i] = inReal[inIdx++];
+      }
       return TA_SUCCESS;
    }
-   divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+   divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
    outIdx = 0;
    trailingIdx = startIdx - lookbackTotal;
    periodSub = (double)0.0;
@@ -279,11 +290,11 @@ TA_RetCode TA_S_WMA( int    startIdx,
    int outIdx;
    int i;
    int trailingIdx;
-   int divider;
    double periodSum;
    double periodSub;
    double tempReal;
    double trailingValue;
+   double divider;
    int lookbackTotal;
 
    if( startIdx < 0 )
@@ -315,10 +326,14 @@ TA_RetCode TA_S_WMA( int    startIdx,
    {
       *outBegIdx= startIdx;
       *outNBElement= endIdx - startIdx + 1;
-      memmove(outReal,&inReal[startIdx],(int)*outNBElement * sizeof(double));
+      inIdx = startIdx;
+      for( i = 0; i < (int)*outNBElement; i += 1 )
+      {
+         outReal[i] = (double)inReal[inIdx++];
+      }
       return TA_SUCCESS;
    }
-   divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+   divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
    outIdx = 0;
    trailingIdx = startIdx - lookbackTotal;
    periodSub = (double)0.0;
@@ -360,11 +375,11 @@ TA_RetCode TA_S_WMA_Unguarded( int    startIdx,
    int outIdx;
    int i;
    int trailingIdx;
-   int divider;
    double periodSum;
    double periodSub;
    double tempReal;
    double trailingValue;
+   double divider;
    int lookbackTotal;
 
    lookbackTotal = optInTimePeriod - 1;
@@ -382,10 +397,14 @@ TA_RetCode TA_S_WMA_Unguarded( int    startIdx,
    {
       *outBegIdx= startIdx;
       *outNBElement= endIdx - startIdx + 1;
-      memmove(outReal,&inReal[startIdx],(int)*outNBElement * sizeof(double));
+      inIdx = startIdx;
+      for( i = 0; i < (int)*outNBElement; i += 1 )
+      {
+         outReal[i] = (double)inReal[inIdx++];
+      }
       return TA_SUCCESS;
    }
-   divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+   divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
    outIdx = 0;
    trailingIdx = startIdx - lookbackTotal;
    periodSub = (double)0.0;
@@ -419,10 +438,10 @@ TA_RetCode TA_S_WMA_Unguarded( int    startIdx,
 
 struct TA_WMA_Stream {
    int optInTimePeriod;
-   int divider;
    double periodSum;
    double periodSub;
    double trailingValue;
+   double divider;
    int ringPos_trailingIdx;
    int ringCap_trailingIdx;
    double *ring_trailingIdx_inReal;
@@ -527,11 +546,11 @@ TA_RetCode TA_WMA_OpenInternal( struct TA_WMA_Stream **stream, const double inRe
       int outIdx;
       int i;
       int trailingIdx;
-      int divider = 0;
       double periodSum = 0.0;
       double periodSub = 0.0;
       double tempReal;
       double trailingValue = 0.0;
+      double divider = 0.0;
       int lookbackTotal;
       lookbackTotal = optInTimePeriod - 1;
       /* Move up the start index if there is not
@@ -557,14 +576,21 @@ TA_RetCode TA_WMA_OpenInternal( struct TA_WMA_Stream **stream, const double inRe
       {
          dummyBegIdx = startIdx;
          dummyNBElement = endIdx - startIdx + 1;
-         memmove(outReal,&inReal[startIdx],(int)dummyNBElement * sizeof(double));
+         /* Element loop, not a block copy: the C single-precision variant reads a
+          * float array, so a double-sized byte copy would reinterpret and
+          * over-read it (#137). Forward order keeps the in-place case correct (#94).
+          */
+         inIdx = startIdx;
+         for( i = 0; i < (int)dummyNBElement; i += 1 )
+         {
+            lastValue_outReal = inReal[inIdx++];
+         }
          return TA_BAD_PARAM;
       }
-      /* Calculate the divider (always an integer value).
-       * By induction: 1+2+3+4+'n' = n(n+1)/2
-       * '>>1' is usually faster than '/2' for unsigned.
+      /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+       * int product n*(n+1) overflows int32 at n>=46341 (#142).
        */
-      divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+      divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
       /* The algo used here use a very basic property of
        * multiplication/addition: (x*2) = x+x
        *
@@ -637,10 +663,10 @@ TA_RetCode TA_WMA_OpenInternal( struct TA_WMA_Stream **stream, const double inRe
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       sp->optInTimePeriod = optInTimePeriod;
-      sp->divider = divider;
       sp->periodSum = periodSum;
       sp->periodSub = periodSub;
       sp->trailingValue = trailingValue;
+      sp->divider = divider;
       sp->ringCap_trailingIdx = (int)(inIdx - trailingIdx);
       if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_WMA_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
@@ -721,11 +747,11 @@ TA_LIB_API TA_RetCode TA_WMA_OpenAndFill( TA_WMA_Stream **stream, const double i
       int outIdx;
       int i;
       int trailingIdx;
-      int divider = 0;
       double periodSum = 0.0;
       double periodSub = 0.0;
       double tempReal;
       double trailingValue = 0.0;
+      double divider = 0.0;
       int lookbackTotal;
       lookbackTotal = optInTimePeriod - 1;
       /* Move up the start index if there is not
@@ -751,14 +777,21 @@ TA_LIB_API TA_RetCode TA_WMA_OpenAndFill( TA_WMA_Stream **stream, const double i
       {
          *outBegIdx= startIdx;
          *outNBElement= endIdx - startIdx + 1;
-         memmove(outReal,&inReal[startIdx],(int)*outNBElement * sizeof(double));
+         /* Element loop, not a block copy: the C single-precision variant reads a
+          * float array, so a double-sized byte copy would reinterpret and
+          * over-read it (#137). Forward order keeps the in-place case correct (#94).
+          */
+         inIdx = startIdx;
+         for( i = 0; i < (int)*outNBElement; i += 1 )
+         {
+            outReal[i] = inReal[inIdx++];
+         }
          return TA_BAD_PARAM;
       }
-      /* Calculate the divider (always an integer value).
-       * By induction: 1+2+3+4+'n' = n(n+1)/2
-       * '>>1' is usually faster than '/2' for unsigned.
+      /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+       * int product n*(n+1) overflows int32 at n>=46341 (#142).
        */
-      divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+      divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
       /* The algo used here use a very basic property of
        * multiplication/addition: (x*2) = x+x
        *
@@ -831,10 +864,10 @@ TA_LIB_API TA_RetCode TA_WMA_OpenAndFill( TA_WMA_Stream **stream, const double i
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       sp->optInTimePeriod = optInTimePeriod;
-      sp->divider = divider;
       sp->periodSum = periodSum;
       sp->periodSub = periodSub;
       sp->trailingValue = trailingValue;
+      sp->divider = divider;
       sp->ringCap_trailingIdx = (int)(inIdx - trailingIdx);
       if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_WMA_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);

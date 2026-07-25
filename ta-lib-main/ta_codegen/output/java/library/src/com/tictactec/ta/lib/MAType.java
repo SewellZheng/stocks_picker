@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2007, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -56,5 +56,7 @@ public enum MAType
    Trima,
    Kama,
    Mama,
-   T3
+   T3,
+   Hma,
+   Disabled
 };

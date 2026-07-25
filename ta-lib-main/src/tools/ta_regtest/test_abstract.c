@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -177,6 +177,31 @@ static unsigned long long abstract_json_get_ull(const char *json, const char *fi
     p += strlen(pattern);
     while( *p == ' ' ) p++;
     return strtoull(p, NULL, 10);
+}
+
+/* Volume is a non-negative quantity, and every TA-Lib function that consumes it
+ * assumes so. The generic datasets here are sign-agnostic noise (notably
+ * inputRandFltEpsilon, which is a random-signed +/-FLT_EPSILON), so feeding them
+ * unchanged into a volume slot tests an input that cannot occur.
+ *
+ * That is not merely wasteful, it is actively misleading: with random-signed
+ * volume a trailing window sum can reach exactly 0.0 while the window is NOT
+ * all-zero, which trips the degenerate-input guard of any Sum(x*v)/Sum(v)
+ * indicator (VWMA) on data that would never arise. ta_abstract already records
+ * which slot is volume (TA_IN_PRICE_VOLUME), so use it: hand volume slots the
+ * magnitude only.
+ *
+ * Both the in-process call and the JSON request must use this same view or the
+ * two sides diverge for reasons that have nothing to do with the function. */
+static const double *abstract_volume_view( const double *input, unsigned int size )
+{
+    static double volBuf[2000];
+    unsigned int i;
+    if( size > (unsigned int)(sizeof(volBuf)/sizeof(volBuf[0])) )
+        return input;   /* cannot buffer it; leave the caller's data alone */
+    for( i = 0; i < size; i++ )
+        volBuf[i] = input[i] < 0.0 ? -input[i] : input[i];
+    return volBuf;
 }
 
 static int abstract_json_write_double_array(char *buf, int buf_size,
@@ -644,6 +669,8 @@ static ErrorNumber abstract_verify_server_call(
 {
     if( !g_abstractPipe ) return TA_TEST_PASS;
 
+    const double *volInput = abstract_volume_view( input, (unsigned int)size );
+
     char *buf = g_abstractReqBuf;
     int bufSize = ABSTRACT_JSON_BUF_SIZE;
     int pos = 0;
@@ -691,7 +718,7 @@ static ErrorNumber abstract_verify_server_call(
             }
             if( flags & TA_IN_PRICE_VOLUME ) {
                 pos += snprintf(buf + pos, bufSize - pos, ",\"inVolume\":");
-                pos += abstract_json_write_double_array(buf + pos, bufSize - pos, input, size);
+                pos += abstract_json_write_double_array(buf + pos, bufSize - pos, volInput, size);
             }
             if( flags & TA_IN_PRICE_OPENINTEREST ) {
                 pos += snprintf(buf + pos, bufSize - pos, ",\"inOpenInterest\":");
@@ -1286,12 +1313,14 @@ static ErrorNumber callWithDefaults( const char *funcName, const double *input, 
 	  switch(inputInfo->type)
 	  {
 	  case TA_Input_Price:
+         /* Volume gets the magnitude only -- see abstract_volume_view(). The
+          * JSON request builder applies the identical view. */
          TA_SetInputParamPricePtr( paramHolder, i,
 			 inputInfo->flags&TA_IN_PRICE_OPEN?input:NULL,
 			 inputInfo->flags&TA_IN_PRICE_HIGH?input:NULL,
 			 inputInfo->flags&TA_IN_PRICE_LOW?input:NULL,
 			 inputInfo->flags&TA_IN_PRICE_CLOSE?input:NULL,
-			 inputInfo->flags&TA_IN_PRICE_VOLUME?input:NULL, NULL );
+			 inputInfo->flags&TA_IN_PRICE_VOLUME?abstract_volume_view(input,(unsigned int)size):NULL, NULL );
 		 break;
 	  case TA_Input_Real:
          TA_SetInputParamRealPtr( paramHolder, i, input );
@@ -1561,6 +1590,294 @@ static void testOutputAlias( const TA_FuncInfo *funcInfo, void *opaqueData )
       *errorNumber = err;
 }
 
+/* Reusing an input buffer as one of the outputs (in-place transform) is a
+ * documented guarantee: "the caller can reuse the input buffer to store one
+ * of the outputs ... All TA functions support this" (website/src/api,
+ * "Output Size"). This gate runs every function twice — separate buffers,
+ * then with one real output aliased onto a private copy of one real input —
+ * and requires bitwise-identical retCode/outBegIdx/outNBElement and ALL
+ * outputs, for every (input component, real output) pair. (Issue #130.)
+ *
+ * Two data choices are load-bearing:
+ * - startIdx = 0: the LINEARREG-family defect only corrupts output when the
+ *   write cursor starts at the input's origin (clean at startIdx > lookback).
+ * - Every series is distinct per (slot, component) and spans ~[3,30] with
+ *   varying integer parts, so the slot-1 series used as MAVP's inPeriods
+ *   takes the multi-pass internal path (a constant period hides the defect).
+ * Integer outputs can never alias a real input (different element type);
+ * they are still compared for collateral damage. */
+
+#define IO_ALIAS_SIZE    252
+#define IO_ALIAS_MAX_IN  4
+#define IO_ALIAS_MAX_OUT 4
+
+static double ioAliasData[IO_ALIAS_MAX_IN][6][IO_ALIAS_SIZE]; /* [slot][O,H,L,C,V,OI][bar] */
+static double ioAliasScratch[IO_ALIAS_SIZE];
+static double ioAliasRefOut[IO_ALIAS_MAX_OUT][IO_ALIAS_SIZE];
+static double ioAliasOut[IO_ALIAS_MAX_OUT][IO_ALIAS_SIZE];
+static int    ioAliasRefOutInt[IO_ALIAS_MAX_OUT][IO_ALIAS_SIZE];
+static int    ioAliasOutInt[IO_ALIAS_MAX_OUT][IO_ALIAS_SIZE];
+static int    ioAliasNbChecked;
+
+static double ioAliasRand01( unsigned int *seed )
+{
+   *seed = (*seed * 1103515245u) + 12345u;
+   return (double)((*seed >> 16) & 0x7fff) / 32768.0;
+}
+
+static void ioAliasInitData( void )
+{
+   unsigned int seed = 20260130u; /* deterministic; gate for issue #130 */
+   int slot, j;
+   double base, o, c;
+
+   for( slot = 0; slot < IO_ALIAS_MAX_IN; slot++ )
+   {
+      base = 16.0;
+      for( j = 0; j < IO_ALIAS_SIZE; j++ )
+      {
+         base += (ioAliasRand01(&seed) - 0.5) * 2.0;
+         if( base < 4.0 )  base = 4.0 + ioAliasRand01(&seed);
+         if( base > 28.0 ) base = 28.0 - ioAliasRand01(&seed);
+         o = base + (ioAliasRand01(&seed) - 0.5);
+         c = base + (ioAliasRand01(&seed) - 0.5);
+         ioAliasData[slot][0][j] = o;
+         ioAliasData[slot][1][j] = (o > c ? o : c) + ioAliasRand01(&seed);
+         ioAliasData[slot][2][j] = (o < c ? o : c) - ioAliasRand01(&seed);
+         ioAliasData[slot][3][j] = c;
+         ioAliasData[slot][4][j] = 500.0 + 1000.0 * ioAliasRand01(&seed);
+         ioAliasData[slot][5][j] = 500.0 + 1000.0 * ioAliasRand01(&seed);
+      }
+   }
+}
+
+/* Set every input from its canonical series, except slot aliasSlot's
+ * component aliasComp which reads from ioAliasScratch. aliasSlot -1 = none.
+ * Single-real inputs are component 0 of their slot. */
+static TA_RetCode ioAliasSetInputs( TA_ParamHolder *paramHolder,
+                                    const TA_FuncInfo *funcInfo,
+                                    int aliasSlot, int aliasComp )
+{
+   const TA_InputParameterInfo *inputInfo;
+   TA_RetCode retCode = TA_SUCCESS;
+   const double *comp[6];
+   unsigned int i;
+   int c;
+
+   for( i = 0; i < funcInfo->nbInput && retCode == TA_SUCCESS; i++ )
+   {
+      TA_GetInputParameterInfo( funcInfo->handle, i, &inputInfo );
+      switch( inputInfo->type )
+      {
+      case TA_Input_Price:
+         for( c = 0; c < 6; c++ )
+            comp[c] = ((int)i == aliasSlot && c == aliasComp) ? ioAliasScratch
+                                                              : ioAliasData[i][c];
+         retCode = TA_SetInputParamPricePtr( paramHolder, i,
+            inputInfo->flags & TA_IN_PRICE_OPEN         ? comp[0] : NULL,
+            inputInfo->flags & TA_IN_PRICE_HIGH         ? comp[1] : NULL,
+            inputInfo->flags & TA_IN_PRICE_LOW          ? comp[2] : NULL,
+            inputInfo->flags & TA_IN_PRICE_CLOSE        ? comp[3] : NULL,
+            inputInfo->flags & TA_IN_PRICE_VOLUME       ? comp[4] : NULL,
+            inputInfo->flags & TA_IN_PRICE_OPENINTEREST ? comp[5] : NULL );
+         break;
+      case TA_Input_Real:
+         retCode = TA_SetInputParamRealPtr( paramHolder, i,
+            ((int)i == aliasSlot && aliasComp == 0) ? ioAliasScratch
+                                                    : ioAliasData[i][0] );
+         break;
+      case TA_Input_Integer:
+         retCode = TA_SetInputParamIntegerPtr( paramHolder, i, inputRandomData_int );
+         break;
+      }
+   }
+   return retCode;
+}
+
+static ErrorNumber checkInPlaceAliasCorrect( const TA_FuncInfo *funcInfo )
+{
+   static const char *compName[6] = { "open", "high", "low", "close", "volume", "oi" };
+   static const TA_InputFlags compFlag[6] =
+      { TA_IN_PRICE_OPEN, TA_IN_PRICE_HIGH, TA_IN_PRICE_LOW,
+        TA_IN_PRICE_CLOSE, TA_IN_PRICE_VOLUME, TA_IN_PRICE_OPENINTEREST };
+
+   TA_ParamHolder *paramHolder;
+   const TA_FuncHandle *handle = funcInfo->handle;
+   const TA_InputParameterInfo *inputInfo;
+   const TA_OutputParameterInfo *outInfo;
+   TA_RetCode retCode;
+   ErrorNumber errNumber = TA_TEST_PASS;
+   unsigned int i, o, k;
+   int c, j, refBegIdx, refNbElement, outBegIdx, outNbElement;
+
+   if( funcInfo->nbInput > IO_ALIAS_MAX_IN || funcInfo->nbOutput > IO_ALIAS_MAX_OUT )
+   {
+      printf( "  IN-PLACE ALIAS [%s]: gate capacity exceeded (%u inputs, %u outputs)\n",
+              funcInfo->name, funcInfo->nbInput, funcInfo->nbOutput );
+      return TA_ABS_TST_FAIL_INPLACE_ALIAS;
+   }
+
+   /* Reference run: every buffer distinct. */
+   retCode = TA_ParamHolderAlloc( handle, &paramHolder );
+   if( retCode != TA_SUCCESS )
+      return TA_ABS_TST_FAIL_PARAMHOLDERALLOC;
+   if( ioAliasSetInputs( paramHolder, funcInfo, -1, -1 ) != TA_SUCCESS )
+   {
+      TA_ParamHolderFree( paramHolder );
+      return TA_ABS_TST_FAIL_PARAMREALPTR;
+   }
+   for( k = 0; k < funcInfo->nbOutput; k++ )
+   {
+      TA_GetOutputParameterInfo( handle, k, &outInfo );
+      if( outInfo->type == TA_Output_Integer )
+         TA_SetOutputParamIntegerPtr( paramHolder, k, &ioAliasRefOutInt[k][0] );
+      else
+         TA_SetOutputParamRealPtr( paramHolder, k, &ioAliasRefOut[k][0] );
+   }
+   retCode = TA_CallFunc( paramHolder, 0, IO_ALIAS_SIZE-1, &refBegIdx, &refNbElement );
+   TA_ParamHolderFree( paramHolder );
+   if( retCode != TA_SUCCESS )
+   {
+      printf( "  IN-PLACE ALIAS [%s]: reference call failed (rc=%d)\n",
+              funcInfo->name, retCode );
+      return TA_ABS_TST_FAIL_INPLACE_ALIAS;
+   }
+
+   /* One aliased run per (real output o) x (real input component i,c).
+    * Report every failing pair, not just the first. */
+   for( o = 0; o < funcInfo->nbOutput; o++ )
+   {
+      TA_GetOutputParameterInfo( handle, o, &outInfo );
+      if( outInfo->type == TA_Output_Integer )
+         continue;
+
+      for( i = 0; i < funcInfo->nbInput; i++ )
+      {
+         TA_GetInputParameterInfo( handle, i, &inputInfo );
+         for( c = 0; c < 6; c++ )
+         {
+            const double *series;
+            if( inputInfo->type == TA_Input_Real )
+            {
+               if( c != 0 )
+                  continue;
+               series = ioAliasData[i][0];
+            }
+            else if( inputInfo->type == TA_Input_Price )
+            {
+               if( !(inputInfo->flags & compFlag[c]) )
+                  continue;
+               series = ioAliasData[i][c];
+            }
+            else
+               continue; /* integer input cannot alias a real output */
+
+            memcpy( ioAliasScratch, series, sizeof(ioAliasScratch) );
+
+            /* Poison the non-aliased buffers: a function that stops writing
+             * an output must not pass on values left over from the previous
+             * aliased run. */
+            for( k = 0; k < funcInfo->nbOutput; k++ )
+            {
+               for( j = 0; j < IO_ALIAS_SIZE; j++ )
+               {
+                  ioAliasOut[k][j] = TA_REAL_MIN;
+                  ioAliasOutInt[k][j] = TA_INTEGER_MIN;
+               }
+            }
+            outBegIdx = -1;
+            outNbElement = -1;
+
+            retCode = TA_ParamHolderAlloc( handle, &paramHolder );
+            if( retCode != TA_SUCCESS )
+               return TA_ABS_TST_FAIL_PARAMHOLDERALLOC;
+            if( ioAliasSetInputs( paramHolder, funcInfo, (int)i, c ) != TA_SUCCESS )
+            {
+               TA_ParamHolderFree( paramHolder );
+               return TA_ABS_TST_FAIL_PARAMREALPTR;
+            }
+            for( k = 0; k < funcInfo->nbOutput; k++ )
+            {
+               TA_GetOutputParameterInfo( handle, k, &outInfo );
+               if( outInfo->type == TA_Output_Integer )
+                  TA_SetOutputParamIntegerPtr( paramHolder, k, &ioAliasOutInt[k][0] );
+               else if( k == o )
+                  TA_SetOutputParamRealPtr( paramHolder, k, ioAliasScratch );
+               else
+                  TA_SetOutputParamRealPtr( paramHolder, k, &ioAliasOut[k][0] );
+            }
+            retCode = TA_CallFunc( paramHolder, 0, IO_ALIAS_SIZE-1,
+                                   &outBegIdx, &outNbElement );
+            TA_ParamHolderFree( paramHolder );
+
+            if( (retCode != TA_SUCCESS) ||
+                (outBegIdx != refBegIdx) || (outNbElement != refNbElement) )
+            {
+               printf( "  IN-PLACE ALIAS [%s]: out%u <- in%u.%s: rc=%d begIdx=%d nb=%d"
+                       " (expected rc=0 begIdx=%d nb=%d)\n",
+                       funcInfo->name, o, i,
+                       inputInfo->type == TA_Input_Real ? "real" : compName[c],
+                       retCode, outBegIdx, outNbElement, refBegIdx, refNbElement );
+               errNumber = TA_ABS_TST_FAIL_INPLACE_ALIAS;
+               continue;
+            }
+
+            for( k = 0; k < funcInfo->nbOutput; k++ )
+            {
+               TA_GetOutputParameterInfo( handle, k, &outInfo );
+               if( outInfo->type == TA_Output_Integer )
+               {
+                  if( memcmp( ioAliasOutInt[k], ioAliasRefOutInt[k],
+                              (size_t)refNbElement * sizeof(int) ) != 0 )
+                  {
+                     printf( "  IN-PLACE ALIAS [%s]: out%u <- in%u.%s: int output %u differs\n",
+                             funcInfo->name, o, i,
+                             inputInfo->type == TA_Input_Real ? "real" : compName[c], k );
+                     errNumber = TA_ABS_TST_FAIL_INPLACE_ALIAS;
+                  }
+               }
+               else
+               {
+                  const double *aliased = (k == o) ? ioAliasScratch : ioAliasOut[k];
+                  int nbDiff = 0, firstDiff = -1;
+                  for( j = 0; j < refNbElement; j++ )
+                  {
+                     if( memcmp( &aliased[j], &ioAliasRefOut[k][j], sizeof(double) ) != 0 )
+                     {
+                        if( firstDiff < 0 )
+                           firstDiff = j;
+                        nbDiff++;
+                     }
+                  }
+                  if( nbDiff != 0 )
+                  {
+                     printf( "  IN-PLACE ALIAS [%s]: out%u <- in%u.%s: output %u wrong in"
+                             " %d/%d values (first at [%d]: %.17g, expected %.17g)\n",
+                             funcInfo->name, o, i,
+                             inputInfo->type == TA_Input_Real ? "real" : compName[c],
+                             k, nbDiff, refNbElement, firstDiff,
+                             aliased[firstDiff], ioAliasRefOut[k][firstDiff] );
+                     errNumber = TA_ABS_TST_FAIL_INPLACE_ALIAS;
+                  }
+               }
+            }
+            if( refNbElement > 0 )
+               ioAliasNbChecked++;
+         }
+      }
+   }
+   return errNumber;
+}
+
+static void testInPlaceAlias( const TA_FuncInfo *funcInfo, void *opaqueData )
+{
+   ErrorNumber *errorNumber = (ErrorNumber *)opaqueData;
+   ErrorNumber err = checkInPlaceAliasCorrect( funcInfo );
+   /* Keep enumerating on failure so one run reports every offender. */
+   if( err != TA_TEST_PASS && *errorNumber == TA_TEST_PASS )
+      *errorNumber = err;
+}
+
 static ErrorNumber test_default_calls(void)
 {
    ErrorNumber errNumber;
@@ -1623,6 +1940,25 @@ static ErrorNumber test_default_calls(void)
    /* Every multi-output function must reject output-buffer aliasing (issue #108). */
    if( errNumber == TA_TEST_PASS )
       TA_ForEachFunc( testOutputAlias, &errNumber );
+
+   /* In-place (input==output) aliasing must be bitwise-correct (issue #130). */
+   if( errNumber == TA_TEST_PASS )
+   {
+      ioAliasInitData();
+      ioAliasNbChecked = 0;
+      TA_ForEachFunc( testInPlaceAlias, &errNumber );
+      /* Vacuity floor: ~100 functions have a real output; a collapse of the
+       * pair enumeration must fail loudly, not pass silently. */
+      if( errNumber == TA_TEST_PASS && ioAliasNbChecked < 100 )
+      {
+         printf( "Failed: in-place alias gate vacuous (%d pairs checked)\n",
+                 ioAliasNbChecked );
+         errNumber = TA_ABS_TST_FAIL_INPLACE_ALIAS_VACUOUS;
+      }
+      if( errNumber == TA_TEST_PASS )
+         printf( "In-place alias gate: %d (input,output) pairs bitwise-verified\n",
+                 ioAliasNbChecked );
+   }
 
    return errNumber;
 }

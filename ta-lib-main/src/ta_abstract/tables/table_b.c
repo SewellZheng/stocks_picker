@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -111,7 +111,7 @@ static const TA_OutputParameterInfo   *TA_BBANDS_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_BBANDS_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_5_MINIMUM2,
+{ &TA_DEF_UI_TimePeriod_20_MINIMUM2,
   &TA_DEF_UI_D_BBANDS_NbDevUp,
   &TA_DEF_UI_D_BBANDS_NbDevDn,
   &TA_DEF_UI_MA_Method,

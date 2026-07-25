@@ -17,6 +17,16 @@ Ehlers' Hilbert Transform Instantaneous Trendline: a smoothed, low-lag overlay w
 
 - `outReal` — Instantaneous trendline value
 
+## Properties
+
+**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">✅</span> **Overlap Input** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on the same scale as the input price, so it is drawn over the price chart." data-tip="Output is on the same scale as the input price, so it is drawn over the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Independent Y-Axis</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
+
 ## Implementation
 
 TA-Lib Definition: [`ht_trendline.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/ht_trendline/ht_trendline.c) · [`ht_trendline.yaml`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/ht_trendline/ht_trendline.yaml)

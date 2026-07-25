@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -466,7 +466,9 @@ static const TA_IntegerDataPair TA_MA_TypeDataPair[] =
    {5,"TRIMA"},
    {6,"KAMA"},
    {7,"MAMA"},
-   {8,"T3"}
+   {8,"T3"},
+   {9,"HMA"},
+   {10,"DISABLED"}
 };
 
 const TA_IntegerList TA_MA_TypeList =

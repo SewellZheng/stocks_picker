@@ -15,6 +15,8 @@
  *  052603 MF   Adapt code to compile with .NET Managed C++
  *  111603 MF   Allow period of 1. Just copy input into output.
  *  060907 MF   Use TA_SMA/TA_EMA instead of internal implementation.
+ *  072226 MF,CC Add HMA (issue #139).
+ *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
  */
 
    public int movingAverageLookback( int optInTimePeriod, MAType optInMAType )
@@ -25,7 +27,7 @@
          return -1;
       }
       int retValue;
-      if( optInTimePeriod <= 1 ) {
+      if( optInTimePeriod <= 1 || optInMAType == MAType.Disabled ) {
          return 0 ;
       }
       switch( optInMAType )
@@ -56,6 +58,9 @@
          break;
       case T3:
          retValue = t3Lookback(optInTimePeriod, 0.7);
+         break;
+      case Hma:
+         retValue = hmaLookback(optInTimePeriod);
          break;
       default:
          retValue = 0;
@@ -88,7 +93,10 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInTimePeriod == 1 ) {
+      /* No-smoothing identity: period 1 (every MA type) or the explicit
+       * TA_MAType_DISABLED (any period, issue #93). One copy path, lookback 0.
+       */
+      if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
          nbElement = endIdx - startIdx + 1;
          outNBElement.value = nbElement;
          for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 ) {
@@ -130,6 +138,9 @@
       case T3:
          retCode = t3Unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
          break;
+      case Hma:
+         retCode = hmaUnguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         break;
       default:
          retCode = RetCode.BadParam;
          break;
@@ -149,7 +160,7 @@
       int nbElement = 0;
       int outIdx = 0;
       int todayIdx = 0;
-      if( optInTimePeriod == 1 ) {
+      if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
          nbElement = endIdx - startIdx + 1;
          outNBElement.value = nbElement;
          for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 ) {
@@ -187,6 +198,9 @@
       case T3:
          retCode = t3Unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
          break;
+      case Hma:
+         retCode = hmaUnguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         break;
       default:
          retCode = RetCode.BadParam;
          break;
@@ -217,7 +231,7 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInTimePeriod == 1 ) {
+      if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
          nbElement = endIdx - startIdx + 1;
          outNBElement.value = nbElement;
          for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 ) {
@@ -254,6 +268,9 @@
          break;
       case T3:
          retCode = t3Unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
+         break;
+      case Hma:
+         retCode = hmaUnguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
          break;
       default:
          retCode = RetCode.BadParam;
@@ -274,7 +291,7 @@
       int nbElement = 0;
       int outIdx = 0;
       int todayIdx = 0;
-      if( optInTimePeriod == 1 ) {
+      if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
          nbElement = endIdx - startIdx + 1;
          outNBElement.value = nbElement;
          for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 ) {
@@ -311,6 +328,9 @@
          break;
       case T3:
          retCode = t3Unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
+         break;
+      case Hma:
+         retCode = hmaUnguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
          break;
       default:
          retCode = RetCode.BadParam;
@@ -382,6 +402,9 @@
             case T3:
                this.sub = new T3Stream((T3Stream) other.sub);
                break;
+            case Hma:
+               this.sub = new HmaStream((HmaStream) other.sub);
+               break;
             default:
                throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
             }
@@ -429,7 +452,7 @@
    }
    void movingAverageStreamStep( MovingAverageStream sp, double inReal )
    {
-      if( sp.optInTimePeriod == 1 ) {
+      if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.Disabled ) {
          sp.cur_outReal = inReal;
          return;
       }
@@ -472,6 +495,10 @@
          sp.cur_outReal = ((T3Stream) sp.sub).update(inReal);
          break;
       }
+      case Hma: {
+         sp.cur_outReal = ((HmaStream) sp.sub).update(inReal);
+         break;
+      }
       default:
          break; /* unreachable: open rejects arms without a sub-stream */
       }
@@ -490,7 +517,7 @@
       if( historyLen < movingAverageLookback(optInTimePeriod, optInMAType) + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
-      if( optInTimePeriod == 1 ) {
+      if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
          if( historyLen < movingAverageLookback(optInTimePeriod, optInMAType) + 1 ) {
             return RetCode.OutOfRangeEndIndex;
          }
@@ -556,6 +583,12 @@
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
+      case Hma: {
+         HmaStream sub = hmaOpenInternal(inReal, startIdx, optInTimePeriod);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
       default:
          return RetCode.BadParam;
       }
@@ -580,7 +613,7 @@
       if( historyLen < movingAverageLookback(optInTimePeriod, optInMAType) + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
-      if( optInTimePeriod == 1 ) {
+      if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
          if( historyLen < movingAverageLookback(optInTimePeriod, optInMAType) + 1 ) {
             return RetCode.OutOfRangeEndIndex;
          }
@@ -648,6 +681,12 @@
       }
       case T3: {
          T3Stream sub = t3OpenAndFill(inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case Hma: {
+         HmaStream sub = hmaOpenAndFill(inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
          sp.cur_outReal = sub.cur_outReal;
          break;

@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -136,6 +136,7 @@ impl Core {
     /// let ret = core.wma(0, data.len() - 1, &data, 30, &mut out_beg, &mut out_nb, &mut out);
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
+    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
     /// ```
     ///
     /// # See also
@@ -169,11 +170,11 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
-        let mut divider: usize = 0_usize;
         let mut periodSum: f64 = 0.0_f64;
         let mut periodSub: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut trailingValue: f64 = 0.0_f64;
+        let mut divider: f64 = 0.0_f64;
         let mut lookbackTotal: usize = 0_usize;
         lookbackTotal = (optInTimePeriod - 1) as usize;
         // Move up the start index if there is not
@@ -194,18 +195,21 @@ impl Core {
         if optInTimePeriod == 1 {
             (*outBegIdx) = startIdx;
             (*outNBElement) = endIdx - startIdx + 1;
-            {
-            let _n = ((((*outNBElement) as usize)) as usize * 1) as usize;
-            let _di = (0) as usize;
-            let _si = (startIdx) as usize;
-            outReal[_di.._di + _n].copy_from_slice(&inReal[_si.._si + _n]);
-        };
+            // Element loop, not a block copy: the C single-precision variant reads a
+            // float array, so a double-sized byte copy would reinterpret and
+            // over-read it (#137). Forward order keeps the in-place case correct (#94).
+            inIdx = startIdx;
+            // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
+            i = 0;
+            while i < (((*outNBElement) as usize)) as usize {
+                outReal[i] = ((inReal[{ let _v = inIdx; inIdx += 1; _v }]) as f64);
+                i += 1;
+            }
             return RetCode::Success;
         }
-        // Calculate the divider (always an integer value).
-        // By induction: 1+2+3+4+'n' = n(n+1)/2
-        // '>>1' is usually faster than '/2' for unsigned.
-        divider = (optInTimePeriod * (optInTimePeriod + 1) >> 1) as usize;
+        // Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+        // int product n*(n+1) overflows int32 at n>=46341 (#142).
+        divider = (optInTimePeriod as f64) * (((optInTimePeriod + 1)) as f64) / 2.0;
         // The algo used here use a very basic property of
         // multiplication/addition: (x*2) = x+x
         //
@@ -260,7 +264,7 @@ impl Core {
             //  inReal are the same buffer).
             trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             // Calculate the WMA for this price bar.
-            outReal[outIdx] = periodSum / ((divider) as f64);
+            outReal[outIdx] = periodSum / divider;
             outIdx += 1;
             // Prepare the periodSum for the next iteration.
             periodSum -= periodSub;
@@ -291,11 +295,11 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
-        let mut divider: usize = 0_usize;
         let mut periodSum: f64 = 0.0_f64;
         let mut periodSub: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut trailingValue: f64 = 0.0_f64;
+        let mut divider: f64 = 0.0_f64;
         let mut lookbackTotal: usize = 0_usize;
         assert!(endIdx < inReal.len());
         let _assertLb = self.wma_lookback(optInTimePeriod);
@@ -313,15 +317,16 @@ impl Core {
         if optInTimePeriod == 1 {
             (*outBegIdx) = startIdx;
             (*outNBElement) = endIdx - startIdx + 1;
-            {
-            let _n = ((((*outNBElement) as usize)) as usize * 1) as usize;
-            let _di = (0) as usize;
-            let _si = (startIdx) as usize;
-            outReal[_di.._di + _n].copy_from_slice(&inReal[_si.._si + _n]);
-        };
+            inIdx = startIdx;
+            // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
+            i = 0;
+            while i < (((*outNBElement) as usize)) as usize {
+                outReal[i] = ((inReal[{ let _v = inIdx; inIdx += 1; _v }]) as f64);
+                i += 1;
+            }
             return RetCode::Success;
         }
-        divider = (optInTimePeriod * (optInTimePeriod + 1) >> 1) as usize;
+        divider = (optInTimePeriod as f64) * (((optInTimePeriod + 1)) as f64) / 2.0;
         outIdx = 0;
         trailingIdx = startIdx - lookbackTotal;
         periodSub = 0.0 as f64;
@@ -341,7 +346,7 @@ impl Core {
             periodSub -= trailingValue;
             periodSum += tempReal * ((optInTimePeriod) as f64);
             trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
-            outReal[outIdx] = periodSum / ((divider) as f64);
+            outReal[outIdx] = periodSum / divider;
             outIdx += 1;
             periodSum -= periodSub;
         }
@@ -367,10 +372,10 @@ pub struct WmaStream {
 #[allow(non_snake_case, dead_code)]
 struct WmaStreamState {
     optInTimePeriod: i32,
-    divider: usize,
     periodSum: f64,
     periodSub: f64,
     trailingValue: f64,
+    divider: f64,
     ringPos_trailingIdx: usize,
     ringCap_trailingIdx: usize,
     ring_trailingIdx_inReal: Vec<f64>,
@@ -404,7 +409,7 @@ impl Core {
         //  inReal are the same buffer).
         sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
         // Calculate the WMA for this price bar.
-        (*outReal) = sp.periodSum / ((sp.divider) as f64);
+        (*outReal) = sp.periodSum / sp.divider;
         // Prepare the periodSum for the next iteration.
         sp.periodSum -= sp.periodSub;
         sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
@@ -441,10 +446,10 @@ impl Core {
             }
             let state = WmaStreamState {
                 optInTimePeriod: optInTimePeriod,
-                divider: 0_usize,
                 periodSum: 0.0_f64,
                 periodSub: 0.0_f64,
                 trailingValue: 0.0_f64,
+                divider: 0.0_f64,
                 ringPos_trailingIdx: 0_usize,
                 ringCap_trailingIdx: 0_usize,
                 ring_trailingIdx_inReal: vec![0.0_f64; 1],
@@ -455,11 +460,11 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
-        let mut divider: usize = 0_usize;
         let mut periodSum: f64 = 0.0_f64;
         let mut periodSub: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut trailingValue: f64 = 0.0_f64;
+        let mut divider: f64 = 0.0_f64;
         let mut lookbackTotal: usize = 0_usize;
         lookbackTotal = (optInTimePeriod - 1) as usize;
         // Move up the start index if there is not
@@ -477,10 +482,9 @@ impl Core {
         // case where the user is asking for a period of '1'.
         // In that case outputs equals inputs for the requested
         // range.
-        // Calculate the divider (always an integer value).
-        // By induction: 1+2+3+4+'n' = n(n+1)/2
-        // '>>1' is usually faster than '/2' for unsigned.
-        divider = (optInTimePeriod * (optInTimePeriod + 1) >> 1) as usize;
+        // Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+        // int product n*(n+1) overflows int32 at n>=46341 (#142).
+        divider = (optInTimePeriod as f64) * (((optInTimePeriod + 1)) as f64) / 2.0;
         // The algo used here use a very basic property of
         // multiplication/addition: (x*2) = x+x
         //
@@ -535,7 +539,7 @@ impl Core {
             //  inReal are the same buffer).
             trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             // Calculate the WMA for this price bar.
-            lastValue_outReal = periodSum / ((divider) as f64);
+            lastValue_outReal = periodSum / divider;
             // Prepare the periodSum for the next iteration.
             periodSum -= periodSub;
         }
@@ -554,10 +558,10 @@ impl Core {
             .copy_from_slice(&inReal[historyLen - cap_trailingIdx as usize..]);
         let state = WmaStreamState {
             optInTimePeriod,
-            divider,
             periodSum,
             periodSub,
             trailingValue,
+            divider,
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
             ring_trailingIdx_inReal,
@@ -617,10 +621,10 @@ impl Core {
             }
             let state = WmaStreamState {
                 optInTimePeriod: optInTimePeriod,
-                divider: 0_usize,
                 periodSum: 0.0_f64,
                 periodSub: 0.0_f64,
                 trailingValue: 0.0_f64,
+                divider: 0.0_f64,
                 ringPos_trailingIdx: 0_usize,
                 ringCap_trailingIdx: 0_usize,
                 ring_trailingIdx_inReal: vec![0.0_f64; 1],
@@ -639,11 +643,11 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
-        let mut divider: usize = 0_usize;
         let mut periodSum: f64 = 0.0_f64;
         let mut periodSub: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut trailingValue: f64 = 0.0_f64;
+        let mut divider: f64 = 0.0_f64;
         let mut lookbackTotal: usize = 0_usize;
         lookbackTotal = (optInTimePeriod - 1) as usize;
         // Move up the start index if there is not
@@ -661,10 +665,9 @@ impl Core {
         // case where the user is asking for a period of '1'.
         // In that case outputs equals inputs for the requested
         // range.
-        // Calculate the divider (always an integer value).
-        // By induction: 1+2+3+4+'n' = n(n+1)/2
-        // '>>1' is usually faster than '/2' for unsigned.
-        divider = (optInTimePeriod * (optInTimePeriod + 1) >> 1) as usize;
+        // Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+        // int product n*(n+1) overflows int32 at n>=46341 (#142).
+        divider = (optInTimePeriod as f64) * (((optInTimePeriod + 1)) as f64) / 2.0;
         // The algo used here use a very basic property of
         // multiplication/addition: (x*2) = x+x
         //
@@ -719,7 +722,7 @@ impl Core {
             //  inReal are the same buffer).
             trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             // Calculate the WMA for this price bar.
-            outReal[outIdx] = periodSum / ((divider) as f64);
+            outReal[outIdx] = periodSum / divider;
             outIdx += 1;
             // Prepare the periodSum for the next iteration.
             periodSum -= periodSub;
@@ -739,10 +742,10 @@ impl Core {
             .copy_from_slice(&inReal[historyLen - cap_trailingIdx as usize..]);
         let state = WmaStreamState {
             optInTimePeriod,
-            divider,
             periodSum,
             periodSub,
             trailingValue,
+            divider,
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
             ring_trailingIdx_inReal,

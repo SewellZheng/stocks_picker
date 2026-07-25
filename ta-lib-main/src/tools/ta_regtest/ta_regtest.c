@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -546,6 +546,9 @@ static ErrorNumber test_codegen_with_simulator( void )
    history.low    = TA_SREF_low_daily_ref_0_PRIV;
    history.close  = TA_SREF_close_daily_ref_0_PRIV;
    history.volume = TA_SREF_volume_daily_ref_0_PRIV;
+   history.openInterest = NULL;   /* the test series carries no OI; honor the
+                                     "unused arrays are NULL" contract so readers
+                                     (test_variants.c build_regime) can trust it */
 
    retValue = test_codegen(&history, codegenLanguageFilter, functionFilter);
    if( retValue != TA_TEST_PASS )
@@ -593,6 +596,9 @@ static ErrorNumber testTAFunction_ALL( void )
    history.low    = TA_SREF_low_daily_ref_0_PRIV;
    history.close  = TA_SREF_close_daily_ref_0_PRIV;
    history.volume = TA_SREF_volume_daily_ref_0_PRIV;
+   history.openInterest = NULL;   /* the test series carries no OI; honor the
+                                     "unused arrays are NULL" contract so readers
+                                     (test_variants.c build_regime) can trust it */
 
    printf( "Testing the TA functions\n" );
 
@@ -640,8 +646,14 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_period_boundary, "PERIOD1/BOUNDARY" );
    DO_TEST( test_func_s_overflow, "MATH,ADD,SUB,MULT,DIV" );
    DO_TEST( test_candlestick,   "All Candlesticks" );
-   DO_TEST( test_func_composite, "PVO,COMPOSITE" );
+   /* The tag is what --function= substring-matches, so every function the
+    * group covers must appear in it: --function=VWMA matched nothing before
+    * VWMA was named here (issue #137). */
+   DO_TEST( test_func_composite, "PVO,VWMA,CMF,HMA,COMPOSITE" );
+   DO_TEST( test_func_cmf,       "CMF" );
    DO_TEST( test_func_cmou,      "CMOU" );
+   DO_TEST( test_func_variants,  "UNGUARDED,TA_S_,VARIANT" );
+   DO_TEST( test_candle_precision, "CDLDOJI,CANDLE,VARIANT,PRECISION" );
 
    return TA_TEST_PASS; /* All tests succeeded. */
 }

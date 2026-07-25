@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or
@@ -59,6 +59,8 @@
  *  052603 MF   Adapt code to compile with .NET Managed C++
  *  111603 MF   Allow period of 1. Just copy input into output.
  *  060907 MF   Use TA_SMA/TA_EMA instead of internal implementation.
+ *  072226 MF,CC Add HMA (issue #139).
+ *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
  */
 
 TA_LIB_API int TA_MA_Lookback( int optInTimePeriod, TA_MAType optInMAType )
@@ -70,7 +72,7 @@ TA_LIB_API int TA_MA_Lookback( int optInTimePeriod, TA_MAType optInMAType )
       return -1;
    if( (int)optInMAType == (int)0x80000000 )
       optInMAType = 0;
-   if( optInTimePeriod <= 1 )
+   if( optInTimePeriod <= 1 || optInMAType == TA_MAType_DISABLED )
    {
       return 0;
    }
@@ -102,6 +104,9 @@ TA_LIB_API int TA_MA_Lookback( int optInTimePeriod, TA_MAType optInMAType )
       break;
    case TA_MAType_T3:
       retValue = TA_T3_Lookback(optInTimePeriod,0.7);
+      break;
+   case TA_MAType_HMA:
+      retValue = TA_HMA_Lookback(optInTimePeriod);
       break;
    default:
       retValue = 0;
@@ -140,7 +145,10 @@ TA_LIB_API TA_RetCode TA_MA( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
-   if( optInTimePeriod == 1 )
+   /* No-smoothing identity: period 1 (every MA type) or the explicit
+    * TA_MAType_DISABLED (any period, issue #93). One copy path, lookback 0.
+    */
+   if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
       nbElement = endIdx - startIdx + 1;
       *outNBElement= nbElement;
@@ -184,6 +192,9 @@ TA_LIB_API TA_RetCode TA_MA( int    startIdx,
    case TA_MAType_T3:
       retCode = TA_T3_Unguarded(startIdx,endIdx,inReal,optInTimePeriod,0.7,outBegIdx,outNBElement,outReal);
       break;
+   case TA_MAType_HMA:
+      retCode = TA_HMA_Unguarded(startIdx,endIdx,inReal,optInTimePeriod,outBegIdx,outNBElement,outReal);
+      break;
    default:
       retCode = TA_BAD_PARAM;
       break;
@@ -205,7 +216,7 @@ TA_LIB_API TA_RetCode TA_MA_Unguarded( int    startIdx,
    int outIdx;
    int todayIdx;
 
-   if( optInTimePeriod == 1 )
+   if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
       nbElement = endIdx - startIdx + 1;
       *outNBElement= nbElement;
@@ -245,6 +256,9 @@ TA_LIB_API TA_RetCode TA_MA_Unguarded( int    startIdx,
    case TA_MAType_T3:
       retCode = TA_T3_Unguarded(startIdx,endIdx,inReal,optInTimePeriod,0.7,outBegIdx,outNBElement,outReal);
       break;
+   case TA_MAType_HMA:
+      retCode = TA_HMA_Unguarded(startIdx,endIdx,inReal,optInTimePeriod,outBegIdx,outNBElement,outReal);
+      break;
    default:
       retCode = TA_BAD_PARAM;
       break;
@@ -282,7 +296,7 @@ TA_RetCode TA_S_MA( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
-   if( optInTimePeriod == 1 )
+   if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
       nbElement = endIdx - startIdx + 1;
       *outNBElement= nbElement;
@@ -321,6 +335,9 @@ TA_RetCode TA_S_MA( int    startIdx,
       break;
    case TA_MAType_T3:
       retCode = TA_S_T3_Unguarded(startIdx,endIdx,inReal,optInTimePeriod,0.7,outBegIdx,outNBElement,outReal);
+      break;
+   case TA_MAType_HMA:
+      retCode = TA_S_HMA_Unguarded(startIdx,endIdx,inReal,optInTimePeriod,outBegIdx,outNBElement,outReal);
       break;
    default:
       retCode = TA_BAD_PARAM;
@@ -343,7 +360,7 @@ TA_RetCode TA_S_MA_Unguarded( int    startIdx,
    int outIdx;
    int todayIdx;
 
-   if( optInTimePeriod == 1 )
+   if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
       nbElement = endIdx - startIdx + 1;
       *outNBElement= nbElement;
@@ -382,6 +399,9 @@ TA_RetCode TA_S_MA_Unguarded( int    startIdx,
       break;
    case TA_MAType_T3:
       retCode = TA_S_T3_Unguarded(startIdx,endIdx,inReal,optInTimePeriod,0.7,outBegIdx,outNBElement,outReal);
+      break;
+   case TA_MAType_HMA:
+      retCode = TA_S_HMA_Unguarded(startIdx,endIdx,inReal,optInTimePeriod,outBegIdx,outNBElement,outReal);
       break;
    default:
       retCode = TA_BAD_PARAM;
@@ -423,7 +443,7 @@ TA_RetCode TA_MA_OpenInternal( struct TA_MA_Stream **stream, const double inReal
    sp->optInTimePeriod = optInTimePeriod;
    sp->optInMAType = optInMAType;
 
-   if( optInTimePeriod == 1 )
+   if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
       if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 ) { TA_Free( sp ); return TA_BAD_PARAM; }
       *outReal = inReal[historyLen - 1];
@@ -497,6 +517,13 @@ TA_RetCode TA_MA_OpenInternal( struct TA_MA_Stream **stream, const double inReal
          sp->sub = sub;
       }
       break;
+   case TA_MAType_HMA:
+      {
+         TA_HMA_Stream *sub = NULL;
+         retCode = TA_HMA_OpenInternal( &sub, inReal, startIdx, historyLen, optInTimePeriod, outReal );
+         sp->sub = sub;
+      }
+      break;
    default:
       retCode = TA_BAD_PARAM;
       break;
@@ -539,7 +566,7 @@ TA_LIB_API TA_RetCode TA_MA_OpenAndFill( TA_MA_Stream **stream, const double inR
    sp->optInTimePeriod = optInTimePeriod;
    sp->optInMAType = optInMAType;
 
-   if( optInTimePeriod == 1 )
+   if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
       if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 ) { TA_Free( sp ); return TA_BAD_PARAM; }
       {
@@ -622,6 +649,13 @@ TA_LIB_API TA_RetCode TA_MA_OpenAndFill( TA_MA_Stream **stream, const double inR
          sp->sub = sub;
       }
       break;
+   case TA_MAType_HMA:
+      {
+         TA_HMA_Stream *sub = NULL;
+         retCode = TA_HMA_OpenAndFill( &sub, inReal, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
+         sp->sub = sub;
+      }
+      break;
    default:
       retCode = TA_BAD_PARAM;
       break;
@@ -639,7 +673,7 @@ TA_LIB_API TA_RetCode TA_MA_OpenAndFill( TA_MA_Stream **stream, const double inR
 TA_LIB_API TA_RetCode TA_MA_Update( TA_MA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( stream->optInTimePeriod == 1 )
+   if( stream->optInTimePeriod == 1 || stream->optInMAType == TA_MAType_DISABLED )
    {
       *outReal = inReal;
       return TA_SUCCESS;
@@ -664,6 +698,8 @@ TA_LIB_API TA_RetCode TA_MA_Update( TA_MA_Stream *stream, double inReal, double 
       return TA_MAMA_Update( (TA_MAMA_Stream *)stream->sub, inReal, outReal, NULL );
    case TA_MAType_T3:
       return TA_T3_Update( (TA_T3_Stream *)stream->sub, inReal, outReal );
+   case TA_MAType_HMA:
+      return TA_HMA_Update( (TA_HMA_Stream *)stream->sub, inReal, outReal );
    default:
       /* Unreachable: Open rejects arms without a sub-stream. */
       return TA_INTERNAL_ERROR;
@@ -673,7 +709,7 @@ TA_LIB_API TA_RetCode TA_MA_Update( TA_MA_Stream *stream, double inReal, double 
 TA_LIB_API TA_RetCode TA_MA_Peek( const TA_MA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( stream->optInTimePeriod == 1 )
+   if( stream->optInTimePeriod == 1 || stream->optInMAType == TA_MAType_DISABLED )
    {
       *outReal = inReal;
       return TA_SUCCESS;
@@ -698,6 +734,8 @@ TA_LIB_API TA_RetCode TA_MA_Peek( const TA_MA_Stream *stream, double inReal, dou
       return TA_MAMA_Peek( (const TA_MAMA_Stream *)stream->sub, inReal, outReal, NULL );
    case TA_MAType_T3:
       return TA_T3_Peek( (const TA_T3_Stream *)stream->sub, inReal, outReal );
+   case TA_MAType_HMA:
+      return TA_HMA_Peek( (const TA_HMA_Stream *)stream->sub, inReal, outReal );
    default:
       /* Unreachable: Open rejects arms without a sub-stream. */
       return TA_INTERNAL_ERROR;
@@ -735,6 +773,9 @@ TA_LIB_API TA_RetCode TA_MA_Close( TA_MA_Stream *stream )
       break;
    case TA_MAType_T3:
       TA_T3_Close( (TA_T3_Stream *)stream->sub );
+      break;
+   case TA_MAType_HMA:
+      TA_HMA_Close( (TA_HMA_Stream *)stream->sub );
       break;
    default:
       break; /* identity-only or rejected arm: no sub-stream */

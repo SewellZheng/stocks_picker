@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -197,8 +197,8 @@ impl Core {
             return RetCode::Success;
         }
         // Proceed with the calculation for the requested range.
-        // Note that this algorithm allows the input and
-        // output to be the same buffer.
+        // (The integer outputs can never share the real input's buffer —
+        // different element type; issue #130.)
         outIdx = 0;
         today = startIdx;
         trailingIdx = startIdx - nbInitialElementNeeded;
@@ -479,8 +479,8 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         // Proceed with the calculation for the requested range.
-        // Note that this algorithm allows the input and
-        // output to be the same buffer.
+        // (The integer outputs can never share the real input's buffer —
+        // different element type; issue #130.)
         outIdx = 0;
         today = startIdx;
         trailingIdx = startIdx - nbInitialElementNeeded;
@@ -639,8 +639,8 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         // Proceed with the calculation for the requested range.
-        // Note that this algorithm allows the input and
-        // output to be the same buffer.
+        // (The integer outputs can never share the real input's buffer —
+        // different element type; issue #130.)
         outIdx = 0;
         today = startIdx;
         trailingIdx = startIdx - nbInitialElementNeeded;

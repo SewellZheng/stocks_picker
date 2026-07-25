@@ -17,6 +17,16 @@ Hilbert Transform classifier that labels each bar as trending (1) or cycling (0)
 
 - `outInteger` — 1 = trend mode, 0 = cycle mode
 
+## Properties
+
+**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
+
 ## Implementation
 
 TA-Lib Definition: [`ht_trendmode.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/ht_trendmode/ht_trendmode.c) · [`ht_trendmode.yaml`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/ht_trendmode/ht_trendmode.yaml)

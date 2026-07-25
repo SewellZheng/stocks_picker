@@ -19,11 +19,24 @@ Two candles. Candle 1: long real body (realbody > BodyLong average). Candle 2: d
 
 ## Inputs
 
-- `inPriceOHLC` — OHLC price series (open, high, low, close)
+- `inOpen` — Open price of each bar
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
 
 ## Outputs
 
 - `outInteger` — Emits +100 or -100 on a hit, 0 otherwise. Value is -candlecolor(candle1)*100: -100 when candle 1 is white (gap up), +100 when candle 1 is black (gap down)
+
+## Properties
+
+**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">✅</span> **Candlestick** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is an integer candlestick-pattern signal (e.g. -100 / 0 / +100)." data-tip="Output is an integer candlestick-pattern signal (e.g. -100 / 0 / +100).">i</span> |
 
 ## Implementation
 

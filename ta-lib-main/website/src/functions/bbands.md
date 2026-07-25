@@ -11,12 +11,25 @@ Bollinger Bands: a moving-average middle band with upper and lower bands offset 
 
 ## Formula
 
-middle = MA(inReal, period); sd = stddev(inReal, period); upper = middle + nbDevUp*sd; lower = middle - nbDevDn*sd
+$$
+\begin{aligned}
+\text{middle}_t &= \operatorname{MA}(X, n, \text{matype})_t \\
+\sigma_t &= \operatorname{STDDEV}(X, n)_t \\
+\text{upper}_t &= \text{middle}_t + k_{\text{up}}\,\sigma_t \\
+\text{lower}_t &= \text{middle}_t - k_{\text{dn}}\,\sigma_t
+\end{aligned}
+$$
+
+where $X$ is the input series, $n$ the period, $\text{matype}$ the moving-average type,
+and $k_{\text{up}}$, $k_{\text{dn}}$ the upper and lower deviation multipliers.
 
 ## Notes
 
-- The standard deviation uses the population form (dividing by the period), not the sample form.
-- The standard deviation is always computed with a simple moving average regardless of the selected MA type.
+- The defaults reproduce Bollinger's original definition: a 20-period SMA middle band with
+  $k_{\text{up}} = k_{\text{dn}} = 2$. Any other $\text{matype}$ is a TA-Lib generalisation.
+- $\text{matype}$ sets where the envelope is centred; $n$ and $k$ set how wide it is. The two are
+  independent — $\sigma$ depends only on the price window, so changing the middle band re-centres
+  the bands without resizing them.
 
 ## Inputs
 
@@ -30,10 +43,24 @@ middle = MA(inReal, period); sd = stddev(inReal, period); upper = middle + nbDev
 
 ## Parameters
 
-- `optInTimePeriod` — Periods for the MA and standard deviation
-- `optInNbDevUp` — Standard-deviation multiplier for the upper band
-- `optInNbDevDn` — Standard-deviation multiplier for the lower band
-- `optInMAType` — Moving-average type for the middle band
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInTimePeriod` | integer | 20 | 2–100000 | Periods for the MA and standard deviation |
+| `optInNbDevUp` | real | 2 | any real | Standard-deviation multiplier for the upper band |
+| `optInNbDevDn` | real | 2 | any real | Standard-deviation multiplier for the lower band |
+| `optInMAType` | MAType | SMA (0) | any MAType | Moving-average type for the middle band |
+
+*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED*
+
+## Properties
+
+**Numerical Stability:** [Depends on MA Type](/functions/stability#depends-on-ma-type) — This function's default, SMA, is start-independent.
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">✅</span> **Overlap Input** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on the same scale as the input price, so it is drawn over the price chart." data-tip="Output is on the same scale as the input price, so it is drawn over the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Independent Y-Axis</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

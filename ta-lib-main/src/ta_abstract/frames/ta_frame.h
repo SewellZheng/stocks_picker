@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -776,6 +776,15 @@ TA_RetCode TA_CEIL_FramePP( const TA_ParamHolderPriv *params,
 unsigned int TA_CEIL_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 
+TA_RetCode TA_CMF_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_CMF_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
 TA_RetCode TA_CMO_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -873,6 +882,15 @@ TA_RetCode TA_FLOOR_FramePP( const TA_ParamHolderPriv *params,
                            int           *outNBElement )
 ;
 unsigned int TA_FLOOR_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
+TA_RetCode TA_HMA_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_HMA_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 
 TA_RetCode TA_HT_DCPERIOD_FramePP( const TA_ParamHolderPriv *params,
@@ -1503,6 +1521,15 @@ TA_RetCode TA_VAR_FramePP( const TA_ParamHolderPriv *params,
                            int           *outNBElement )
 ;
 unsigned int TA_VAR_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
+TA_RetCode TA_VWMA_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_VWMA_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 
 TA_RetCode TA_WCLPRICE_FramePP( const TA_ParamHolderPriv *params,

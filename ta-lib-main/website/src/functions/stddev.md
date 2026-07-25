@@ -27,8 +27,20 @@ $\sigma_i = \sqrt{\mathrm{VAR}_i}\cdot nbDev$, where $\mathrm{VAR}_i = \frac{1}{
 
 ## Parameters
 
-- `optInTimePeriod` — Window length
-- `optInNbDev` — Multiplier applied to the standard deviation
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInTimePeriod` | integer | 5 | 2–100000 | Window length |
+| `optInNbDev` | real | 1 | any real | Multiplier applied to the standard deviation |
+
+## Properties
+
+**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

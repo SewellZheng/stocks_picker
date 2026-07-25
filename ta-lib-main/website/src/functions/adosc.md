@@ -18,7 +18,10 @@ ADOSC = fastEMA - slowEMA
 
 ## Inputs
 
-- `inPriceHLCV` — High, low, close, and volume series
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
+- `inVolume` — Volume of each bar
 
 ## Outputs
 
@@ -26,8 +29,20 @@ ADOSC = fastEMA - slowEMA
 
 ## Parameters
 
-- `optInFastPeriod` — Period of the fast A/D EMA
-- `optInSlowPeriod` — Period of the slow A/D EMA
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInFastPeriod` | integer | 3 | 2–100000 | Period of the fast A/D EMA |
+| `optInSlowPeriod` | integer | 10 | 2–100000 | Period of the slow A/D EMA |
+
+## Properties
+
+**Numerical Stability:** [Path-Dependent](/functions/stability#path-dependent) — It also computes EMA internally, so EMA's unstable period governs how many leading values are discarded.
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -93,7 +93,7 @@ impl Core {
     /// \[-100,+100]; positive = net upward momentum, negative = net downward. CMOU is the version
     /// as defined by Chande in his book *The New Technical Trader* (1994), and is the more common
     /// implementation used by TradingView (`ta.cmo`), QuantConnect and pandas-ta's default. See
-    /// \[`CMO`](/functions/cmo) for a smoothed variant of CMOU.
+    /// [`CMO`](https://ta-lib.org/functions/cmo) for a smoothed variant of CMOU.
     ///
     /// # Formula
     ///
@@ -140,6 +140,7 @@ impl Core {
     /// let ret = core.cmou(0, data.len() - 1, &data, 14, &mut out_beg, &mut out_nb, &mut out);
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
+    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
     /// ```
     ///
     /// # See also

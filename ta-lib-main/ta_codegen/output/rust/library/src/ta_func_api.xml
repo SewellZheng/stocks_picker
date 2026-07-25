@@ -100,7 +100,7 @@
 		<GroupId>Volume Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
-			<Flag>Start Dependent</Flag>
+			<Flag>Path Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -171,7 +171,7 @@
 		<GroupId>Volume Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
-			<Flag>Start Dependent</Flag>
+			<Flag>Path Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -289,7 +289,6 @@
 		<ShortDescription>Average Directional Movement Index Rating</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
-			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
@@ -709,7 +708,7 @@
 					<SuggestedEnd>100000</SuggestedEnd>
 					<SuggestedIncrement>100000</SuggestedIncrement>
 				</Range>
-				<DefaultValue>5</DefaultValue>
+				<DefaultValue>20</DefaultValue>
 			</OptionalInputArgument>
 			<OptionalInputArgument>
 				<Name>Deviations up</Name>
@@ -3486,6 +3485,60 @@
 	</FinancialFunction>
 
 
+	<!-- CMF -->
+	<FinancialFunction>
+		<Abbreviation>CMF</Abbreviation>
+		<CamelCaseName>Cmf</CamelCaseName>
+		<ShortDescription>Chaikin Money Flow</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>100000</SuggestedStart>
+					<SuggestedEnd>100000</SuggestedEnd>
+					<SuggestedIncrement>100000</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- CMO -->
 	<FinancialFunction>
 		<Abbreviation>CMO</Abbreviation>
@@ -3882,6 +3935,49 @@
 				<Name>inReal</Name>
 			</RequiredInputArgument>
 		</RequiredInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- HMA -->
+	<FinancialFunction>
+		<Abbreviation>HMA</Abbreviation>
+		<CamelCaseName>Hma</CamelCaseName>
+		<ShortDescription>Hull Moving Average</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>100000</SuggestedStart>
+					<SuggestedEnd>100000</SuggestedEnd>
+					<SuggestedIncrement>100000</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
 		<OutputArguments>
 			<OutputArgument>
 				<Type>Double Array</Type>
@@ -5486,7 +5582,7 @@
 		<GroupId>Volume Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
-			<Flag>Start Dependent</Flag>
+			<Flag>Path Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5518,7 +5614,7 @@
 		<GroupId>Volume Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
-			<Flag>Start Dependent</Flag>
+			<Flag>Path Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5709,7 +5805,7 @@
 		<GroupId>Volume Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
-			<Flag>Start Dependent</Flag>
+			<Flag>Path Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6014,7 +6110,7 @@
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
-			<Flag>Start Dependent</Flag>
+			<Flag>Path Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6077,7 +6173,7 @@
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
-			<Flag>Start Dependent</Flag>
+			<Flag>Path Dependent</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6573,7 +6669,6 @@
 		<ShortDescription>Stochastic Relative Strength Index</ShortDescription>
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
-			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
@@ -7193,6 +7288,53 @@
 					<SuggestedIncrement>2.000000e-1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>1.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- VWMA -->
+	<FinancialFunction>
+		<Abbreviation>VWMA</Abbreviation>
+		<CamelCaseName>Vwma</CamelCaseName>
+		<ShortDescription>Volume Weighted Moving Average</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>100000</SuggestedStart>
+					<SuggestedEnd>100000</SuggestedEnd>
+					<SuggestedIncrement>100000</SuggestedIncrement>
+				</Range>
+				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
 		</OptionalInputArguments>
 		<OutputArguments>

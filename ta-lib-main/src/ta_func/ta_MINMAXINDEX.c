@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or
@@ -123,8 +123,8 @@ TA_LIB_API TA_RetCode TA_MINMAXINDEX( int    startIdx,
       return TA_SUCCESS;
    }
    /* Proceed with the calculation for the requested range.
-    * Note that this algorithm allows the input and
-    * output to be the same buffer.
+    * (The integer outputs can never share the real input's buffer —
+    * different element type; issue #130.)
     */
    outIdx = 0;
    today = startIdx;
@@ -142,6 +142,7 @@ TA_LIB_API TA_RetCode TA_MINMAXINDEX( int    startIdx,
          highestIdx = trailingIdx;
          highest = inReal[highestIdx];
          i = highestIdx;
+         TA_UNROLL(4)
          while( ++i <= today )
          {
             tmpHigh = inReal[i];
@@ -161,6 +162,7 @@ TA_LIB_API TA_RetCode TA_MINMAXINDEX( int    startIdx,
          lowestIdx = trailingIdx;
          lowest = inReal[lowestIdx];
          i = lowestIdx;
+         TA_UNROLL(4)
          while( ++i <= today )
          {
             tmpLow = inReal[i];
@@ -237,6 +239,7 @@ TA_LIB_API TA_RetCode TA_MINMAXINDEX_Unguarded( int    startIdx,
          highestIdx = trailingIdx;
          highest = inReal[highestIdx];
          i = highestIdx;
+         TA_UNROLL(4)
          while( ++i <= today )
          {
             tmpHigh = inReal[i];
@@ -256,6 +259,7 @@ TA_LIB_API TA_RetCode TA_MINMAXINDEX_Unguarded( int    startIdx,
          lowestIdx = trailingIdx;
          lowest = inReal[lowestIdx];
          i = lowestIdx;
+         TA_UNROLL(4)
          while( ++i <= today )
          {
             tmpLow = inReal[i];
@@ -347,6 +351,7 @@ TA_RetCode TA_S_MINMAXINDEX( int    startIdx,
          highestIdx = trailingIdx;
          highest = (double)inReal[highestIdx];
          i = highestIdx;
+         TA_UNROLL(4)
          while( ++i <= today )
          {
             tmpHigh = (double)inReal[i];
@@ -366,6 +371,7 @@ TA_RetCode TA_S_MINMAXINDEX( int    startIdx,
          lowestIdx = trailingIdx;
          lowest = (double)inReal[lowestIdx];
          i = lowestIdx;
+         TA_UNROLL(4)
          while( ++i <= today )
          {
             tmpLow = (double)inReal[i];
@@ -439,6 +445,7 @@ TA_RetCode TA_S_MINMAXINDEX_Unguarded( int    startIdx,
          highestIdx = trailingIdx;
          highest = (double)inReal[highestIdx];
          i = highestIdx;
+         TA_UNROLL(4)
          while( ++i <= today )
          {
             tmpHigh = (double)inReal[i];
@@ -458,6 +465,7 @@ TA_RetCode TA_S_MINMAXINDEX_Unguarded( int    startIdx,
          lowestIdx = trailingIdx;
          lowest = (double)inReal[lowestIdx];
          i = lowestIdx;
+         TA_UNROLL(4)
          while( ++i <= today )
          {
             tmpLow = (double)inReal[i];
@@ -530,6 +538,7 @@ static void TA_MINMAXINDEX_StepInternal( struct TA_MINMAXINDEX_Stream *sp, doubl
       sp->highestIdx = sp->trailingIdx;
       sp->highest = sp->x_inReal[sp->highestIdx % sp->xCap];
       sp->i = sp->highestIdx;
+      TA_UNROLL(4)
       while( ++sp->i <= sp->today )
       {
          sp->tmpHigh = sp->x_inReal[sp->i % sp->xCap];
@@ -549,6 +558,7 @@ static void TA_MINMAXINDEX_StepInternal( struct TA_MINMAXINDEX_Stream *sp, doubl
       sp->lowestIdx = sp->trailingIdx;
       sp->lowest = sp->x_inReal[sp->lowestIdx % sp->xCap];
       sp->i = sp->lowestIdx;
+      TA_UNROLL(4)
       while( ++sp->i <= sp->today )
       {
          sp->tmpLow = sp->x_inReal[sp->i % sp->xCap];
@@ -627,8 +637,8 @@ TA_RetCode TA_MINMAXINDEX_OpenInternal( struct TA_MINMAXINDEX_Stream **stream, c
          return TA_BAD_PARAM;
       }
       /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the input and
-       * output to be the same buffer.
+       * (The integer outputs can never share the real input's buffer —
+       * different element type; issue #130.)
        */
       outIdx = 0;
       today = startIdx;
@@ -646,6 +656,7 @@ TA_RetCode TA_MINMAXINDEX_OpenInternal( struct TA_MINMAXINDEX_Stream **stream, c
             highestIdx = trailingIdx;
             highest = inReal[highestIdx];
             i = highestIdx;
+            TA_UNROLL(4)
             while( ++i <= today )
             {
                tmpHigh = inReal[i];
@@ -665,6 +676,7 @@ TA_RetCode TA_MINMAXINDEX_OpenInternal( struct TA_MINMAXINDEX_Stream **stream, c
             lowestIdx = trailingIdx;
             lowest = inReal[lowestIdx];
             i = lowestIdx;
+            TA_UNROLL(4)
             while( ++i <= today )
             {
                tmpLow = inReal[i];
@@ -785,8 +797,8 @@ TA_LIB_API TA_RetCode TA_MINMAXINDEX_OpenAndFill( TA_MINMAXINDEX_Stream **stream
          return TA_BAD_PARAM;
       }
       /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the input and
-       * output to be the same buffer.
+       * (The integer outputs can never share the real input's buffer —
+       * different element type; issue #130.)
        */
       outIdx = 0;
       today = startIdx;
@@ -804,6 +816,7 @@ TA_LIB_API TA_RetCode TA_MINMAXINDEX_OpenAndFill( TA_MINMAXINDEX_Stream **stream
             highestIdx = trailingIdx;
             highest = inReal[highestIdx];
             i = highestIdx;
+            TA_UNROLL(4)
             while( ++i <= today )
             {
                tmpHigh = inReal[i];
@@ -823,6 +836,7 @@ TA_LIB_API TA_RetCode TA_MINMAXINDEX_OpenAndFill( TA_MINMAXINDEX_Stream **stream
             lowestIdx = trailingIdx;
             lowest = inReal[lowestIdx];
             i = lowestIdx;
+            TA_UNROLL(4)
             while( ++i <= today )
             {
                tmpLow = inReal[i];

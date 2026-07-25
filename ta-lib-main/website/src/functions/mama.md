@@ -27,8 +27,20 @@ FAMA = (alpha/2)*MAMA + (1-alpha/2)*FAMA_prev
 
 ## Parameters
 
-- `optInFastLimit` — Upper bound on the adaptive smoothing factor
-- `optInSlowLimit` — Lower bound on the adaptive smoothing factor
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInFastLimit` | real | 0.5 | 0.01–0.99 | Upper bound on the adaptive smoothing factor |
+| `optInSlowLimit` | real | 0.05 | 0.01–0.99 | Lower bound on the adaptive smoothing factor |
+
+## Properties
+
+**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">✅</span> **Overlap Input** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on the same scale as the input price, so it is drawn over the price chart." data-tip="Output is on the same scale as the input price, so it is drawn over the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Independent Y-Axis</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

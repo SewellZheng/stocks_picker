@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -95,7 +95,24 @@ impl Core {
     /// # Formula
     ///
     /// ```text
-    /// Initial avgGain/avgLoss = simple mean of up/down moves over the period, then Wilder-smoothed each bar: $avg = (avg_{prev}\cdot(period-1) + move)/period$. $RSI = 100\cdot avgGain/(avgGain+avgLoss)$ (equivalent to $100 - 100/(1+RS)$).
+    /// $$
+    /// \begin{aligned}
+    /// U_t &= \max(X_t - X_{t-1},\ 0)
+    ///    &  D_t &= \max(X_{t-1} - X_t,\ 0) \\[4pt]
+    /// \overline{U}_t &= \begin{cases}
+    ///     \operatorname{SMA}(U, n)_t                 & \text{if } t = n \\[4pt]
+    ///     \dfrac{(n-1)\,\overline{U}_{t-1} + U_t}{n} & \text{if } t > n
+    ///   \end{cases}
+    ///    &  \overline{D}_t &= \begin{cases}
+    ///     \operatorname{SMA}(D, n)_t                 & \text{if } t = n \\[4pt]
+    ///     \dfrac{(n-1)\,\overline{D}_{t-1} + D_t}{n} & \text{if } t > n
+    ///   \end{cases} \\[4pt]
+    /// \mathrm{RS}_t &= \frac{\overline{U}_t}{\overline{D}_t}
+    ///    &  \mathrm{RSI}_t &= 100 - \frac{100}{1 + \mathrm{RS}_t}
+    /// \end{aligned}
+    /// $$
+    ///
+    /// where $X$ is the input series and $n$ the period.
     /// ```
     ///
     /// # Arguments
@@ -136,6 +153,7 @@ impl Core {
     /// let ret = core.rsi(0, data.len() - 1, &data, 14, &mut out_beg, &mut out_nb, &mut out);
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
+    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
     /// ```
     ///
     /// # See also
@@ -210,14 +228,16 @@ impl Core {
             (*outBegIdx) = startIdx;
             i = ((endIdx - startIdx + 1) as usize) as usize;
             (*outNBElement) = i as usize;
-            // memmove, not memcpy: an in-place caller (outReal == inReal) with
-            // startIdx > 0 overlaps source and destination (issue #94; matches WMA).
-            {
-            let _n = (i * 1) as usize;
-            let _di = (0) as usize;
-            let _si = (startIdx) as usize;
-            outReal[_di.._di + _n].copy_from_slice(&inReal[_si.._si + _n]);
-        };
+            // Element loop, not a block copy: the C single-precision variant reads a
+            // float array, so a double-sized byte copy would reinterpret and
+            // over-read it (#137). Forward order keeps the in-place case correct (#94).
+            today = startIdx as usize;
+            // for( outIdx = 0; outIdx < (i as usize); outIdx += 1 )
+            outIdx = 0;
+            while outIdx < (i as usize) {
+                outReal[outIdx] = ((inReal[{ let _v = today; today += 1; _v }]) as f64);
+                outIdx += 1;
+            }
             return RetCode::Success;
         }
         // Accumulate Wilder's "Average Gain" and "Average Loss"
@@ -415,12 +435,13 @@ impl Core {
             (*outBegIdx) = startIdx;
             i = ((endIdx - startIdx + 1) as usize) as usize;
             (*outNBElement) = i as usize;
-            {
-            let _n = (i * 1) as usize;
-            let _di = (0) as usize;
-            let _si = (startIdx) as usize;
-            outReal[_di.._di + _n].copy_from_slice(&inReal[_si.._si + _n]);
-        };
+            today = startIdx as usize;
+            // for( outIdx = 0; outIdx < (i as usize); outIdx += 1 )
+            outIdx = 0;
+            while outIdx < (i as usize) {
+                outReal[outIdx] = ((inReal[{ let _v = today; today += 1; _v }]) as f64);
+                outIdx += 1;
+            }
             return RetCode::Success;
         }
         today = startIdx - lookbackTotal;

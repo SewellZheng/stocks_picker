@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or
@@ -53,6 +53,8 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  021807 MF     Initial Version
+ *  072026 MF,CC  Fix #130. Stage results locally so in-place (outReal==inReal)
+ *                calls no longer corrupt the input the ma() passes re-read.
  */
 
 TA_LIB_API int TA_MAVP_Lookback( int optInMinPeriod, int optInMaxPeriod, TA_MAType optInMAType )
@@ -89,6 +91,8 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
    int curPeriod;
    int *localPeriodArray;
    double *localOutputArray;
+   double *localFinalArray;
+   int finalIsAllocated;
    int localBegIdx;
    int localNbElement;
    TA_RetCode retCode;
@@ -163,6 +167,20 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
    /* Allocate intermediate local buffer. */
    localOutputArray = malloc(outputSize * sizeof(double));
    localPeriodArray = malloc(outputSize * sizeof(int));
+   /* In-place defence (issue #130): each ma() pass below re-reads inReal over
+    * the full range, so with outReal==inReal the results are staged in a
+    * scratch buffer and copied once at the end. A regular call writes
+    * straight to outReal and skips both the allocation and the copy.
+    */
+   finalIsAllocated = 0;
+   if( outReal == inReal )
+   {
+      finalIsAllocated = 1;
+      localFinalArray = malloc(outputSize * sizeof(double));
+   } else 
+   {
+      localFinalArray = outReal;
+   }
    /* Copy caller array of period into local buffer.
     * At the same time, truncate to min/max.
     */
@@ -201,24 +219,40 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
          {
             free(localOutputArray);
             free(localPeriodArray);
+            if( finalIsAllocated )
+            {
+               free(localFinalArray);
+            }
             *outBegIdx= 0;
             *outNBElement= 0;
             return retCode;
          }
-         outReal[i] = localOutputArray[i];
+         localFinalArray[i] = localOutputArray[i];
          for( j = i + 1; j < outputSize; j += 1 )
          {
             if( localPeriodArray[j] == curPeriod )
             {
                localPeriodArray[j] = 0;
                /* Flag to avoid recalculation */
-               outReal[j] = localOutputArray[j];
+               localFinalArray[j] = localOutputArray[j];
             }
          }
       }
    }
+   /* Pointer-inequality guard, not finalIsAllocated: in backends where the
+    * scratch election materializes as a copy (Rust), the copy-back must
+    * always run; in C/Java the non-aliased self-copy is skipped.
+    */
+   if( localFinalArray != outReal )
+   {
+      memcpy(outReal,localFinalArray,outputSize * sizeof(double));
+   }
    free(localOutputArray);
    free(localPeriodArray);
+   if( finalIsAllocated )
+   {
+      free(localFinalArray);
+   }
    /* Done. Inform the caller of the success. */
    *outBegIdx= startIdx;
    *outNBElement= outputSize;
@@ -244,6 +278,8 @@ TA_LIB_API TA_RetCode TA_MAVP_Unguarded( int    startIdx,
    int curPeriod;
    int *localPeriodArray;
    double *localOutputArray;
+   double *localFinalArray;
+   int finalIsAllocated;
    int localBegIdx;
    int localNbElement;
    TA_RetCode retCode;
@@ -281,6 +317,15 @@ TA_LIB_API TA_RetCode TA_MAVP_Unguarded( int    startIdx,
    outputSize = endIdx - tempInt + 1;
    localOutputArray = malloc(outputSize * sizeof(double));
    localPeriodArray = malloc(outputSize * sizeof(int));
+   finalIsAllocated = 0;
+   if( outReal == inReal )
+   {
+      finalIsAllocated = 1;
+      localFinalArray = malloc(outputSize * sizeof(double));
+   } else 
+   {
+      localFinalArray = outReal;
+   }
    for( i = 0; i < outputSize; i += 1 )
    {
       tempInt = (int)inPeriods[startIdx + i];
@@ -303,23 +348,35 @@ TA_LIB_API TA_RetCode TA_MAVP_Unguarded( int    startIdx,
          {
             free(localOutputArray);
             free(localPeriodArray);
+            if( finalIsAllocated )
+            {
+               free(localFinalArray);
+            }
             *outBegIdx= 0;
             *outNBElement= 0;
             return retCode;
          }
-         outReal[i] = localOutputArray[i];
+         localFinalArray[i] = localOutputArray[i];
          for( j = i + 1; j < outputSize; j += 1 )
          {
             if( localPeriodArray[j] == curPeriod )
             {
                localPeriodArray[j] = 0;
-               outReal[j] = localOutputArray[j];
+               localFinalArray[j] = localOutputArray[j];
             }
          }
       }
    }
+   if( localFinalArray != outReal )
+   {
+      memcpy(outReal,localFinalArray,outputSize * sizeof(double));
+   }
    free(localOutputArray);
    free(localPeriodArray);
+   if( finalIsAllocated )
+   {
+      free(localFinalArray);
+   }
    *outBegIdx= startIdx;
    *outNBElement= outputSize;
    return TA_SUCCESS;
@@ -344,6 +401,8 @@ TA_RetCode TA_S_MAVP( int    startIdx,
    int curPeriod;
    int *localPeriodArray;
    double *localOutputArray;
+   double *localFinalArray;
+   int finalIsAllocated;
    int localBegIdx;
    int localNbElement;
    TA_RetCode retCode;
@@ -403,6 +462,15 @@ TA_RetCode TA_S_MAVP( int    startIdx,
    outputSize = endIdx - tempInt + 1;
    localOutputArray = malloc(outputSize * sizeof(double));
    localPeriodArray = malloc(outputSize * sizeof(int));
+   finalIsAllocated = 0;
+   if( 0 )
+   {
+      finalIsAllocated = 1;
+      localFinalArray = malloc(outputSize * sizeof(double));
+   } else 
+   {
+      localFinalArray = outReal;
+   }
    for( i = 0; i < outputSize; i += 1 )
    {
       tempInt = (int)(double)inPeriods[startIdx + i];
@@ -425,23 +493,35 @@ TA_RetCode TA_S_MAVP( int    startIdx,
          {
             free(localOutputArray);
             free(localPeriodArray);
+            if( finalIsAllocated )
+            {
+               free(localFinalArray);
+            }
             *outBegIdx= 0;
             *outNBElement= 0;
             return retCode;
          }
-         outReal[i] = localOutputArray[i];
+         localFinalArray[i] = localOutputArray[i];
          for( j = i + 1; j < outputSize; j += 1 )
          {
             if( localPeriodArray[j] == curPeriod )
             {
                localPeriodArray[j] = 0;
-               outReal[j] = localOutputArray[j];
+               localFinalArray[j] = localOutputArray[j];
             }
          }
       }
    }
+   if( localFinalArray != outReal )
+   {
+      memcpy(outReal,localFinalArray,outputSize * sizeof(double));
+   }
    free(localOutputArray);
    free(localPeriodArray);
+   if( finalIsAllocated )
+   {
+      free(localFinalArray);
+   }
    *outBegIdx= startIdx;
    *outNBElement= outputSize;
    return TA_SUCCESS;
@@ -466,6 +546,8 @@ TA_RetCode TA_S_MAVP_Unguarded( int    startIdx,
    int curPeriod;
    int *localPeriodArray;
    double *localOutputArray;
+   double *localFinalArray;
+   int finalIsAllocated;
    int localBegIdx;
    int localNbElement;
    TA_RetCode retCode;
@@ -503,6 +585,15 @@ TA_RetCode TA_S_MAVP_Unguarded( int    startIdx,
    outputSize = endIdx - tempInt + 1;
    localOutputArray = malloc(outputSize * sizeof(double));
    localPeriodArray = malloc(outputSize * sizeof(int));
+   finalIsAllocated = 0;
+   if( 0 )
+   {
+      finalIsAllocated = 1;
+      localFinalArray = malloc(outputSize * sizeof(double));
+   } else 
+   {
+      localFinalArray = outReal;
+   }
    for( i = 0; i < outputSize; i += 1 )
    {
       tempInt = (int)(double)inPeriods[startIdx + i];
@@ -525,23 +616,35 @@ TA_RetCode TA_S_MAVP_Unguarded( int    startIdx,
          {
             free(localOutputArray);
             free(localPeriodArray);
+            if( finalIsAllocated )
+            {
+               free(localFinalArray);
+            }
             *outBegIdx= 0;
             *outNBElement= 0;
             return retCode;
          }
-         outReal[i] = localOutputArray[i];
+         localFinalArray[i] = localOutputArray[i];
          for( j = i + 1; j < outputSize; j += 1 )
          {
             if( localPeriodArray[j] == curPeriod )
             {
                localPeriodArray[j] = 0;
-               outReal[j] = localOutputArray[j];
+               localFinalArray[j] = localOutputArray[j];
             }
          }
       }
    }
+   if( localFinalArray != outReal )
+   {
+      memcpy(outReal,localFinalArray,outputSize * sizeof(double));
+   }
    free(localOutputArray);
    free(localPeriodArray);
+   if( finalIsAllocated )
+   {
+      free(localFinalArray);
+   }
    *outBegIdx= startIdx;
    *outNBElement= outputSize;
    return TA_SUCCESS;

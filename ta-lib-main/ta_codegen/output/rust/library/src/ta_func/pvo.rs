@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -71,7 +71,7 @@ impl Core {
     /// * `optInFastPeriod` — Period of the fast MA (default 12, range 2..=100000)
     /// * `optInSlowPeriod` — Period of the slow MA (default 26, range 2..=100000)
     /// * `optInMAType` — Moving average type used for both MAs (default 1 = EMA, values: 0=SMA,
-    ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
+    ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED)
     ///
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
     /// to select their default value.
@@ -90,12 +90,12 @@ impl Core {
         // Lookback is driven by the slowest MA.
         return self.ma_lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType);
     }
-    /// Percentage Volume Oscillator: a variation of the \[Percentage Price
-    /// Oscillator](/functions/ppo) (PPO, created by Gerald Appel) applied to the **volume** series
-    /// instead of price. It is the difference between a fast and slow moving average of volume,
-    /// expressed as a percentage of the slow MA. Positive when short-term volume is above its
-    /// longer-term average (rising participation), negative when below. The default periods (12,
-    /// 26) match MACD and PPO.
+    /// Percentage Volume Oscillator: a variation of the [Percentage Price
+    /// Oscillator](https://ta-lib.org/functions/ppo) (PPO, created by Gerald Appel) applied to the
+    /// **volume** series instead of price. It is the difference between a fast and slow moving
+    /// average of volume, expressed as a percentage of the slow MA. Positive when short-term volume
+    /// is above its longer-term average (rising participation), negative when below. The default
+    /// periods (12, 26) match MACD and PPO.
     ///
     /// # Formula
     ///
@@ -109,11 +109,11 @@ impl Core {
     ///
     /// * `startIdx` — Start index of the requested calculation range.
     /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inVolume` — Volume series.
+    /// * `inVolume` — Volume of each bar.
     /// * `optInFastPeriod` — Period of the fast MA (default 12, range 2..=100000)
     /// * `optInSlowPeriod` — Period of the slow MA (default 26, range 2..=100000)
     /// * `optInMAType` — Moving average type used for both MAs (default 1 = EMA, values: 0=SMA,
-    ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
+    ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED)
     /// * `outBegIdx` — Set to the input index of the first output value.
     /// * `outNBElement` — Set to the number of output values written.
     /// * `outReal` — PVO value in percent.
@@ -136,7 +136,9 @@ impl Core {
     /// ```
     /// use ta_lib::{Core, RetCode};
     ///
-    /// let volume: Vec<f64> = (0..252).map(|i| 10_000.0 + 100.0 * i as f64).collect();
+    /// let volume: Vec<f64> = (0..252)
+    ///     .map(|i| 10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin())
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let mut out_beg = 0;
@@ -149,6 +151,7 @@ impl Core {
     /// );
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
+    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
     /// ```
     ///
     /// # See also
@@ -159,10 +162,10 @@ impl Core {
     ///
     /// * PVO has no separately documented originator; it applies the PPO/MACD oscillator (Gerald
     ///   Appel) to the volume series.
-    /// * Formula and standard (12, 26, 9) parameters: \[Percentage Volume Oscillator
+    /// * Formula and standard (12, 26, 9) parameters: [Percentage Volume Oscillator
     ///   (PVO)](https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-indicators/percentage-volume-oscillator-pvo),
     ///   StockCharts ChartSchool; also documented by
-    ///   \[TradingView](https://www.tradingview.com/support/solutions/43000591350-percentage-volume-oscillator-pvo/).
+    ///   [TradingView](https://www.tradingview.com/support/solutions/43000591350-percentage-volume-oscillator-pvo/).
     ///
     /// Further reading: [ta-lib.org/functions/pvo](https://ta-lib.org/functions/pvo/)
     #[doc(alias = "PercentageVolumeOscillator")]
@@ -452,7 +455,9 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let volume: Vec<f64> = (0..252).map(|i| 10_000.0 + 100.0 * i as f64).collect();
+    /// let volume: Vec<f64> = (0..252)
+    ///     .map(|i| 10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin())
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.pvo_open(&volume, 12, 26, 1).expect("enough history");

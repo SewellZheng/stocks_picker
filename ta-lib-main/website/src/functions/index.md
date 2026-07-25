@@ -88,6 +88,7 @@ All technical-analysis functions, grouped by category. Each page documents the f
 - [BBANDS](/functions/bbands) — Bollinger Bands
 - [DEMA](/functions/dema) — Double Exponential Moving Average
 - [EMA](/functions/ema) — Exponential Moving Average
+- [HMA](/functions/hma) — Hull Moving Average
 - [HT_TRENDLINE](/functions/ht_trendline) — Hilbert Transform - Instantaneous Trendline
 - [KAMA](/functions/kama) — Kaufman Adaptive Moving Average
 - [MA](/functions/ma) — Moving average
@@ -101,6 +102,7 @@ All technical-analysis functions, grouped by category. Each page documents the f
 - [T3](/functions/t3) — Triple Exponential Moving Average (T3)
 - [TEMA](/functions/tema) — Triple Exponential Moving Average
 - [TRIMA](/functions/trima) — Triangular Moving Average
+- [VWMA](/functions/vwma) — Volume Weighted Moving Average
 - [WMA](/functions/wma) — Weighted Moving Average
 
 ## Pattern Recognition
@@ -197,6 +199,7 @@ All technical-analysis functions, grouped by category. Each page documents the f
 
 - [AD](/functions/ad) — Chaikin A/D Line
 - [ADOSC](/functions/adosc) — Chaikin A/D Oscillator
+- [CMF](/functions/cmf) — Chaikin Money Flow
 - [NVI](/functions/nvi) — Negative Volume Index
 - [OBV](/functions/obv) — On Balance Volume
 - [PVI](/functions/pvi) — Positive Volume Index

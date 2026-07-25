@@ -49,8 +49,8 @@ TA_RetCode minmaxindex(int startIdx, int endIdx,
    }
 
    /* Proceed with the calculation for the requested range.
-    * Note that this algorithm allows the input and
-    * output to be the same buffer.
+    * (The integer outputs can never share the real input's buffer —
+    * different element type; issue #130.)
     */
    outIdx = 0;
    today       = startIdx;
@@ -69,6 +69,7 @@ TA_RetCode minmaxindex(int startIdx, int endIdx,
          highestIdx = trailingIdx;
          highest = inReal[highestIdx];
          i = highestIdx;
+         TA_UNROLL(4)
          while( ++i<=today )
          {
             tmpHigh = inReal[i];
@@ -90,6 +91,7 @@ TA_RetCode minmaxindex(int startIdx, int endIdx,
          lowestIdx = trailingIdx;
          lowest = inReal[lowestIdx];
          i = lowestIdx;
+         TA_UNROLL(4)
          while( ++i<=today )
          {
             tmpLow = inReal[i];

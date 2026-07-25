@@ -21,10 +21,10 @@ enum RetCode {
 class MInteger { public int value; }
 
 enum FuncUnstId {
-    Adx, Adxr, Atr, Cmo, Dx, Ema,
+    Adx, Unused1, Atr, Cmo, Dx, Ema,
     HtDcPeriod, HtDcPhase, HtPhasor, HtSine, HtTrendline, HtTrendMode,
     Unused12, Kama, Mama, Unused15, MinusDI, MinusDM,
-    Natr, PlusDI, PlusDM, Rsi, StochRsi, T3, None;
+    Natr, PlusDI, PlusDM, Rsi, Unused22, T3, None;
 }
 
 enum Compatibility {
@@ -32,7 +32,7 @@ enum Compatibility {
 }
 
 enum MAType {
-    Sma, Ema, Wma, Dema, Tema, Trima, Kama, Mama, T3;
+    Sma, Ema, Wma, Dema, Tema, Trima, Kama, Mama, T3, Hma, Disabled;
 }
 
 enum RangeType {
@@ -10032,12 +10032,15 @@ class Core {
      *                average and standard deviation into a single pass. Bit-identical.
      *  071726 MF,CC  #118 SMA-path deviation now uses the cancellation-free variance
      *                (var.c); two recurrences in one pass. Bit-identical.
+     *  072426 MF,CC  Lookback is now max(MA, STDDEV) so it is honest for MA types
+     *                whose lookback is below the deviation's (MAMA >= 34, and
+     *                TA_MAType_DISABLED); required for streaming (issue #93).
      */
 
        public int bbandsLookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
        {
           if( optInTimePeriod == Integer.MIN_VALUE ) {
-             optInTimePeriod = 5;
+             optInTimePeriod = 20;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return -1;
           }
@@ -10047,14 +10050,23 @@ class Core {
           if( optInNbDevDn == -4e37 ) {
              optInNbDevDn = 2e0;
           }
-          /* The lookback is driven by the middle band moving average. It also governs
-           * how the caller sizes the output buffers, which must hold the full moving
-           * average that ma() writes below - so it must not exceed the MA lookback,
-           * even when the standard deviation (lookback optInTimePeriod-1) clamps the
-           * first output to a later bar (outBegIdx > lookback for TA_MAType_MAMA with
-           * a large period). See the realignment in bbands() for that case.
+          int maLookback;
+          int stddevLookback;
+          /* A band value needs BOTH the middle-band moving average and the standard
+           * deviation of the outer bands, so the first valid output is the later of the
+           * two lookbacks. For every MA type whose lookback is at least
+           * optInTimePeriod-1 this equals the MA lookback (unchanged); it rises above it
+           * only when the MA lookback is the smaller one - TA_MAType_MAMA at
+           * optInTimePeriod >= 34 (constant MAMA lookback 32) and TA_MAType_DISABLED
+           * (MA lookback 0, issue #93). Reporting the honest value keeps
+           * outBegIdx == lookback: issue #99 kept it at the MA lookback, which
+           * under-reported those cases (outBegIdx > lookback) and broke streaming, whose
+           * Open is tied to lookback+1. The middle band still begins at the MA's earlier
+           * begIdx internally and is realigned to this later bar in bbands() below.
            */
-          return movingAverageLookback(optInTimePeriod, optInMAType) ;
+          maLookback = movingAverageLookback(optInTimePeriod, optInMAType);
+          stddevLookback = stdDevLookback(optInTimePeriod, 1.0);
+          return (maLookback > stddevLookback) ? maLookback : stddevLookback ;
 
        }
        public RetCode bbands( int startIdx,
@@ -10085,7 +10097,7 @@ class Core {
              return RetCode.OutOfRangeEndIndex ;
           }
           if( optInTimePeriod == Integer.MIN_VALUE ) {
-             optInTimePeriod = 5;
+             optInTimePeriod = 20;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
@@ -10508,7 +10520,7 @@ class Core {
              return RetCode.OutOfRangeEndIndex ;
           }
           if( optInTimePeriod == Integer.MIN_VALUE ) {
-             optInTimePeriod = 5;
+             optInTimePeriod = 20;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
@@ -11021,7 +11033,7 @@ class Core {
              return RetCode.BadParam;
           }
           if( optInTimePeriod == Integer.MIN_VALUE ) {
-             optInTimePeriod = 5;
+             optInTimePeriod = 20;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
@@ -11124,7 +11136,7 @@ class Core {
              return RetCode.BadParam;
           }
           if( optInTimePeriod == Integer.MIN_VALUE ) {
-             optInTimePeriod = 5;
+             optInTimePeriod = 20;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
@@ -68512,6 +68524,925 @@ class Core {
      *  Initial  Name/description
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
+     *  CC       Claude Code (AI assistant)
+     *
+     * Change history:
+     *
+     *  MMDDYY BY     Description
+     *  -------------------------------------------------------------------
+     *  072126 MF,CC  First version (issue #134).
+     */
+
+       public int cmfLookback( int optInTimePeriod )
+       {
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return -1;
+          }
+          return optInTimePeriod - 1 ;
+
+       }
+       public RetCode cmf( int startIdx,
+                           int endIdx,
+                           double inHigh[],
+                           double inLow[],
+                           double inClose[],
+                           double inVolume[],
+                           int optInTimePeriod,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outReal[] )
+       {
+          double sumMFV = 0;
+          double sumVol = 0;
+          double high = 0;
+          double low = 0;
+          double close = 0;
+          double tmp = 0;
+          double mfv = 0;
+          int lookbackTotal = 0;
+          int outIdx = 0;
+          int i = 0;
+          int today = 0;
+          double[] mfv_flow;
+          double[] mfv_volume;
+          int mfv_Idx = 0;
+          int maxIdx_mfv = (50)-1;
+          if( startIdx < 0 ) {
+             return RetCode.OutOfRangeStartIndex ;
+          }
+          if( (endIdx < 0) || (endIdx < startIdx)) {
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          /* Both the per-bar money flow volume and the volume that produced it are
+           * carried in the circular buffer. Keeping the volume here rather than
+           * re-reading inVolume[] at the trailing index is what makes outReal safe to
+           * alias any input: once a bar has been consumed it is never read again.
+           */
+          /* Id, Type, Static Size */
+          outBegIdx.value = 0;
+          outNBElement.value = 0;
+          /* Identify the minimum number of price bar needed
+           * to calculate at least one output.
+           */
+          lookbackTotal = optInTimePeriod - 1;
+          /* Move up the start index if there is not
+           * enough initial data.
+           */
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          /* Make sure there is still something to evaluate. */
+          if( startIdx > endIdx ) {
+             return RetCode.Success ;
+          }
+          if( optInTimePeriod < 1 ) return RetCode.AllocErr;
+          mfv_flow = new double[optInTimePeriod];
+          mfv_volume = new double[optInTimePeriod];
+          maxIdx_mfv = (optInTimePeriod)-1;
+          mfv_Idx = 0;
+          outIdx = 0;
+          /* Accumulate the money flow volume and the volume over the first
+           * complete window, filling the circular buffer as we go.
+           *
+           * The per-bar multiplier is written exactly as in ta_AD.c so that the
+           * Chaikin money flow volume has one definition in the library.
+           */
+          today = startIdx - lookbackTotal;
+          sumMFV = 0.0;
+          sumVol = 0.0;
+          for( i = optInTimePeriod; i > 0; i -= 1 ) {
+             high = inHigh[today];
+             low = inLow[today];
+             close = inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = inVolume[today];
+             sumMFV += mfv;
+             sumVol += inVolume[today];
+             today += 1;
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          /* The first full window is complete: emit its output for startIdx here,
+           * then slide the window over the remaining bars below.
+           *
+           * A window whose volume is entirely zero has no money flow to distribute;
+           * report 0.0 rather than propagating a division by zero (issue #112).
+           */
+          if( sumVol > 0.0 ) {
+             outReal[outIdx++] = sumMFV / sumVol;
+          } else {
+             outReal[outIdx++] = 0.0;
+          }
+          /* Now continue processing the remaining bars. */
+          while( today <= endIdx ) {
+             sumMFV -= mfv_flow[mfv_Idx];
+             sumVol -= mfv_volume[mfv_Idx];
+             high = inHigh[today];
+             low = inLow[today];
+             close = inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = inVolume[today];
+             sumMFV += mfv;
+             sumVol += inVolume[today];
+             today += 1;
+             if( sumVol > 0.0 ) {
+                outReal[outIdx++] = sumMFV / sumVol;
+             } else {
+                outReal[outIdx++] = 0.0;
+             }
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          return RetCode.Success ;
+       }
+       public RetCode cmfUnguarded( int startIdx,
+                                    int endIdx,
+                                    double inHigh[],
+                                    double inLow[],
+                                    double inClose[],
+                                    double inVolume[],
+                                    int optInTimePeriod,
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    double outReal[] )
+       {
+          double sumMFV = 0;
+          double sumVol = 0;
+          double high = 0;
+          double low = 0;
+          double close = 0;
+          double tmp = 0;
+          double mfv = 0;
+          int lookbackTotal = 0;
+          int outIdx = 0;
+          int i = 0;
+          int today = 0;
+          double[] mfv_flow;
+          double[] mfv_volume;
+          int mfv_Idx = 0;
+          int maxIdx_mfv = (50)-1;
+          outBegIdx.value = 0;
+          outNBElement.value = 0;
+          lookbackTotal = optInTimePeriod - 1;
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          if( startIdx > endIdx ) {
+             return RetCode.Success ;
+          }
+          if( optInTimePeriod < 1 ) return RetCode.AllocErr;
+          mfv_flow = new double[optInTimePeriod];
+          mfv_volume = new double[optInTimePeriod];
+          maxIdx_mfv = (optInTimePeriod)-1;
+          mfv_Idx = 0;
+          outIdx = 0;
+          today = startIdx - lookbackTotal;
+          sumMFV = 0.0;
+          sumVol = 0.0;
+          for( i = optInTimePeriod; i > 0; i -= 1 ) {
+             high = inHigh[today];
+             low = inLow[today];
+             close = inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = inVolume[today];
+             sumMFV += mfv;
+             sumVol += inVolume[today];
+             today += 1;
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          if( sumVol > 0.0 ) {
+             outReal[outIdx++] = sumMFV / sumVol;
+          } else {
+             outReal[outIdx++] = 0.0;
+          }
+          while( today <= endIdx ) {
+             sumMFV -= mfv_flow[mfv_Idx];
+             sumVol -= mfv_volume[mfv_Idx];
+             high = inHigh[today];
+             low = inLow[today];
+             close = inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = inVolume[today];
+             sumMFV += mfv;
+             sumVol += inVolume[today];
+             today += 1;
+             if( sumVol > 0.0 ) {
+                outReal[outIdx++] = sumMFV / sumVol;
+             } else {
+                outReal[outIdx++] = 0.0;
+             }
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          return RetCode.Success ;
+       }
+       public RetCode cmf( int startIdx,
+                           int endIdx,
+                           float inHigh[],
+                           float inLow[],
+                           float inClose[],
+                           float inVolume[],
+                           int optInTimePeriod,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outReal[] )
+       {
+          double sumMFV = 0;
+          double sumVol = 0;
+          double high = 0;
+          double low = 0;
+          double close = 0;
+          double tmp = 0;
+          double mfv = 0;
+          int lookbackTotal = 0;
+          int outIdx = 0;
+          int i = 0;
+          int today = 0;
+          double[] mfv_flow;
+          double[] mfv_volume;
+          int mfv_Idx = 0;
+          int maxIdx_mfv = (50)-1;
+          if( startIdx < 0 ) {
+             return RetCode.OutOfRangeStartIndex ;
+          }
+          if( (endIdx < 0) || (endIdx < startIdx)) {
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          outBegIdx.value = 0;
+          outNBElement.value = 0;
+          lookbackTotal = optInTimePeriod - 1;
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          if( startIdx > endIdx ) {
+             return RetCode.Success ;
+          }
+          if( optInTimePeriod < 1 ) return RetCode.AllocErr;
+          mfv_flow = new double[optInTimePeriod];
+          mfv_volume = new double[optInTimePeriod];
+          maxIdx_mfv = (optInTimePeriod)-1;
+          mfv_Idx = 0;
+          outIdx = 0;
+          today = startIdx - lookbackTotal;
+          sumMFV = 0.0;
+          sumVol = 0.0;
+          for( i = optInTimePeriod; i > 0; i -= 1 ) {
+             high = (double)inHigh[today];
+             low = (double)inLow[today];
+             close = (double)inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * (double)inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = (double)inVolume[today];
+             sumMFV += mfv;
+             sumVol += (double)inVolume[today];
+             today += 1;
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          if( sumVol > 0.0 ) {
+             outReal[outIdx++] = sumMFV / sumVol;
+          } else {
+             outReal[outIdx++] = 0.0;
+          }
+          while( today <= endIdx ) {
+             sumMFV -= mfv_flow[mfv_Idx];
+             sumVol -= mfv_volume[mfv_Idx];
+             high = (double)inHigh[today];
+             low = (double)inLow[today];
+             close = (double)inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * (double)inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = (double)inVolume[today];
+             sumMFV += mfv;
+             sumVol += (double)inVolume[today];
+             today += 1;
+             if( sumVol > 0.0 ) {
+                outReal[outIdx++] = sumMFV / sumVol;
+             } else {
+                outReal[outIdx++] = 0.0;
+             }
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          return RetCode.Success ;
+       }
+       public RetCode cmfUnguarded( int startIdx,
+                                    int endIdx,
+                                    float inHigh[],
+                                    float inLow[],
+                                    float inClose[],
+                                    float inVolume[],
+                                    int optInTimePeriod,
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    double outReal[] )
+       {
+          double sumMFV = 0;
+          double sumVol = 0;
+          double high = 0;
+          double low = 0;
+          double close = 0;
+          double tmp = 0;
+          double mfv = 0;
+          int lookbackTotal = 0;
+          int outIdx = 0;
+          int i = 0;
+          int today = 0;
+          double[] mfv_flow;
+          double[] mfv_volume;
+          int mfv_Idx = 0;
+          int maxIdx_mfv = (50)-1;
+          outBegIdx.value = 0;
+          outNBElement.value = 0;
+          lookbackTotal = optInTimePeriod - 1;
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          if( startIdx > endIdx ) {
+             return RetCode.Success ;
+          }
+          if( optInTimePeriod < 1 ) return RetCode.AllocErr;
+          mfv_flow = new double[optInTimePeriod];
+          mfv_volume = new double[optInTimePeriod];
+          maxIdx_mfv = (optInTimePeriod)-1;
+          mfv_Idx = 0;
+          outIdx = 0;
+          today = startIdx - lookbackTotal;
+          sumMFV = 0.0;
+          sumVol = 0.0;
+          for( i = optInTimePeriod; i > 0; i -= 1 ) {
+             high = (double)inHigh[today];
+             low = (double)inLow[today];
+             close = (double)inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * (double)inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = (double)inVolume[today];
+             sumMFV += mfv;
+             sumVol += (double)inVolume[today];
+             today += 1;
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          if( sumVol > 0.0 ) {
+             outReal[outIdx++] = sumMFV / sumVol;
+          } else {
+             outReal[outIdx++] = 0.0;
+          }
+          while( today <= endIdx ) {
+             sumMFV -= mfv_flow[mfv_Idx];
+             sumVol -= mfv_volume[mfv_Idx];
+             high = (double)inHigh[today];
+             low = (double)inLow[today];
+             close = (double)inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * (double)inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = (double)inVolume[today];
+             sumMFV += mfv;
+             sumVol += (double)inVolume[today];
+             today += 1;
+             if( sumVol > 0.0 ) {
+                outReal[outIdx++] = sumMFV / sumVol;
+             } else {
+                outReal[outIdx++] = 0.0;
+             }
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          return RetCode.Success ;
+       }
+    /**** Streaming API *****/
+
+       /**
+        * A live CMF stream (unrelated to {@code java.util.stream}): one value per
+        * closed bar, bit-identical to {@link Core#cmf} over the same series.
+        * Open with {@link Core#cmfOpen}; there is no close — the handle is
+        * ordinary heap state, unreferenced handles are simply garbage-collected.
+        * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
+        * {@code value} and {@code copy} must not race with an {@code update} on
+        * the same handle. With no concurrent {@code update}, {@code peek}/
+        * {@code value}/{@code copy} never write the handle and may be called
+        * concurrently after safe publication. Independent handles (including
+        * {@code copy()} results) are fully independent. Do not mutate the owning
+        * {@link Core}'s settings while streams opened from it are live.
+        * <p>Not serializable by design: to checkpoint, retain the history and
+        * re-open — the result is bit-identical by contract.
+        */
+       public static final class CmfStream {
+          final Core core;
+          int optInTimePeriod;
+          double sumMFV;
+          double sumVol;
+          double high;
+          double low;
+          double close;
+          double tmp;
+          double mfv;
+          int mfv_Idx;
+          int maxIdx_mfv;
+          int cbSize_mfv;
+          double[] cb_mfv_flow;
+          double[] cb_mfv_volume;
+          double cur_outReal;
+
+          CmfStream( Core core ) { this.core = core; }
+
+          CmfStream( CmfStream other ) {
+             this.core = other.core;
+             this.optInTimePeriod = other.optInTimePeriod;
+             this.sumMFV = other.sumMFV;
+             this.sumVol = other.sumVol;
+             this.high = other.high;
+             this.low = other.low;
+             this.close = other.close;
+             this.tmp = other.tmp;
+             this.mfv = other.mfv;
+             this.mfv_Idx = other.mfv_Idx;
+             this.maxIdx_mfv = other.maxIdx_mfv;
+             this.cbSize_mfv = other.cbSize_mfv;
+             this.cb_mfv_flow = other.cb_mfv_flow.clone();
+             this.cb_mfv_volume = other.cb_mfv_volume.clone();
+             this.cur_outReal = other.cur_outReal;
+          }
+
+          /**
+           * Commit one closed bar; always produces the new current value.
+           * Never throws after a successful open; never allocates handle state.
+           */
+          public double update( double inHigh, double inLow, double inClose, double inVolume ) {
+             core.cmfStreamStep(this, inHigh, inLow, inClose, inVolume);
+             return this.cur_outReal;
+          }
+
+          /**
+           * Evaluate a forming bar without committing — bit-identical to what the
+           * next {@code update} with the same bar would return (it is the same
+           * generated code, run on a throwaway copy). Deep-copies the handle state
+           * on every call: O(period) for windowed indicators — for hot loops,
+           * prefer {@code update} on a {@code copy()}.
+           */
+          public double peek( double inHigh, double inLow, double inClose, double inVolume ) {
+             CmfStream scratch = new CmfStream(this);
+             core.cmfStreamStep(scratch, inHigh, inLow, inClose, inVolume);
+             return scratch.cur_outReal;
+          }
+
+          /**
+           * The value at the most recently committed bar — the last history bar
+           * right after open, then whatever the latest {@code update} returned.
+           * A pure field read; {@code peek} does not change it.
+           */
+          public double value() {
+             return this.cur_outReal;
+          }
+
+          /**
+           * An independent deep copy of this stream: both evolve separately from
+           * here on (the Java rendering of the Rust handle's {@code Clone}).
+           */
+          public CmfStream copy() {
+             return new CmfStream(this);
+          }
+       }
+       void cmfStreamStep( CmfStream sp, double inHigh, double inLow, double inClose, double inVolume )
+       {
+          sp.sumMFV -= sp.cb_mfv_flow[sp.mfv_Idx];
+          sp.sumVol -= sp.cb_mfv_volume[sp.mfv_Idx];
+          sp.high = inHigh;
+          sp.low = inLow;
+          sp.close = inClose;
+          sp.tmp = sp.high - sp.low;
+          if( sp.tmp > 0.0 ) {
+             sp.mfv = (sp.close - sp.low - (sp.high - sp.close)) / sp.tmp * inVolume;
+          } else {
+             sp.mfv = 0.0;
+          }
+          sp.cb_mfv_flow[sp.mfv_Idx] = sp.mfv;
+          sp.cb_mfv_volume[sp.mfv_Idx] = inVolume;
+          sp.sumMFV += sp.mfv;
+          sp.sumVol += inVolume;
+          if( sp.sumVol > 0.0 ) {
+             sp.cur_outReal = sp.sumMFV / sp.sumVol;
+          } else {
+             sp.cur_outReal = 0.0;
+          }
+          sp.mfv_Idx = sp.mfv_Idx + 1;
+          if( sp.mfv_Idx > sp.maxIdx_mfv ) {
+             sp.mfv_Idx = 0;
+          }
+       }
+       private RetCode cmfOpenBody( CmfStream sp, double inHigh[], double inLow[], double inClose[], double inVolume[], int startIdx, int optInTimePeriod )
+       {
+          double sumMFV = 0;
+          double sumVol = 0;
+          double high = 0;
+          double low = 0;
+          double close = 0;
+          double tmp = 0;
+          double mfv = 0;
+          int lookbackTotal = 0;
+          int outIdx = 0;
+          int i = 0;
+          int today = 0;
+          double[] mfv_flow;
+          double[] mfv_volume;
+          int mfv_Idx = 0;
+          int maxIdx_mfv = (50)-1;
+          MInteger outBegIdx = new MInteger();
+          MInteger outNBElement = new MInteger();
+          double lastValue_outReal = 0.0;
+          int historyLen = inHigh.length;
+          int endIdx = historyLen - 1;
+          if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
+             return RetCode.BadParam;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          /* Both the per-bar money flow volume and the volume that produced it are
+           * carried in the circular buffer. Keeping the volume here rather than
+           * re-reading inVolume[] at the trailing index is what makes outReal safe to
+           * alias any input: once a bar has been consumed it is never read again.
+           */
+          /* Id, Type, Static Size */
+          outBegIdx.value = 0;
+          outNBElement.value = 0;
+          /* Identify the minimum number of price bar needed
+           * to calculate at least one output.
+           */
+          lookbackTotal = optInTimePeriod - 1;
+          /* Move up the start index if there is not
+           * enough initial data.
+           */
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          /* Make sure there is still something to evaluate. */
+          if( startIdx > endIdx ) {
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          if( optInTimePeriod < 1 ) return RetCode.AllocErr;
+          mfv_flow = new double[optInTimePeriod];
+          mfv_volume = new double[optInTimePeriod];
+          maxIdx_mfv = (optInTimePeriod)-1;
+          mfv_Idx = 0;
+          outIdx = 0;
+          /* Accumulate the money flow volume and the volume over the first
+           * complete window, filling the circular buffer as we go.
+           *
+           * The per-bar multiplier is written exactly as in ta_AD.c so that the
+           * Chaikin money flow volume has one definition in the library.
+           */
+          today = startIdx - lookbackTotal;
+          sumMFV = 0.0;
+          sumVol = 0.0;
+          for( i = optInTimePeriod; i > 0; i -= 1 ) {
+             high = inHigh[today];
+             low = inLow[today];
+             close = inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = inVolume[today];
+             sumMFV += mfv;
+             sumVol += inVolume[today];
+             today += 1;
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          /* The first full window is complete: emit its output for startIdx here,
+           * then slide the window over the remaining bars below.
+           *
+           * A window whose volume is entirely zero has no money flow to distribute;
+           * report 0.0 rather than propagating a division by zero (issue #112).
+           */
+          if( sumVol > 0.0 ) {
+             lastValue_outReal = sumMFV / sumVol;
+          } else {
+             lastValue_outReal = 0.0;
+          }
+          /* Now continue processing the remaining bars. */
+          while( today <= endIdx ) {
+             sumMFV -= mfv_flow[mfv_Idx];
+             sumVol -= mfv_volume[mfv_Idx];
+             high = inHigh[today];
+             low = inLow[today];
+             close = inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = inVolume[today];
+             sumMFV += mfv;
+             sumVol += inVolume[today];
+             today += 1;
+             if( sumVol > 0.0 ) {
+                lastValue_outReal = sumMFV / sumVol;
+             } else {
+                lastValue_outReal = 0.0;
+             }
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          /* Capture the live batch state into the handle. */
+          int capCb_mfv = maxIdx_mfv + 1;
+          if( capCb_mfv > historyLen + 1 ) {
+             return RetCode.InternalError;
+          }
+          sp.optInTimePeriod = optInTimePeriod;
+          sp.sumMFV = sumMFV;
+          sp.sumVol = sumVol;
+          sp.high = high;
+          sp.low = low;
+          sp.close = close;
+          sp.tmp = tmp;
+          sp.mfv = mfv;
+          sp.mfv_Idx = mfv_Idx;
+          sp.maxIdx_mfv = maxIdx_mfv;
+          sp.cbSize_mfv = capCb_mfv;
+          sp.cb_mfv_flow = mfv_flow;
+          sp.cb_mfv_volume = mfv_volume;
+          sp.cur_outReal = lastValue_outReal;
+          return RetCode.Success;
+       }
+       private RetCode cmfOpenAndFillBody( CmfStream sp, double inHigh[], double inLow[], double inClose[], double inVolume[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+       {
+          double sumMFV = 0;
+          double sumVol = 0;
+          double high = 0;
+          double low = 0;
+          double close = 0;
+          double tmp = 0;
+          double mfv = 0;
+          int lookbackTotal = 0;
+          int outIdx = 0;
+          int i = 0;
+          int today = 0;
+          double[] mfv_flow;
+          double[] mfv_volume;
+          int mfv_Idx = 0;
+          int maxIdx_mfv = (50)-1;
+          int historyLen = inHigh.length;
+          int endIdx = historyLen - 1;
+          int startIdx = 0;
+          if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
+             return RetCode.BadParam;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
+             return RetCode.BadParam;
+          }
+          /* Both the per-bar money flow volume and the volume that produced it are
+           * carried in the circular buffer. Keeping the volume here rather than
+           * re-reading inVolume[] at the trailing index is what makes outReal safe to
+           * alias any input: once a bar has been consumed it is never read again.
+           */
+          /* Id, Type, Static Size */
+          outBegIdx.value = 0;
+          outNBElement.value = 0;
+          /* Identify the minimum number of price bar needed
+           * to calculate at least one output.
+           */
+          lookbackTotal = optInTimePeriod - 1;
+          /* Move up the start index if there is not
+           * enough initial data.
+           */
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          /* Make sure there is still something to evaluate. */
+          if( startIdx > endIdx ) {
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          if( optInTimePeriod < 1 ) return RetCode.AllocErr;
+          mfv_flow = new double[optInTimePeriod];
+          mfv_volume = new double[optInTimePeriod];
+          maxIdx_mfv = (optInTimePeriod)-1;
+          mfv_Idx = 0;
+          outIdx = 0;
+          /* Accumulate the money flow volume and the volume over the first
+           * complete window, filling the circular buffer as we go.
+           *
+           * The per-bar multiplier is written exactly as in ta_AD.c so that the
+           * Chaikin money flow volume has one definition in the library.
+           */
+          today = startIdx - lookbackTotal;
+          sumMFV = 0.0;
+          sumVol = 0.0;
+          for( i = optInTimePeriod; i > 0; i -= 1 ) {
+             high = inHigh[today];
+             low = inLow[today];
+             close = inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = inVolume[today];
+             sumMFV += mfv;
+             sumVol += inVolume[today];
+             today += 1;
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          /* The first full window is complete: emit its output for startIdx here,
+           * then slide the window over the remaining bars below.
+           *
+           * A window whose volume is entirely zero has no money flow to distribute;
+           * report 0.0 rather than propagating a division by zero (issue #112).
+           */
+          if( sumVol > 0.0 ) {
+             outReal[outIdx++] = sumMFV / sumVol;
+          } else {
+             outReal[outIdx++] = 0.0;
+          }
+          /* Now continue processing the remaining bars. */
+          while( today <= endIdx ) {
+             sumMFV -= mfv_flow[mfv_Idx];
+             sumVol -= mfv_volume[mfv_Idx];
+             high = inHigh[today];
+             low = inLow[today];
+             close = inClose[today];
+             tmp = high - low;
+             if( tmp > 0.0 ) {
+                mfv = (close - low - (high - close)) / tmp * inVolume[today];
+             } else {
+                mfv = 0.0;
+             }
+             mfv_flow[mfv_Idx] = mfv;
+             mfv_volume[mfv_Idx] = inVolume[today];
+             sumMFV += mfv;
+             sumVol += inVolume[today];
+             today += 1;
+             if( sumVol > 0.0 ) {
+                outReal[outIdx++] = sumMFV / sumVol;
+             } else {
+                outReal[outIdx++] = 0.0;
+             }
+             mfv_Idx++;
+             if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          /* Capture the live batch state into the handle. */
+          int capCb_mfv = maxIdx_mfv + 1;
+          if( capCb_mfv > historyLen + 1 ) {
+             return RetCode.InternalError;
+          }
+          sp.optInTimePeriod = optInTimePeriod;
+          sp.sumMFV = sumMFV;
+          sp.sumVol = sumVol;
+          sp.high = high;
+          sp.low = low;
+          sp.close = close;
+          sp.tmp = tmp;
+          sp.mfv = mfv;
+          sp.mfv_Idx = mfv_Idx;
+          sp.maxIdx_mfv = maxIdx_mfv;
+          sp.cbSize_mfv = capCb_mfv;
+          sp.cb_mfv_flow = mfv_flow;
+          sp.cb_mfv_volume = mfv_volume;
+          sp.cur_outReal = outReal[outNBElement.value - 1];
+          return RetCode.Success;
+       }
+       /* Internal startIdx-anchored open behind cmfOpen (composition seam). */
+       CmfStream cmfOpenInternal( double inHigh[], double inLow[], double inClose[], double inVolume[], int startIdx, int optInTimePeriod )
+       {
+          CmfStream sp = new CmfStream(this);
+          RetCode retCode = cmfOpenBody(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod);
+          if( retCode == RetCode.Success ) {
+             return sp;
+          }
+          if( retCode == RetCode.OutOfRangeEndIndex ) {
+             throw new InsufficientHistoryException("TA_CMF open: history shorter than lookback + 1");
+          }
+          if( retCode == RetCode.InternalError ) {
+             throw new IllegalStateException("TA_CMF open: internal error");
+          }
+          throw new IllegalArgumentException("TA_CMF open: " + retCode);
+       }
+       /**
+        * Open a live CMF stream over the warm-up history; the handle's
+        * {@code value()} starts at the last history bar's value — bit-identical
+        * to {@link Core#cmf} at that bar.
+        * <p>The history must hold at least {@code cmfLookback(...) + 1} bars
+        * (unstable-period aware), or {@link InsufficientHistoryException} is
+        * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
+        * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
+        * default, as in the batch API).
+        */
+       public CmfStream cmfOpen( double inHigh[], double inLow[], double inClose[], double inVolume[], int optInTimePeriod )
+       {
+          return cmfOpenInternal(inHigh, inLow, inClose, inVolume, 0, optInTimePeriod);
+       }
+       /**
+        * {@link Core#cmfOpen} that also fills the output array(s) bit-identically
+        * to {@link Core#cmf} over the whole history in the same single pass
+        * (no separate batch call needed for the warm-up plot). Output arrays must
+        * not alias the inputs or each other, and must hold
+        * {@code historyLen - lookback} values.
+        */
+       public CmfStream cmfOpenAndFill( double inHigh[], double inLow[], double inClose[], double inVolume[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+       {
+          CmfStream sp = new CmfStream(this);
+          RetCode retCode = cmfOpenAndFillBody(sp, inHigh, inLow, inClose, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+          if( retCode == RetCode.Success ) {
+             return sp;
+          }
+          if( retCode == RetCode.OutOfRangeEndIndex ) {
+             throw new InsufficientHistoryException("TA_CMF openAndFill: history shorter than lookback + 1");
+          }
+          if( retCode == RetCode.InternalError ) {
+             throw new IllegalStateException("TA_CMF openAndFill: internal error");
+          }
+          throw new IllegalArgumentException("TA_CMF openAndFill: " + retCode);
+       }
+    /* List of contributors:
+     *
+     *  Initial  Name/description
+     *  -------------------------------------------------------------------
+     *  MF       Mario Fortier
      *  BT       Barry Tsung
      *
      * Change history:
@@ -68600,10 +69531,14 @@ class Core {
              outBegIdx.value = startIdx;
              i = endIdx - startIdx + 1;
              outNBElement.value = i;
-             /* memmove, not memcpy: an in-place caller (outReal == inReal) with
-              * startIdx > 0 overlaps source and destination (issue #94; matches WMA).
+             /* Element loop, not a block copy: the C single-precision variant reads a
+              * float array, so a double-sized byte copy would reinterpret and
+              * over-read it (#137). Forward order keeps the in-place case correct (#94).
               */
-             System.arraycopy(inReal, startIdx, outReal, 0, i * 1);
+             today = startIdx;
+             for( outIdx = 0; outIdx < i; outIdx += 1 ) {
+                outReal[outIdx] = inReal[today++];
+             }
              return RetCode.Success ;
           }
           /* Accumulate Wilder's "Average Gain" and "Average Loss"
@@ -68785,7 +69720,10 @@ class Core {
              outBegIdx.value = startIdx;
              i = endIdx - startIdx + 1;
              outNBElement.value = i;
-             System.arraycopy(inReal, startIdx, outReal, 0, i * 1);
+             today = startIdx;
+             for( outIdx = 0; outIdx < i; outIdx += 1 ) {
+                outReal[outIdx] = inReal[today++];
+             }
              return RetCode.Success ;
           }
           today = startIdx - lookbackTotal;
@@ -68931,7 +69869,10 @@ class Core {
              outBegIdx.value = startIdx;
              i = endIdx - startIdx + 1;
              outNBElement.value = i;
-             System.arraycopy(inReal, startIdx, outReal, 0, i * 1);
+             today = startIdx;
+             for( outIdx = 0; outIdx < i; outIdx += 1 ) {
+                outReal[outIdx] = (double)inReal[today++];
+             }
              return RetCode.Success ;
           }
           today = startIdx - lookbackTotal;
@@ -69066,7 +70007,10 @@ class Core {
              outBegIdx.value = startIdx;
              i = endIdx - startIdx + 1;
              outNBElement.value = i;
-             System.arraycopy(inReal, startIdx, outReal, 0, i * 1);
+             today = startIdx;
+             for( outIdx = 0; outIdx < i; outIdx += 1 ) {
+                outReal[outIdx] = (double)inReal[today++];
+             }
              return RetCode.Success ;
           }
           today = startIdx - lookbackTotal;
@@ -75945,6 +76889,1753 @@ class Core {
              throw new IllegalStateException("TA_FLOOR openAndFill: internal error");
           }
           throw new IllegalArgumentException("TA_FLOOR openAndFill: " + retCode);
+       }
+    /* List of contributors:
+     *
+     *  Initial  Name/description
+     *  -------------------------------------------------------------------
+     *  MF       Mario Fortier
+     *  CC       Claude Code (AI assistant)
+     *
+     *
+     * Change history:
+     *
+     *  MMDDYY BY     Description
+     *  -------------------------------------------------------------------
+     *  072226 MF,CC  First version (issue #139).
+     *  072326 MF,CC  Fused single-pass rewrite: rolling sums + sqrt(n)-sized
+     *                CIRCBUF, no whole-range temporaries (issue #139).
+     */
+
+       public int hmaLookback( int optInTimePeriod )
+       {
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return -1;
+          }
+          int sqrtPeriod;
+          sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
+          return wmaLookback(optInTimePeriod) + wmaLookback(sqrtPeriod) ;
+
+       }
+       public RetCode hma( int startIdx,
+                           int endIdx,
+                           double inReal[],
+                           int optInTimePeriod,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outReal[] )
+       {
+          int lookbackTotal = 0;
+          int lookbackSqrt = 0;
+          int halfPeriod = 0;
+          int sqrtPeriod = 0;
+          int ringSize = 0;
+          int wmaStartIdx = 0;
+          int today = 0;
+          int outIdx = 0;
+          int i = 0;
+          int w = 0;
+          double dividerFull = 0;
+          double dividerHalf = 0;
+          double dividerSqrt = 0;
+          int trailingIdxFull = 0;
+          int trailingIdxHalf = 0;
+          double periodSubFull = 0;
+          double periodSumFull = 0;
+          double trailingFull = 0;
+          double periodSubHalf = 0;
+          double periodSumHalf = 0;
+          double trailingHalf = 0;
+          double periodSubSqrt = 0;
+          double periodSumSqrt = 0;
+          double trailingSqrt = 0;
+          double tempReal = 0;
+          double fullOut = 0;
+          double halfOut = 0;
+          double diffReal = 0;
+          double[] dRing;
+          int dRing_Idx = 0;
+          int maxIdx_dRing = (50)-1;
+          if( startIdx < 0 ) {
+             return RetCode.OutOfRangeStartIndex ;
+          }
+          if( (endIdx < 0) || (endIdx < startIdx)) {
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          /* The de-lagged series needs only its last sqrt(n) values, so the whole
+           * computation runs in one pass over a single window into the input:
+           * three interleaved WMA rolling sums plus this small ring. The ring has
+           * sqrt(n)-1 slots: on the stack while that fits the 50-slot prolog
+           * (optInTimePeriod <= 2703), TA_Malloc from optInTimePeriod = 2704 up.
+           */
+          /* Hull Moving Average (Alan Hull, 2005):
+           *
+           *    HMA(n) = WMA( 2*WMA(price, Integer(n/2)) - WMA(price, n), Integer(SquareRoot(n)) )
+           *
+           * Both derived periods use the author's Integer() truncation; some other
+           * published sources round to nearest instead, which is a visibly different
+           * line. See hma.md and issue #139.
+           *
+           * Each of the three WMAs keeps TA_WMA's exact accumulation order
+           * (periodSub/periodSum, lagged trailing subtract), so this fused pass is
+           * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
+           * differential in test_composite.c holds it to that, memcmp-exact.
+           */
+          halfPeriod = optInTimePeriod / 2;
+          sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
+          lookbackSqrt = wmaLookback(sqrtPeriod);
+          lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+          /* Move up the start index if there is not
+           * enough initial data.
+           */
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          /* Make sure there is still something to evaluate. */
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.Success ;
+          }
+          /* The two price WMAs are anchored where the first de-lagged value is
+           * needed: lookbackSqrt bars before the first requested output.
+           * wmaStartIdx >= optInTimePeriod-1 is implied by the clamp above.
+           */
+          wmaStartIdx = startIdx - lookbackSqrt;
+          dividerFull = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
+          /* Prime the full-period WMA over the optInTimePeriod-1 bars before
+           * wmaStartIdx, exactly as TA_WMA does (weights 1..period-1).
+           */
+          periodSubFull = 0.0;
+          periodSumFull = 0.0;
+          trailingIdxFull = wmaStartIdx - (optInTimePeriod - 1);
+          i = trailingIdxFull;
+          w = 1;
+          while( i < wmaStartIdx ) {
+             tempReal = inReal[i++];
+             periodSubFull += tempReal;
+             periodSumFull += tempReal * w;
+             w += 1;
+          }
+          trailingFull = 0.0;
+          outIdx = 0;
+          /* sqrtPeriod == 1 exactly when optInTimePeriod is 2 or 3; stated on the
+           * param so the stream analyzer sees a param-pure dual-mode split.
+           */
+          if( optInTimePeriod == 2 || optInTimePeriod == 3 ) {
+             /* Degenerate regime, optInTimePeriod 2 or 3 only: halfPeriod and
+              * sqrtPeriod are both 1, and a period-1 WMA is the identity (TA_WMA's
+              * own short-circuit). The whole formula collapses to
+              *    HMA[t] = 2*price[t] - WMA(price, n)[t]
+              * with no de-lag ring at all. In-place note: the output store lands on
+              * the SAME slot the trailing read just consumed (zero margin), so the
+              * read stays ordered before the store.
+              */
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                outReal[outIdx++] = 2.0 * tempReal - fullOut;
+             }
+          } else {
+             /* General regime: optInTimePeriod >= 4, so halfPeriod >= 2 and
+              * sqrtPeriod >= 2 -- no period-1 special cases below this point.
+              */
+             dividerHalf = (double)halfPeriod * (halfPeriod + 1) / 2.0;
+             dividerSqrt = (double)sqrtPeriod * (sqrtPeriod + 1) / 2.0;
+             /* Prime the half-period WMA the same way. */
+             periodSubHalf = 0.0;
+             periodSumHalf = 0.0;
+             trailingIdxHalf = wmaStartIdx - (halfPeriod - 1);
+             i = trailingIdxHalf;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = inReal[i++];
+                periodSubHalf += tempReal;
+                periodSumHalf += tempReal * w;
+                w += 1;
+             }
+             trailingHalf = 0.0;
+             /* The de-lagged value computed at bar t is consumed as the outer WMA's
+              * trailing value sqrtPeriod-1 bars later, so a single-cursor ring of
+              * sqrtPeriod-1 slots is enough: read the expiring value, overwrite the
+              * slot with the current one, advance.
+              */
+             ringSize = sqrtPeriod - 1;
+             if( ringSize < 1 ) return RetCode.AllocErr;
+             dRing = new double[ringSize];
+             maxIdx_dRing = (ringSize)-1;
+             dRing_Idx = 0;
+             /* Warm-up: the sqrtPeriod-1 de-lagged values before the first output
+              * prime the outer WMA (weights 1..sqrtPeriod-1) and fill the ring.
+              */
+             periodSubSqrt = 0.0;
+             periodSumSqrt = 0.0;
+             trailingSqrt = 0.0;
+             w = 1;
+             for( today = wmaStartIdx; today < startIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSumSqrt += diffReal * w;
+                w += 1;
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+             }
+             /* Steady state: one pass, three rolling WMAs. Writes trail every read by
+              * at least sqrtPeriod-1 slots (the lookback clamp), so outReal == inReal
+              * stays safe.
+              */
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSubSqrt -= trailingSqrt;
+                periodSumSqrt += diffReal * sqrtPeriod;
+                trailingSqrt = dRing[dRing_Idx];
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+                outReal[outIdx++] = periodSumSqrt / dividerSqrt;
+                periodSumSqrt -= periodSubSqrt;
+             }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          return RetCode.Success ;
+       }
+       public RetCode hmaUnguarded( int startIdx,
+                                    int endIdx,
+                                    double inReal[],
+                                    int optInTimePeriod,
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    double outReal[] )
+       {
+          int lookbackTotal = 0;
+          int lookbackSqrt = 0;
+          int halfPeriod = 0;
+          int sqrtPeriod = 0;
+          int ringSize = 0;
+          int wmaStartIdx = 0;
+          int today = 0;
+          int outIdx = 0;
+          int i = 0;
+          int w = 0;
+          double dividerFull = 0;
+          double dividerHalf = 0;
+          double dividerSqrt = 0;
+          int trailingIdxFull = 0;
+          int trailingIdxHalf = 0;
+          double periodSubFull = 0;
+          double periodSumFull = 0;
+          double trailingFull = 0;
+          double periodSubHalf = 0;
+          double periodSumHalf = 0;
+          double trailingHalf = 0;
+          double periodSubSqrt = 0;
+          double periodSumSqrt = 0;
+          double trailingSqrt = 0;
+          double tempReal = 0;
+          double fullOut = 0;
+          double halfOut = 0;
+          double diffReal = 0;
+          double[] dRing;
+          int dRing_Idx = 0;
+          int maxIdx_dRing = (50)-1;
+          halfPeriod = optInTimePeriod / 2;
+          sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
+          lookbackSqrt = wmaLookback(sqrtPeriod);
+          lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.Success ;
+          }
+          wmaStartIdx = startIdx - lookbackSqrt;
+          dividerFull = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
+          periodSubFull = 0.0;
+          periodSumFull = 0.0;
+          trailingIdxFull = wmaStartIdx - (optInTimePeriod - 1);
+          i = trailingIdxFull;
+          w = 1;
+          while( i < wmaStartIdx ) {
+             tempReal = inReal[i++];
+             periodSubFull += tempReal;
+             periodSumFull += tempReal * w;
+             w += 1;
+          }
+          trailingFull = 0.0;
+          outIdx = 0;
+          if( optInTimePeriod == 2 || optInTimePeriod == 3 ) {
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                outReal[outIdx++] = 2.0 * tempReal - fullOut;
+             }
+          } else {
+             dividerHalf = (double)halfPeriod * (halfPeriod + 1) / 2.0;
+             dividerSqrt = (double)sqrtPeriod * (sqrtPeriod + 1) / 2.0;
+             periodSubHalf = 0.0;
+             periodSumHalf = 0.0;
+             trailingIdxHalf = wmaStartIdx - (halfPeriod - 1);
+             i = trailingIdxHalf;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = inReal[i++];
+                periodSubHalf += tempReal;
+                periodSumHalf += tempReal * w;
+                w += 1;
+             }
+             trailingHalf = 0.0;
+             ringSize = sqrtPeriod - 1;
+             if( ringSize < 1 ) return RetCode.AllocErr;
+             dRing = new double[ringSize];
+             maxIdx_dRing = (ringSize)-1;
+             dRing_Idx = 0;
+             periodSubSqrt = 0.0;
+             periodSumSqrt = 0.0;
+             trailingSqrt = 0.0;
+             w = 1;
+             for( today = wmaStartIdx; today < startIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSumSqrt += diffReal * w;
+                w += 1;
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+             }
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSubSqrt -= trailingSqrt;
+                periodSumSqrt += diffReal * sqrtPeriod;
+                trailingSqrt = dRing[dRing_Idx];
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+                outReal[outIdx++] = periodSumSqrt / dividerSqrt;
+                periodSumSqrt -= periodSubSqrt;
+             }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          return RetCode.Success ;
+       }
+       public RetCode hma( int startIdx,
+                           int endIdx,
+                           float inReal[],
+                           int optInTimePeriod,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outReal[] )
+       {
+          int lookbackTotal = 0;
+          int lookbackSqrt = 0;
+          int halfPeriod = 0;
+          int sqrtPeriod = 0;
+          int ringSize = 0;
+          int wmaStartIdx = 0;
+          int today = 0;
+          int outIdx = 0;
+          int i = 0;
+          int w = 0;
+          double dividerFull = 0;
+          double dividerHalf = 0;
+          double dividerSqrt = 0;
+          int trailingIdxFull = 0;
+          int trailingIdxHalf = 0;
+          double periodSubFull = 0;
+          double periodSumFull = 0;
+          double trailingFull = 0;
+          double periodSubHalf = 0;
+          double periodSumHalf = 0;
+          double trailingHalf = 0;
+          double periodSubSqrt = 0;
+          double periodSumSqrt = 0;
+          double trailingSqrt = 0;
+          double tempReal = 0;
+          double fullOut = 0;
+          double halfOut = 0;
+          double diffReal = 0;
+          double[] dRing;
+          int dRing_Idx = 0;
+          int maxIdx_dRing = (50)-1;
+          if( startIdx < 0 ) {
+             return RetCode.OutOfRangeStartIndex ;
+          }
+          if( (endIdx < 0) || (endIdx < startIdx)) {
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          halfPeriod = optInTimePeriod / 2;
+          sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
+          lookbackSqrt = wmaLookback(sqrtPeriod);
+          lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.Success ;
+          }
+          wmaStartIdx = startIdx - lookbackSqrt;
+          dividerFull = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
+          periodSubFull = 0.0;
+          periodSumFull = 0.0;
+          trailingIdxFull = wmaStartIdx - (optInTimePeriod - 1);
+          i = trailingIdxFull;
+          w = 1;
+          while( i < wmaStartIdx ) {
+             tempReal = (double)inReal[i++];
+             periodSubFull += tempReal;
+             periodSumFull += tempReal * w;
+             w += 1;
+          }
+          trailingFull = 0.0;
+          outIdx = 0;
+          if( optInTimePeriod == 2 || optInTimePeriod == 3 ) {
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = (double)inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = (double)inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                outReal[outIdx++] = 2.0 * tempReal - fullOut;
+             }
+          } else {
+             dividerHalf = (double)halfPeriod * (halfPeriod + 1) / 2.0;
+             dividerSqrt = (double)sqrtPeriod * (sqrtPeriod + 1) / 2.0;
+             periodSubHalf = 0.0;
+             periodSumHalf = 0.0;
+             trailingIdxHalf = wmaStartIdx - (halfPeriod - 1);
+             i = trailingIdxHalf;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = (double)inReal[i++];
+                periodSubHalf += tempReal;
+                periodSumHalf += tempReal * w;
+                w += 1;
+             }
+             trailingHalf = 0.0;
+             ringSize = sqrtPeriod - 1;
+             if( ringSize < 1 ) return RetCode.AllocErr;
+             dRing = new double[ringSize];
+             maxIdx_dRing = (ringSize)-1;
+             dRing_Idx = 0;
+             periodSubSqrt = 0.0;
+             periodSumSqrt = 0.0;
+             trailingSqrt = 0.0;
+             w = 1;
+             for( today = wmaStartIdx; today < startIdx; today += 1 ) {
+                tempReal = (double)inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = (double)inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = (double)inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSumSqrt += diffReal * w;
+                w += 1;
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+             }
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = (double)inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = (double)inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = (double)inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSubSqrt -= trailingSqrt;
+                periodSumSqrt += diffReal * sqrtPeriod;
+                trailingSqrt = dRing[dRing_Idx];
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+                outReal[outIdx++] = periodSumSqrt / dividerSqrt;
+                periodSumSqrt -= periodSubSqrt;
+             }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          return RetCode.Success ;
+       }
+       public RetCode hmaUnguarded( int startIdx,
+                                    int endIdx,
+                                    float inReal[],
+                                    int optInTimePeriod,
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    double outReal[] )
+       {
+          int lookbackTotal = 0;
+          int lookbackSqrt = 0;
+          int halfPeriod = 0;
+          int sqrtPeriod = 0;
+          int ringSize = 0;
+          int wmaStartIdx = 0;
+          int today = 0;
+          int outIdx = 0;
+          int i = 0;
+          int w = 0;
+          double dividerFull = 0;
+          double dividerHalf = 0;
+          double dividerSqrt = 0;
+          int trailingIdxFull = 0;
+          int trailingIdxHalf = 0;
+          double periodSubFull = 0;
+          double periodSumFull = 0;
+          double trailingFull = 0;
+          double periodSubHalf = 0;
+          double periodSumHalf = 0;
+          double trailingHalf = 0;
+          double periodSubSqrt = 0;
+          double periodSumSqrt = 0;
+          double trailingSqrt = 0;
+          double tempReal = 0;
+          double fullOut = 0;
+          double halfOut = 0;
+          double diffReal = 0;
+          double[] dRing;
+          int dRing_Idx = 0;
+          int maxIdx_dRing = (50)-1;
+          halfPeriod = optInTimePeriod / 2;
+          sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
+          lookbackSqrt = wmaLookback(sqrtPeriod);
+          lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.Success ;
+          }
+          wmaStartIdx = startIdx - lookbackSqrt;
+          dividerFull = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
+          periodSubFull = 0.0;
+          periodSumFull = 0.0;
+          trailingIdxFull = wmaStartIdx - (optInTimePeriod - 1);
+          i = trailingIdxFull;
+          w = 1;
+          while( i < wmaStartIdx ) {
+             tempReal = (double)inReal[i++];
+             periodSubFull += tempReal;
+             periodSumFull += tempReal * w;
+             w += 1;
+          }
+          trailingFull = 0.0;
+          outIdx = 0;
+          if( optInTimePeriod == 2 || optInTimePeriod == 3 ) {
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = (double)inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = (double)inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                outReal[outIdx++] = 2.0 * tempReal - fullOut;
+             }
+          } else {
+             dividerHalf = (double)halfPeriod * (halfPeriod + 1) / 2.0;
+             dividerSqrt = (double)sqrtPeriod * (sqrtPeriod + 1) / 2.0;
+             periodSubHalf = 0.0;
+             periodSumHalf = 0.0;
+             trailingIdxHalf = wmaStartIdx - (halfPeriod - 1);
+             i = trailingIdxHalf;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = (double)inReal[i++];
+                periodSubHalf += tempReal;
+                periodSumHalf += tempReal * w;
+                w += 1;
+             }
+             trailingHalf = 0.0;
+             ringSize = sqrtPeriod - 1;
+             if( ringSize < 1 ) return RetCode.AllocErr;
+             dRing = new double[ringSize];
+             maxIdx_dRing = (ringSize)-1;
+             dRing_Idx = 0;
+             periodSubSqrt = 0.0;
+             periodSumSqrt = 0.0;
+             trailingSqrt = 0.0;
+             w = 1;
+             for( today = wmaStartIdx; today < startIdx; today += 1 ) {
+                tempReal = (double)inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = (double)inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = (double)inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSumSqrt += diffReal * w;
+                w += 1;
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+             }
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = (double)inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = (double)inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = (double)inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSubSqrt -= trailingSqrt;
+                periodSumSqrt += diffReal * sqrtPeriod;
+                trailingSqrt = dRing[dRing_Idx];
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+                outReal[outIdx++] = periodSumSqrt / dividerSqrt;
+                periodSumSqrt -= periodSubSqrt;
+             }
+          }
+          outBegIdx.value = startIdx;
+          outNBElement.value = outIdx;
+          return RetCode.Success ;
+       }
+    /**** Streaming API *****/
+
+       /**
+        * A live HMA stream (unrelated to {@code java.util.stream}): one value per
+        * closed bar, bit-identical to {@link Core#hma} over the same series.
+        * Open with {@link Core#hmaOpen}; there is no close — the handle is
+        * ordinary heap state, unreferenced handles are simply garbage-collected.
+        * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
+        * {@code value} and {@code copy} must not race with an {@code update} on
+        * the same handle. With no concurrent {@code update}, {@code peek}/
+        * {@code value}/{@code copy} never write the handle and may be called
+        * concurrently after safe publication. Independent handles (including
+        * {@code copy()} results) are fully independent. Do not mutate the owning
+        * {@link Core}'s settings while streams opened from it are live.
+        * <p>Not serializable by design: to checkpoint, retain the history and
+        * re-open — the result is bit-identical by contract.
+        */
+       public static final class HmaStream {
+          final Core core;
+          int optInTimePeriod;
+          double dividerFull;
+          double periodSubFull;
+          double periodSumFull;
+          double trailingFull;
+          double fullOut;
+          int halfPeriod;
+          int sqrtPeriod;
+          double dividerHalf;
+          double dividerSqrt;
+          double periodSubHalf;
+          double periodSumHalf;
+          double trailingHalf;
+          double periodSubSqrt;
+          double periodSumSqrt;
+          double trailingSqrt;
+          double halfOut;
+          double diffReal;
+          int dRing_Idx;
+          int maxIdx_dRing;
+          int ringPos_trailingIdxFull;
+          int ringCap_trailingIdxFull;
+          double[] ring_trailingIdxFull_inReal;
+          double cur_outReal;
+          int ringPos_trailingIdxHalf;
+          int ringCap_trailingIdxHalf;
+          double[] ring_trailingIdxHalf_inReal;
+          int cbSize_dRing;
+          double[] cb_dRing;
+
+          HmaStream( Core core ) { this.core = core; }
+
+          HmaStream( HmaStream other ) {
+             this.core = other.core;
+             this.optInTimePeriod = other.optInTimePeriod;
+             this.dividerFull = other.dividerFull;
+             this.periodSubFull = other.periodSubFull;
+             this.periodSumFull = other.periodSumFull;
+             this.trailingFull = other.trailingFull;
+             this.fullOut = other.fullOut;
+             this.halfPeriod = other.halfPeriod;
+             this.sqrtPeriod = other.sqrtPeriod;
+             this.dividerHalf = other.dividerHalf;
+             this.dividerSqrt = other.dividerSqrt;
+             this.periodSubHalf = other.periodSubHalf;
+             this.periodSumHalf = other.periodSumHalf;
+             this.trailingHalf = other.trailingHalf;
+             this.periodSubSqrt = other.periodSubSqrt;
+             this.periodSumSqrt = other.periodSumSqrt;
+             this.trailingSqrt = other.trailingSqrt;
+             this.halfOut = other.halfOut;
+             this.diffReal = other.diffReal;
+             this.dRing_Idx = other.dRing_Idx;
+             this.maxIdx_dRing = other.maxIdx_dRing;
+             this.ringPos_trailingIdxFull = other.ringPos_trailingIdxFull;
+             this.ringCap_trailingIdxFull = other.ringCap_trailingIdxFull;
+             this.ring_trailingIdxFull_inReal = other.ring_trailingIdxFull_inReal.clone();
+             this.cur_outReal = other.cur_outReal;
+             this.ringPos_trailingIdxHalf = other.ringPos_trailingIdxHalf;
+             this.ringCap_trailingIdxHalf = other.ringCap_trailingIdxHalf;
+             this.ring_trailingIdxHalf_inReal = other.ring_trailingIdxHalf_inReal.clone();
+             this.cbSize_dRing = other.cbSize_dRing;
+             this.cb_dRing = other.cb_dRing.clone();
+          }
+
+          /**
+           * Commit one closed bar; always produces the new current value.
+           * Never throws after a successful open; never allocates handle state.
+           */
+          public double update( double inReal ) {
+             core.hmaStreamStep(this, inReal);
+             return this.cur_outReal;
+          }
+
+          /**
+           * Evaluate a forming bar without committing — bit-identical to what the
+           * next {@code update} with the same bar would return (it is the same
+           * generated code, run on a throwaway copy). Deep-copies the handle state
+           * on every call: O(period) for windowed indicators — for hot loops,
+           * prefer {@code update} on a {@code copy()}.
+           */
+          public double peek( double inReal ) {
+             HmaStream scratch = new HmaStream(this);
+             core.hmaStreamStep(scratch, inReal);
+             return scratch.cur_outReal;
+          }
+
+          /**
+           * The value at the most recently committed bar — the last history bar
+           * right after open, then whatever the latest {@code update} returned.
+           * A pure field read; {@code peek} does not change it.
+           */
+          public double value() {
+             return this.cur_outReal;
+          }
+
+          /**
+           * An independent deep copy of this stream: both evolve separately from
+           * here on (the Java rendering of the Rust handle's {@code Clone}).
+           */
+          public HmaStream copy() {
+             return new HmaStream(this);
+          }
+       }
+       void hmaStreamStep( HmaStream sp, double inReal )
+       {
+          if( sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 ) {
+             double tempReal = 0.0;
+             if( sp.ringCap_trailingIdxFull == 0 ) {
+                sp.ring_trailingIdxFull_inReal[0] = inReal;
+             }
+             tempReal = inReal;
+             sp.periodSubFull += tempReal;
+             sp.periodSubFull -= sp.trailingFull;
+             sp.periodSumFull += tempReal * sp.optInTimePeriod;
+             sp.trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
+             sp.fullOut = sp.periodSumFull / sp.dividerFull;
+             sp.periodSumFull -= sp.periodSubFull;
+             sp.cur_outReal = 2.0 * tempReal - sp.fullOut;
+             sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
+             sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
+             if( sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull ) {
+                sp.ringPos_trailingIdxFull = 0;
+             }
+          } else {
+             double tempReal = 0.0;
+             if( sp.ringCap_trailingIdxFull == 0 ) {
+                sp.ring_trailingIdxFull_inReal[0] = inReal;
+             }
+             if( sp.ringCap_trailingIdxHalf == 0 ) {
+                sp.ring_trailingIdxHalf_inReal[0] = inReal;
+             }
+             tempReal = inReal;
+             sp.periodSubFull += tempReal;
+             sp.periodSubFull -= sp.trailingFull;
+             sp.periodSumFull += tempReal * sp.optInTimePeriod;
+             sp.trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
+             sp.fullOut = sp.periodSumFull / sp.dividerFull;
+             sp.periodSumFull -= sp.periodSubFull;
+             sp.periodSubHalf += tempReal;
+             sp.periodSubHalf -= sp.trailingHalf;
+             sp.periodSumHalf += tempReal * sp.halfPeriod;
+             sp.trailingHalf = sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf];
+             sp.halfOut = sp.periodSumHalf / sp.dividerHalf;
+             sp.periodSumHalf -= sp.periodSubHalf;
+             sp.diffReal = 2.0 * sp.halfOut - sp.fullOut;
+             sp.periodSubSqrt += sp.diffReal;
+             sp.periodSubSqrt -= sp.trailingSqrt;
+             sp.periodSumSqrt += sp.diffReal * sp.sqrtPeriod;
+             sp.trailingSqrt = sp.cb_dRing[sp.dRing_Idx];
+             sp.cb_dRing[sp.dRing_Idx] = sp.diffReal;
+             sp.dRing_Idx = sp.dRing_Idx + 1;
+             if( sp.dRing_Idx > sp.maxIdx_dRing ) {
+                sp.dRing_Idx = 0;
+             }
+             sp.cur_outReal = sp.periodSumSqrt / sp.dividerSqrt;
+             sp.periodSumSqrt -= sp.periodSubSqrt;
+             sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
+             sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
+             if( sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull ) {
+                sp.ringPos_trailingIdxFull = 0;
+             }
+             sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf] = inReal;
+             sp.ringPos_trailingIdxHalf = sp.ringPos_trailingIdxHalf + 1;
+             if( sp.ringPos_trailingIdxHalf >= sp.ringCap_trailingIdxHalf ) {
+                sp.ringPos_trailingIdxHalf = 0;
+             }
+          }
+       }
+       private RetCode hmaOpenBody( HmaStream sp, double inReal[], int startIdx, int optInTimePeriod )
+       {
+          MInteger outBegIdx = new MInteger();
+          MInteger outNBElement = new MInteger();
+          double lastValue_outReal = 0.0;
+          int historyLen = inReal.length;
+          int endIdx = historyLen - 1;
+          if( historyLen < 1 ) {
+             return RetCode.BadParam;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          if( optInTimePeriod == 2 || optInTimePeriod == 3 ) {
+             int lookbackTotal = 0;
+             int lookbackSqrt = 0;
+             int halfPeriod = 0;
+             int sqrtPeriod = 0;
+             int ringSize = 0;
+             int wmaStartIdx = 0;
+             int today = 0;
+             int outIdx = 0;
+             int i = 0;
+             int w = 0;
+             double dividerFull = 0;
+             double dividerHalf = 0;
+             double dividerSqrt = 0;
+             int trailingIdxFull = 0;
+             int trailingIdxHalf = 0;
+             double periodSubFull = 0;
+             double periodSumFull = 0;
+             double trailingFull = 0;
+             double periodSubHalf = 0;
+             double periodSumHalf = 0;
+             double trailingHalf = 0;
+             double periodSubSqrt = 0;
+             double periodSumSqrt = 0;
+             double trailingSqrt = 0;
+             double tempReal = 0;
+             double fullOut = 0;
+             double halfOut = 0;
+             double diffReal = 0;
+             double[] dRing;
+             int dRing_Idx = 0;
+             int maxIdx_dRing = (50)-1;
+             /* The de-lagged series needs only its last sqrt(n) values, so the whole
+              * computation runs in one pass over a single window into the input:
+              * three interleaved WMA rolling sums plus this small ring. The ring has
+              * sqrt(n)-1 slots: on the stack while that fits the 50-slot prolog
+              * (optInTimePeriod <= 2703), TA_Malloc from optInTimePeriod = 2704 up.
+              */
+             /* Hull Moving Average (Alan Hull, 2005):
+              *
+              *    HMA(n) = WMA( 2*WMA(price, Integer(n/2)) - WMA(price, n), Integer(SquareRoot(n)) )
+              *
+              * Both derived periods use the author's Integer() truncation; some other
+              * published sources round to nearest instead, which is a visibly different
+              * line. See hma.md and issue #139.
+              *
+              * Each of the three WMAs keeps TA_WMA's exact accumulation order
+              * (periodSub/periodSum, lagged trailing subtract), so this fused pass is
+              * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
+              * differential in test_composite.c holds it to that, memcmp-exact.
+              */
+             halfPeriod = optInTimePeriod / 2;
+             sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
+             lookbackSqrt = wmaLookback(sqrtPeriod);
+             lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+             /* Move up the start index if there is not
+              * enough initial data.
+              */
+             if( startIdx < lookbackTotal ) {
+                startIdx = lookbackTotal;
+             }
+             /* Make sure there is still something to evaluate. */
+             if( startIdx > endIdx ) {
+                outBegIdx.value = 0;
+                outNBElement.value = 0;
+                return RetCode.OutOfRangeEndIndex ;
+             }
+             /* The two price WMAs are anchored where the first de-lagged value is
+              * needed: lookbackSqrt bars before the first requested output.
+              * wmaStartIdx >= optInTimePeriod-1 is implied by the clamp above.
+              */
+             wmaStartIdx = startIdx - lookbackSqrt;
+             dividerFull = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
+             /* Prime the full-period WMA over the optInTimePeriod-1 bars before
+              * wmaStartIdx, exactly as TA_WMA does (weights 1..period-1).
+              */
+             periodSubFull = 0.0;
+             periodSumFull = 0.0;
+             trailingIdxFull = wmaStartIdx - (optInTimePeriod - 1);
+             i = trailingIdxFull;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = inReal[i++];
+                periodSubFull += tempReal;
+                periodSumFull += tempReal * w;
+                w += 1;
+             }
+             trailingFull = 0.0;
+             outIdx = 0;
+             /* sqrtPeriod == 1 exactly when optInTimePeriod is 2 or 3; stated on the
+              * param so the stream analyzer sees a param-pure dual-mode split.
+              */
+             /* Degenerate regime, optInTimePeriod 2 or 3 only: halfPeriod and
+              * sqrtPeriod are both 1, and a period-1 WMA is the identity (TA_WMA's
+              * own short-circuit). The whole formula collapses to
+              *    HMA[t] = 2*price[t] - WMA(price, n)[t]
+              * with no de-lag ring at all. In-place note: the output store lands on
+              * the SAME slot the trailing read just consumed (zero margin), so the
+              * read stays ordered before the store.
+              */
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                lastValue_outReal = 2.0 * tempReal - fullOut;
+             }
+             outBegIdx.value = startIdx;
+             outNBElement.value = outIdx;
+             /* Capture the live batch state into the handle. */
+             int cap_trailingIdxFull = today - trailingIdxFull;
+             if( cap_trailingIdxFull < 0 || cap_trailingIdxFull > historyLen ) {
+                return RetCode.InternalError;
+             }
+             int allocN_trailingIdxFull = (cap_trailingIdxFull > 0)? cap_trailingIdxFull : 1;
+             double[] capRing_trailingIdxFull_inReal = new double[allocN_trailingIdxFull];
+             System.arraycopy(inReal, historyLen - cap_trailingIdxFull, capRing_trailingIdxFull_inReal, 0, cap_trailingIdxFull);
+             sp.optInTimePeriod = optInTimePeriod;
+             sp.dividerFull = dividerFull;
+             sp.periodSubFull = periodSubFull;
+             sp.periodSumFull = periodSumFull;
+             sp.trailingFull = trailingFull;
+             sp.fullOut = fullOut;
+             sp.halfPeriod = halfPeriod;
+             sp.sqrtPeriod = sqrtPeriod;
+             sp.dividerHalf = dividerHalf;
+             sp.dividerSqrt = dividerSqrt;
+             sp.periodSubHalf = periodSubHalf;
+             sp.periodSumHalf = periodSumHalf;
+             sp.trailingHalf = trailingHalf;
+             sp.periodSubSqrt = periodSubSqrt;
+             sp.periodSumSqrt = periodSumSqrt;
+             sp.trailingSqrt = trailingSqrt;
+             sp.halfOut = halfOut;
+             sp.diffReal = diffReal;
+             sp.dRing_Idx = dRing_Idx;
+             sp.maxIdx_dRing = maxIdx_dRing;
+             sp.ringPos_trailingIdxFull = 0;
+             sp.ringCap_trailingIdxFull = cap_trailingIdxFull;
+             sp.ring_trailingIdxFull_inReal = capRing_trailingIdxFull_inReal;
+             sp.ring_trailingIdxHalf_inReal = new double[1];
+             sp.cb_dRing = new double[1];
+             sp.cur_outReal = lastValue_outReal;
+             return RetCode.Success;
+          } else {
+             int lookbackTotal = 0;
+             int lookbackSqrt = 0;
+             int halfPeriod = 0;
+             int sqrtPeriod = 0;
+             int ringSize = 0;
+             int wmaStartIdx = 0;
+             int today = 0;
+             int outIdx = 0;
+             int i = 0;
+             int w = 0;
+             double dividerFull = 0;
+             double dividerHalf = 0;
+             double dividerSqrt = 0;
+             int trailingIdxFull = 0;
+             int trailingIdxHalf = 0;
+             double periodSubFull = 0;
+             double periodSumFull = 0;
+             double trailingFull = 0;
+             double periodSubHalf = 0;
+             double periodSumHalf = 0;
+             double trailingHalf = 0;
+             double periodSubSqrt = 0;
+             double periodSumSqrt = 0;
+             double trailingSqrt = 0;
+             double tempReal = 0;
+             double fullOut = 0;
+             double halfOut = 0;
+             double diffReal = 0;
+             double[] dRing;
+             int dRing_Idx = 0;
+             int maxIdx_dRing = (50)-1;
+             /* The de-lagged series needs only its last sqrt(n) values, so the whole
+              * computation runs in one pass over a single window into the input:
+              * three interleaved WMA rolling sums plus this small ring. The ring has
+              * sqrt(n)-1 slots: on the stack while that fits the 50-slot prolog
+              * (optInTimePeriod <= 2703), TA_Malloc from optInTimePeriod = 2704 up.
+              */
+             /* Hull Moving Average (Alan Hull, 2005):
+              *
+              *    HMA(n) = WMA( 2*WMA(price, Integer(n/2)) - WMA(price, n), Integer(SquareRoot(n)) )
+              *
+              * Both derived periods use the author's Integer() truncation; some other
+              * published sources round to nearest instead, which is a visibly different
+              * line. See hma.md and issue #139.
+              *
+              * Each of the three WMAs keeps TA_WMA's exact accumulation order
+              * (periodSub/periodSum, lagged trailing subtract), so this fused pass is
+              * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
+              * differential in test_composite.c holds it to that, memcmp-exact.
+              */
+             halfPeriod = optInTimePeriod / 2;
+             sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
+             lookbackSqrt = wmaLookback(sqrtPeriod);
+             lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+             /* Move up the start index if there is not
+              * enough initial data.
+              */
+             if( startIdx < lookbackTotal ) {
+                startIdx = lookbackTotal;
+             }
+             /* Make sure there is still something to evaluate. */
+             if( startIdx > endIdx ) {
+                outBegIdx.value = 0;
+                outNBElement.value = 0;
+                return RetCode.OutOfRangeEndIndex ;
+             }
+             /* The two price WMAs are anchored where the first de-lagged value is
+              * needed: lookbackSqrt bars before the first requested output.
+              * wmaStartIdx >= optInTimePeriod-1 is implied by the clamp above.
+              */
+             wmaStartIdx = startIdx - lookbackSqrt;
+             dividerFull = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
+             /* Prime the full-period WMA over the optInTimePeriod-1 bars before
+              * wmaStartIdx, exactly as TA_WMA does (weights 1..period-1).
+              */
+             periodSubFull = 0.0;
+             periodSumFull = 0.0;
+             trailingIdxFull = wmaStartIdx - (optInTimePeriod - 1);
+             i = trailingIdxFull;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = inReal[i++];
+                periodSubFull += tempReal;
+                periodSumFull += tempReal * w;
+                w += 1;
+             }
+             trailingFull = 0.0;
+             outIdx = 0;
+             /* sqrtPeriod == 1 exactly when optInTimePeriod is 2 or 3; stated on the
+              * param so the stream analyzer sees a param-pure dual-mode split.
+              */
+             /* General regime: optInTimePeriod >= 4, so halfPeriod >= 2 and
+              * sqrtPeriod >= 2 -- no period-1 special cases below this point.
+              */
+             dividerHalf = (double)halfPeriod * (halfPeriod + 1) / 2.0;
+             dividerSqrt = (double)sqrtPeriod * (sqrtPeriod + 1) / 2.0;
+             /* Prime the half-period WMA the same way. */
+             periodSubHalf = 0.0;
+             periodSumHalf = 0.0;
+             trailingIdxHalf = wmaStartIdx - (halfPeriod - 1);
+             i = trailingIdxHalf;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = inReal[i++];
+                periodSubHalf += tempReal;
+                periodSumHalf += tempReal * w;
+                w += 1;
+             }
+             trailingHalf = 0.0;
+             /* The de-lagged value computed at bar t is consumed as the outer WMA's
+              * trailing value sqrtPeriod-1 bars later, so a single-cursor ring of
+              * sqrtPeriod-1 slots is enough: read the expiring value, overwrite the
+              * slot with the current one, advance.
+              */
+             ringSize = sqrtPeriod - 1;
+             if( ringSize < 1 ) return RetCode.AllocErr;
+             dRing = new double[ringSize];
+             maxIdx_dRing = (ringSize)-1;
+             dRing_Idx = 0;
+             /* Warm-up: the sqrtPeriod-1 de-lagged values before the first output
+              * prime the outer WMA (weights 1..sqrtPeriod-1) and fill the ring.
+              */
+             periodSubSqrt = 0.0;
+             periodSumSqrt = 0.0;
+             trailingSqrt = 0.0;
+             w = 1;
+             for( today = wmaStartIdx; today < startIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSumSqrt += diffReal * w;
+                w += 1;
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+             }
+             /* Steady state: one pass, three rolling WMAs. Writes trail every read by
+              * at least sqrtPeriod-1 slots (the lookback clamp), so outReal == inReal
+              * stays safe.
+              */
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSubSqrt -= trailingSqrt;
+                periodSumSqrt += diffReal * sqrtPeriod;
+                trailingSqrt = dRing[dRing_Idx];
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+                lastValue_outReal = periodSumSqrt / dividerSqrt;
+                periodSumSqrt -= periodSubSqrt;
+             }
+             outBegIdx.value = startIdx;
+             outNBElement.value = outIdx;
+             /* Capture the live batch state into the handle. */
+             int cap_trailingIdxFull = today - trailingIdxFull;
+             if( cap_trailingIdxFull < 0 || cap_trailingIdxFull > historyLen ) {
+                return RetCode.InternalError;
+             }
+             int allocN_trailingIdxFull = (cap_trailingIdxFull > 0)? cap_trailingIdxFull : 1;
+             double[] capRing_trailingIdxFull_inReal = new double[allocN_trailingIdxFull];
+             System.arraycopy(inReal, historyLen - cap_trailingIdxFull, capRing_trailingIdxFull_inReal, 0, cap_trailingIdxFull);
+             int cap_trailingIdxHalf = today - trailingIdxHalf;
+             if( cap_trailingIdxHalf < 0 || cap_trailingIdxHalf > historyLen ) {
+                return RetCode.InternalError;
+             }
+             int allocN_trailingIdxHalf = (cap_trailingIdxHalf > 0)? cap_trailingIdxHalf : 1;
+             double[] capRing_trailingIdxHalf_inReal = new double[allocN_trailingIdxHalf];
+             System.arraycopy(inReal, historyLen - cap_trailingIdxHalf, capRing_trailingIdxHalf_inReal, 0, cap_trailingIdxHalf);
+             int capCb_dRing = maxIdx_dRing + 1;
+             if( capCb_dRing > historyLen + 1 ) {
+                return RetCode.InternalError;
+             }
+             sp.optInTimePeriod = optInTimePeriod;
+             sp.dividerFull = dividerFull;
+             sp.periodSubFull = periodSubFull;
+             sp.periodSumFull = periodSumFull;
+             sp.trailingFull = trailingFull;
+             sp.fullOut = fullOut;
+             sp.halfPeriod = halfPeriod;
+             sp.sqrtPeriod = sqrtPeriod;
+             sp.dividerHalf = dividerHalf;
+             sp.dividerSqrt = dividerSqrt;
+             sp.periodSubHalf = periodSubHalf;
+             sp.periodSumHalf = periodSumHalf;
+             sp.trailingHalf = trailingHalf;
+             sp.periodSubSqrt = periodSubSqrt;
+             sp.periodSumSqrt = periodSumSqrt;
+             sp.trailingSqrt = trailingSqrt;
+             sp.halfOut = halfOut;
+             sp.diffReal = diffReal;
+             sp.dRing_Idx = dRing_Idx;
+             sp.maxIdx_dRing = maxIdx_dRing;
+             sp.ringPos_trailingIdxFull = 0;
+             sp.ringCap_trailingIdxFull = cap_trailingIdxFull;
+             sp.ring_trailingIdxFull_inReal = capRing_trailingIdxFull_inReal;
+             sp.ringPos_trailingIdxHalf = 0;
+             sp.ringCap_trailingIdxHalf = cap_trailingIdxHalf;
+             sp.ring_trailingIdxHalf_inReal = capRing_trailingIdxHalf_inReal;
+             sp.cbSize_dRing = capCb_dRing;
+             sp.cb_dRing = dRing;
+             sp.cur_outReal = lastValue_outReal;
+             return RetCode.Success;
+          }
+       }
+       private RetCode hmaOpenAndFillBody( HmaStream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+       {
+          int historyLen = inReal.length;
+          int endIdx = historyLen - 1;
+          int startIdx = 0;
+          if( historyLen < 1 ) {
+             return RetCode.BadParam;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          if( (Object)outReal == (Object)inReal ) {
+             return RetCode.BadParam;
+          }
+          if( optInTimePeriod == 2 || optInTimePeriod == 3 ) {
+             int lookbackTotal = 0;
+             int lookbackSqrt = 0;
+             int halfPeriod = 0;
+             int sqrtPeriod = 0;
+             int ringSize = 0;
+             int wmaStartIdx = 0;
+             int today = 0;
+             int outIdx = 0;
+             int i = 0;
+             int w = 0;
+             double dividerFull = 0;
+             double dividerHalf = 0;
+             double dividerSqrt = 0;
+             int trailingIdxFull = 0;
+             int trailingIdxHalf = 0;
+             double periodSubFull = 0;
+             double periodSumFull = 0;
+             double trailingFull = 0;
+             double periodSubHalf = 0;
+             double periodSumHalf = 0;
+             double trailingHalf = 0;
+             double periodSubSqrt = 0;
+             double periodSumSqrt = 0;
+             double trailingSqrt = 0;
+             double tempReal = 0;
+             double fullOut = 0;
+             double halfOut = 0;
+             double diffReal = 0;
+             double[] dRing;
+             int dRing_Idx = 0;
+             int maxIdx_dRing = (50)-1;
+             /* The de-lagged series needs only its last sqrt(n) values, so the whole
+              * computation runs in one pass over a single window into the input:
+              * three interleaved WMA rolling sums plus this small ring. The ring has
+              * sqrt(n)-1 slots: on the stack while that fits the 50-slot prolog
+              * (optInTimePeriod <= 2703), TA_Malloc from optInTimePeriod = 2704 up.
+              */
+             /* Hull Moving Average (Alan Hull, 2005):
+              *
+              *    HMA(n) = WMA( 2*WMA(price, Integer(n/2)) - WMA(price, n), Integer(SquareRoot(n)) )
+              *
+              * Both derived periods use the author's Integer() truncation; some other
+              * published sources round to nearest instead, which is a visibly different
+              * line. See hma.md and issue #139.
+              *
+              * Each of the three WMAs keeps TA_WMA's exact accumulation order
+              * (periodSub/periodSum, lagged trailing subtract), so this fused pass is
+              * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
+              * differential in test_composite.c holds it to that, memcmp-exact.
+              */
+             halfPeriod = optInTimePeriod / 2;
+             sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
+             lookbackSqrt = wmaLookback(sqrtPeriod);
+             lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+             /* Move up the start index if there is not
+              * enough initial data.
+              */
+             if( startIdx < lookbackTotal ) {
+                startIdx = lookbackTotal;
+             }
+             /* Make sure there is still something to evaluate. */
+             if( startIdx > endIdx ) {
+                outBegIdx.value = 0;
+                outNBElement.value = 0;
+                return RetCode.OutOfRangeEndIndex ;
+             }
+             /* The two price WMAs are anchored where the first de-lagged value is
+              * needed: lookbackSqrt bars before the first requested output.
+              * wmaStartIdx >= optInTimePeriod-1 is implied by the clamp above.
+              */
+             wmaStartIdx = startIdx - lookbackSqrt;
+             dividerFull = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
+             /* Prime the full-period WMA over the optInTimePeriod-1 bars before
+              * wmaStartIdx, exactly as TA_WMA does (weights 1..period-1).
+              */
+             periodSubFull = 0.0;
+             periodSumFull = 0.0;
+             trailingIdxFull = wmaStartIdx - (optInTimePeriod - 1);
+             i = trailingIdxFull;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = inReal[i++];
+                periodSubFull += tempReal;
+                periodSumFull += tempReal * w;
+                w += 1;
+             }
+             trailingFull = 0.0;
+             outIdx = 0;
+             /* sqrtPeriod == 1 exactly when optInTimePeriod is 2 or 3; stated on the
+              * param so the stream analyzer sees a param-pure dual-mode split.
+              */
+             /* Degenerate regime, optInTimePeriod 2 or 3 only: halfPeriod and
+              * sqrtPeriod are both 1, and a period-1 WMA is the identity (TA_WMA's
+              * own short-circuit). The whole formula collapses to
+              *    HMA[t] = 2*price[t] - WMA(price, n)[t]
+              * with no de-lag ring at all. In-place note: the output store lands on
+              * the SAME slot the trailing read just consumed (zero margin), so the
+              * read stays ordered before the store.
+              */
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                outReal[outIdx++] = 2.0 * tempReal - fullOut;
+             }
+             outBegIdx.value = startIdx;
+             outNBElement.value = outIdx;
+             /* Capture the live batch state into the handle. */
+             int cap_trailingIdxFull = today - trailingIdxFull;
+             if( cap_trailingIdxFull < 0 || cap_trailingIdxFull > historyLen ) {
+                return RetCode.InternalError;
+             }
+             int allocN_trailingIdxFull = (cap_trailingIdxFull > 0)? cap_trailingIdxFull : 1;
+             double[] capRing_trailingIdxFull_inReal = new double[allocN_trailingIdxFull];
+             System.arraycopy(inReal, historyLen - cap_trailingIdxFull, capRing_trailingIdxFull_inReal, 0, cap_trailingIdxFull);
+             sp.optInTimePeriod = optInTimePeriod;
+             sp.dividerFull = dividerFull;
+             sp.periodSubFull = periodSubFull;
+             sp.periodSumFull = periodSumFull;
+             sp.trailingFull = trailingFull;
+             sp.fullOut = fullOut;
+             sp.halfPeriod = halfPeriod;
+             sp.sqrtPeriod = sqrtPeriod;
+             sp.dividerHalf = dividerHalf;
+             sp.dividerSqrt = dividerSqrt;
+             sp.periodSubHalf = periodSubHalf;
+             sp.periodSumHalf = periodSumHalf;
+             sp.trailingHalf = trailingHalf;
+             sp.periodSubSqrt = periodSubSqrt;
+             sp.periodSumSqrt = periodSumSqrt;
+             sp.trailingSqrt = trailingSqrt;
+             sp.halfOut = halfOut;
+             sp.diffReal = diffReal;
+             sp.dRing_Idx = dRing_Idx;
+             sp.maxIdx_dRing = maxIdx_dRing;
+             sp.ringPos_trailingIdxFull = 0;
+             sp.ringCap_trailingIdxFull = cap_trailingIdxFull;
+             sp.ring_trailingIdxFull_inReal = capRing_trailingIdxFull_inReal;
+             sp.ring_trailingIdxHalf_inReal = new double[1];
+             sp.cb_dRing = new double[1];
+             sp.cur_outReal = outReal[outNBElement.value - 1];
+             return RetCode.Success;
+          } else {
+             int lookbackTotal = 0;
+             int lookbackSqrt = 0;
+             int halfPeriod = 0;
+             int sqrtPeriod = 0;
+             int ringSize = 0;
+             int wmaStartIdx = 0;
+             int today = 0;
+             int outIdx = 0;
+             int i = 0;
+             int w = 0;
+             double dividerFull = 0;
+             double dividerHalf = 0;
+             double dividerSqrt = 0;
+             int trailingIdxFull = 0;
+             int trailingIdxHalf = 0;
+             double periodSubFull = 0;
+             double periodSumFull = 0;
+             double trailingFull = 0;
+             double periodSubHalf = 0;
+             double periodSumHalf = 0;
+             double trailingHalf = 0;
+             double periodSubSqrt = 0;
+             double periodSumSqrt = 0;
+             double trailingSqrt = 0;
+             double tempReal = 0;
+             double fullOut = 0;
+             double halfOut = 0;
+             double diffReal = 0;
+             double[] dRing;
+             int dRing_Idx = 0;
+             int maxIdx_dRing = (50)-1;
+             /* The de-lagged series needs only its last sqrt(n) values, so the whole
+              * computation runs in one pass over a single window into the input:
+              * three interleaved WMA rolling sums plus this small ring. The ring has
+              * sqrt(n)-1 slots: on the stack while that fits the 50-slot prolog
+              * (optInTimePeriod <= 2703), TA_Malloc from optInTimePeriod = 2704 up.
+              */
+             /* Hull Moving Average (Alan Hull, 2005):
+              *
+              *    HMA(n) = WMA( 2*WMA(price, Integer(n/2)) - WMA(price, n), Integer(SquareRoot(n)) )
+              *
+              * Both derived periods use the author's Integer() truncation; some other
+              * published sources round to nearest instead, which is a visibly different
+              * line. See hma.md and issue #139.
+              *
+              * Each of the three WMAs keeps TA_WMA's exact accumulation order
+              * (periodSub/periodSum, lagged trailing subtract), so this fused pass is
+              * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
+              * differential in test_composite.c holds it to that, memcmp-exact.
+              */
+             halfPeriod = optInTimePeriod / 2;
+             sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
+             lookbackSqrt = wmaLookback(sqrtPeriod);
+             lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+             /* Move up the start index if there is not
+              * enough initial data.
+              */
+             if( startIdx < lookbackTotal ) {
+                startIdx = lookbackTotal;
+             }
+             /* Make sure there is still something to evaluate. */
+             if( startIdx > endIdx ) {
+                outBegIdx.value = 0;
+                outNBElement.value = 0;
+                return RetCode.OutOfRangeEndIndex ;
+             }
+             /* The two price WMAs are anchored where the first de-lagged value is
+              * needed: lookbackSqrt bars before the first requested output.
+              * wmaStartIdx >= optInTimePeriod-1 is implied by the clamp above.
+              */
+             wmaStartIdx = startIdx - lookbackSqrt;
+             dividerFull = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
+             /* Prime the full-period WMA over the optInTimePeriod-1 bars before
+              * wmaStartIdx, exactly as TA_WMA does (weights 1..period-1).
+              */
+             periodSubFull = 0.0;
+             periodSumFull = 0.0;
+             trailingIdxFull = wmaStartIdx - (optInTimePeriod - 1);
+             i = trailingIdxFull;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = inReal[i++];
+                periodSubFull += tempReal;
+                periodSumFull += tempReal * w;
+                w += 1;
+             }
+             trailingFull = 0.0;
+             outIdx = 0;
+             /* sqrtPeriod == 1 exactly when optInTimePeriod is 2 or 3; stated on the
+              * param so the stream analyzer sees a param-pure dual-mode split.
+              */
+             /* General regime: optInTimePeriod >= 4, so halfPeriod >= 2 and
+              * sqrtPeriod >= 2 -- no period-1 special cases below this point.
+              */
+             dividerHalf = (double)halfPeriod * (halfPeriod + 1) / 2.0;
+             dividerSqrt = (double)sqrtPeriod * (sqrtPeriod + 1) / 2.0;
+             /* Prime the half-period WMA the same way. */
+             periodSubHalf = 0.0;
+             periodSumHalf = 0.0;
+             trailingIdxHalf = wmaStartIdx - (halfPeriod - 1);
+             i = trailingIdxHalf;
+             w = 1;
+             while( i < wmaStartIdx ) {
+                tempReal = inReal[i++];
+                periodSubHalf += tempReal;
+                periodSumHalf += tempReal * w;
+                w += 1;
+             }
+             trailingHalf = 0.0;
+             /* The de-lagged value computed at bar t is consumed as the outer WMA's
+              * trailing value sqrtPeriod-1 bars later, so a single-cursor ring of
+              * sqrtPeriod-1 slots is enough: read the expiring value, overwrite the
+              * slot with the current one, advance.
+              */
+             ringSize = sqrtPeriod - 1;
+             if( ringSize < 1 ) return RetCode.AllocErr;
+             dRing = new double[ringSize];
+             maxIdx_dRing = (ringSize)-1;
+             dRing_Idx = 0;
+             /* Warm-up: the sqrtPeriod-1 de-lagged values before the first output
+              * prime the outer WMA (weights 1..sqrtPeriod-1) and fill the ring.
+              */
+             periodSubSqrt = 0.0;
+             periodSumSqrt = 0.0;
+             trailingSqrt = 0.0;
+             w = 1;
+             for( today = wmaStartIdx; today < startIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSumSqrt += diffReal * w;
+                w += 1;
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+             }
+             /* Steady state: one pass, three rolling WMAs. Writes trail every read by
+              * at least sqrtPeriod-1 slots (the lookback clamp), so outReal == inReal
+              * stays safe.
+              */
+             for( today = startIdx; today <= endIdx; today += 1 ) {
+                tempReal = inReal[today];
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * optInTimePeriod;
+                trailingFull = inReal[trailingIdxFull++];
+                fullOut = periodSumFull / dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * halfPeriod;
+                trailingHalf = inReal[trailingIdxHalf++];
+                halfOut = periodSumHalf / dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSubSqrt -= trailingSqrt;
+                periodSumSqrt += diffReal * sqrtPeriod;
+                trailingSqrt = dRing[dRing_Idx];
+                dRing[dRing_Idx] = diffReal;
+                dRing_Idx++;
+                if( dRing_Idx > maxIdx_dRing ) { dRing_Idx = 0; }
+                outReal[outIdx++] = periodSumSqrt / dividerSqrt;
+                periodSumSqrt -= periodSubSqrt;
+             }
+             outBegIdx.value = startIdx;
+             outNBElement.value = outIdx;
+             /* Capture the live batch state into the handle. */
+             int cap_trailingIdxFull = today - trailingIdxFull;
+             if( cap_trailingIdxFull < 0 || cap_trailingIdxFull > historyLen ) {
+                return RetCode.InternalError;
+             }
+             int allocN_trailingIdxFull = (cap_trailingIdxFull > 0)? cap_trailingIdxFull : 1;
+             double[] capRing_trailingIdxFull_inReal = new double[allocN_trailingIdxFull];
+             System.arraycopy(inReal, historyLen - cap_trailingIdxFull, capRing_trailingIdxFull_inReal, 0, cap_trailingIdxFull);
+             int cap_trailingIdxHalf = today - trailingIdxHalf;
+             if( cap_trailingIdxHalf < 0 || cap_trailingIdxHalf > historyLen ) {
+                return RetCode.InternalError;
+             }
+             int allocN_trailingIdxHalf = (cap_trailingIdxHalf > 0)? cap_trailingIdxHalf : 1;
+             double[] capRing_trailingIdxHalf_inReal = new double[allocN_trailingIdxHalf];
+             System.arraycopy(inReal, historyLen - cap_trailingIdxHalf, capRing_trailingIdxHalf_inReal, 0, cap_trailingIdxHalf);
+             int capCb_dRing = maxIdx_dRing + 1;
+             if( capCb_dRing > historyLen + 1 ) {
+                return RetCode.InternalError;
+             }
+             sp.optInTimePeriod = optInTimePeriod;
+             sp.dividerFull = dividerFull;
+             sp.periodSubFull = periodSubFull;
+             sp.periodSumFull = periodSumFull;
+             sp.trailingFull = trailingFull;
+             sp.fullOut = fullOut;
+             sp.halfPeriod = halfPeriod;
+             sp.sqrtPeriod = sqrtPeriod;
+             sp.dividerHalf = dividerHalf;
+             sp.dividerSqrt = dividerSqrt;
+             sp.periodSubHalf = periodSubHalf;
+             sp.periodSumHalf = periodSumHalf;
+             sp.trailingHalf = trailingHalf;
+             sp.periodSubSqrt = periodSubSqrt;
+             sp.periodSumSqrt = periodSumSqrt;
+             sp.trailingSqrt = trailingSqrt;
+             sp.halfOut = halfOut;
+             sp.diffReal = diffReal;
+             sp.dRing_Idx = dRing_Idx;
+             sp.maxIdx_dRing = maxIdx_dRing;
+             sp.ringPos_trailingIdxFull = 0;
+             sp.ringCap_trailingIdxFull = cap_trailingIdxFull;
+             sp.ring_trailingIdxFull_inReal = capRing_trailingIdxFull_inReal;
+             sp.ringPos_trailingIdxHalf = 0;
+             sp.ringCap_trailingIdxHalf = cap_trailingIdxHalf;
+             sp.ring_trailingIdxHalf_inReal = capRing_trailingIdxHalf_inReal;
+             sp.cbSize_dRing = capCb_dRing;
+             sp.cb_dRing = dRing;
+             sp.cur_outReal = outReal[outNBElement.value - 1];
+             return RetCode.Success;
+          }
+       }
+       /* Internal startIdx-anchored open behind hmaOpen (composition seam). */
+       HmaStream hmaOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
+       {
+          HmaStream sp = new HmaStream(this);
+          RetCode retCode = hmaOpenBody(sp, inReal, startIdx, optInTimePeriod);
+          if( retCode == RetCode.Success ) {
+             return sp;
+          }
+          if( retCode == RetCode.OutOfRangeEndIndex ) {
+             throw new InsufficientHistoryException("TA_HMA open: history shorter than lookback + 1");
+          }
+          if( retCode == RetCode.InternalError ) {
+             throw new IllegalStateException("TA_HMA open: internal error");
+          }
+          throw new IllegalArgumentException("TA_HMA open: " + retCode);
+       }
+       /**
+        * Open a live HMA stream over the warm-up history; the handle's
+        * {@code value()} starts at the last history bar's value — bit-identical
+        * to {@link Core#hma} at that bar.
+        * <p>The history must hold at least {@code hmaLookback(...) + 1} bars
+        * (unstable-period aware), or {@link InsufficientHistoryException} is
+        * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
+        * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
+        * default, as in the batch API).
+        */
+       public HmaStream hmaOpen( double inReal[], int optInTimePeriod )
+       {
+          return hmaOpenInternal(inReal, 0, optInTimePeriod);
+       }
+       /**
+        * {@link Core#hmaOpen} that also fills the output array(s) bit-identically
+        * to {@link Core#hma} over the whole history in the same single pass
+        * (no separate batch call needed for the warm-up plot). Output arrays must
+        * not alias the inputs or each other, and must hold
+        * {@code historyLen - lookback} values.
+        */
+       public HmaStream hmaOpenAndFill( double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+       {
+          HmaStream sp = new HmaStream(this);
+          RetCode retCode = hmaOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+          if( retCode == RetCode.Success ) {
+             return sp;
+          }
+          if( retCode == RetCode.OutOfRangeEndIndex ) {
+             throw new InsufficientHistoryException("TA_HMA openAndFill: history shorter than lookback + 1");
+          }
+          if( retCode == RetCode.InternalError ) {
+             throw new IllegalStateException("TA_HMA openAndFill: internal error");
+          }
+          throw new IllegalArgumentException("TA_HMA openAndFill: " + retCode);
        }
     /* List of contributors:
      *
@@ -94404,6 +97095,8 @@ class Core {
      *  070203 JP     Initial.
      *  071326 MF,CC  O(period) per-bar rescan -> O(1) sliding-sum recurrence
      *                (numerics-changing). See issue #103.
+     *  072026 MF,CC  Read the departing value before the output write so in-place
+     *                (outReal==inReal) calls stay correct. See issue #130.
      */
 
        public int linearRegLookback( int optInTimePeriod )
@@ -94480,8 +97173,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -94497,6 +97190,7 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -94504,13 +97198,16 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
              today += 1;
           }
@@ -94552,8 +97249,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -94564,14 +97261,15 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
              today += 1;
           }
@@ -94624,8 +97322,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -94636,14 +97334,15 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
              today += 1;
           }
@@ -94685,8 +97384,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -94697,14 +97396,15 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
              today += 1;
           }
@@ -94736,6 +97436,7 @@ class Core {
           double SumXY;
           double SumY;
           double Divisor;
+          double trailingValue;
           int ringPos_trailingIdx;
           int ringCap_trailingIdx;
           double[] ring_trailingIdx_inReal;
@@ -94750,6 +97451,7 @@ class Core {
              this.SumXY = other.SumXY;
              this.SumY = other.SumY;
              this.Divisor = other.Divisor;
+             this.trailingValue = other.trailingValue;
              this.ringPos_trailingIdx = other.ringPos_trailingIdx;
              this.ringCap_trailingIdx = other.ringCap_trailingIdx;
              this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
@@ -94799,15 +97501,14 @@ class Core {
        {
           double m = 0.0;
           double b = 0.0;
-          double trailingValue = 0.0;
           if( sp.ringCap_trailingIdx == 0 ) {
              sp.ring_trailingIdx_inReal[0] = inReal;
           }
-          trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * trailingValue;
-          sp.SumY = sp.SumY - trailingValue + inReal;
+          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * sp.trailingValue;
+          sp.SumY = sp.SumY - sp.trailingValue + inReal;
           m = (sp.optInTimePeriod * sp.SumXY - sp.SumX * sp.SumY) / sp.Divisor;
           b = (sp.SumY - m * sp.SumX) / (double)sp.optInTimePeriod;
+          sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
           sp.cur_outReal = Math.fma(m, (double)(sp.optInTimePeriod - 1), b);
           sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
           sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -94875,8 +97576,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -94892,6 +97593,7 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = inReal[trailingIdx++];
           lastValue_outReal = Math.fma(m, (double)(optInTimePeriod - 1), b);
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -94899,13 +97601,16 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = inReal[trailingIdx++];
              lastValue_outReal = Math.fma(m, (double)(optInTimePeriod - 1), b);
              today += 1;
           }
@@ -94924,6 +97629,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -94991,8 +97697,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -95008,6 +97714,7 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -95015,13 +97722,16 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)(optInTimePeriod - 1), b);
              today += 1;
           }
@@ -95040,6 +97750,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -95115,6 +97826,8 @@ class Core {
      *  072106 MF,AM   Fix #1526632. Add missing atan().
      *  071326 MF,CC   O(period) per-bar rescan -> O(1) sliding-sum recurrence
      *                 (numerics-changing). See issue #103.
+     *  072026 MF,CC   Read the departing value before the output write so in-place
+     *                 (outReal==inReal) calls stay correct. See issue #130.
      */
 
        public int linearRegAngleLookback( int optInTimePeriod )
@@ -95190,8 +97903,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -95206,6 +97919,7 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -95213,12 +97927,15 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
              today += 1;
           }
@@ -95259,8 +97976,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -95270,13 +97987,14 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
              today += 1;
           }
@@ -95328,8 +98046,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -95339,13 +98057,14 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
              today += 1;
           }
@@ -95386,8 +98105,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -95397,13 +98116,14 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
              today += 1;
           }
@@ -95435,6 +98155,7 @@ class Core {
           double SumXY;
           double SumY;
           double Divisor;
+          double trailingValue;
           int ringPos_trailingIdx;
           int ringCap_trailingIdx;
           double[] ring_trailingIdx_inReal;
@@ -95449,6 +98170,7 @@ class Core {
              this.SumXY = other.SumXY;
              this.SumY = other.SumY;
              this.Divisor = other.Divisor;
+             this.trailingValue = other.trailingValue;
              this.ringPos_trailingIdx = other.ringPos_trailingIdx;
              this.ringCap_trailingIdx = other.ringCap_trailingIdx;
              this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
@@ -95497,14 +98219,13 @@ class Core {
        void linearRegAngleStreamStep( LinearRegAngleStream sp, double inReal )
        {
           double m = 0.0;
-          double trailingValue = 0.0;
           if( sp.ringCap_trailingIdx == 0 ) {
              sp.ring_trailingIdx_inReal[0] = inReal;
           }
-          trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * trailingValue;
-          sp.SumY = sp.SumY - trailingValue + inReal;
+          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * sp.trailingValue;
+          sp.SumY = sp.SumY - sp.trailingValue + inReal;
           m = (sp.optInTimePeriod * sp.SumXY - sp.SumX * sp.SumY) / sp.Divisor;
+          sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
           sp.cur_outReal = Math.atan(m) * (180.0 / 3.141592653589793);
           sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
           sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -95571,8 +98292,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -95587,6 +98308,7 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = inReal[trailingIdx++];
           lastValue_outReal = Math.atan(m) * (180.0 / 3.141592653589793);
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -95594,12 +98316,15 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = inReal[trailingIdx++];
              lastValue_outReal = Math.atan(m) * (180.0 / 3.141592653589793);
              today += 1;
           }
@@ -95618,6 +98343,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -95684,8 +98410,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -95700,6 +98426,7 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -95707,12 +98434,15 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = Math.atan(m) * (180.0 / 3.141592653589793);
              today += 1;
           }
@@ -95731,6 +98461,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -95803,6 +98534,8 @@ class Core {
      *  070203 JP     Initial.
      *  071326 MF,CC  O(period) per-bar rescan -> O(1) sliding-sum recurrence
      *                (numerics-changing). See issue #103.
+     *  072026 MF,CC  Read the departing value before the output write so in-place
+     *                (outReal==inReal) calls stay correct. See issue #130.
      */
 
        public int linearRegInterceptLookback( int optInTimePeriod )
@@ -95878,8 +98611,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -95894,6 +98627,7 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -95901,12 +98635,15 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
              today += 1;
           }
@@ -95947,8 +98684,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -95958,13 +98695,14 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
              today += 1;
           }
@@ -96016,8 +98754,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -96027,13 +98765,14 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
              today += 1;
           }
@@ -96074,8 +98813,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -96085,13 +98824,14 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
              today += 1;
           }
@@ -96123,6 +98863,7 @@ class Core {
           double SumXY;
           double SumY;
           double Divisor;
+          double trailingValue;
           int ringPos_trailingIdx;
           int ringCap_trailingIdx;
           double[] ring_trailingIdx_inReal;
@@ -96137,6 +98878,7 @@ class Core {
              this.SumXY = other.SumXY;
              this.SumY = other.SumY;
              this.Divisor = other.Divisor;
+             this.trailingValue = other.trailingValue;
              this.ringPos_trailingIdx = other.ringPos_trailingIdx;
              this.ringCap_trailingIdx = other.ringCap_trailingIdx;
              this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
@@ -96185,14 +98927,13 @@ class Core {
        void linearRegInterceptStreamStep( LinearRegInterceptStream sp, double inReal )
        {
           double m = 0.0;
-          double trailingValue = 0.0;
           if( sp.ringCap_trailingIdx == 0 ) {
              sp.ring_trailingIdx_inReal[0] = inReal;
           }
-          trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * trailingValue;
-          sp.SumY = sp.SumY - trailingValue + inReal;
+          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * sp.trailingValue;
+          sp.SumY = sp.SumY - sp.trailingValue + inReal;
           m = (sp.optInTimePeriod * sp.SumXY - sp.SumX * sp.SumY) / sp.Divisor;
+          sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
           sp.cur_outReal = (sp.SumY - m * sp.SumX) / (double)sp.optInTimePeriod;
           sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
           sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -96259,8 +99000,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -96275,6 +99016,7 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = inReal[trailingIdx++];
           lastValue_outReal = (SumY - m * SumX) / (double)optInTimePeriod;
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -96282,12 +99024,15 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = inReal[trailingIdx++];
              lastValue_outReal = (SumY - m * SumX) / (double)optInTimePeriod;
              today += 1;
           }
@@ -96306,6 +99051,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -96372,8 +99118,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -96388,6 +99134,7 @@ class Core {
              SumXY += (double)i * tempValue1;
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -96395,12 +99142,15 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = (SumY - m * SumX) / (double)optInTimePeriod;
              today += 1;
           }
@@ -96419,6 +99169,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -96491,6 +99242,8 @@ class Core {
      *  070203 JP     Initial.
      *  071326 MF,CC  O(period) per-bar rescan -> O(1) sliding-sum recurrence
      *                (numerics-changing). See issue #103.
+     *  072026 MF,CC  Read the departing value before the output write so in-place
+     *                (outReal==inReal) calls stay correct. See issue #130.
      */
 
        public int linearRegSlopeLookback( int optInTimePeriod )
@@ -96565,8 +99318,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -96580,6 +99333,7 @@ class Core {
              SumY += tempValue1;
              SumXY += (double)i * tempValue1;
           }
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -96587,11 +99341,14 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              today += 1;
           }
@@ -96631,8 +99388,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -96641,12 +99398,13 @@ class Core {
              SumY += tempValue1;
              SumXY += (double)i * tempValue1;
           }
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              today += 1;
           }
@@ -96697,8 +99455,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -96707,12 +99465,13 @@ class Core {
              SumY += tempValue1;
              SumXY += (double)i * tempValue1;
           }
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              today += 1;
           }
@@ -96752,8 +99511,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -96762,12 +99521,13 @@ class Core {
              SumY += tempValue1;
              SumXY += (double)i * tempValue1;
           }
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              today += 1;
           }
@@ -96799,6 +99559,7 @@ class Core {
           double SumXY;
           double SumY;
           double Divisor;
+          double trailingValue;
           int ringPos_trailingIdx;
           int ringCap_trailingIdx;
           double[] ring_trailingIdx_inReal;
@@ -96813,6 +99574,7 @@ class Core {
              this.SumXY = other.SumXY;
              this.SumY = other.SumY;
              this.Divisor = other.Divisor;
+             this.trailingValue = other.trailingValue;
              this.ringPos_trailingIdx = other.ringPos_trailingIdx;
              this.ringCap_trailingIdx = other.ringCap_trailingIdx;
              this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
@@ -96860,13 +99622,12 @@ class Core {
        }
        void linearRegSlopeStreamStep( LinearRegSlopeStream sp, double inReal )
        {
-          double trailingValue = 0.0;
           if( sp.ringCap_trailingIdx == 0 ) {
              sp.ring_trailingIdx_inReal[0] = inReal;
           }
-          trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * trailingValue;
-          sp.SumY = sp.SumY - trailingValue + inReal;
+          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * sp.trailingValue;
+          sp.SumY = sp.SumY - sp.trailingValue + inReal;
+          sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
           sp.cur_outReal = (sp.optInTimePeriod * sp.SumXY - sp.SumX * sp.SumY) / sp.Divisor;
           sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
           sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -96932,8 +99693,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -96947,6 +99708,7 @@ class Core {
              SumY += tempValue1;
              SumXY += (double)i * tempValue1;
           }
+          trailingValue = inReal[trailingIdx++];
           lastValue_outReal = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -96954,11 +99716,14 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
+             trailingValue = inReal[trailingIdx++];
              lastValue_outReal = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              today += 1;
           }
@@ -96977,6 +99742,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -97042,8 +99808,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -97057,6 +99823,7 @@ class Core {
              SumY += tempValue1;
              SumXY += (double)i * tempValue1;
           }
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -97064,11 +99831,14 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              today += 1;
           }
@@ -97087,6 +99857,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -97682,6 +100453,8 @@ class Core {
      *  052603 MF   Adapt code to compile with .NET Managed C++
      *  111603 MF   Allow period of 1. Just copy input into output.
      *  060907 MF   Use TA_SMA/TA_EMA instead of internal implementation.
+     *  072226 MF,CC Add HMA (issue #139).
+     *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
      */
 
        public int movingAverageLookback( int optInTimePeriod, MAType optInMAType )
@@ -97692,7 +100465,7 @@ class Core {
              return -1;
           }
           int retValue;
-          if( optInTimePeriod <= 1 ) {
+          if( optInTimePeriod <= 1 || optInMAType == MAType.Disabled ) {
              return 0 ;
           }
           switch( optInMAType )
@@ -97723,6 +100496,9 @@ class Core {
              break;
           case T3:
              retValue = t3Lookback(optInTimePeriod, 0.7);
+             break;
+          case Hma:
+             retValue = hmaLookback(optInTimePeriod);
              break;
           default:
              retValue = 0;
@@ -97755,7 +100531,10 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInTimePeriod == 1 ) {
+          /* No-smoothing identity: period 1 (every MA type) or the explicit
+           * TA_MAType_DISABLED (any period, issue #93). One copy path, lookback 0.
+           */
+          if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
              nbElement = endIdx - startIdx + 1;
              outNBElement.value = nbElement;
              for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 ) {
@@ -97797,6 +100576,9 @@ class Core {
           case T3:
              retCode = t3Unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
              break;
+          case Hma:
+             retCode = hmaUnguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+             break;
           default:
              retCode = RetCode.BadParam;
              break;
@@ -97816,7 +100598,7 @@ class Core {
           int nbElement = 0;
           int outIdx = 0;
           int todayIdx = 0;
-          if( optInTimePeriod == 1 ) {
+          if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
              nbElement = endIdx - startIdx + 1;
              outNBElement.value = nbElement;
              for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 ) {
@@ -97854,6 +100636,9 @@ class Core {
           case T3:
              retCode = t3Unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
              break;
+          case Hma:
+             retCode = hmaUnguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+             break;
           default:
              retCode = RetCode.BadParam;
              break;
@@ -97884,7 +100669,7 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInTimePeriod == 1 ) {
+          if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
              nbElement = endIdx - startIdx + 1;
              outNBElement.value = nbElement;
              for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 ) {
@@ -97921,6 +100706,9 @@ class Core {
              break;
           case T3:
              retCode = t3Unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
+             break;
+          case Hma:
+             retCode = hmaUnguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
              break;
           default:
              retCode = RetCode.BadParam;
@@ -97941,7 +100729,7 @@ class Core {
           int nbElement = 0;
           int outIdx = 0;
           int todayIdx = 0;
-          if( optInTimePeriod == 1 ) {
+          if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
              nbElement = endIdx - startIdx + 1;
              outNBElement.value = nbElement;
              for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 ) {
@@ -97978,6 +100766,9 @@ class Core {
              break;
           case T3:
              retCode = t3Unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
+             break;
+          case Hma:
+             retCode = hmaUnguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
              break;
           default:
              retCode = RetCode.BadParam;
@@ -98049,6 +100840,9 @@ class Core {
                 case T3:
                    this.sub = new T3Stream((T3Stream) other.sub);
                    break;
+                case Hma:
+                   this.sub = new HmaStream((HmaStream) other.sub);
+                   break;
                 default:
                    throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
                 }
@@ -98096,7 +100890,7 @@ class Core {
        }
        void movingAverageStreamStep( MovingAverageStream sp, double inReal )
        {
-          if( sp.optInTimePeriod == 1 ) {
+          if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.Disabled ) {
              sp.cur_outReal = inReal;
              return;
           }
@@ -98139,6 +100933,10 @@ class Core {
              sp.cur_outReal = ((T3Stream) sp.sub).update(inReal);
              break;
           }
+          case Hma: {
+             sp.cur_outReal = ((HmaStream) sp.sub).update(inReal);
+             break;
+          }
           default:
              break; /* unreachable: open rejects arms without a sub-stream */
           }
@@ -98157,7 +100955,7 @@ class Core {
           if( historyLen < movingAverageLookback(optInTimePeriod, optInMAType) + 1 ) {
              return RetCode.OutOfRangeEndIndex;
           }
-          if( optInTimePeriod == 1 ) {
+          if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
              if( historyLen < movingAverageLookback(optInTimePeriod, optInMAType) + 1 ) {
                 return RetCode.OutOfRangeEndIndex;
              }
@@ -98223,6 +101021,12 @@ class Core {
              sp.cur_outReal = sub.cur_outReal;
              break;
           }
+          case Hma: {
+             HmaStream sub = hmaOpenInternal(inReal, startIdx, optInTimePeriod);
+             sp.sub = sub;
+             sp.cur_outReal = sub.cur_outReal;
+             break;
+          }
           default:
              return RetCode.BadParam;
           }
@@ -98247,7 +101051,7 @@ class Core {
           if( historyLen < movingAverageLookback(optInTimePeriod, optInMAType) + 1 ) {
              return RetCode.OutOfRangeEndIndex;
           }
-          if( optInTimePeriod == 1 ) {
+          if( optInTimePeriod == 1 || optInMAType == MAType.Disabled ) {
              if( historyLen < movingAverageLookback(optInTimePeriod, optInMAType) + 1 ) {
                 return RetCode.OutOfRangeEndIndex;
              }
@@ -98315,6 +101119,12 @@ class Core {
           }
           case T3: {
              T3Stream sub = t3OpenAndFill(inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
+             sp.sub = sub;
+             sp.cur_outReal = sub.cur_outReal;
+             break;
+          }
+          case Hma: {
+             HmaStream sub = hmaOpenAndFill(inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
              sp.sub = sub;
              sp.cur_outReal = sub.cur_outReal;
              break;
@@ -104567,6 +107377,8 @@ class Core {
      *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
      *  021807 MF     Initial Version
+     *  072026 MF,CC  Fix #130. Stage results locally so in-place (outReal==inReal)
+     *                calls no longer corrupt the input the ma() passes re-read.
      */
 
        public int movingAverageVariablePeriodLookback( int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
@@ -104603,6 +107415,8 @@ class Core {
           int curPeriod = 0;
           int[] localPeriodArray;
           double[] localOutputArray;
+          double[] localFinalArray;
+          int finalIsAllocated = 0;
           MInteger localBegIdx = new MInteger();
           MInteger localNbElement = new MInteger();
           RetCode retCode;
@@ -104664,6 +107478,18 @@ class Core {
           /* Allocate intermediate local buffer. */
           localOutputArray = new double[(int)(outputSize * 1)];
           localPeriodArray = new int[(int)(outputSize * 1)];
+          /* In-place defence (issue #130): each ma() pass below re-reads inReal over
+           * the full range, so with outReal==inReal the results are staged in a
+           * scratch buffer and copied once at the end. A regular call writes
+           * straight to outReal and skips both the allocation and the copy.
+           */
+          finalIsAllocated = 0;
+          if( outReal == inReal ) {
+             finalIsAllocated = 1;
+             localFinalArray = new double[(int)(outputSize * 1)];
+          } else {
+             localFinalArray = outReal;
+          }
           /* Copy caller array of period into local buffer.
            * At the same time, truncate to min/max.
            */
@@ -104694,19 +107520,30 @@ class Core {
                 /* Calculation of the MA required. */
                 retCode = movingAverageUnguarded(startIdx, endIdx, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
                 if( retCode != RetCode.Success ) {
+                   if( (finalIsAllocated) != 0 ) {
+                   }
                    outBegIdx.value = 0;
                    outNBElement.value = 0;
                    return retCode ;
                 }
-                outReal[i] = localOutputArray[i];
+                localFinalArray[i] = localOutputArray[i];
                 for( j = i + 1; j < outputSize; j += 1 ) {
                    if( localPeriodArray[j] == curPeriod ) {
                       localPeriodArray[j] = 0;
                       /* Flag to avoid recalculation */
-                      outReal[j] = localOutputArray[j];
+                      localFinalArray[j] = localOutputArray[j];
                    }
                 }
              }
+          }
+          /* Pointer-inequality guard, not finalIsAllocated: in backends where the
+           * scratch election materializes as a copy (Rust), the copy-back must
+           * always run; in C/Java the non-aliased self-copy is skipped.
+           */
+          if( localFinalArray != outReal ) {
+             System.arraycopy(localFinalArray, 0, outReal, 0, outputSize * 1);
+          }
+          if( (finalIsAllocated) != 0 ) {
           }
           /* Done. Inform the caller of the success. */
           outBegIdx.value = startIdx;
@@ -104732,6 +107569,8 @@ class Core {
           int curPeriod = 0;
           int[] localPeriodArray;
           double[] localOutputArray;
+          double[] localFinalArray;
+          int finalIsAllocated = 0;
           MInteger localBegIdx = new MInteger();
           MInteger localNbElement = new MInteger();
           RetCode retCode;
@@ -104762,6 +107601,13 @@ class Core {
           outputSize = endIdx - tempInt + 1;
           localOutputArray = new double[(int)(outputSize * 1)];
           localPeriodArray = new int[(int)(outputSize * 1)];
+          finalIsAllocated = 0;
+          if( outReal == inReal ) {
+             finalIsAllocated = 1;
+             localFinalArray = new double[(int)(outputSize * 1)];
+          } else {
+             localFinalArray = outReal;
+          }
           for( i = 0; i < outputSize; i += 1 ) {
              tempInt = (int)inPeriods[startIdx + i];
              if( tempInt < optInMinPeriod ) {
@@ -104776,18 +107622,25 @@ class Core {
              if( curPeriod != 0 ) {
                 retCode = movingAverageUnguarded(startIdx, endIdx, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
                 if( retCode != RetCode.Success ) {
+                   if( (finalIsAllocated) != 0 ) {
+                   }
                    outBegIdx.value = 0;
                    outNBElement.value = 0;
                    return retCode ;
                 }
-                outReal[i] = localOutputArray[i];
+                localFinalArray[i] = localOutputArray[i];
                 for( j = i + 1; j < outputSize; j += 1 ) {
                    if( localPeriodArray[j] == curPeriod ) {
                       localPeriodArray[j] = 0;
-                      outReal[j] = localOutputArray[j];
+                      localFinalArray[j] = localOutputArray[j];
                    }
                 }
              }
+          }
+          if( localFinalArray != outReal ) {
+             System.arraycopy(localFinalArray, 0, outReal, 0, outputSize * 1);
+          }
+          if( (finalIsAllocated) != 0 ) {
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outputSize;
@@ -104812,6 +107665,8 @@ class Core {
           int curPeriod = 0;
           int[] localPeriodArray;
           double[] localOutputArray;
+          double[] localFinalArray;
+          int finalIsAllocated = 0;
           MInteger localBegIdx = new MInteger();
           MInteger localNbElement = new MInteger();
           RetCode retCode;
@@ -104858,6 +107713,13 @@ class Core {
           outputSize = endIdx - tempInt + 1;
           localOutputArray = new double[(int)(outputSize * 1)];
           localPeriodArray = new int[(int)(outputSize * 1)];
+          finalIsAllocated = 0;
+          if( false ) {
+             finalIsAllocated = 1;
+             localFinalArray = new double[(int)(outputSize * 1)];
+          } else {
+             localFinalArray = outReal;
+          }
           for( i = 0; i < outputSize; i += 1 ) {
              tempInt = (int)(double)inPeriods[startIdx + i];
              if( tempInt < optInMinPeriod ) {
@@ -104872,18 +107734,25 @@ class Core {
              if( curPeriod != 0 ) {
                 retCode = movingAverageUnguarded(startIdx, endIdx, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
                 if( retCode != RetCode.Success ) {
+                   if( (finalIsAllocated) != 0 ) {
+                   }
                    outBegIdx.value = 0;
                    outNBElement.value = 0;
                    return retCode ;
                 }
-                outReal[i] = localOutputArray[i];
+                localFinalArray[i] = localOutputArray[i];
                 for( j = i + 1; j < outputSize; j += 1 ) {
                    if( localPeriodArray[j] == curPeriod ) {
                       localPeriodArray[j] = 0;
-                      outReal[j] = localOutputArray[j];
+                      localFinalArray[j] = localOutputArray[j];
                    }
                 }
              }
+          }
+          if( localFinalArray != outReal ) {
+             System.arraycopy(localFinalArray, 0, outReal, 0, outputSize * 1);
+          }
+          if( (finalIsAllocated) != 0 ) {
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outputSize;
@@ -104908,6 +107777,8 @@ class Core {
           int curPeriod = 0;
           int[] localPeriodArray;
           double[] localOutputArray;
+          double[] localFinalArray;
+          int finalIsAllocated = 0;
           MInteger localBegIdx = new MInteger();
           MInteger localNbElement = new MInteger();
           RetCode retCode;
@@ -104938,6 +107809,13 @@ class Core {
           outputSize = endIdx - tempInt + 1;
           localOutputArray = new double[(int)(outputSize * 1)];
           localPeriodArray = new int[(int)(outputSize * 1)];
+          finalIsAllocated = 0;
+          if( false ) {
+             finalIsAllocated = 1;
+             localFinalArray = new double[(int)(outputSize * 1)];
+          } else {
+             localFinalArray = outReal;
+          }
           for( i = 0; i < outputSize; i += 1 ) {
              tempInt = (int)(double)inPeriods[startIdx + i];
              if( tempInt < optInMinPeriod ) {
@@ -104952,18 +107830,25 @@ class Core {
              if( curPeriod != 0 ) {
                 retCode = movingAverageUnguarded(startIdx, endIdx, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
                 if( retCode != RetCode.Success ) {
+                   if( (finalIsAllocated) != 0 ) {
+                   }
                    outBegIdx.value = 0;
                    outNBElement.value = 0;
                    return retCode ;
                 }
-                outReal[i] = localOutputArray[i];
+                localFinalArray[i] = localOutputArray[i];
                 for( j = i + 1; j < outputSize; j += 1 ) {
                    if( localPeriodArray[j] == curPeriod ) {
                       localPeriodArray[j] = 0;
-                      outReal[j] = localOutputArray[j];
+                      localFinalArray[j] = localOutputArray[j];
                    }
                 }
              }
+          }
+          if( localFinalArray != outReal ) {
+             System.arraycopy(localFinalArray, 0, outReal, 0, outputSize * 1);
+          }
+          if( (finalIsAllocated) != 0 ) {
           }
           outBegIdx.value = startIdx;
           outNBElement.value = outputSize;
@@ -105939,8 +108824,8 @@ class Core {
              return RetCode.Success ;
           }
           /* Proceed with the calculation for the requested range.
-           * Note that this algorithm allows the input and
-           * output to be the same buffer.
+           * (The integer output can never share the real input's buffer —
+           * different element type; issue #130.)
            */
           outIdx = 0;
           today = startIdx;
@@ -106306,8 +109191,8 @@ class Core {
              return RetCode.OutOfRangeEndIndex ;
           }
           /* Proceed with the calculation for the requested range.
-           * Note that this algorithm allows the input and
-           * output to be the same buffer.
+           * (The integer output can never share the real input's buffer —
+           * different element type; issue #130.)
            */
           outIdx = 0;
           today = startIdx;
@@ -106402,8 +109287,8 @@ class Core {
              return RetCode.OutOfRangeEndIndex ;
           }
           /* Proceed with the calculation for the requested range.
-           * Note that this algorithm allows the input and
-           * output to be the same buffer.
+           * (The integer output can never share the real input's buffer —
+           * different element type; issue #130.)
            */
           outIdx = 0;
           today = startIdx;
@@ -110269,8 +113154,8 @@ class Core {
              return RetCode.Success ;
           }
           /* Proceed with the calculation for the requested range.
-           * Note that this algorithm allows the input and
-           * output to be the same buffer.
+           * (The integer output can never share the real input's buffer —
+           * different element type; issue #130.)
            */
           outIdx = 0;
           today = startIdx;
@@ -110636,8 +113521,8 @@ class Core {
              return RetCode.OutOfRangeEndIndex ;
           }
           /* Proceed with the calculation for the requested range.
-           * Note that this algorithm allows the input and
-           * output to be the same buffer.
+           * (The integer output can never share the real input's buffer —
+           * different element type; issue #130.)
            */
           outIdx = 0;
           today = startIdx;
@@ -110732,8 +113617,8 @@ class Core {
              return RetCode.OutOfRangeEndIndex ;
           }
           /* Proceed with the calculation for the requested range.
-           * Note that this algorithm allows the input and
-           * output to be the same buffer.
+           * (The integer output can never share the real input's buffer —
+           * different element type; issue #130.)
            */
           outIdx = 0;
           today = startIdx;
@@ -111765,8 +114650,8 @@ class Core {
              return RetCode.Success ;
           }
           /* Proceed with the calculation for the requested range.
-           * Note that this algorithm allows the input and
-           * output to be the same buffer.
+           * (The integer outputs can never share the real input's buffer —
+           * different element type; issue #130.)
            */
           outIdx = 0;
           today = startIdx;
@@ -112285,8 +115170,8 @@ class Core {
              return RetCode.OutOfRangeEndIndex ;
           }
           /* Proceed with the calculation for the requested range.
-           * Note that this algorithm allows the input and
-           * output to be the same buffer.
+           * (The integer outputs can never share the real input's buffer —
+           * different element type; issue #130.)
            */
           outIdx = 0;
           today = startIdx;
@@ -112410,8 +115295,8 @@ class Core {
              return RetCode.OutOfRangeEndIndex ;
           }
           /* Proceed with the calculation for the requested range.
-           * Note that this algorithm allows the input and
-           * output to be the same buffer.
+           * (The integer outputs can never share the real input's buffer —
+           * different element type; issue #130.)
            */
           outIdx = 0;
           today = startIdx;
@@ -126093,10 +128978,14 @@ class Core {
              outBegIdx.value = startIdx;
              i = (int)(endIdx - startIdx + 1);
              outNBElement.value = (int)i;
-             /* memmove, not memcpy: an in-place caller (outReal == inReal) with
-              * startIdx > 0 overlaps source and destination (issue #94; matches WMA).
+             /* Element loop, not a block copy: the C single-precision variant reads a
+              * float array, so a double-sized byte copy would reinterpret and
+              * over-read it (#137). Forward order keeps the in-place case correct (#94).
               */
-             System.arraycopy(inReal, startIdx, outReal, 0, i * 1);
+             today = (int)startIdx;
+             for( outIdx = 0; outIdx < (int)i; outIdx += 1 ) {
+                outReal[outIdx] = inReal[today++];
+             }
              return RetCode.Success ;
           }
           /* Accumulate Wilder's "Average Gain" and "Average Loss"
@@ -126284,7 +129173,10 @@ class Core {
              outBegIdx.value = startIdx;
              i = (int)(endIdx - startIdx + 1);
              outNBElement.value = (int)i;
-             System.arraycopy(inReal, startIdx, outReal, 0, i * 1);
+             today = (int)startIdx;
+             for( outIdx = 0; outIdx < (int)i; outIdx += 1 ) {
+                outReal[outIdx] = inReal[today++];
+             }
              return RetCode.Success ;
           }
           today = startIdx - lookbackTotal;
@@ -126436,7 +129328,10 @@ class Core {
              outBegIdx.value = startIdx;
              i = (int)(endIdx - startIdx + 1);
              outNBElement.value = (int)i;
-             System.arraycopy(inReal, startIdx, outReal, 0, i * 1);
+             today = (int)startIdx;
+             for( outIdx = 0; outIdx < (int)i; outIdx += 1 ) {
+                outReal[outIdx] = (double)inReal[today++];
+             }
              return RetCode.Success ;
           }
           today = startIdx - lookbackTotal;
@@ -126577,7 +129472,10 @@ class Core {
              outBegIdx.value = startIdx;
              i = (int)(endIdx - startIdx + 1);
              outNBElement.value = (int)i;
-             System.arraycopy(inReal, startIdx, outReal, 0, i * 1);
+             today = (int)startIdx;
+             for( outIdx = 0; outIdx < (int)i; outIdx += 1 ) {
+                outReal[outIdx] = (double)inReal[today++];
+             }
              return RetCode.Success ;
           }
           today = startIdx - lookbackTotal;
@@ -132628,6 +135526,8 @@ class Core {
      *  071026 MF,CC Fix #107. Guard the Fast-K division with TA_IS_ZERO, not an
      *               exact `diff != 0.0`, so a machine-flat window yields 0 instead
      *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
+     *  072026 MF,CC Fix #130. Never elect outSlowD as the K scratch buffer: %D's
+     *               in-place ma() destroyed the smoothed K before the final copy.
      */
 
        public int stochLookback( int optInFastK_Period, int optInSlowK_Period, MAType optInSlowK_MAType, int optInSlowD_Period, MAType optInSlowD_MAType )
@@ -132789,14 +135689,15 @@ class Core {
           /* Allocate a temporary buffer large enough to
            * store the K.
            *
-           * If the output is the same as the input, great
-           * we just save ourself one memory allocation.
+           * When outSlowK aliases a price input the caller buffer doubles as the
+           * scratch, saving one allocation: the K writes trail the min/max window
+           * reads, and the final memmove is overlap-safe. outSlowD must NOT be
+           * elected: the %D ma() below would then run in place over the smoothed K
+           * that the memmove into outSlowK still needs (issue #130).
            */
           bufferIsAllocated = 0;
           if( outSlowK == inHigh || outSlowK == inLow || outSlowK == inClose ) {
              tempBuffer = outSlowK;
-          } else if( outSlowD == inHigh || outSlowD == inLow || outSlowD == inClose ) {
-             tempBuffer = outSlowD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -132950,8 +135851,6 @@ class Core {
           bufferIsAllocated = 0;
           if( outSlowK == inHigh || outSlowK == inLow || outSlowK == inClose ) {
              tempBuffer = outSlowK;
-          } else if( outSlowD == inHigh || outSlowD == inLow || outSlowD == inClose ) {
-             tempBuffer = outSlowD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -133100,8 +135999,6 @@ class Core {
           bufferIsAllocated = 0;
           if( false || false || false ) {
              tempBuffer = outSlowK;
-          } else if( false || false || false ) {
-             tempBuffer = outSlowD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -133226,8 +136123,6 @@ class Core {
           bufferIsAllocated = 0;
           if( false || false || false ) {
              tempBuffer = outSlowK;
-          } else if( false || false || false ) {
-             tempBuffer = outSlowD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -133621,14 +136516,15 @@ class Core {
           /* Allocate a temporary buffer large enough to
            * store the K.
            *
-           * If the output is the same as the input, great
-           * we just save ourself one memory allocation.
+           * When outSlowK aliases a price input the caller buffer doubles as the
+           * scratch, saving one allocation: the K writes trail the min/max window
+           * reads, and the final memmove is overlap-safe. outSlowD must NOT be
+           * elected: the %D ma() below would then run in place over the smoothed K
+           * that the memmove into outSlowK still needs (issue #130).
            */
           bufferIsAllocated = 0;
           if( sc_outSlowK == inHigh || sc_outSlowK == inLow || sc_outSlowK == inClose ) {
              tempBuffer = sc_outSlowK;
-          } else if( sc_outSlowD == inHigh || sc_outSlowD == inLow || sc_outSlowD == inClose ) {
-             tempBuffer = sc_outSlowD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -133893,14 +136789,15 @@ class Core {
           /* Allocate a temporary buffer large enough to
            * store the K.
            *
-           * If the output is the same as the input, great
-           * we just save ourself one memory allocation.
+           * When outSlowK aliases a price input the caller buffer doubles as the
+           * scratch, saving one allocation: the K writes trail the min/max window
+           * reads, and the final memmove is overlap-safe. outSlowD must NOT be
+           * elected: the %D ma() below would then run in place over the smoothed K
+           * that the memmove into outSlowK still needs (issue #130).
            */
           bufferIsAllocated = 0;
           if( sc_outSlowK == inHigh || sc_outSlowK == inLow || sc_outSlowK == inClose ) {
              tempBuffer = sc_outSlowK;
-          } else if( sc_outSlowD == inHigh || sc_outSlowD == inLow || sc_outSlowD == inClose ) {
-             tempBuffer = sc_outSlowD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -134116,6 +137013,8 @@ class Core {
      *  071026 MF,CC Fix #107. Guard the Fast-K division with TA_IS_ZERO, not an
      *               exact `diff != 0.0`, so a machine-flat window yields 0 instead
      *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
+     *  072026 MF,CC Fix #130. Never elect outFastD as the K scratch buffer: %D's
+     *               in-place ma() destroyed the raw K before the final copy.
      */
 
        public int stochFLookback( int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
@@ -134261,14 +137160,15 @@ class Core {
           /* Allocate a temporary buffer large enough to
            * store the K.
            *
-           * If the output is the same as the input, great
-           * we just save ourself one memory allocation.
+           * When outFastK aliases a price input the caller buffer doubles as the
+           * scratch, saving one allocation: the K writes trail the min/max window
+           * reads, and the final memmove is overlap-safe. outFastD must NOT be
+           * elected: the %D ma() below would then run in place over the raw K
+           * that the memmove into outFastK still needs (issue #130).
            */
           bufferIsAllocated = 0;
           if( outFastK == inHigh || outFastK == inLow || outFastK == inClose ) {
              tempBuffer = outFastK;
-          } else if( outFastD == inHigh || outFastD == inLow || outFastD == inClose ) {
-             tempBuffer = outFastD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -134412,8 +137312,6 @@ class Core {
           bufferIsAllocated = 0;
           if( outFastK == inHigh || outFastK == inLow || outFastK == inClose ) {
              tempBuffer = outFastK;
-          } else if( outFastD == inHigh || outFastD == inLow || outFastD == inClose ) {
-             tempBuffer = outFastD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -134552,8 +137450,6 @@ class Core {
           bufferIsAllocated = 0;
           if( false || false || false ) {
              tempBuffer = outFastK;
-          } else if( false || false || false ) {
-             tempBuffer = outFastD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -134673,8 +137569,6 @@ class Core {
           bufferIsAllocated = 0;
           if( false || false || false ) {
              tempBuffer = outFastK;
-          } else if( false || false || false ) {
-             tempBuffer = outFastD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -135053,14 +137947,15 @@ class Core {
           /* Allocate a temporary buffer large enough to
            * store the K.
            *
-           * If the output is the same as the input, great
-           * we just save ourself one memory allocation.
+           * When outFastK aliases a price input the caller buffer doubles as the
+           * scratch, saving one allocation: the K writes trail the min/max window
+           * reads, and the final memmove is overlap-safe. outFastD must NOT be
+           * elected: the %D ma() below would then run in place over the raw K
+           * that the memmove into outFastK still needs (issue #130).
            */
           bufferIsAllocated = 0;
           if( sc_outFastK == inHigh || sc_outFastK == inLow || sc_outFastK == inClose ) {
              tempBuffer = sc_outFastK;
-          } else if( sc_outFastD == inHigh || sc_outFastD == inLow || sc_outFastD == inClose ) {
-             tempBuffer = sc_outFastD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -135306,14 +138201,15 @@ class Core {
           /* Allocate a temporary buffer large enough to
            * store the K.
            *
-           * If the output is the same as the input, great
-           * we just save ourself one memory allocation.
+           * When outFastK aliases a price input the caller buffer doubles as the
+           * scratch, saving one allocation: the K writes trail the min/max window
+           * reads, and the final memmove is overlap-safe. outFastD must NOT be
+           * elected: the %D ma() below would then run in place over the raw K
+           * that the memmove into outFastK still needs (issue #130).
            */
           bufferIsAllocated = 0;
           if( sc_outFastK == inHigh || sc_outFastK == inLow || sc_outFastK == inClose ) {
              tempBuffer = sc_outFastK;
-          } else if( sc_outFastD == inHigh || sc_outFastD == inLow || sc_outFastD == inClose ) {
-             tempBuffer = sc_outFastD;
           } else {
              bufferIsAllocated = 1;
              tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -142975,6 +145871,8 @@ class Core {
      *  090103 MF     Initial coding re-using the existing TA_LinearReg
      *  071326 MF,CC  O(period) per-bar rescan -> O(1) sliding-sum recurrence
      *                (numerics-changing). See issue #103.
+     *  072026 MF,CC  Read the departing value before the output write so in-place
+     *                (outReal==inReal) calls stay correct. See issue #130.
      */
 
        public int tsfLookback( int optInTimePeriod )
@@ -143051,8 +145949,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -143068,6 +145966,7 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -143075,13 +145974,16 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
              today += 1;
           }
@@ -143123,8 +146025,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -143135,14 +146037,15 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
              today += 1;
           }
@@ -143195,8 +146098,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -143207,14 +146110,15 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
              today += 1;
           }
@@ -143256,8 +146160,8 @@ class Core {
           outIdx = 0;
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           SumXY = 0;
           SumY = 0;
@@ -143268,14 +146172,15 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = (double)inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
           today += 1;
           while( today <= endIdx ) {
-             trailingValue = (double)inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + (double)inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = (double)inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
              today += 1;
           }
@@ -143307,6 +146212,7 @@ class Core {
           double SumXY;
           double SumY;
           double Divisor;
+          double trailingValue;
           int ringPos_trailingIdx;
           int ringCap_trailingIdx;
           double[] ring_trailingIdx_inReal;
@@ -143321,6 +146227,7 @@ class Core {
              this.SumXY = other.SumXY;
              this.SumY = other.SumY;
              this.Divisor = other.Divisor;
+             this.trailingValue = other.trailingValue;
              this.ringPos_trailingIdx = other.ringPos_trailingIdx;
              this.ringCap_trailingIdx = other.ringCap_trailingIdx;
              this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
@@ -143370,15 +146277,14 @@ class Core {
        {
           double m = 0.0;
           double b = 0.0;
-          double trailingValue = 0.0;
           if( sp.ringCap_trailingIdx == 0 ) {
              sp.ring_trailingIdx_inReal[0] = inReal;
           }
-          trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * trailingValue;
-          sp.SumY = sp.SumY - trailingValue + inReal;
+          sp.SumXY = sp.SumXY + sp.SumY - (double)sp.optInTimePeriod * sp.trailingValue;
+          sp.SumY = sp.SumY - sp.trailingValue + inReal;
           m = (sp.optInTimePeriod * sp.SumXY - sp.SumX * sp.SumY) / sp.Divisor;
           b = (sp.SumY - m * sp.SumX) / (double)sp.optInTimePeriod;
+          sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
           sp.cur_outReal = Math.fma(m, (double)sp.optInTimePeriod, b);
           sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
           sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -143446,8 +146352,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -143463,6 +146369,7 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = inReal[trailingIdx++];
           lastValue_outReal = Math.fma(m, (double)optInTimePeriod, b);
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -143470,13 +146377,16 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = inReal[trailingIdx++];
              lastValue_outReal = Math.fma(m, (double)optInTimePeriod, b);
              today += 1;
           }
@@ -143495,6 +146405,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -143562,8 +146473,8 @@ class Core {
           /* Index into the output. */
           today = startIdx;
           trailingIdx = startIdx - lookbackTotal;
-          SumX = optInTimePeriod * (optInTimePeriod - 1) * 0.5;
-          SumXSqr = optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6;
+          SumX = (double)optInTimePeriod * (optInTimePeriod - 1) * 0.5;
+          SumXSqr = (double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0;
           Divisor = SumX * SumX - optInTimePeriod * SumXSqr;
           /* Prime the two data-dependent window sums for the first output with a
            * one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -143579,6 +146490,7 @@ class Core {
           }
           m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
           b = (SumY - m * SumX) / (double)optInTimePeriod;
+          trailingValue = inReal[trailingIdx++];
           outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
           today += 1;
           /* Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -143586,13 +146498,16 @@ class Core {
            * the departing value at full weight (subtracts period*trailingValue). Same
            * incremental identity as WMA/CORREL; the output arithmetic is unchanged.
            * (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+           * Each departing value is read before the output write of the same bar:
+           * with outReal==inReal (in-place, #130) that write lands on the cell the
+           * next iteration departs from.
            */
           while( today <= endIdx ) {
-             trailingValue = inReal[trailingIdx++];
              SumXY = SumXY + SumY - (double)optInTimePeriod * trailingValue;
              SumY = SumY - trailingValue + inReal[today];
              m = (optInTimePeriod * SumXY - SumX * SumY) / Divisor;
              b = (SumY - m * SumX) / (double)optInTimePeriod;
+             trailingValue = inReal[trailingIdx++];
              outReal[outIdx++] = Math.fma(m, (double)optInTimePeriod, b);
              today += 1;
           }
@@ -143611,6 +146526,7 @@ class Core {
           sp.SumXY = SumXY;
           sp.SumY = SumY;
           sp.Divisor = Divisor;
+          sp.trailingValue = trailingValue;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -146920,6 +149836,699 @@ class Core {
      *  Initial  Name/description
      *  -------------------------------------------------------------------
      *  MF       Mario Fortier
+     *  CC       Claude Code (AI assistant)
+     *
+     *
+     * Change history:
+     *
+     *  MMDDYY BY     Description
+     *  -------------------------------------------------------------------
+     *  072026 MF,CC  First version.
+     */
+
+       public int vwmaLookback( int optInTimePeriod )
+       {
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 30;
+          } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
+             return -1;
+          }
+          return optInTimePeriod - 1 ;
+
+       }
+       public RetCode vwma( int startIdx,
+                            int endIdx,
+                            double inReal[],
+                            double inVolume[],
+                            int optInTimePeriod,
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            double outReal[] )
+       {
+          double sumPV = 0;
+          double sumV = 0;
+          double tempPV = 0;
+          double tempV = 0;
+          double tempReal = 0;
+          int i = 0;
+          int outIdx = 0;
+          int trailingIdx = 0;
+          int lookbackTotal = 0;
+          if( startIdx < 0 ) {
+             return RetCode.OutOfRangeStartIndex ;
+          }
+          if( (endIdx < 0) || (endIdx < startIdx)) {
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 30;
+          } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          /* Identify the minimum number of price bar needed
+           * to calculate at least one output.
+           */
+          lookbackTotal = (int)(optInTimePeriod - 1);
+          /* Move up the start index if there is not
+           * enough initial data.
+           */
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          /* Make sure there is still something to evaluate. */
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.Success ;
+          }
+          /* Add-up the initial period, except for the last value.
+           *
+           * The price*volume product is kept in its own statement so no compiler may
+           * contract it into an FMA: that would make this function disagree with the
+           * Rust/Java backends under the cross-language bitwise gate, and with the
+           * two-TA_SMA composite reference.
+           */
+          sumPV = 0.0;
+          sumV = 0.0;
+          trailingIdx = startIdx - lookbackTotal;
+          i = trailingIdx;
+          if( optInTimePeriod > 1 ) {
+             while( i < startIdx ) {
+                tempReal = inReal[i] * inVolume[i];
+                sumPV += tempReal;
+                sumV += inVolume[i];
+                i = i + 1;
+             }
+          }
+          /* Proceed with the calculation for the requested range.
+           * Note that this algorithm allows the inReal and
+           * outReal to be the same buffer.
+           */
+          outIdx = 0;
+          while( i <= endIdx ) {
+             tempReal = inReal[i] * inVolume[i];
+             sumPV += tempReal;
+             sumV += inVolume[i];
+             i = i + 1;
+             /* Snapshot both sums before removing the trailing bar, mirroring the
+              * add-new / snapshot / subtract-old order of TA_SMA. That order is what
+              * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
+              */
+             tempPV = sumPV;
+             tempV = sumV;
+             /* Read the trailing values before writing the output, since the caller
+              * may pass the same buffer for an input and the output.
+              */
+             tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
+             sumPV -= tempReal;
+             sumV -= inVolume[trailingIdx];
+             outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+             trailingIdx = trailingIdx + 1;
+             outIdx = outIdx + 1;
+          }
+          /* All done. Indicate the output limits and return. */
+          outNBElement.value = outIdx;
+          outBegIdx.value = startIdx;
+          return RetCode.Success ;
+       }
+       public RetCode vwmaUnguarded( int startIdx,
+                                     int endIdx,
+                                     double inReal[],
+                                     double inVolume[],
+                                     int optInTimePeriod,
+                                     MInteger outBegIdx,
+                                     MInteger outNBElement,
+                                     double outReal[] )
+       {
+          double sumPV = 0;
+          double sumV = 0;
+          double tempPV = 0;
+          double tempV = 0;
+          double tempReal = 0;
+          int i = 0;
+          int outIdx = 0;
+          int trailingIdx = 0;
+          int lookbackTotal = 0;
+          lookbackTotal = (int)(optInTimePeriod - 1);
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.Success ;
+          }
+          sumPV = 0.0;
+          sumV = 0.0;
+          trailingIdx = startIdx - lookbackTotal;
+          i = trailingIdx;
+          if( optInTimePeriod > 1 ) {
+             while( i < startIdx ) {
+                tempReal = inReal[i] * inVolume[i];
+                sumPV += tempReal;
+                sumV += inVolume[i];
+                i = i + 1;
+             }
+          }
+          outIdx = 0;
+          while( i <= endIdx ) {
+             tempReal = inReal[i] * inVolume[i];
+             sumPV += tempReal;
+             sumV += inVolume[i];
+             i = i + 1;
+             tempPV = sumPV;
+             tempV = sumV;
+             tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
+             sumPV -= tempReal;
+             sumV -= inVolume[trailingIdx];
+             outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+             trailingIdx = trailingIdx + 1;
+             outIdx = outIdx + 1;
+          }
+          outNBElement.value = outIdx;
+          outBegIdx.value = startIdx;
+          return RetCode.Success ;
+       }
+       public RetCode vwma( int startIdx,
+                            int endIdx,
+                            float inReal[],
+                            float inVolume[],
+                            int optInTimePeriod,
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            double outReal[] )
+       {
+          double sumPV = 0;
+          double sumV = 0;
+          double tempPV = 0;
+          double tempV = 0;
+          double tempReal = 0;
+          int i = 0;
+          int outIdx = 0;
+          int trailingIdx = 0;
+          int lookbackTotal = 0;
+          if( startIdx < 0 ) {
+             return RetCode.OutOfRangeStartIndex ;
+          }
+          if( (endIdx < 0) || (endIdx < startIdx)) {
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 30;
+          } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          lookbackTotal = (int)(optInTimePeriod - 1);
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.Success ;
+          }
+          sumPV = 0.0;
+          sumV = 0.0;
+          trailingIdx = startIdx - lookbackTotal;
+          i = trailingIdx;
+          if( optInTimePeriod > 1 ) {
+             while( i < startIdx ) {
+                tempReal = (double)inReal[i] * (double)inVolume[i];
+                sumPV += tempReal;
+                sumV += (double)inVolume[i];
+                i = i + 1;
+             }
+          }
+          outIdx = 0;
+          while( i <= endIdx ) {
+             tempReal = (double)inReal[i] * (double)inVolume[i];
+             sumPV += tempReal;
+             sumV += (double)inVolume[i];
+             i = i + 1;
+             tempPV = sumPV;
+             tempV = sumV;
+             tempReal = (double)inReal[trailingIdx] * (double)inVolume[trailingIdx];
+             sumPV -= tempReal;
+             sumV -= (double)inVolume[trailingIdx];
+             outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+             trailingIdx = trailingIdx + 1;
+             outIdx = outIdx + 1;
+          }
+          outNBElement.value = outIdx;
+          outBegIdx.value = startIdx;
+          return RetCode.Success ;
+       }
+       public RetCode vwmaUnguarded( int startIdx,
+                                     int endIdx,
+                                     float inReal[],
+                                     float inVolume[],
+                                     int optInTimePeriod,
+                                     MInteger outBegIdx,
+                                     MInteger outNBElement,
+                                     double outReal[] )
+       {
+          double sumPV = 0;
+          double sumV = 0;
+          double tempPV = 0;
+          double tempV = 0;
+          double tempReal = 0;
+          int i = 0;
+          int outIdx = 0;
+          int trailingIdx = 0;
+          int lookbackTotal = 0;
+          lookbackTotal = (int)(optInTimePeriod - 1);
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.Success ;
+          }
+          sumPV = 0.0;
+          sumV = 0.0;
+          trailingIdx = startIdx - lookbackTotal;
+          i = trailingIdx;
+          if( optInTimePeriod > 1 ) {
+             while( i < startIdx ) {
+                tempReal = (double)inReal[i] * (double)inVolume[i];
+                sumPV += tempReal;
+                sumV += (double)inVolume[i];
+                i = i + 1;
+             }
+          }
+          outIdx = 0;
+          while( i <= endIdx ) {
+             tempReal = (double)inReal[i] * (double)inVolume[i];
+             sumPV += tempReal;
+             sumV += (double)inVolume[i];
+             i = i + 1;
+             tempPV = sumPV;
+             tempV = sumV;
+             tempReal = (double)inReal[trailingIdx] * (double)inVolume[trailingIdx];
+             sumPV -= tempReal;
+             sumV -= (double)inVolume[trailingIdx];
+             outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+             trailingIdx = trailingIdx + 1;
+             outIdx = outIdx + 1;
+          }
+          outNBElement.value = outIdx;
+          outBegIdx.value = startIdx;
+          return RetCode.Success ;
+       }
+    /**** Streaming API *****/
+
+       /**
+        * A live VWMA stream (unrelated to {@code java.util.stream}): one value per
+        * closed bar, bit-identical to {@link Core#vwma} over the same series.
+        * Open with {@link Core#vwmaOpen}; there is no close — the handle is
+        * ordinary heap state, unreferenced handles are simply garbage-collected.
+        * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
+        * {@code value} and {@code copy} must not race with an {@code update} on
+        * the same handle. With no concurrent {@code update}, {@code peek}/
+        * {@code value}/{@code copy} never write the handle and may be called
+        * concurrently after safe publication. Independent handles (including
+        * {@code copy()} results) are fully independent. Do not mutate the owning
+        * {@link Core}'s settings while streams opened from it are live.
+        * <p>Not serializable by design: to checkpoint, retain the history and
+        * re-open — the result is bit-identical by contract.
+        */
+       public static final class VwmaStream {
+          final Core core;
+          int optInTimePeriod;
+          double sumPV;
+          double sumV;
+          double tempPV;
+          double tempV;
+          int ringPos_trailingIdx;
+          int ringCap_trailingIdx;
+          double[] ring_trailingIdx_inReal;
+          double[] ring_trailingIdx_inVolume;
+          double cur_outReal;
+
+          VwmaStream( Core core ) { this.core = core; }
+
+          VwmaStream( VwmaStream other ) {
+             this.core = other.core;
+             this.optInTimePeriod = other.optInTimePeriod;
+             this.sumPV = other.sumPV;
+             this.sumV = other.sumV;
+             this.tempPV = other.tempPV;
+             this.tempV = other.tempV;
+             this.ringPos_trailingIdx = other.ringPos_trailingIdx;
+             this.ringCap_trailingIdx = other.ringCap_trailingIdx;
+             this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
+             this.ring_trailingIdx_inVolume = other.ring_trailingIdx_inVolume.clone();
+             this.cur_outReal = other.cur_outReal;
+          }
+
+          /**
+           * Commit one closed bar; always produces the new current value.
+           * Never throws after a successful open; never allocates handle state.
+           */
+          public double update( double inReal, double inVolume ) {
+             core.vwmaStreamStep(this, inReal, inVolume);
+             return this.cur_outReal;
+          }
+
+          /**
+           * Evaluate a forming bar without committing — bit-identical to what the
+           * next {@code update} with the same bar would return (it is the same
+           * generated code, run on a throwaway copy). Deep-copies the handle state
+           * on every call: O(period) for windowed indicators — for hot loops,
+           * prefer {@code update} on a {@code copy()}.
+           */
+          public double peek( double inReal, double inVolume ) {
+             VwmaStream scratch = new VwmaStream(this);
+             core.vwmaStreamStep(scratch, inReal, inVolume);
+             return scratch.cur_outReal;
+          }
+
+          /**
+           * The value at the most recently committed bar — the last history bar
+           * right after open, then whatever the latest {@code update} returned.
+           * A pure field read; {@code peek} does not change it.
+           */
+          public double value() {
+             return this.cur_outReal;
+          }
+
+          /**
+           * An independent deep copy of this stream: both evolve separately from
+           * here on (the Java rendering of the Rust handle's {@code Clone}).
+           */
+          public VwmaStream copy() {
+             return new VwmaStream(this);
+          }
+       }
+       void vwmaStreamStep( VwmaStream sp, double inReal, double inVolume )
+       {
+          double tempReal = 0.0;
+          if( sp.ringCap_trailingIdx == 0 ) {
+             sp.ring_trailingIdx_inReal[0] = inReal;
+             sp.ring_trailingIdx_inVolume[0] = inVolume;
+          }
+          tempReal = inReal * inVolume;
+          sp.sumPV += tempReal;
+          sp.sumV += inVolume;
+          /* Snapshot both sums before removing the trailing bar, mirroring the
+           * add-new / snapshot / subtract-old order of TA_SMA. That order is what
+           * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
+           */
+          sp.tempPV = sp.sumPV;
+          sp.tempV = sp.sumV;
+          /* Read the trailing values before writing the output, since the caller
+           * may pass the same buffer for an input and the output.
+           */
+          tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] * sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
+          sp.sumPV -= tempReal;
+          sp.sumV -= sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
+          sp.cur_outReal = sp.tempPV / (double)sp.optInTimePeriod / (sp.tempV / (double)sp.optInTimePeriod);
+          sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
+          sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] = inVolume;
+          sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
+          if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+             sp.ringPos_trailingIdx = 0;
+          }
+       }
+       private RetCode vwmaOpenBody( VwmaStream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod )
+       {
+          double sumPV = 0;
+          double sumV = 0;
+          double tempPV = 0;
+          double tempV = 0;
+          double tempReal = 0;
+          int i = 0;
+          int outIdx = 0;
+          int trailingIdx = 0;
+          int lookbackTotal = 0;
+          MInteger outBegIdx = new MInteger();
+          MInteger outNBElement = new MInteger();
+          double lastValue_outReal = 0.0;
+          int historyLen = inReal.length;
+          int endIdx = historyLen - 1;
+          if( historyLen < 1 || inVolume.length != inReal.length ) {
+             return RetCode.BadParam;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 30;
+          } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          /* Identify the minimum number of price bar needed
+           * to calculate at least one output.
+           */
+          lookbackTotal = (int)(optInTimePeriod - 1);
+          /* Move up the start index if there is not
+           * enough initial data.
+           */
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          /* Make sure there is still something to evaluate. */
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          /* Add-up the initial period, except for the last value.
+           *
+           * The price*volume product is kept in its own statement so no compiler may
+           * contract it into an FMA: that would make this function disagree with the
+           * Rust/Java backends under the cross-language bitwise gate, and with the
+           * two-TA_SMA composite reference.
+           */
+          sumPV = 0.0;
+          sumV = 0.0;
+          trailingIdx = startIdx - lookbackTotal;
+          i = trailingIdx;
+          if( optInTimePeriod > 1 ) {
+             while( i < startIdx ) {
+                tempReal = inReal[i] * inVolume[i];
+                sumPV += tempReal;
+                sumV += inVolume[i];
+                i = i + 1;
+             }
+          }
+          /* Proceed with the calculation for the requested range.
+           * Note that this algorithm allows the inReal and
+           * outReal to be the same buffer.
+           */
+          outIdx = 0;
+          while( i <= endIdx ) {
+             tempReal = inReal[i] * inVolume[i];
+             sumPV += tempReal;
+             sumV += inVolume[i];
+             i = i + 1;
+             /* Snapshot both sums before removing the trailing bar, mirroring the
+              * add-new / snapshot / subtract-old order of TA_SMA. That order is what
+              * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
+              */
+             tempPV = sumPV;
+             tempV = sumV;
+             /* Read the trailing values before writing the output, since the caller
+              * may pass the same buffer for an input and the output.
+              */
+             tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
+             sumPV -= tempReal;
+             sumV -= inVolume[trailingIdx];
+             lastValue_outReal = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+             trailingIdx = trailingIdx + 1;
+             outIdx = outIdx + 1;
+          }
+          /* All done. Indicate the output limits and return. */
+          outNBElement.value = outIdx;
+          outBegIdx.value = startIdx;
+          /* Capture the live batch state into the handle. */
+          int cap_trailingIdx = i - trailingIdx;
+          if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+             return RetCode.InternalError;
+          }
+          int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
+          double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
+          System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
+          double[] capRing_trailingIdx_inVolume = new double[allocN_trailingIdx];
+          System.arraycopy(inVolume, historyLen - cap_trailingIdx, capRing_trailingIdx_inVolume, 0, cap_trailingIdx);
+          sp.optInTimePeriod = optInTimePeriod;
+          sp.sumPV = sumPV;
+          sp.sumV = sumV;
+          sp.tempPV = tempPV;
+          sp.tempV = tempV;
+          sp.ringPos_trailingIdx = 0;
+          sp.ringCap_trailingIdx = cap_trailingIdx;
+          sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
+          sp.ring_trailingIdx_inVolume = capRing_trailingIdx_inVolume;
+          sp.cur_outReal = lastValue_outReal;
+          return RetCode.Success;
+       }
+       private RetCode vwmaOpenAndFillBody( VwmaStream sp, double inReal[], double inVolume[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+       {
+          double sumPV = 0;
+          double sumV = 0;
+          double tempPV = 0;
+          double tempV = 0;
+          double tempReal = 0;
+          int i = 0;
+          int outIdx = 0;
+          int trailingIdx = 0;
+          int lookbackTotal = 0;
+          int historyLen = inReal.length;
+          int endIdx = historyLen - 1;
+          int startIdx = 0;
+          if( historyLen < 1 || inVolume.length != inReal.length ) {
+             return RetCode.BadParam;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 30;
+          } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
+             return RetCode.BadParam;
+          }
+          if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
+             return RetCode.BadParam;
+          }
+          /* Identify the minimum number of price bar needed
+           * to calculate at least one output.
+           */
+          lookbackTotal = (int)(optInTimePeriod - 1);
+          /* Move up the start index if there is not
+           * enough initial data.
+           */
+          if( startIdx < lookbackTotal ) {
+             startIdx = lookbackTotal;
+          }
+          /* Make sure there is still something to evaluate. */
+          if( startIdx > endIdx ) {
+             outBegIdx.value = 0;
+             outNBElement.value = 0;
+             return RetCode.OutOfRangeEndIndex ;
+          }
+          /* Add-up the initial period, except for the last value.
+           *
+           * The price*volume product is kept in its own statement so no compiler may
+           * contract it into an FMA: that would make this function disagree with the
+           * Rust/Java backends under the cross-language bitwise gate, and with the
+           * two-TA_SMA composite reference.
+           */
+          sumPV = 0.0;
+          sumV = 0.0;
+          trailingIdx = startIdx - lookbackTotal;
+          i = trailingIdx;
+          if( optInTimePeriod > 1 ) {
+             while( i < startIdx ) {
+                tempReal = inReal[i] * inVolume[i];
+                sumPV += tempReal;
+                sumV += inVolume[i];
+                i = i + 1;
+             }
+          }
+          /* Proceed with the calculation for the requested range.
+           * Note that this algorithm allows the inReal and
+           * outReal to be the same buffer.
+           */
+          outIdx = 0;
+          while( i <= endIdx ) {
+             tempReal = inReal[i] * inVolume[i];
+             sumPV += tempReal;
+             sumV += inVolume[i];
+             i = i + 1;
+             /* Snapshot both sums before removing the trailing bar, mirroring the
+              * add-new / snapshot / subtract-old order of TA_SMA. That order is what
+              * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
+              */
+             tempPV = sumPV;
+             tempV = sumV;
+             /* Read the trailing values before writing the output, since the caller
+              * may pass the same buffer for an input and the output.
+              */
+             tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
+             sumPV -= tempReal;
+             sumV -= inVolume[trailingIdx];
+             outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+             trailingIdx = trailingIdx + 1;
+             outIdx = outIdx + 1;
+          }
+          /* All done. Indicate the output limits and return. */
+          outNBElement.value = outIdx;
+          outBegIdx.value = startIdx;
+          /* Capture the live batch state into the handle. */
+          int cap_trailingIdx = i - trailingIdx;
+          if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+             return RetCode.InternalError;
+          }
+          int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
+          double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
+          System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
+          double[] capRing_trailingIdx_inVolume = new double[allocN_trailingIdx];
+          System.arraycopy(inVolume, historyLen - cap_trailingIdx, capRing_trailingIdx_inVolume, 0, cap_trailingIdx);
+          sp.optInTimePeriod = optInTimePeriod;
+          sp.sumPV = sumPV;
+          sp.sumV = sumV;
+          sp.tempPV = tempPV;
+          sp.tempV = tempV;
+          sp.ringPos_trailingIdx = 0;
+          sp.ringCap_trailingIdx = cap_trailingIdx;
+          sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
+          sp.ring_trailingIdx_inVolume = capRing_trailingIdx_inVolume;
+          sp.cur_outReal = outReal[outNBElement.value - 1];
+          return RetCode.Success;
+       }
+       /* Internal startIdx-anchored open behind vwmaOpen (composition seam). */
+       VwmaStream vwmaOpenInternal( double inReal[], double inVolume[], int startIdx, int optInTimePeriod )
+       {
+          VwmaStream sp = new VwmaStream(this);
+          RetCode retCode = vwmaOpenBody(sp, inReal, inVolume, startIdx, optInTimePeriod);
+          if( retCode == RetCode.Success ) {
+             return sp;
+          }
+          if( retCode == RetCode.OutOfRangeEndIndex ) {
+             throw new InsufficientHistoryException("TA_VWMA open: history shorter than lookback + 1");
+          }
+          if( retCode == RetCode.InternalError ) {
+             throw new IllegalStateException("TA_VWMA open: internal error");
+          }
+          throw new IllegalArgumentException("TA_VWMA open: " + retCode);
+       }
+       /**
+        * Open a live VWMA stream over the warm-up history; the handle's
+        * {@code value()} starts at the last history bar's value — bit-identical
+        * to {@link Core#vwma} at that bar.
+        * <p>The history must hold at least {@code vwmaLookback(...) + 1} bars
+        * (unstable-period aware), or {@link InsufficientHistoryException} is
+        * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
+        * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
+        * default, as in the batch API).
+        */
+       public VwmaStream vwmaOpen( double inReal[], double inVolume[], int optInTimePeriod )
+       {
+          return vwmaOpenInternal(inReal, inVolume, 0, optInTimePeriod);
+       }
+       /**
+        * {@link Core#vwmaOpen} that also fills the output array(s) bit-identically
+        * to {@link Core#vwma} over the whole history in the same single pass
+        * (no separate batch call needed for the warm-up plot). Output arrays must
+        * not alias the inputs or each other, and must hold
+        * {@code historyLen - lookback} values.
+        */
+       public VwmaStream vwmaOpenAndFill( double inReal[], double inVolume[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+       {
+          VwmaStream sp = new VwmaStream(this);
+          RetCode retCode = vwmaOpenAndFillBody(sp, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+          if( retCode == RetCode.Success ) {
+             return sp;
+          }
+          if( retCode == RetCode.OutOfRangeEndIndex ) {
+             throw new InsufficientHistoryException("TA_VWMA openAndFill: history shorter than lookback + 1");
+          }
+          if( retCode == RetCode.InternalError ) {
+             throw new IllegalStateException("TA_VWMA openAndFill: internal error");
+          }
+          throw new IllegalArgumentException("TA_VWMA openAndFill: " + retCode);
+       }
+    /* List of contributors:
+     *
+     *  Initial  Name/description
+     *  -------------------------------------------------------------------
+     *  MF       Mario Fortier
      *
      *
      * Change history:
@@ -148132,11 +151741,11 @@ class Core {
           int outIdx = 0;
           int i = 0;
           int trailingIdx = 0;
-          int divider = 0;
           double periodSum = 0;
           double periodSub = 0;
           double tempReal = 0;
           double trailingValue = 0;
+          double divider = 0;
           int lookbackTotal = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
@@ -148170,14 +151779,20 @@ class Core {
           if( optInTimePeriod == 1 ) {
              outBegIdx.value = startIdx;
              outNBElement.value = endIdx - startIdx + 1;
-             System.arraycopy(inReal, startIdx, outReal, 0, (int)outNBElement.value * 1);
+             /* Element loop, not a block copy: the C single-precision variant reads a
+              * float array, so a double-sized byte copy would reinterpret and
+              * over-read it (#137). Forward order keeps the in-place case correct (#94).
+              */
+             inIdx = startIdx;
+             for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+                outReal[i] = inReal[inIdx++];
+             }
              return RetCode.Success ;
           }
-          /* Calculate the divider (always an integer value).
-           * By induction: 1+2+3+4+'n' = n(n+1)/2
-           * '>>1' is usually faster than '/2' for unsigned.
+          /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+           * int product n*(n+1) overflows int32 at n>=46341 (#142).
            */
-          divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+          divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
           /* The algo used here use a very basic property of
            * multiplication/addition: (x*2) = x+x
            *
@@ -148256,11 +151871,11 @@ class Core {
           int outIdx = 0;
           int i = 0;
           int trailingIdx = 0;
-          int divider = 0;
           double periodSum = 0;
           double periodSub = 0;
           double tempReal = 0;
           double trailingValue = 0;
+          double divider = 0;
           int lookbackTotal = 0;
           lookbackTotal = optInTimePeriod - 1;
           if( startIdx < lookbackTotal ) {
@@ -148274,10 +151889,13 @@ class Core {
           if( optInTimePeriod == 1 ) {
              outBegIdx.value = startIdx;
              outNBElement.value = endIdx - startIdx + 1;
-             System.arraycopy(inReal, startIdx, outReal, 0, (int)outNBElement.value * 1);
+             inIdx = startIdx;
+             for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+                outReal[i] = inReal[inIdx++];
+             }
              return RetCode.Success ;
           }
-          divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+          divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
           outIdx = 0;
           trailingIdx = startIdx - lookbackTotal;
           periodSub = (double)0.0;
@@ -148316,11 +151934,11 @@ class Core {
           int outIdx = 0;
           int i = 0;
           int trailingIdx = 0;
-          int divider = 0;
           double periodSum = 0;
           double periodSub = 0;
           double tempReal = 0;
           double trailingValue = 0;
+          double divider = 0;
           int lookbackTotal = 0;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
@@ -148345,10 +151963,13 @@ class Core {
           if( optInTimePeriod == 1 ) {
              outBegIdx.value = startIdx;
              outNBElement.value = endIdx - startIdx + 1;
-             System.arraycopy(inReal, startIdx, outReal, 0, (int)outNBElement.value * 1);
+             inIdx = startIdx;
+             for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+                outReal[i] = (double)inReal[inIdx++];
+             }
              return RetCode.Success ;
           }
-          divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+          divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
           outIdx = 0;
           trailingIdx = startIdx - lookbackTotal;
           periodSub = (double)0.0;
@@ -148387,11 +152008,11 @@ class Core {
           int outIdx = 0;
           int i = 0;
           int trailingIdx = 0;
-          int divider = 0;
           double periodSum = 0;
           double periodSub = 0;
           double tempReal = 0;
           double trailingValue = 0;
+          double divider = 0;
           int lookbackTotal = 0;
           lookbackTotal = optInTimePeriod - 1;
           if( startIdx < lookbackTotal ) {
@@ -148405,10 +152026,13 @@ class Core {
           if( optInTimePeriod == 1 ) {
              outBegIdx.value = startIdx;
              outNBElement.value = endIdx - startIdx + 1;
-             System.arraycopy(inReal, startIdx, outReal, 0, (int)outNBElement.value * 1);
+             inIdx = startIdx;
+             for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+                outReal[i] = (double)inReal[inIdx++];
+             }
              return RetCode.Success ;
           }
-          divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+          divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
           outIdx = 0;
           trailingIdx = startIdx - lookbackTotal;
           periodSub = (double)0.0;
@@ -148455,10 +152079,10 @@ class Core {
        public static final class WmaStream {
           final Core core;
           int optInTimePeriod;
-          int divider;
           double periodSum;
           double periodSub;
           double trailingValue;
+          double divider;
           int ringPos_trailingIdx;
           int ringCap_trailingIdx;
           double[] ring_trailingIdx_inReal;
@@ -148469,10 +152093,10 @@ class Core {
           WmaStream( WmaStream other ) {
              this.core = other.core;
              this.optInTimePeriod = other.optInTimePeriod;
-             this.divider = other.divider;
              this.periodSum = other.periodSum;
              this.periodSub = other.periodSub;
              this.trailingValue = other.trailingValue;
+             this.divider = other.divider;
              this.ringPos_trailingIdx = other.ringPos_trailingIdx;
              this.ringCap_trailingIdx = other.ringCap_trailingIdx;
              this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
@@ -148557,11 +152181,11 @@ class Core {
           int outIdx = 0;
           int i = 0;
           int trailingIdx = 0;
-          int divider = 0;
           double periodSum = 0;
           double periodSub = 0;
           double tempReal = 0;
           double trailingValue = 0;
+          double divider = 0;
           int lookbackTotal = 0;
           MInteger outBegIdx = new MInteger();
           MInteger outNBElement = new MInteger();
@@ -148581,10 +152205,10 @@ class Core {
                 return RetCode.OutOfRangeEndIndex;
              }
              sp.optInTimePeriod = optInTimePeriod;
-             sp.divider = 0;
              sp.periodSum = 0.0;
              sp.periodSub = 0.0;
              sp.trailingValue = 0.0;
+             sp.divider = 0.0;
              sp.ringPos_trailingIdx = 0;
              sp.ringCap_trailingIdx = 0;
              sp.ring_trailingIdx_inReal = new double[1];
@@ -148609,11 +152233,10 @@ class Core {
            * In that case outputs equals inputs for the requested
            * range.
            */
-          /* Calculate the divider (always an integer value).
-           * By induction: 1+2+3+4+'n' = n(n+1)/2
-           * '>>1' is usually faster than '/2' for unsigned.
+          /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+           * int product n*(n+1) overflows int32 at n>=46341 (#142).
            */
-          divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+          divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
           /* The algo used here use a very basic property of
            * multiplication/addition: (x*2) = x+x
            *
@@ -148687,10 +152310,10 @@ class Core {
           double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
           System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
           sp.optInTimePeriod = optInTimePeriod;
-          sp.divider = divider;
           sp.periodSum = periodSum;
           sp.periodSub = periodSub;
           sp.trailingValue = trailingValue;
+          sp.divider = divider;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -148703,11 +152326,11 @@ class Core {
           int outIdx = 0;
           int i = 0;
           int trailingIdx = 0;
-          int divider = 0;
           double periodSum = 0;
           double periodSub = 0;
           double tempReal = 0;
           double trailingValue = 0;
+          double divider = 0;
           int lookbackTotal = 0;
           int historyLen = inReal.length;
           int endIdx = historyLen - 1;
@@ -148728,10 +152351,10 @@ class Core {
                 return RetCode.OutOfRangeEndIndex;
              }
              sp.optInTimePeriod = optInTimePeriod;
-             sp.divider = 0;
              sp.periodSum = 0.0;
              sp.periodSub = 0.0;
              sp.trailingValue = 0.0;
+             sp.divider = 0.0;
              sp.ringPos_trailingIdx = 0;
              sp.ringCap_trailingIdx = 0;
              sp.ring_trailingIdx_inReal = new double[1];
@@ -148762,11 +152385,10 @@ class Core {
            * In that case outputs equals inputs for the requested
            * range.
            */
-          /* Calculate the divider (always an integer value).
-           * By induction: 1+2+3+4+'n' = n(n+1)/2
-           * '>>1' is usually faster than '/2' for unsigned.
+          /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+           * int product n*(n+1) overflows int32 at n>=46341 (#142).
            */
-          divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+          divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
           /* The algo used here use a very basic property of
            * multiplication/addition: (x*2) = x+x
            *
@@ -148840,10 +152462,10 @@ class Core {
           double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
           System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
           sp.optInTimePeriod = optInTimePeriod;
-          sp.divider = divider;
           sp.periodSum = periodSum;
           sp.periodSub = periodSub;
           sp.trailingValue = trailingValue;
+          sp.divider = divider;
           sp.ringPos_trailingIdx = 0;
           sp.ringCap_trailingIdx = cap_trailingIdx;
           sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -149074,13 +152696,13 @@ public class TaCodegenServe {
             new AbsIn[]{ new AbsIn(0,"inPriceHLC",14) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",14.0, 0,0,0,0,0,0, 2,100000,4,200,1, null) },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
-        ABSTRACT.put("ADXR", new AbsFunc("ADXR", "Momentum Indicators", "Average Directional Movement Index Rating", "Adxr", 167772160,
+        ABSTRACT.put("ADXR", new AbsFunc("ADXR", "Momentum Indicators", "Average Directional Movement Index Rating", "Adxr", 33554432,
             new AbsIn[]{ new AbsIn(0,"inPriceHLC",14) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",14.0, 0,0,0,0,0,0, 2,100000,4,200,1, null) },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("APO", new AbsFunc("APO", "Momentum Indicators", "Absolute Price Oscillator", "Apo", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
-            new AbsOpt[]{ new AbsOpt(2,"optInFastPeriod",0,"Fast Period",12.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(2,"optInSlowPeriod",0,"Slow Period",26.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",1.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInFastPeriod",0,"Fast Period",12.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(2,"optInSlowPeriod",0,"Slow Period",26.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",1.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("AROON", new AbsFunc("AROON", "Momentum Indicators", "Aroon", "Aroon", 33554432,
             new AbsIn[]{ new AbsIn(0,"inPriceHL",6) },
@@ -149112,7 +152734,7 @@ public class TaCodegenServe {
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("BBANDS", new AbsFunc("BBANDS", "Overlap Studies", "Bollinger Bands", "Bbands", 50331648,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
-            new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",5.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(0,"optInNbDevUp",0,"Deviations up",2.0, -3e37,3e37,2,-2.0,2.0,0.2, 0,0,0,0,0, null), new AbsOpt(0,"optInNbDevDn",0,"Deviations down",2.0, -3e37,3e37,2,-2.0,2.0,0.2, 0,0,0,0,0, null), new AbsOpt(3,"optInMAType",0,"MA Type",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",20.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(0,"optInNbDevUp",0,"Deviations up",2.0, -3e37,3e37,2,-2.0,2.0,0.2, 0,0,0,0,0, null), new AbsOpt(0,"optInNbDevDn",0,"Deviations down",2.0, -3e37,3e37,2,-2.0,2.0,0.2, 0,0,0,0,0, null), new AbsOpt(3,"optInMAType",0,"MA Type",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outRealUpperBand",2048), new AbsOut(0,"outRealMiddleBand",1), new AbsOut(0,"outRealLowerBand",4096) }));
         ABSTRACT.put("BETA", new AbsFunc("BETA", "Statistic Functions", "Beta", "Beta", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal0",0), new AbsIn(1,"inReal1",0) },
@@ -149374,6 +152996,10 @@ public class TaCodegenServe {
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
             new AbsOpt[]{  },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
+        ABSTRACT.put("CMF", new AbsFunc("CMF", "Volume Indicators", "Chaikin Money Flow", "Cmf", 33554432,
+            new AbsIn[]{ new AbsIn(0,"inPriceHLCV",30) },
+            new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",20.0, 0,0,0,0,0,0, 2,100000,4,200,1, null) },
+            new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("CMO", new AbsFunc("CMO", "Momentum Indicators", "Chande Momentum Oscillator", "Cmo", 167772160,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",14.0, 0,0,0,0,0,0, 2,100000,4,200,1, null) },
@@ -149417,6 +153043,10 @@ public class TaCodegenServe {
         ABSTRACT.put("FLOOR", new AbsFunc("FLOOR", "Math Transform", "Vector Floor", "Floor", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
             new AbsOpt[]{  },
+            new AbsOut[]{ new AbsOut(0,"outReal",1) }));
+        ABSTRACT.put("HMA", new AbsFunc("HMA", "Overlap Studies", "Hull Moving Average", "Hma", 50331648,
+            new AbsIn[]{ new AbsIn(1,"inReal",0) },
+            new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",20.0, 0,0,0,0,0,0, 2,100000,4,200,1, null) },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("HT_DCPERIOD", new AbsFunc("HT_DCPERIOD", "Cycle Indicators", "Hilbert Transform - Dominant Cycle Period", "HtDcPeriod", 167772160,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
@@ -149476,7 +153106,7 @@ public class TaCodegenServe {
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("MA", new AbsFunc("MA", "Overlap Studies", "Moving average", "MovingAverage", 50331648,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
-            new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",30.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",30.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("MACD", new AbsFunc("MACD", "Momentum Indicators", "Moving Average Convergence/Divergence", "Macd", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
@@ -149484,7 +153114,7 @@ public class TaCodegenServe {
             new AbsOut[]{ new AbsOut(0,"outMACD",1), new AbsOut(0,"outMACDSignal",4), new AbsOut(0,"outMACDHist",16) }));
         ABSTRACT.put("MACDEXT", new AbsFunc("MACDEXT", "Momentum Indicators", "MACD with controllable MA type", "MacdExt", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
-            new AbsOpt[]{ new AbsOpt(2,"optInFastPeriod",0,"Fast Period",12.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInFastMAType",0,"Fast MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3"), new AbsOpt(2,"optInSlowPeriod",0,"Slow Period",26.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInSlowMAType",0,"Slow MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3"), new AbsOpt(2,"optInSignalPeriod",0,"Signal Period",9.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInSignalMAType",0,"Signal MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInFastPeriod",0,"Fast Period",12.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInFastMAType",0,"Fast MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED"), new AbsOpt(2,"optInSlowPeriod",0,"Slow Period",26.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInSlowMAType",0,"Slow MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED"), new AbsOpt(2,"optInSignalPeriod",0,"Signal Period",9.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInSignalMAType",0,"Signal MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outMACD",1), new AbsOut(0,"outMACDSignal",4), new AbsOut(0,"outMACDHist",16) }));
         ABSTRACT.put("MACDFIX", new AbsFunc("MACDFIX", "Momentum Indicators", "Moving Average Convergence/Divergence Fix 12/26", "MacdFix", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
@@ -149496,7 +153126,7 @@ public class TaCodegenServe {
             new AbsOut[]{ new AbsOut(0,"outMAMA",1), new AbsOut(0,"outFAMA",8196) }));
         ABSTRACT.put("MAVP", new AbsFunc("MAVP", "Overlap Studies", "Moving average with variable period", "MovingAverageVariablePeriod", 50331648,
             new AbsIn[]{ new AbsIn(1,"inReal",0), new AbsIn(1,"inPeriods",0) },
-            new AbsOpt[]{ new AbsOpt(2,"optInMinPeriod",0,"Minimum Period",2.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInMaxPeriod",0,"Maximum Period",30.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInMinPeriod",0,"Minimum Period",2.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInMaxPeriod",0,"Maximum Period",30.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("MAX", new AbsFunc("MAX", "Math Operators", "Highest value over a specified period", "Max", 50331648,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
@@ -149576,7 +153206,7 @@ public class TaCodegenServe {
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("PPO", new AbsFunc("PPO", "Momentum Indicators", "Percentage Price Oscillator", "Ppo", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
-            new AbsOpt[]{ new AbsOpt(2,"optInFastPeriod",0,"Fast Period",12.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(2,"optInSlowPeriod",0,"Slow Period",26.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",1.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInFastPeriod",0,"Fast Period",12.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(2,"optInSlowPeriod",0,"Slow Period",26.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",1.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("PVI", new AbsFunc("PVI", "Volume Indicators", "Positive Volume Index", "Pvi", 570425344,
             new AbsIn[]{ new AbsIn(0,"inPriceCV",24) },
@@ -149584,7 +153214,7 @@ public class TaCodegenServe {
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("PVO", new AbsFunc("PVO", "Volume Indicators", "Percentage Volume Oscillator", "Pvo", 33554432,
             new AbsIn[]{ new AbsIn(0,"inPriceV",16) },
-            new AbsOpt[]{ new AbsOpt(2,"optInFastPeriod",0,"Fast Period",12.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(2,"optInSlowPeriod",0,"Slow Period",26.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",1.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInFastPeriod",0,"Fast Period",12.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(2,"optInSlowPeriod",0,"Slow Period",26.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(3,"optInMAType",0,"MA Type",1.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("ROC", new AbsFunc("ROC", "Momentum Indicators", "Rate of change : ((price/prevPrice)-1)*100", "Roc", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
@@ -149636,15 +153266,15 @@ public class TaCodegenServe {
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("STOCH", new AbsFunc("STOCH", "Momentum Indicators", "Stochastic", "Stoch", 33554432,
             new AbsIn[]{ new AbsIn(0,"inPriceHLC",14) },
-            new AbsOpt[]{ new AbsOpt(2,"optInFastK_Period",0,"Fast-K Period",5.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInSlowK_Period",0,"Slow-K Period",3.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInSlowK_MAType",0,"Slow-K MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3"), new AbsOpt(2,"optInSlowD_Period",0,"Slow-D Period",3.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInSlowD_MAType",0,"Slow-D MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInFastK_Period",0,"Fast-K Period",5.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInSlowK_Period",0,"Slow-K Period",3.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInSlowK_MAType",0,"Slow-K MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED"), new AbsOpt(2,"optInSlowD_Period",0,"Slow-D Period",3.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInSlowD_MAType",0,"Slow-D MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outSlowK",4), new AbsOut(0,"outSlowD",4) }));
         ABSTRACT.put("STOCHF", new AbsFunc("STOCHF", "Momentum Indicators", "Stochastic Fast", "StochF", 33554432,
             new AbsIn[]{ new AbsIn(0,"inPriceHLC",14) },
-            new AbsOpt[]{ new AbsOpt(2,"optInFastK_Period",0,"Fast-K Period",5.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInFastD_Period",0,"Fast-D Period",3.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInFastD_MAType",0,"Fast-D MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInFastK_Period",0,"Fast-K Period",5.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInFastD_Period",0,"Fast-D Period",3.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInFastD_MAType",0,"Fast-D MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outFastK",1), new AbsOut(0,"outFastD",1) }));
-        ABSTRACT.put("STOCHRSI", new AbsFunc("STOCHRSI", "Momentum Indicators", "Stochastic Relative Strength Index", "StochRsi", 167772160,
+        ABSTRACT.put("STOCHRSI", new AbsFunc("STOCHRSI", "Momentum Indicators", "Stochastic Relative Strength Index", "StochRsi", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
-            new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",14.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(2,"optInFastK_Period",0,"Fast-K Period",5.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInFastD_Period",0,"Fast-D Period",3.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInFastD_MAType",0,"Fast-D MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3") },
+            new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",14.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(2,"optInFastK_Period",0,"Fast-K Period",5.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInFastD_Period",0,"Fast-D Period",3.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(3,"optInFastD_MAType",0,"Fast-D MA",0.0, 0,0,0,0,0,0, 0,0,0,0,0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED") },
             new AbsOut[]{ new AbsOut(0,"outFastK",1), new AbsOut(0,"outFastD",1) }));
         ABSTRACT.put("SUB", new AbsFunc("SUB", "Math Operators", "Vector Arithmetic Subtraction", "Sub", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal0",0), new AbsIn(1,"inReal1",0) },
@@ -149697,6 +153327,10 @@ public class TaCodegenServe {
         ABSTRACT.put("VAR", new AbsFunc("VAR", "Statistic Functions", "Variance", "Variance", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",5.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(0,"optInNbDev",0,"Deviations",1.0, -3e37,3e37,2,-2.0,2.0,0.2, 0,0,0,0,0, null) },
+            new AbsOut[]{ new AbsOut(0,"outReal",1) }));
+        ABSTRACT.put("VWMA", new AbsFunc("VWMA", "Overlap Studies", "Volume Weighted Moving Average", "Vwma", 50331648,
+            new AbsIn[]{ new AbsIn(1,"inReal",0), new AbsIn(0,"inPriceV",16) },
+            new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period",30.0, 0,0,0,0,0,0, 1,100000,1,200,1, null) },
             new AbsOut[]{ new AbsOut(0,"outReal",1) }));
         ABSTRACT.put("WCLPRICE", new AbsFunc("WCLPRICE", "Price Transform", "Weighted Close Price", "WclPrice", 50331648,
             new AbsIn[]{ new AbsIn(0,"inPriceHLC",14) },
@@ -149790,8 +153424,8 @@ public class TaCodegenServe {
         return b.toString();
     }
 
-    static final int ABSTRACT_XML_LENGTH = 191505;
-    static final long ABSTRACT_XML_CHECKSUM = 15345387L;
+    static final int ABSTRACT_XML_LENGTH = 195183;
+    static final long ABSTRACT_XML_CHECKSUM = 15640089L;
     static String handleFunctionDescriptionXML() {
         return "{\"length\":" + ABSTRACT_XML_LENGTH + ",\"checksum\":" + ABSTRACT_XML_CHECKSUM + "}";
     }
@@ -149896,6 +153530,7 @@ public class TaCodegenServe {
         else if (json.contains("\"TA_CDLUPSIDEGAP2CROWS\"")) return handle_CDLUPSIDEGAP2CROWS(json);
         else if (json.contains("\"TA_CDLXSIDEGAP3METHODS\"")) return handle_CDLXSIDEGAP3METHODS(json);
         else if (json.contains("\"TA_CEIL\"")) return handle_CEIL(json);
+        else if (json.contains("\"TA_CMF\"")) return handle_CMF(json);
         else if (json.contains("\"TA_CMO\"")) return handle_CMO(json);
         else if (json.contains("\"TA_CMOU\"")) return handle_CMOU(json);
         else if (json.contains("\"TA_CORREL\"")) return handle_CORREL(json);
@@ -149907,6 +153542,7 @@ public class TaCodegenServe {
         else if (json.contains("\"TA_EMA\"")) return handle_EMA(json);
         else if (json.contains("\"TA_EXP\"")) return handle_EXP(json);
         else if (json.contains("\"TA_FLOOR\"")) return handle_FLOOR(json);
+        else if (json.contains("\"TA_HMA\"")) return handle_HMA(json);
         else if (json.contains("\"TA_HT_DCPERIOD\"")) return handle_HT_DCPERIOD(json);
         else if (json.contains("\"TA_HT_DCPHASE\"")) return handle_HT_DCPHASE(json);
         else if (json.contains("\"TA_HT_PHASOR\"")) return handle_HT_PHASOR(json);
@@ -149977,6 +153613,7 @@ public class TaCodegenServe {
         else if (json.contains("\"TA_TYPPRICE\"")) return handle_TYPPRICE(json);
         else if (json.contains("\"TA_ULTOSC\"")) return handle_ULTOSC(json);
         else if (json.contains("\"TA_VAR\"")) return handle_VAR(json);
+        else if (json.contains("\"TA_VWMA\"")) return handle_VWMA(json);
         else if (json.contains("\"TA_WCLPRICE\"")) return handle_WCLPRICE(json);
         else if (json.contains("\"TA_WILLR\"")) return handle_WILLR(json);
         else if (json.contains("\"TA_WMA\"")) return handle_WMA(json);
@@ -150144,6 +153781,8 @@ public class TaCodegenServe {
             sb.append(",");
             sb.append("\"TA_CEIL\"");
             sb.append(",");
+            sb.append("\"TA_CMF\"");
+            sb.append(",");
             sb.append("\"TA_CMO\"");
             sb.append(",");
             sb.append("\"TA_CMOU\"");
@@ -150165,6 +153804,8 @@ public class TaCodegenServe {
             sb.append("\"TA_EXP\"");
             sb.append(",");
             sb.append("\"TA_FLOOR\"");
+            sb.append(",");
+            sb.append("\"TA_HMA\"");
             sb.append(",");
             sb.append("\"TA_HT_DCPERIOD\"");
             sb.append(",");
@@ -150305,6 +153946,8 @@ public class TaCodegenServe {
             sb.append("\"TA_ULTOSC\"");
             sb.append(",");
             sb.append("\"TA_VAR\"");
+            sb.append(",");
+            sb.append("\"TA_VWMA\"");
             sb.append(",");
             sb.append("\"TA_WCLPRICE\"");
             sb.append(",");
@@ -150781,7 +154424,6 @@ public class TaCodegenServe {
             inClose = _tmp_inClose;
         }
         int optInTimePeriod = jsonInt(json, "optInTimePeriod");
-        core.unstablePeriod[1] = jsonInt(json, "unstablePeriod");
         double[] outArr0 = new double[endIdx - startIdx + 1];
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
@@ -155921,6 +159563,79 @@ public class TaCodegenServe {
         return sb.toString();
     }
 
+    static String handle_CMF(String json) {
+        int startIdx = jsonInt(json, "startIdx");
+        int endIdx = jsonInt(json, "endIdx");
+        int use_preloaded = jsonInt(json, "use_preloaded");
+        int bench_iters = jsonInt(json, "iters");
+        if (bench_iters < 1) bench_iters = 1;
+        double[] inHigh = new double[MAX_ARRAY_SIZE];
+        double[] inLow = new double[MAX_ARRAY_SIZE];
+        double[] inClose = new double[MAX_ARRAY_SIZE];
+        double[] inVolume = new double[MAX_ARRAY_SIZE];
+        if (use_preloaded != 0 && refN > 0) {
+            System.arraycopy(refHigh, 0, inHigh, 0, refN);
+            System.arraycopy(refLow, 0, inLow, 0, refN);
+            System.arraycopy(refClose, 0, inClose, 0, refN);
+            System.arraycopy(refVolume, 0, inVolume, 0, refN);
+        } else {
+            double[] _tmp_inHigh = jsonDoubleArray(json, "inHigh");
+            inHigh = _tmp_inHigh;
+            double[] _tmp_inLow = jsonDoubleArray(json, "inLow");
+            inLow = _tmp_inLow;
+            double[] _tmp_inClose = jsonDoubleArray(json, "inClose");
+            inClose = _tmp_inClose;
+            double[] _tmp_inVolume = jsonDoubleArray(json, "inVolume");
+            inVolume = _tmp_inVolume;
+        }
+        int optInTimePeriod = jsonInt(json, "optInTimePeriod");
+        double[] outArr0 = new double[endIdx - startIdx + 1];
+        MInteger outBegIdx = new MInteger();
+        MInteger outNBElement = new MInteger();
+        RetCode rc = RetCode.Success;
+        long startNs = System.nanoTime();
+        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        rc = core.cmf(
+            startIdx, endIdx,
+            inHigh,
+            inLow,
+            inClose,
+            inVolume,
+            optInTimePeriod,
+            outBegIdx, outNBElement, outArr0);
+        }
+        long elapsedNs = (System.nanoTime() - startNs) / bench_iters;
+        if (jsonInt(json, "want_hash") != 0 && jsonInt(json, "full_output") == 0) {
+            long _h = svHashInit();
+            if (rc == RetCode.Success && outNBElement.value > 0) {
+                _h = svHashF64(_h, outArr0, outNBElement.value);
+            }
+            _h = svHashFin(_h);
+            return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
+        }
+        long startNsUng = System.nanoTime();
+        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        rc = core.cmfUnguarded(
+            startIdx, endIdx,
+            inHigh,
+            inLow,
+            inClose,
+            inVolume,
+            optInTimePeriod,
+            outBegIdx, outNBElement, outArr0);
+        }
+        long elapsedNsUng = (System.nanoTime() - startNsUng) / bench_iters;
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"retCode\":").append(rc.toInt());
+        sb.append(",\"outBegIdx\":").append(outBegIdx.value);
+        sb.append(",\"outNBElement\":").append(outNBElement.value);
+        sb.append(",\"outReal\":").append(doubleArrayToJson(outArr0, outNBElement.value));
+        sb.append(",\"timing_ns\":").append(elapsedNs);
+        sb.append(",\"timing_ns_unguarded\":").append(elapsedNsUng);
+        sb.append("}");
+        return sb.toString();
+    }
+
     static String handle_CMO(String json) {
         int startIdx = jsonInt(json, "startIdx");
         int endIdx = jsonInt(json, "endIdx");
@@ -156524,6 +160239,61 @@ public class TaCodegenServe {
         rc = core.floorUnguarded(
             startIdx, endIdx,
             inReal,
+            outBegIdx, outNBElement, outArr0);
+        }
+        long elapsedNsUng = (System.nanoTime() - startNsUng) / bench_iters;
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"retCode\":").append(rc.toInt());
+        sb.append(",\"outBegIdx\":").append(outBegIdx.value);
+        sb.append(",\"outNBElement\":").append(outNBElement.value);
+        sb.append(",\"outReal\":").append(doubleArrayToJson(outArr0, outNBElement.value));
+        sb.append(",\"timing_ns\":").append(elapsedNs);
+        sb.append(",\"timing_ns_unguarded\":").append(elapsedNsUng);
+        sb.append("}");
+        return sb.toString();
+    }
+
+    static String handle_HMA(String json) {
+        int startIdx = jsonInt(json, "startIdx");
+        int endIdx = jsonInt(json, "endIdx");
+        int use_preloaded = jsonInt(json, "use_preloaded");
+        int bench_iters = jsonInt(json, "iters");
+        if (bench_iters < 1) bench_iters = 1;
+        double[] inReal = new double[MAX_ARRAY_SIZE];
+        if (use_preloaded != 0 && refN > 0) {
+            System.arraycopy(refClose, 0, inReal, 0, refN);
+        } else {
+            double[] _tmp_inReal = jsonDoubleArray(json, "inReal");
+            inReal = _tmp_inReal;
+        }
+        int optInTimePeriod = jsonInt(json, "optInTimePeriod");
+        double[] outArr0 = new double[endIdx - startIdx + 1];
+        MInteger outBegIdx = new MInteger();
+        MInteger outNBElement = new MInteger();
+        RetCode rc = RetCode.Success;
+        long startNs = System.nanoTime();
+        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        rc = core.hma(
+            startIdx, endIdx,
+            inReal,
+            optInTimePeriod,
+            outBegIdx, outNBElement, outArr0);
+        }
+        long elapsedNs = (System.nanoTime() - startNs) / bench_iters;
+        if (jsonInt(json, "want_hash") != 0 && jsonInt(json, "full_output") == 0) {
+            long _h = svHashInit();
+            if (rc == RetCode.Success && outNBElement.value > 0) {
+                _h = svHashF64(_h, outArr0, outNBElement.value);
+            }
+            _h = svHashFin(_h);
+            return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
+        }
+        long startNsUng = System.nanoTime();
+        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        rc = core.hmaUnguarded(
+            startIdx, endIdx,
+            inReal,
+            optInTimePeriod,
             outBegIdx, outNBElement, outArr0);
         }
         long elapsedNsUng = (System.nanoTime() - startNsUng) / bench_iters;
@@ -159880,7 +163650,6 @@ public class TaCodegenServe {
         int optInFastK_Period = jsonInt(json, "optInFastK_Period");
         int optInFastD_Period = jsonInt(json, "optInFastD_Period");
         MAType optInFastD_MAType = MAType.values()[jsonInt(json, "optInFastD_MAType")];
-        core.unstablePeriod[22] = jsonInt(json, "unstablePeriod");
         double[] outArr0 = new double[endIdx - startIdx + 1];
         double[] outArr1 = new double[endIdx - startIdx + 1];
         MInteger outBegIdx = new MInteger();
@@ -160686,6 +164455,67 @@ public class TaCodegenServe {
         return sb.toString();
     }
 
+    static String handle_VWMA(String json) {
+        int startIdx = jsonInt(json, "startIdx");
+        int endIdx = jsonInt(json, "endIdx");
+        int use_preloaded = jsonInt(json, "use_preloaded");
+        int bench_iters = jsonInt(json, "iters");
+        if (bench_iters < 1) bench_iters = 1;
+        double[] inReal = new double[MAX_ARRAY_SIZE];
+        double[] inVolume = new double[MAX_ARRAY_SIZE];
+        if (use_preloaded != 0 && refN > 0) {
+            System.arraycopy(refClose, 0, inReal, 0, refN);
+            System.arraycopy(refVolume, 0, inVolume, 0, refN);
+        } else {
+            double[] _tmp_inReal = jsonDoubleArray(json, "inReal");
+            inReal = _tmp_inReal;
+            double[] _tmp_inVolume = jsonDoubleArray(json, "inVolume");
+            inVolume = _tmp_inVolume;
+        }
+        int optInTimePeriod = jsonInt(json, "optInTimePeriod");
+        double[] outArr0 = new double[endIdx - startIdx + 1];
+        MInteger outBegIdx = new MInteger();
+        MInteger outNBElement = new MInteger();
+        RetCode rc = RetCode.Success;
+        long startNs = System.nanoTime();
+        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        rc = core.vwma(
+            startIdx, endIdx,
+            inReal,
+            inVolume,
+            optInTimePeriod,
+            outBegIdx, outNBElement, outArr0);
+        }
+        long elapsedNs = (System.nanoTime() - startNs) / bench_iters;
+        if (jsonInt(json, "want_hash") != 0 && jsonInt(json, "full_output") == 0) {
+            long _h = svHashInit();
+            if (rc == RetCode.Success && outNBElement.value > 0) {
+                _h = svHashF64(_h, outArr0, outNBElement.value);
+            }
+            _h = svHashFin(_h);
+            return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
+        }
+        long startNsUng = System.nanoTime();
+        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        rc = core.vwmaUnguarded(
+            startIdx, endIdx,
+            inReal,
+            inVolume,
+            optInTimePeriod,
+            outBegIdx, outNBElement, outArr0);
+        }
+        long elapsedNsUng = (System.nanoTime() - startNsUng) / bench_iters;
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"retCode\":").append(rc.toInt());
+        sb.append(",\"outBegIdx\":").append(outBegIdx.value);
+        sb.append(",\"outNBElement\":").append(outNBElement.value);
+        sb.append(",\"outReal\":").append(doubleArrayToJson(outArr0, outNBElement.value));
+        sb.append(",\"timing_ns\":").append(elapsedNs);
+        sb.append(",\"timing_ns_unguarded\":").append(elapsedNsUng);
+        sb.append("}");
+        return sb.toString();
+    }
+
     static String handle_WCLPRICE(String json) {
         int startIdx = jsonInt(json, "startIdx");
         int endIdx = jsonInt(json, "endIdx");
@@ -161142,6 +164972,10 @@ public class TaCodegenServe {
         case "CEIL": {
             return core.ceilLookback();
         }
+        case "CMF": {
+            int optInTimePeriod = jsonInt(json, "optInTimePeriod");
+            return core.cmfLookback(optInTimePeriod);
+        }
         case "CMO": {
             int optInTimePeriod = jsonInt(json, "optInTimePeriod");
             return core.cmoLookback(optInTimePeriod);
@@ -161180,6 +165014,10 @@ public class TaCodegenServe {
         }
         case "FLOOR": {
             return core.floorLookback();
+        }
+        case "HMA": {
+            int optInTimePeriod = jsonInt(json, "optInTimePeriod");
+            return core.hmaLookback(optInTimePeriod);
         }
         case "HT_DCPERIOD": {
             return core.htDcPeriodLookback();
@@ -161477,6 +165315,10 @@ public class TaCodegenServe {
             double optInNbDev = jsonDouble(json, "optInNbDev");
             return core.varianceLookback(optInTimePeriod, optInNbDev);
         }
+        case "VWMA": {
+            int optInTimePeriod = jsonInt(json, "optInTimePeriod");
+            return core.vwmaLookback(optInTimePeriod);
+        }
         case "WCLPRICE": {
             return core.wclPriceLookback();
         }
@@ -161577,6 +165419,7 @@ public class TaCodegenServe {
         case "CDLUPSIDEGAP2CROWS": resp = handle_CDLUPSIDEGAP2CROWS(json); break;
         case "CDLXSIDEGAP3METHODS": resp = handle_CDLXSIDEGAP3METHODS(json); break;
         case "CEIL": resp = handle_CEIL(json); break;
+        case "CMF": resp = handle_CMF(json); break;
         case "CMO": resp = handle_CMO(json); break;
         case "CMOU": resp = handle_CMOU(json); break;
         case "CORREL": resp = handle_CORREL(json); break;
@@ -161588,6 +165431,7 @@ public class TaCodegenServe {
         case "EMA": resp = handle_EMA(json); break;
         case "EXP": resp = handle_EXP(json); break;
         case "FLOOR": resp = handle_FLOOR(json); break;
+        case "HMA": resp = handle_HMA(json); break;
         case "HT_DCPERIOD": resp = handle_HT_DCPERIOD(json); break;
         case "HT_DCPHASE": resp = handle_HT_DCPHASE(json); break;
         case "HT_PHASOR": resp = handle_HT_PHASOR(json); break;
@@ -161658,6 +165502,7 @@ public class TaCodegenServe {
         case "TYPPRICE": resp = handle_TYPPRICE(json); break;
         case "ULTOSC": resp = handle_ULTOSC(json); break;
         case "VAR": resp = handle_VAR(json); break;
+        case "VWMA": resp = handle_VWMA(json); break;
         case "WCLPRICE": resp = handle_WCLPRICE(json); break;
         case "WILLR": resp = handle_WILLR(json); break;
         case "WMA": resp = handle_WMA(json); break;
@@ -162339,7 +166184,6 @@ public class TaCodegenServe {
         for (int rd = 0; rd < rounds; rd++) {
             Core c2 = new Core();
             c2.compatibility = (svCompat == 1) ? Compatibility.Metastock : Compatibility.Default;
-            c2.unstablePeriod[1] = svK;
             c2.unstablePeriod[0] = svK;
             RetCode rc = c2.adxr(0, svN - 1, fz_h, fz_l, fz_c, optInTimePeriod, beg, nb, b0);
             int lb = c2.adxrLookback(optInTimePeriod);
@@ -163262,7 +167106,7 @@ public class TaCodegenServe {
         if (svN > 256) svN = 256;
         int svK = jsonInt(json, "unstablePeriod");
         int svCompat = jsonInt(json, "compatibility");
-        int optInTimePeriod = json.contains("\"optInTimePeriod\"") ? jsonInt(json, "optInTimePeriod") : 5;
+        int optInTimePeriod = json.contains("\"optInTimePeriod\"") ? jsonInt(json, "optInTimePeriod") : 20;
         double optInNbDevUp = json.contains("\"optInNbDevUp\"") ? jsonDouble(json, "optInNbDevUp") : 2e0;
         double optInNbDevDn = json.contains("\"optInNbDevDn\"") ? jsonDouble(json, "optInNbDevDn") : 2e0;
         int _raw_optInMAType = json.contains("\"optInMAType\"") ? jsonInt(json, "optInMAType") : 0;
@@ -163382,7 +167226,7 @@ public class TaCodegenServe {
             }
             try {
                 Core.BbandsStream sD = c2.bbandsOpen(fz_c, Integer.MIN_VALUE, optInNbDevUp, optInNbDevDn, optInMAType);
-                Core.BbandsStream sE = c2.bbandsOpen(fz_c, 5, optInNbDevUp, optInNbDevDn, optInMAType);
+                Core.BbandsStream sE = c2.bbandsOpen(fz_c, 20, optInNbDevUp, optInNbDevDn, optInMAType);
                 if (svBne(sD.value().realUpperBand, sE.value().realUpperBand)) { allOk = false; if (diag.isEmpty()) diag = ",\"minValueDefault\":1"; }
                 if (svBne(sD.value().realMiddleBand, sE.value().realMiddleBand)) { allOk = false; if (diag.isEmpty()) diag = ",\"minValueDefault\":1"; }
                 if (svBne(sD.value().realLowerBand, sE.value().realLowerBand)) { allOk = false; if (diag.isEmpty()) diag = ",\"minValueDefault\":1"; }
@@ -169963,6 +173807,110 @@ public class TaCodegenServe {
         return "{\"retCode\":0,\"beg\":" + beg.value + ",\"nb\":" + nb.value + ",\"legs\":" + legs + ",\"fill_checked\":" + fillChecked + ",\"fill_ok\":" + (fillOk ? 1 : 0) + ",\"ok\":" + ((allOk && fillOk) ? 1 : 0) + ",\"peek_ok\":" + (peekAll ? 1 : 0) + diag + "}";
     }
 
+    static String sv_CMF(String json) {
+        int svShape = jsonInt(json, "gen_shape");
+        int svSeed = jsonInt(json, "gen_seed");
+        int svN = jsonInt(json, "gen_n");
+        if (svN < 2) svN = 2;
+        if (svN > 256) svN = 256;
+        int svK = jsonInt(json, "unstablePeriod");
+        int svCompat = jsonInt(json, "compatibility");
+        int optInTimePeriod = json.contains("\"optInTimePeriod\"") ? jsonInt(json, "optInTimePeriod") : 20;
+        double[] fz_o = new double[svN];
+        double[] fz_h = new double[svN];
+        double[] fz_l = new double[svN];
+        double[] fz_c = new double[svN];
+        double[] fz_v = new double[svN];
+        double[] fz_oi = new double[svN];
+        FuzzData.fuzzGen(svShape, svSeed, svN, fz_o, fz_h, fz_l, fz_c, fz_v, fz_oi);
+        double[] b0 = new double[svN];
+        long legs = 0;
+        boolean allOk = true;
+        boolean peekAll = true;
+        int fillChecked = 0;
+        boolean fillOk = true;
+        MInteger beg = new MInteger();
+        MInteger nb = new MInteger();
+        String diag = "";
+        int rounds = 1;
+        for (int rd = 0; rd < rounds; rd++) {
+            Core c2 = new Core();
+            c2.compatibility = (svCompat == 1) ? Compatibility.Metastock : Compatibility.Default;
+            RetCode rc = c2.cmf(0, svN - 1, fz_h, fz_l, fz_c, fz_v, optInTimePeriod, beg, nb, b0);
+            int lb = c2.cmfLookback(optInTimePeriod);
+            if (rc != RetCode.Success || nb.value == 0) {
+                boolean openRejects;
+                try { c2.cmfOpen(fz_h, fz_l, fz_c, fz_v, optInTimePeriod); openRejects = false; } catch (IllegalArgumentException _e) { openRejects = true; }
+                return "{\"retCode\":" + rc.toInt() + ",\"legs\":0,\"nb\":" + nb.value + ",\"openRejects\":" + (openRejects ? 1 : 0) + ",\"ok\":" + (openRejects ? 1 : 0) + ",\"peek_ok\":1}";
+            }
+            fillChecked = 1;
+            try {
+                double[] f0 = new double[svN];
+                MInteger fBeg = new MInteger();
+                MInteger fNb = new MInteger();
+                Core.CmfStream _fh = c2.cmfOpenAndFill(fz_h, fz_l, fz_c, fz_v, optInTimePeriod, fBeg, fNb, f0);
+                if (fBeg.value != beg.value || fNb.value != nb.value) fillOk = false;
+                else {
+                    for (int i = 0; i < nb.value; i++) if (svBne(f0[i], b0[i])) fillOk = false;
+                }
+                try { c2.cmfOpenAndFill(fz_h, fz_l, fz_c, fz_v, optInTimePeriod, fBeg, fNb, fz_h); fillOk = false; } catch (IllegalArgumentException _e) { /* expected: output aliases input */ }
+            } catch (IllegalArgumentException _e) { fillOk = false; }
+            int seedShift = 0;
+            int[] pcs = { lb + 1 + seedShift, lb + 13, svN / 2, svN - 1 };
+            java.util.Arrays.sort(pcs);
+            int prevP = -1;
+            for (int pi = 0; pi < pcs.length; pi++) {
+                int p = pcs[pi];
+                if (p < lb + 1 + seedShift || p > svN - 1 || p == prevP) continue;
+                prevP = p;
+                Core.CmfStream st;
+                try { st = c2.cmfOpen(java.util.Arrays.copyOf(fz_h, p), java.util.Arrays.copyOf(fz_l, p), java.util.Arrays.copyOf(fz_c, p), java.util.Arrays.copyOf(fz_v, p), optInTimePeriod); }
+                catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"openRejectP\":" + p; continue; }
+                legs++;
+                if (svBne(st.value(), b0[p - 1 - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"badBar\":" + (p - 1) + ",\"badOut\":0,\"where\":\"open\""; }
+                for (int t = p; t < svN; t++) {
+                    if (t % 7 == 0) {
+                        double pk = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]);
+                        double up = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]);
+                        if (svBne(pk, up)) peekAll = false;
+                        if (svBne(st.value(), up)) allOk = false;
+                        if (svBne(up, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"badBar\":" + t + ",\"badOut\":0,\"batchv\":\"" + String.format("%016x", Double.doubleToRawLongBits(b0[t - beg.value])) + "\",\"streamv\":\"" + String.format("%016x", Double.doubleToRawLongBits(up)) + "\""; }
+                    } else {
+                        double up = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]);
+                        if (svBne(up, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"badBar\":" + t + ",\"badOut\":0,\"batchv\":\"" + String.format("%016x", Double.doubleToRawLongBits(b0[t - beg.value])) + "\",\"streamv\":\"" + String.format("%016x", Double.doubleToRawLongBits(up)) + "\""; }
+                    }
+                }
+            }
+            {
+                int p0 = lb + 1 + seedShift;
+                if (p0 <= svN - 1) {
+                    try {
+                        Core.CmfStream sA = c2.cmfOpen(java.util.Arrays.copyOf(fz_h, p0), java.util.Arrays.copyOf(fz_l, p0), java.util.Arrays.copyOf(fz_c, p0), java.util.Arrays.copyOf(fz_v, p0), optInTimePeriod);
+                        int mid = (p0 + svN) / 2;
+                        for (int t = p0; t < mid; t++) sA.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]);
+                        Core.CmfStream sB = sA.copy();
+                        for (int t = mid; t < svN; t++) {
+                            double uA = sA.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]);
+                            double uB = sB.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]);
+                            if (svBne(uA, uB) || svBne(uA, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"copyDiverged\":" + t; }
+                        }
+                    } catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"copyOpenReject\":1"; }
+                }
+            }
+            if (lb >= 1 && lb < svN) {
+                try { c2.cmfOpen(java.util.Arrays.copyOf(fz_h, lb), java.util.Arrays.copyOf(fz_l, lb), java.util.Arrays.copyOf(fz_c, lb), java.util.Arrays.copyOf(fz_v, lb), optInTimePeriod); allOk = false; if (diag.isEmpty()) diag = ",\"shortHistoryAccepted\":1"; }
+                catch (InsufficientHistoryException _e) { /* expected, typed */ }
+                catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"shortHistoryWrongType\":1"; }
+            }
+            try {
+                Core.CmfStream sD = c2.cmfOpen(fz_h, fz_l, fz_c, fz_v, Integer.MIN_VALUE);
+                Core.CmfStream sE = c2.cmfOpen(fz_h, fz_l, fz_c, fz_v, 20);
+                if (svBne(sD.value(), sE.value())) { allOk = false; if (diag.isEmpty()) diag = ",\"minValueDefault\":1"; }
+            } catch (IllegalArgumentException _e) { /* defaults need more history than svN — skip */ }
+        }
+        return "{\"retCode\":0,\"beg\":" + beg.value + ",\"nb\":" + nb.value + ",\"legs\":" + legs + ",\"fill_checked\":" + fillChecked + ",\"fill_ok\":" + (fillOk ? 1 : 0) + ",\"ok\":" + ((allOk && fillOk) ? 1 : 0) + ",\"peek_ok\":" + (peekAll ? 1 : 0) + diag + "}";
+    }
+
     static String sv_CMO(String json) {
         int svShape = jsonInt(json, "gen_shape");
         int svSeed = jsonInt(json, "gen_seed");
@@ -171077,6 +175025,110 @@ public class TaCodegenServe {
                 catch (InsufficientHistoryException _e) { /* expected, typed */ }
                 catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"shortHistoryWrongType\":1"; }
             }
+        }
+        return "{\"retCode\":0,\"beg\":" + beg.value + ",\"nb\":" + nb.value + ",\"legs\":" + legs + ",\"fill_checked\":" + fillChecked + ",\"fill_ok\":" + (fillOk ? 1 : 0) + ",\"ok\":" + ((allOk && fillOk) ? 1 : 0) + ",\"peek_ok\":" + (peekAll ? 1 : 0) + diag + "}";
+    }
+
+    static String sv_HMA(String json) {
+        int svShape = jsonInt(json, "gen_shape");
+        int svSeed = jsonInt(json, "gen_seed");
+        int svN = jsonInt(json, "gen_n");
+        if (svN < 2) svN = 2;
+        if (svN > 256) svN = 256;
+        int svK = jsonInt(json, "unstablePeriod");
+        int svCompat = jsonInt(json, "compatibility");
+        int optInTimePeriod = json.contains("\"optInTimePeriod\"") ? jsonInt(json, "optInTimePeriod") : 20;
+        double[] fz_o = new double[svN];
+        double[] fz_h = new double[svN];
+        double[] fz_l = new double[svN];
+        double[] fz_c = new double[svN];
+        double[] fz_v = new double[svN];
+        double[] fz_oi = new double[svN];
+        FuzzData.fuzzGen(svShape, svSeed, svN, fz_o, fz_h, fz_l, fz_c, fz_v, fz_oi);
+        double[] b0 = new double[svN];
+        long legs = 0;
+        boolean allOk = true;
+        boolean peekAll = true;
+        int fillChecked = 0;
+        boolean fillOk = true;
+        MInteger beg = new MInteger();
+        MInteger nb = new MInteger();
+        String diag = "";
+        int rounds = 1;
+        for (int rd = 0; rd < rounds; rd++) {
+            Core c2 = new Core();
+            c2.compatibility = (svCompat == 1) ? Compatibility.Metastock : Compatibility.Default;
+            RetCode rc = c2.hma(0, svN - 1, fz_c, optInTimePeriod, beg, nb, b0);
+            int lb = c2.hmaLookback(optInTimePeriod);
+            if (rc != RetCode.Success || nb.value == 0) {
+                boolean openRejects;
+                try { c2.hmaOpen(fz_c, optInTimePeriod); openRejects = false; } catch (IllegalArgumentException _e) { openRejects = true; }
+                return "{\"retCode\":" + rc.toInt() + ",\"legs\":0,\"nb\":" + nb.value + ",\"openRejects\":" + (openRejects ? 1 : 0) + ",\"ok\":" + (openRejects ? 1 : 0) + ",\"peek_ok\":1}";
+            }
+            fillChecked = 1;
+            try {
+                double[] f0 = new double[svN];
+                MInteger fBeg = new MInteger();
+                MInteger fNb = new MInteger();
+                Core.HmaStream _fh = c2.hmaOpenAndFill(fz_c, optInTimePeriod, fBeg, fNb, f0);
+                if (fBeg.value != beg.value || fNb.value != nb.value) fillOk = false;
+                else {
+                    for (int i = 0; i < nb.value; i++) if (svBne(f0[i], b0[i])) fillOk = false;
+                }
+                try { c2.hmaOpenAndFill(fz_c, optInTimePeriod, fBeg, fNb, fz_c); fillOk = false; } catch (IllegalArgumentException _e) { /* expected: output aliases input */ }
+            } catch (IllegalArgumentException _e) { fillOk = false; }
+            int seedShift = 0;
+            int[] pcs = { lb + 1 + seedShift, lb + 13, svN / 2, svN - 1 };
+            java.util.Arrays.sort(pcs);
+            int prevP = -1;
+            for (int pi = 0; pi < pcs.length; pi++) {
+                int p = pcs[pi];
+                if (p < lb + 1 + seedShift || p > svN - 1 || p == prevP) continue;
+                prevP = p;
+                Core.HmaStream st;
+                try { st = c2.hmaOpen(java.util.Arrays.copyOf(fz_c, p), optInTimePeriod); }
+                catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"openRejectP\":" + p; continue; }
+                legs++;
+                if (svBne(st.value(), b0[p - 1 - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"badBar\":" + (p - 1) + ",\"badOut\":0,\"where\":\"open\""; }
+                for (int t = p; t < svN; t++) {
+                    if (t % 7 == 0) {
+                        double pk = st.peek(fz_c[t]);
+                        double up = st.update(fz_c[t]);
+                        if (svBne(pk, up)) peekAll = false;
+                        if (svBne(st.value(), up)) allOk = false;
+                        if (svBne(up, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"badBar\":" + t + ",\"badOut\":0,\"batchv\":\"" + String.format("%016x", Double.doubleToRawLongBits(b0[t - beg.value])) + "\",\"streamv\":\"" + String.format("%016x", Double.doubleToRawLongBits(up)) + "\""; }
+                    } else {
+                        double up = st.update(fz_c[t]);
+                        if (svBne(up, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"badBar\":" + t + ",\"badOut\":0,\"batchv\":\"" + String.format("%016x", Double.doubleToRawLongBits(b0[t - beg.value])) + "\",\"streamv\":\"" + String.format("%016x", Double.doubleToRawLongBits(up)) + "\""; }
+                    }
+                }
+            }
+            {
+                int p0 = lb + 1 + seedShift;
+                if (p0 <= svN - 1) {
+                    try {
+                        Core.HmaStream sA = c2.hmaOpen(java.util.Arrays.copyOf(fz_c, p0), optInTimePeriod);
+                        int mid = (p0 + svN) / 2;
+                        for (int t = p0; t < mid; t++) sA.update(fz_c[t]);
+                        Core.HmaStream sB = sA.copy();
+                        for (int t = mid; t < svN; t++) {
+                            double uA = sA.update(fz_c[t]);
+                            double uB = sB.update(fz_c[t]);
+                            if (svBne(uA, uB) || svBne(uA, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"copyDiverged\":" + t; }
+                        }
+                    } catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"copyOpenReject\":1"; }
+                }
+            }
+            if (lb >= 1 && lb < svN) {
+                try { c2.hmaOpen(java.util.Arrays.copyOf(fz_c, lb), optInTimePeriod); allOk = false; if (diag.isEmpty()) diag = ",\"shortHistoryAccepted\":1"; }
+                catch (InsufficientHistoryException _e) { /* expected, typed */ }
+                catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"shortHistoryWrongType\":1"; }
+            }
+            try {
+                Core.HmaStream sD = c2.hmaOpen(fz_c, Integer.MIN_VALUE);
+                Core.HmaStream sE = c2.hmaOpen(fz_c, 20);
+                if (svBne(sD.value(), sE.value())) { allOk = false; if (diag.isEmpty()) diag = ",\"minValueDefault\":1"; }
+            } catch (IllegalArgumentException _e) { /* defaults need more history than svN — skip */ }
         }
         return "{\"retCode\":0,\"beg\":" + beg.value + ",\"nb\":" + nb.value + ",\"legs\":" + legs + ",\"fill_checked\":" + fillChecked + ",\"fill_ok\":" + (fillOk ? 1 : 0) + ",\"ok\":" + ((allOk && fillOk) ? 1 : 0) + ",\"peek_ok\":" + (peekAll ? 1 : 0) + diag + "}";
     }
@@ -177097,7 +181149,6 @@ public class TaCodegenServe {
         for (int rd = 0; rd < rounds; rd++) {
             Core c2 = new Core();
             c2.compatibility = (svCompat == 1) ? Compatibility.Metastock : Compatibility.Default;
-            c2.unstablePeriod[22] = svK;
             c2.unstablePeriod[23] = svK;
             c2.unstablePeriod[14] = svK;
             c2.unstablePeriod[13] = svK;
@@ -178517,6 +182568,110 @@ public class TaCodegenServe {
         return "{\"retCode\":0,\"beg\":" + beg.value + ",\"nb\":" + nb.value + ",\"legs\":" + legs + ",\"fill_checked\":" + fillChecked + ",\"fill_ok\":" + (fillOk ? 1 : 0) + ",\"ok\":" + ((allOk && fillOk) ? 1 : 0) + ",\"peek_ok\":" + (peekAll ? 1 : 0) + diag + "}";
     }
 
+    static String sv_VWMA(String json) {
+        int svShape = jsonInt(json, "gen_shape");
+        int svSeed = jsonInt(json, "gen_seed");
+        int svN = jsonInt(json, "gen_n");
+        if (svN < 2) svN = 2;
+        if (svN > 256) svN = 256;
+        int svK = jsonInt(json, "unstablePeriod");
+        int svCompat = jsonInt(json, "compatibility");
+        int optInTimePeriod = json.contains("\"optInTimePeriod\"") ? jsonInt(json, "optInTimePeriod") : 30;
+        double[] fz_o = new double[svN];
+        double[] fz_h = new double[svN];
+        double[] fz_l = new double[svN];
+        double[] fz_c = new double[svN];
+        double[] fz_v = new double[svN];
+        double[] fz_oi = new double[svN];
+        FuzzData.fuzzGen(svShape, svSeed, svN, fz_o, fz_h, fz_l, fz_c, fz_v, fz_oi);
+        double[] b0 = new double[svN];
+        long legs = 0;
+        boolean allOk = true;
+        boolean peekAll = true;
+        int fillChecked = 0;
+        boolean fillOk = true;
+        MInteger beg = new MInteger();
+        MInteger nb = new MInteger();
+        String diag = "";
+        int rounds = 1;
+        for (int rd = 0; rd < rounds; rd++) {
+            Core c2 = new Core();
+            c2.compatibility = (svCompat == 1) ? Compatibility.Metastock : Compatibility.Default;
+            RetCode rc = c2.vwma(0, svN - 1, fz_c, fz_v, optInTimePeriod, beg, nb, b0);
+            int lb = c2.vwmaLookback(optInTimePeriod);
+            if (rc != RetCode.Success || nb.value == 0) {
+                boolean openRejects;
+                try { c2.vwmaOpen(fz_c, fz_v, optInTimePeriod); openRejects = false; } catch (IllegalArgumentException _e) { openRejects = true; }
+                return "{\"retCode\":" + rc.toInt() + ",\"legs\":0,\"nb\":" + nb.value + ",\"openRejects\":" + (openRejects ? 1 : 0) + ",\"ok\":" + (openRejects ? 1 : 0) + ",\"peek_ok\":1}";
+            }
+            fillChecked = 1;
+            try {
+                double[] f0 = new double[svN];
+                MInteger fBeg = new MInteger();
+                MInteger fNb = new MInteger();
+                Core.VwmaStream _fh = c2.vwmaOpenAndFill(fz_c, fz_v, optInTimePeriod, fBeg, fNb, f0);
+                if (fBeg.value != beg.value || fNb.value != nb.value) fillOk = false;
+                else {
+                    for (int i = 0; i < nb.value; i++) if (svBne(f0[i], b0[i])) fillOk = false;
+                }
+                try { c2.vwmaOpenAndFill(fz_c, fz_v, optInTimePeriod, fBeg, fNb, fz_c); fillOk = false; } catch (IllegalArgumentException _e) { /* expected: output aliases input */ }
+            } catch (IllegalArgumentException _e) { fillOk = false; }
+            int seedShift = 0;
+            int[] pcs = { lb + 1 + seedShift, lb + 13, svN / 2, svN - 1 };
+            java.util.Arrays.sort(pcs);
+            int prevP = -1;
+            for (int pi = 0; pi < pcs.length; pi++) {
+                int p = pcs[pi];
+                if (p < lb + 1 + seedShift || p > svN - 1 || p == prevP) continue;
+                prevP = p;
+                Core.VwmaStream st;
+                try { st = c2.vwmaOpen(java.util.Arrays.copyOf(fz_c, p), java.util.Arrays.copyOf(fz_v, p), optInTimePeriod); }
+                catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"openRejectP\":" + p; continue; }
+                legs++;
+                if (svBne(st.value(), b0[p - 1 - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"badBar\":" + (p - 1) + ",\"badOut\":0,\"where\":\"open\""; }
+                for (int t = p; t < svN; t++) {
+                    if (t % 7 == 0) {
+                        double pk = st.peek(fz_c[t], fz_v[t]);
+                        double up = st.update(fz_c[t], fz_v[t]);
+                        if (svBne(pk, up)) peekAll = false;
+                        if (svBne(st.value(), up)) allOk = false;
+                        if (svBne(up, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"badBar\":" + t + ",\"badOut\":0,\"batchv\":\"" + String.format("%016x", Double.doubleToRawLongBits(b0[t - beg.value])) + "\",\"streamv\":\"" + String.format("%016x", Double.doubleToRawLongBits(up)) + "\""; }
+                    } else {
+                        double up = st.update(fz_c[t], fz_v[t]);
+                        if (svBne(up, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"badBar\":" + t + ",\"badOut\":0,\"batchv\":\"" + String.format("%016x", Double.doubleToRawLongBits(b0[t - beg.value])) + "\",\"streamv\":\"" + String.format("%016x", Double.doubleToRawLongBits(up)) + "\""; }
+                    }
+                }
+            }
+            {
+                int p0 = lb + 1 + seedShift;
+                if (p0 <= svN - 1) {
+                    try {
+                        Core.VwmaStream sA = c2.vwmaOpen(java.util.Arrays.copyOf(fz_c, p0), java.util.Arrays.copyOf(fz_v, p0), optInTimePeriod);
+                        int mid = (p0 + svN) / 2;
+                        for (int t = p0; t < mid; t++) sA.update(fz_c[t], fz_v[t]);
+                        Core.VwmaStream sB = sA.copy();
+                        for (int t = mid; t < svN; t++) {
+                            double uA = sA.update(fz_c[t], fz_v[t]);
+                            double uB = sB.update(fz_c[t], fz_v[t]);
+                            if (svBne(uA, uB) || svBne(uA, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = ",\"copyDiverged\":" + t; }
+                        }
+                    } catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"copyOpenReject\":1"; }
+                }
+            }
+            if (lb >= 1 && lb < svN) {
+                try { c2.vwmaOpen(java.util.Arrays.copyOf(fz_c, lb), java.util.Arrays.copyOf(fz_v, lb), optInTimePeriod); allOk = false; if (diag.isEmpty()) diag = ",\"shortHistoryAccepted\":1"; }
+                catch (InsufficientHistoryException _e) { /* expected, typed */ }
+                catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = ",\"shortHistoryWrongType\":1"; }
+            }
+            try {
+                Core.VwmaStream sD = c2.vwmaOpen(fz_c, fz_v, Integer.MIN_VALUE);
+                Core.VwmaStream sE = c2.vwmaOpen(fz_c, fz_v, 30);
+                if (svBne(sD.value(), sE.value())) { allOk = false; if (diag.isEmpty()) diag = ",\"minValueDefault\":1"; }
+            } catch (IllegalArgumentException _e) { /* defaults need more history than svN — skip */ }
+        }
+        return "{\"retCode\":0,\"beg\":" + beg.value + ",\"nb\":" + nb.value + ",\"legs\":" + legs + ",\"fill_checked\":" + fillChecked + ",\"fill_ok\":" + (fillOk ? 1 : 0) + ",\"ok\":" + ((allOk && fillOk) ? 1 : 0) + ",\"peek_ok\":" + (peekAll ? 1 : 0) + diag + "}";
+    }
+
     static String sv_WCLPRICE(String json) {
         int svShape = jsonInt(json, "gen_shape");
         int svSeed = jsonInt(json, "gen_seed");
@@ -178927,6 +183082,7 @@ public class TaCodegenServe {
         case "TA_CDLUPSIDEGAP2CROWS": return sv_CDLUPSIDEGAP2CROWS(json);
         case "TA_CDLXSIDEGAP3METHODS": return sv_CDLXSIDEGAP3METHODS(json);
         case "TA_CEIL": return sv_CEIL(json);
+        case "TA_CMF": return sv_CMF(json);
         case "TA_CMO": return sv_CMO(json);
         case "TA_CMOU": return sv_CMOU(json);
         case "TA_CORREL": return sv_CORREL(json);
@@ -178938,6 +183094,7 @@ public class TaCodegenServe {
         case "TA_EMA": return sv_EMA(json);
         case "TA_EXP": return sv_EXP(json);
         case "TA_FLOOR": return sv_FLOOR(json);
+        case "TA_HMA": return sv_HMA(json);
         case "TA_HT_DCPERIOD": return sv_HT_DCPERIOD(json);
         case "TA_HT_DCPHASE": return sv_HT_DCPHASE(json);
         case "TA_HT_PHASOR": return sv_HT_PHASOR(json);
@@ -179008,6 +183165,7 @@ public class TaCodegenServe {
         case "TA_TYPPRICE": return sv_TYPPRICE(json);
         case "TA_ULTOSC": return sv_ULTOSC(json);
         case "TA_VAR": return sv_VAR(json);
+        case "TA_VWMA": return sv_VWMA(json);
         case "TA_WCLPRICE": return sv_WCLPRICE(json);
         case "TA_WILLR": return sv_WILLR(json);
         case "TA_WMA": return sv_WMA(json);

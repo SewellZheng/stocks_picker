@@ -25,8 +25,8 @@ TA_RetCode wma(int startIdx, int endIdx,
    int *outBegIdx, int *outNBElement,
    double outReal[])
 {
-   int inIdx, outIdx, i, trailingIdx, divider;
-   double periodSum, periodSub, tempReal, trailingValue;
+   int inIdx, outIdx, i, trailingIdx;
+   double periodSum, periodSub, tempReal, trailingValue, divider;
    int lookbackTotal;
 
    lookbackTotal = optInTimePeriod-1;
@@ -55,16 +55,21 @@ TA_RetCode wma(int startIdx, int endIdx,
       *outBegIdx    = startIdx;
       *outNBElement = endIdx-startIdx+1;
 
-      memmove(outReal, &inReal[startIdx], ((int)*outNBElement) * sizeof(double));
+      /* Element loop, not a block copy: the C single-precision variant reads a
+       * float array, so a double-sized byte copy would reinterpret and
+       * over-read it (#137). Forward order keeps the in-place case correct (#94).
+       */
+      inIdx = startIdx;
+      for( i = 0; i < (int)*outNBElement; i++ )
+         outReal[i] = inReal[inIdx++];
 
       return TA_SUCCESS;
    }
 
-   /* Calculate the divider (always an integer value).
-    * By induction: 1+2+3+4+'n' = n(n+1)/2
-    * '>>1' is usually faster than '/2' for unsigned.
+   /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+    * int product n*(n+1) overflows int32 at n>=46341 (#142).
     */
-   divider = (optInTimePeriod*(optInTimePeriod+1))>>1;
+   divider = (double)optInTimePeriod*(optInTimePeriod+1)/2.0;
 
    /* The algo used here use a very basic property of
     * multiplication/addition: (x*2) = x+x

@@ -15,7 +15,10 @@ A two-candle bearish reversal pattern: a long white candle followed by a black c
 
 ## Inputs
 
-- `inPriceOHLC` — OHLC price series (open, high, low, close)
+- `inOpen` — Open price of each bar
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
 
 ## Outputs
 
@@ -23,7 +26,19 @@ A two-candle bearish reversal pattern: a long white candle followed by a black c
 
 ## Parameters
 
-- `optInPenetration` — Fraction of candle 1's real body that candle 2's close must penetrate below close[i-1] (default 0.5); larger values require deeper penetration
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInPenetration` | real | 0.5 | ≥ 0 | Fraction of candle 1's real body that candle 2's close must penetrate below close[i-1]; larger values require deeper penetration |
+
+## Properties
+
+**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">✅</span> **Candlestick** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is an integer candlestick-pattern signal (e.g. -100 / 0 / +100)." data-tip="Output is an integer candlestick-pattern signal (e.g. -100 / 0 / +100).">i</span> |
 
 ## Implementation
 

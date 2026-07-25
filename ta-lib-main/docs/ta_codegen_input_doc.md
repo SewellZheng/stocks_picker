@@ -4,15 +4,19 @@ title: "ta_codegen Input: Documentation (<name>.md) Reference"
 
 # ta_codegen Input: Documentation (`<name>.md`) Reference
 
-> **Status (2026-07-01).** All 161 `<name>.md` source files exist, and `ta_codegen`
+> **Status (2026-07-21).** All 166 `<name>.md` source files exist, and `ta_codegen`
 > generates two render targets from them: the **ta-lib.org website**
 > (`backends/docs_site.rs` → `website/src/functions/`, served at `/functions/<name>`) and the
 > **embedded rustdoc** in the generated Rust crate (`backends/rust_doc.rs`, including a
-> runnable doctest per function, verified by `cargo test --doc`). Still **planned**: the
-> npm/TSDoc render, Javadoc/.NET XML-doc, and the `docs-lint` gate (the "Rendering targets"
-> / "Verification" sections below describe those intended targets). See the sibling
-> references for the two other input file kinds: [metadata](ta_codegen_input_yaml.md) and
-> [code](ta_codegen_input_code.md).
+> runnable doctest per function, verified by `cargo test --doc`). Both inject the YAML
+> numbers for **optional inputs** from the shared `backends/doc_meta.rs` (issue #132), the
+> website as a `## Parameters` table. `## Inputs` is now **gated** instead: it must name the
+> arrays the function is actually called with, in signature order (issue #135) — the price
+> bundle (`inPriceHLC`) is an `ta_abstract` descriptor, not an argument, so it never appears
+> in prose. Still **planned**: injecting YAML facts into `## Inputs` / `## Outputs`, the
+> npm/TSDoc render, Javadoc/.NET XML-doc, and the `docs-lint` gate (the "Rendering targets" /
+> "Verification" sections below describe those intended targets). See the sibling references for the two other
+> input file kinds: [metadata](ta_codegen_input_yaml.md) and [code](ta_codegen_input_code.md).
 
 `<name>.md` is the **third sibling** in each `ta_codegen/input/<name>/` directory,
 alongside `<name>.yaml` (metadata) and `<name>.c` (logic). It is the **single canonical
@@ -44,6 +48,14 @@ at a function that does not exist. A consequence of the split: **most metadata c
 (a widened range, a new default) need no doc edit at all** — the render just picks up the
 new number.
 
+Half of that gate exists today: `docs_site.rs` hard-errors when a function's `## Parameters`
+bullets do not match its YAML `optional_inputs` in name and order, so a parameter renamed on
+one side only cannot ship. The number-contradiction half is still unwritten, and it cannot be
+a blanket "no digits in a structured section" rule — roughly 80 bullets carry legitimate
+non-YAML numbers (the `CDL*` ±100 sign convention, output domains like WILLR's −100…0,
+MACDFIX's hard-coded 12/26 constants that live in `macdfix.c`). It has to compare a number
+against the specific YAML field it names.
+
 ## File format
 
 A `<name>.md` file has **no frontmatter**. It opens with an `#` H1 = the TA-Lib function
@@ -59,7 +71,7 @@ Numbers/ranges/defaults are **injected from YAML** at render — never restate t
 | `## Summary` | yes | One prose block: what the function is + a brief intro **and** how to read its output. Interpretation is merged in — there is **no** separate `Interpretation` section. |
 | `## Formula` | optional | A **brief, high-level** formula, only when the computation is expressible concisely. Omit for long detection lists (`CDL*`) or long DSP computations (`HT_*`) — that detail lives behind the Implementation source link. |
 | `## Notes` | optional | Bullet list of ONLY variations / specification differences from the original indicator (e.g. rounding disabled, a compatibility-mode behavior, a pattern that does not verify the prior trend it classically assumes). **No** implementation mechanics or internal identifiers — those live behind the source link. |
-| `## Inputs` | yes | One short line per **input name** (arity/type come from YAML). |
+| `## Inputs` | yes | One short line per **input name**, matching the call signature in name and order (arity/type come from YAML). A `type: price` bundle is documented as its **components** (`inHigh`, `inLow`, `inClose`) — the bundle name is an `ta_abstract` descriptor, never a parameter. Enforced by `docs_site::validate_inputs`. |
 | `## Outputs` | yes | One short line per **output name**; for `CDL*` state the actual sign(s) emitted (+100 / −100 / 0). |
 | `## Parameters` | if `optional_inputs` | Meaning per optional-input **name** (range / default / `suggested` come from YAML). |
 | `## Implementation` | yes | A **TA-Lib Definition:** line (input `<name>.c` · `.yaml`), then a **Native** table of the generated **C / Rust / Java** files, then a pointer to language wrappers. |
@@ -96,7 +108,7 @@ them per target as needed.
 
 | Target | Mechanism | What is emitted |
 |--------|-----------|-----------------|
-| **ta-lib.org** (VuePress) | `backends/docs_site.rs` → `website/src/functions/<name>.md` (scoped prune) | Summary; brief `$$` formula; Inputs/Outputs/Parameters tables **joining** `.md` prose with live YAML numbers; Notes; Implementation links; cross-links. A cross-function emitter regenerates the grouped `functions/index.md`. |
+| **ta-lib.org** (VuePress) | `backends/docs_site.rs` → `website/src/functions/<name>.md` (scoped prune) | SEO front matter; the authored prose passed through; a `## Parameters` **table joining** `.md` prose with live YAML numbers (type, default, accepted values) plus one italic legend per enum type; `## See Also` linkified to sibling pages. A cross-function emitter regenerates the grouped `functions/index.md`. Inputs/Outputs remain authored bullets — see the status note. |
 | **crates.io / docs.rs** | inline `///` in the generated Rust (`backends/rust_doc.rs`) | Crate `//!` overview + quick-start doctest; per-function summary, ```` ```text ```` formula, notes; `# Arguments` joining `.md` prose with YAML defaults/ranges; `# Errors`/`# Panics`; a **generated runnable doctest** per function (synthetic data, defaults, asserts `Success` — run by `cargo test --doc`); `# See also` intra-doc links; `#[doc(alias)]` from Aliases; trailing ta-lib.org deep link. Plus Cargo.toml `description`/`license`/`homepage`/`keywords`/`categories` and a generated crate README.md. Prose is escaped for rustdoc (`[`, `<` outside code spans; list/quote markers at wrapped-line starts). |
 | **Java / .NET / XML** (phase 3) | Javadoc / XML-doc / `<description>` | Summary + arguments prose. |
 | **npm** (phase 4, when a JS/TS backend exists) | TSDoc `/** */` + README | Summary tier for IntelliSense; `package.json` `homepage`/`documentation` deep link. |

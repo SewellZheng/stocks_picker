@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -56,6 +56,8 @@
  *  052603 MF   Adapt code to compile with .NET Managed C++
  *  111603 MF   Allow period of 1. Just copy input into output.
  *  060907 MF   Use TA_SMA/TA_EMA instead of internal implementation.
+ *  072226 MF,CC Add HMA (issue #139).
+ *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
  */
 
 // Import types from parent module
@@ -75,7 +77,7 @@ impl Core {
     ///
     /// * `optInTimePeriod` — Averaging window length (default 30, range 1..=100000)
     /// * `optInMAType` — Which moving-average algorithm to dispatch to (default 0 = SMA, values:
-    ///   0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
+    ///   0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED)
     ///
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
     /// to select their default value.
@@ -87,7 +89,7 @@ impl Core {
             return usize::MAX;
         }
         let mut retValue: usize = 0_usize;
-        if optInTimePeriod <= 1 {
+        if optInTimePeriod <= 1 || (optInMAType) as usize == 10 {
             return (0) as usize;
         }
         match optInMAType {
@@ -118,6 +120,9 @@ impl Core {
             8 => {
                 retValue = self.t3_lookback(optInTimePeriod, 0.7);
             }
+            9 => {
+                retValue = self.hma_lookback(optInTimePeriod);
+            }
             _ => {
                 retValue = 0;
             }
@@ -136,6 +141,9 @@ impl Core {
     /// # Notes
     ///
     /// * A period of 1 performs no smoothing for every MAType: the output is a copy of the input.
+    /// * `TA_MAType_DISABLED` bypasses smoothing explicitly, for any period: the output is a copy
+    ///   of the input with a lookback of 0. Every function that takes an MAType parameter accepts
+    ///   it.
     ///
     /// # Arguments
     ///
@@ -144,7 +152,7 @@ impl Core {
     /// * `inReal` — Series to average.
     /// * `optInTimePeriod` — Averaging window length (default 30, range 1..=100000)
     /// * `optInMAType` — Which moving-average algorithm to dispatch to (default 0 = SMA, values:
-    ///   0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
+    ///   0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED)
     /// * `outBegIdx` — Set to the input index of the first output value.
     /// * `outNBElement` — Set to the number of output values written.
     /// * `outReal` — Selected moving average of the input.
@@ -177,12 +185,13 @@ impl Core {
     /// let ret = core.ma(0, data.len() - 1, &data, 30, 0, &mut out_beg, &mut out_nb, &mut out);
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
+    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
     /// ```
     ///
     /// # See also
     ///
     /// [`Core::sma`] · [`Core::ema`] · [`Core::wma`] · [`Core::dema`] · [`Core::tema`] ·
-    /// [`Core::trima`] · [`Core::kama`] · [`Core::mama`] · [`Core::t3`]
+    /// [`Core::trima`] · [`Core::kama`] · [`Core::mama`] · [`Core::t3`] · [`Core::hma`]
     ///
     /// Further reading: [ta-lib.org/functions/ma](https://ta-lib.org/functions/ma/)
     #[doc(alias = "MovingAverage")]
@@ -210,7 +219,9 @@ impl Core {
         let mut nbElement: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut todayIdx: usize = 0_usize;
-        if optInTimePeriod == 1 {
+        // No-smoothing identity: period 1 (every MA type) or the explicit
+        // TA_MAType_DISABLED (any period, issue #93). One copy path, lookback 0.
+        if optInTimePeriod == 1 || (optInMAType) as usize == 10 {
             nbElement = endIdx - startIdx + 1;
             (*outNBElement) = nbElement;
             // for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 )
@@ -255,6 +266,9 @@ impl Core {
             8 => {
                 retCode = self.t3_unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
             }
+            9 => {
+                retCode = self.hma_unguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+            }
             _ => {
                 retCode = RetCode::BadParam;
             }
@@ -287,7 +301,7 @@ impl Core {
         let _assertLb = self.ma_lookback(optInTimePeriod, optInMAType);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        if optInTimePeriod == 1 {
+        if optInTimePeriod == 1 || (optInMAType) as usize == 10 {
             nbElement = endIdx - startIdx + 1;
             (*outNBElement) = nbElement;
             // for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 )
@@ -328,6 +342,9 @@ impl Core {
             }
             8 => {
                 retCode = self.t3_unguarded(startIdx, endIdx, inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
+            }
+            9 => {
+                retCode = self.hma_unguarded(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
             }
             _ => {
                 retCode = RetCode::BadParam;
@@ -370,6 +387,7 @@ enum MaSub {
     Kama(KamaStream),
     Mama(MamaStream),
     T3(T3Stream),
+    Hma(HmaStream),
 }
 
 #[allow(non_snake_case)]
@@ -380,7 +398,7 @@ enum MaSub {
 #[allow(unused_parens)]
 impl Core {
     fn ma_step_internal(&self, sp: &mut MaStreamState, inReal: f64, outReal: &mut f64) {
-        if sp.optInTimePeriod == 1 {
+        if sp.optInTimePeriod == 1 || (sp.optInMAType) as usize == 10 {
             (*outReal) = inReal;
             return;
         }
@@ -416,6 +434,9 @@ impl Core {
             MaSub::T3(sub) => {
                 (*outReal) = sub.update(inReal);
             }
+            MaSub::Hma(sub) => {
+                (*outReal) = sub.update(inReal);
+            }
         }
     }
 
@@ -435,7 +456,7 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();
-        if optInTimePeriod == 1 {
+        if optInTimePeriod == 1 || (optInMAType) as usize == 10 {
             if historyLen < self.ma_lookback(optInTimePeriod, optInMAType) + 1 {
                 return Err(RetCode::BadParam);
             }
@@ -478,6 +499,10 @@ impl Core {
             8 => {
                 let (sub, subValue) = self.t3_open_internal(inReal, startIdx, optInTimePeriod, 0.7)?;
                 (MaSub::T3(sub), subValue)
+            }
+            9 => {
+                let (sub, subValue) = self.hma_open_internal(inReal, startIdx, optInTimePeriod)?;
+                (MaSub::Hma(sub), subValue)
             }
             _ => return Err(RetCode::BadParam),
         };
@@ -527,7 +552,7 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();
-        if optInTimePeriod == 1 {
+        if optInTimePeriod == 1 || (optInMAType) as usize == 10 {
             if historyLen < self.ma_lookback(optInTimePeriod, optInMAType) + 1 {
                 return Err(RetCode::BadParam);
             }
@@ -569,6 +594,9 @@ impl Core {
             ),
             8 => MaSub::T3(
                 self.t3_open_and_fill(inReal, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal)?,
+            ),
+            9 => MaSub::Hma(
+                self.hma_open_and_fill(inReal, optInTimePeriod, outBegIdx, outNBElement, outReal)?,
             ),
             _ => return Err(RetCode::BadParam),
         };

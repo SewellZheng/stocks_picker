@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -119,7 +119,7 @@ DEF_FUNCTION( AD,
               TA_GroupId_VolumeIndicators,
               "Chaikin A/D Line",
               "Ad",
-              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_START_DEP
+              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_PATH_DEP
              );
 /* AD END */
 
@@ -199,7 +199,7 @@ DEF_FUNCTION( ADOSC,
               TA_GroupId_VolumeIndicators,
               "Chaikin A/D Oscillator",
               "AdOsc",
-              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_START_DEP
+              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_PATH_DEP
              );
 /* ADOSC END */
 
@@ -251,7 +251,7 @@ DEF_FUNCTION( ADXR,
               TA_GroupId_MomentumIndicators,
               "Average Directional Movement Index Rating",
               "Adxr",
-              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
+              TA_FUNC_FLG_STREAM
              );
 /* ADXR END */
 

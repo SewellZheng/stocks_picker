@@ -22,6 +22,16 @@ Smooth price with a 4-bar WMA (weights 1,2,3,4 /10). Apply the Hilbert Transform
 - `outInPhase` — In-phase component (detrender delayed 3 bars)
 - `outQuadrature` — Quadrature component (Q1 of the Hilbert Transform)
 
+## Properties
+
+**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
+
 ## Implementation
 
 TA-Lib Definition: [`ht_phasor.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/ht_phasor/ht_phasor.c) · [`ht_phasor.yaml`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/ht_phasor/ht_phasor.yaml)

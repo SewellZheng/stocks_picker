@@ -48,6 +48,8 @@
  *  070726 MF,CC  Widen the abstract sweep to the full parameter grid
  *                (all parameter types, min..max+1) with a coherence /
  *                clean-BAD_PARAM / finite-output contract (#94).
+ *  072426 MF,CC  Route the sweep's empty-output (period>input) cases through
+ *                server_verify, extending that contract cross-language (#142).
  */
 
 /* Description:
@@ -113,6 +115,11 @@
 
 /* Buffers for the abstract-driven sweep (max 3 outputs per function). */
 #define PB_MAX_OUTPUT 3
+/* Server-verify scratch bounds: a Price input expands to at most OHLCV+OI (6)
+ * pointers, and MACDEXT carries the most optional params (6). Sized with slack;
+ * pbBuildServerInputs guards the input bound, the opt loop the param bound. */
+#define PB_MAX_INPUT  8
+#define PB_MAX_OPT    8
 
 /* An integer max above this is treated as effectively unbounded: we do not
  * probe max+1 (it would overflow a value no caller ever passes) and leave the
@@ -136,6 +143,7 @@ typedef struct
    ErrorNumber errNb;
    int nbParamTested;
    int nbFail;
+   int nbServerEmpty;   /* empty-output cases cross-checked vs the servers (#142) */
 } PBSweepCtx;
 
 /* Diagnostic: when the environment variable PB_SWEEP_LIST_ALL is set, the
@@ -172,6 +180,7 @@ static ErrorNumber testIdentityAtPeriodOne( const TA_History *history );
 static ErrorNumber testMacdFamilySignalOne( const TA_History *history );
 static ErrorNumber testPeriodOnePins( const TA_History *history );
 static ErrorNumber testMinBoundarySweep( const TA_History *history );
+static ErrorNumber testLinearRegRampOverflowProbe( void );
 
 /**** Local variables definitions.     ****/
 /* None */
@@ -202,6 +211,10 @@ ErrorNumber test_func_period_boundary( TA_History *history )
       return errNb;
 
    errNb = testMinBoundarySweep( history );
+   if( errNb != TA_TEST_PASS )
+      return errNb;
+
+   errNb = testLinearRegRampOverflowProbe();
    if( errNb != TA_TEST_PASS )
       return errNb;
 
@@ -310,10 +323,13 @@ static ErrorNumber testLookbackContract( void )
    PB_CHECK_INT( "TA_TRIX_Lookback(1)", TA_TRIX_Lookback( 1 ), 1 );
    PB_CHECK_INT( "TA_ULTOSC_Lookback(1,1,1)", TA_ULTOSC_Lookback( 1, 1, 1 ), 1 );
 
-   for( i = 0; i <= (int)TA_MAType_T3; i++ )
+   for( i = 0; i <= (int)TA_MAType_DISABLED; i++ )
    {
       PB_CHECK_INT( "TA_MA_Lookback(1,maType)", TA_MA_Lookback( 1, (TA_MAType)i ), 0 );
    }
+   /* TA_MAType_DISABLED ignores the period: lookback is 0 at any period. */
+   PB_CHECK_INT( "TA_MA_Lookback(30,DISABLED)",  TA_MA_Lookback( 30,  TA_MAType_DISABLED ), 0 );
+   PB_CHECK_INT( "TA_MA_Lookback(100,DISABLED)", TA_MA_Lookback( 100, TA_MAType_DISABLED ), 0 );
    PB_CHECK_INT( "TA_MAVP_Lookback(1,2,SMA)", TA_MAVP_Lookback( 1, 2, TA_MAType_SMA ), 1 );
 
    /* TA_INTEGER_DEFAULT maps to the documented default period. */
@@ -489,8 +505,9 @@ static ErrorNumber testIdentityAtPeriodOne( const TA_History *history )
                                 gBuffer[0].out0, (const double[]){ 1, 0.7 }, 2 );
    if( errNb != TA_TEST_PASS ) return errNb;
 
-   /* MA(period=1) for every MAType: the documented "just copy" path. */
-   for( i = 0; i <= (int)TA_MAType_T3; i++ )
+   /* MA(period=1) for every MAType: the documented "just copy" path
+    * (includes TA_MAType_DISABLED, whose copy is period-independent). */
+   for( i = 0; i <= (int)TA_MAType_DISABLED; i++ )
    {
       char label[64];
       snprintf( label, sizeof(label), "MA(1,maType=%d)", i );
@@ -599,6 +616,62 @@ static ErrorNumber testIdentityAtPeriodOne( const TA_History *history )
          printf( "Fail: KAMA(1) range test\n" );
          return errNb;
       }
+   }
+
+   /* TA_MAType_DISABLED (#93): identity copy that IGNORES the period. Unlike
+    * the period==1 path above, it must copy for ANY period, with lookback 0 and
+    * outBegIdx 0. Swept across several periods and bitwise-checked cross-language.
+    */
+   {
+      static const int disabledPeriods[] = { 1, 2, 5, 30, 100 };
+      unsigned int p;
+      for( p = 0; p < sizeof(disabledPeriods)/sizeof(disabledPeriods[0]); p++ )
+      {
+         int period = disabledPeriods[p];
+         char label[64];
+         snprintf( label, sizeof(label), "MA(%d,DISABLED)", period );
+
+         retCode = TA_MA( 0, endIdx, gBuffer[0].in, period, TA_MAType_DISABLED,
+                          &outBegIdx, &outNbElement, gBuffer[0].out0 );
+         errNb = pbCheckCallShape( label, retCode, outBegIdx, 0, outNbElement, endIdx );
+         if( errNb != TA_TEST_PASS ) return errNb;
+         errNb = pbCheckSameSeries( label, gBuffer[0].out0, history->close, outNbElement );
+         if( errNb != TA_TEST_PASS ) return errNb;
+
+         if( server_verify_active() )
+         {
+            errNb = server_verify( "MA", 0, endIdx, history->nbBars,
+                                   retCode, outBegIdx, outNbElement,
+                                   (const TA_Real*[]){ gBuffer[0].in, NULL },
+                                   (const double[]){ (double)period, (double)TA_MAType_DISABLED }, 2,
+                                   (const TA_Real*[]){ gBuffer[0].out0, NULL }, NULL );
+            if( errNb != TA_TEST_PASS )
+            {
+               printf( "Fail: %s: server verification\n", label );
+               return errNb;
+            }
+         }
+      }
+   }
+
+   /* DISABLED propagates through a delegating function: BBANDS with a DISABLED
+    * middle band is the raw price (identity MA), so the bands are price +/-
+    * nbDev*stddev. The standard deviation still needs its period-1 warmup, so
+    * outBegIdx = period-1 while the MA lookback is 0 (the accepted
+    * MAMA-large-period pattern, issue #99); the #99 realignment then pairs each
+    * middle-band price with the standard deviation ending at the same bar.
+    */
+   {
+      int period = 5;
+      retCode = TA_BBANDS( 0, endIdx, gBuffer[0].in, period, 2.0, 2.0, TA_MAType_DISABLED,
+                           &outBegIdx, &outNbElement,
+                           gBuffer[0].out0, gBuffer[0].out1, gBuffer[0].out2 );
+      errNb = pbCheckCallShape( "BBANDS(5,DISABLED)", retCode, outBegIdx, period-1, outNbElement, endIdx );
+      if( errNb != TA_TEST_PASS ) return errNb;
+      /* Middle band == raw price at the aligned bars. */
+      errNb = pbCheckSameSeries( "BBANDS(5,DISABLED) middle", gBuffer[0].out1,
+                                 &history->close[outBegIdx], outNbElement );
+      if( errNb != TA_TEST_PASS ) return errNb;
    }
 
    /* doRangeTest varies the unstable period and leaves it set. */
@@ -769,8 +842,8 @@ static ErrorNumber testMacdFamilySignalOne( const TA_History *history )
                                  (const double[]){ 1 }, 1 );
    if( errNb != TA_TEST_PASS ) return errNb;
 
-   /* MACDEXT with signalPeriod=1 for every signal MAType. */
-   for( maType = 0; maType <= (int)TA_MAType_T3; maType++ )
+   /* MACDEXT with signalPeriod=1 for every signal MAType (incl. DISABLED). */
+   for( maType = 0; maType <= (int)TA_MAType_DISABLED; maType++ )
    {
       char label[64];
       snprintf( label, sizeof(label), "MACDEXT(12,26,sig=1,maType=%d)", maType );
@@ -1221,6 +1294,53 @@ static ErrorNumber pbScanOutputsFinite( const char *label,
    return TA_TEST_PASS;
 }
 
+/* Build the NULL-terminated inputs[] array server_verify expects, mirroring the
+ * paramHolder wiring below: a Price input expands to its used OHLCV+OI
+ * components in that fixed order (identical to server_verify's PRICE_COMPONENTS),
+ * and each Real input is the close series (MAVP's periods array too — matching
+ * the TA_SetInputParamRealPtr calls). Returns the pointer count (excluding the
+ * NULL terminator), or -1 if it would exceed maxInputs. */
+static int pbBuildServerInputs( const TA_FuncInfo *funcInfo,
+                                const TA_History *history,
+                                const TA_Real *inputs[], int maxInputs )
+{
+   const TA_FuncHandle *handle = funcInfo->handle;
+   const TA_InputParameterInfo *inputInfo;
+   const struct { unsigned int flag; const TA_Real *data; } price[] = {
+      { TA_IN_PRICE_OPEN,         history->open },
+      { TA_IN_PRICE_HIGH,         history->high },
+      { TA_IN_PRICE_LOW,          history->low },
+      { TA_IN_PRICE_CLOSE,        history->close },
+      { TA_IN_PRICE_VOLUME,       history->volume },
+      { TA_IN_PRICE_OPENINTEREST, history->openInterest },
+   };
+   unsigned int i;
+   int n = 0, c;
+
+   for( i = 0; i < funcInfo->nbInput; i++ )
+   {
+      TA_GetInputParameterInfo( handle, i, &inputInfo );
+      switch( inputInfo->type )
+      {
+      case TA_Input_Price:
+         for( c = 0; c < 6; c++ )
+            if( inputInfo->flags & price[c].flag )
+            {
+               if( n >= maxInputs - 1 ) return -1;
+               inputs[n++] = price[c].data;
+            }
+         break;
+      case TA_Input_Real:
+      case TA_Input_Integer:   /* no integer-input function today; close is fine */
+         if( n >= maxInputs - 1 ) return -1;
+         inputs[n++] = history->close;
+         break;
+      }
+   }
+   inputs[n] = NULL;
+   return n;
+}
+
 /* Run one sweep case: optional parameter `paramNb` set to `ivalue` (integer
  * params) or `dvalue` (when isReal), every other parameter left at its
  * default. `expect` is PB_EXPECT_STRICT (must succeed, coherent+finite),
@@ -1395,6 +1515,66 @@ static void pbSweepRunCase( PBSweepCtx *ctx,
          TA_ParamHolderFree( paramHolder );
          return;
       }
+
+      /* #142 deferred: extend the empty-output (period > input-length) contract
+       * to the language servers. The generic --codegen / --xlang-hash sweeps keep
+       * every lookback < nbBars (compute_large_int clamps to nbBars-5), so this
+       * is the one boundary they never cross-check. Each server must likewise
+       * return TA_SUCCESS with a zero-length output at the same outBegIdx. */
+      if( server_verify_active() && funcInfo->nbOptInput <= PB_MAX_OPT )
+      {
+         const TA_Real     *svInputs[PB_MAX_INPUT];
+         const TA_Real     *svOutReal[PB_MAX_OUTPUT + 1];
+         const TA_Integer  *svOutInt[PB_MAX_OUTPUT + 1];
+         double             svOpt[PB_MAX_OPT];
+         const TA_OutputParameterInfo *oinfo;
+         unsigned int j;
+         int nReal = 0, nInt = 0;
+         ErrorNumber svErr;
+
+         if( pbBuildServerInputs( funcInfo, history, svInputs, PB_MAX_INPUT ) < 0 )
+         {
+            printf( "\nFail: %s: too many inputs for server verify\n", label );
+            pbFail( ctx );
+            TA_ParamHolderFree( paramHolder );
+            return;
+         }
+
+         /* Full optional-parameter vector: every parameter at the default the
+          * paramHolder used, the swept one at its probed value. */
+         for( j = 0; j < funcInfo->nbOptInput; j++ )
+         {
+            const TA_OptInputParameterInfo *oi;
+            TA_GetOptInputParameterInfo( handle, j, &oi );
+            svOpt[j] = oi->defaultValue;
+         }
+         svOpt[paramNb] = isReal ? dvalue : (double)ivalue;
+
+         for( j = 0; j < funcInfo->nbOutput && j < PB_MAX_OUTPUT; j++ )
+         {
+            TA_GetOutputParameterInfo( handle, j, &oinfo );
+            if( oinfo->type == TA_Output_Integer )
+               svOutInt[nInt++] = &pbSweepOutInt[j][0];
+            else
+               svOutReal[nReal++] = &pbSweepOutReal[j][0];
+         }
+         svOutReal[nReal] = NULL;
+         svOutInt[nInt]   = NULL;
+
+         svErr = server_verify( funcInfo->name, 0, endIdx, (int)history->nbBars,
+                                retCode, outBegIdx, outNbElement,
+                                svInputs, svOpt, (int)funcInfo->nbOptInput,
+                                nReal ? svOutReal : NULL,
+                                nInt  ? svOutInt  : NULL );
+         if( svErr != TA_TEST_PASS )
+         {
+            printf( "Fail: %s: server verification (empty-output contract)\n", label );
+            pbFail( ctx );
+            TA_ParamHolderFree( paramHolder );
+            return;
+         }
+         ctx->nbServerEmpty++;
+      }
    }
 
    TA_ParamHolderFree( paramHolder );
@@ -1568,6 +1748,7 @@ static ErrorNumber testMinBoundarySweep( const TA_History *history )
    ctx.errNb = TA_TEST_PASS;
    ctx.nbParamTested = 0;
    ctx.nbFail = 0;
+   ctx.nbServerEmpty = 0;
    g_pbListAll = ( getenv( "PB_SWEEP_LIST_ALL" ) != NULL );
 
    TA_ForEachFunc( pbSweepOneFunction, &ctx );
@@ -1584,6 +1765,120 @@ static ErrorNumber testMinBoundarySweep( const TA_History *history )
       printf( "\nFail: boundary sweep tested no parameter (enumeration broken?)\n" );
       return TA_REGTEST_OPTIMIZATION_REF_ERROR;
    }
+
+   /* The period > input-length empty-output contract must be exercised against
+    * the servers non-vacuously when they are up (#142 deferred follow-up). */
+   if( server_verify_active() )
+   {
+      if( ctx.nbServerEmpty == 0 )
+      {
+         printf( "\nFail: boundary sweep cross-checked no empty-output case vs the "
+                 "servers (period>input contract vacuous)\n" );
+         return TA_REGTEST_OPTIMIZATION_REF_ERROR;
+      }
+      printf( "  boundary sweep: %d empty-output case(s) cross-checked vs servers\n",
+              ctx.nbServerEmpty );
+   }
+
+   return TA_TEST_PASS;
+}
+
+/* #142 regression: the linear-regression family computed
+ *   SumXSqr = optInTimePeriod*(optInTimePeriod-1)*(2*optInTimePeriod-1)/6
+ * in int32, overflowing (signed-integer-overflow UB) at period >= 1025. This
+ * probe runs the whole family at that supra-threshold period on a tiny (~16 KB)
+ * linear ramp -- a case no prior test reached (reference data tops out at 2760
+ * bars, always at small periods; period=max+1 was only reject-tested, never
+ * computed).
+ *
+ * Where the teeth are: the --sanitize (UBSan) build the nightly runs. The int32
+ * product traps there (-fno-sanitize-recover aborts) while the widened double
+ * form is clean, so a revert to the int expression fails the sanitized run on
+ * these very calls. In a plain -O3 release build the value check below is
+ * effectively VACUOUS -- the optimizer, entitled to assume no signed overflow,
+ * folds the polynomial to the correct value either way -- so a perfect ramp's
+ * closed-form output (least-squares fit is exact) is only a cheap coherence
+ * guard here. The source-form regression guard lives in the generator's
+ * backend_suite.rs (test_period_scaled_arithmetic_is_double_not_int32).
+ */
+#define PB_LR_PROBE_PERIOD 1025
+#define PB_LR_PROBE_N      1030   /* a few outputs past the lookback */
+
+/* Which closed-form value each LR-family output must equal at global bar
+ * `today`, for a ramp value[i] = base + step*i (window position x in
+ * 0..period-1, x=0 the oldest bar; b = intercept at x=0, m = slope). */
+enum { PB_LR_REG = 0, PB_LR_SLOPE, PB_LR_INTERCEPT, PB_LR_TSF, PB_LR_ANGLE };
+
+static ErrorNumber pbLrExpect( const char *label, const TA_Real *out,
+                               TA_Integer begIdx, TA_Integer nbElement,
+                               double base, double step, int period, int kind )
+{
+   TA_Integer i;
+   TA_Integer expectedNb = PB_LR_PROBE_N - ( period - 1 );
+
+   if( nbElement != expectedNb )
+   {
+      printf( "\nFail: %s: outNBElement %d, expected %d (period=%d, n=%d)\n",
+              label, (int)nbElement, (int)expectedNb, period, PB_LR_PROBE_N );
+      return TA_REGTEST_OPTIMIZATION_REF_ERROR;
+   }
+
+   for( i = 0; i < nbElement; i++ )
+   {
+      TA_Integer today = begIdx + i;
+      double want;
+      switch( kind )
+      {
+      case PB_LR_REG:       want = base + step * (double)today;                    break;
+      case PB_LR_SLOPE:     want = step;                                           break;
+      case PB_LR_INTERCEPT: want = base + step * (double)( today - period + 1 );   break;
+      case PB_LR_TSF:       want = base + step * (double)( today + 1 );            break;
+      default:              want = atan( step ) * ( 180.0 / 3.14159265358979323846 ); break;
+      }
+      if( fabs( out[i] - want ) > 1e-6 * ( fabs( want ) + 1.0 ) )
+      {
+         printf( "\nFail: %s [%d]: got %.17g, expected %.17g (#142 int32 overflow at period %d)\n",
+                 label, (int)today, out[i], want, period );
+         return TA_REGTEST_OPTIMIZATION_REF_ERROR;
+      }
+   }
+   return TA_TEST_PASS;
+}
+
+static ErrorNumber testLinearRegRampOverflowProbe( void )
+{
+   static TA_Real ramp[PB_LR_PROBE_N];
+   static TA_Real out[PB_LR_PROBE_N];
+   const double base = 100.0;
+   const double step = 0.25;
+   const int period = PB_LR_PROBE_PERIOD;
+   TA_Integer i, begIdx, nbElement;
+   TA_RetCode rc;
+   ErrorNumber errNb;
+
+   for( i = 0; i < PB_LR_PROBE_N; i++ )
+      ramp[i] = base + step * (double)i;
+
+   #define PB_LR_RUN( FN, LABEL, KIND )                                              \
+      do {                                                                           \
+         rc = FN( 0, PB_LR_PROBE_N - 1, ramp, period, &begIdx, &nbElement, out );    \
+         if( rc != TA_SUCCESS )                                                      \
+         {                                                                           \
+            printf( "\nFail: %s: retCode %d (period=%d)\n", LABEL, (int)rc, period );\
+            return TA_REGTEST_OPTIMIZATION_REF_ERROR;                                \
+         }                                                                           \
+         errNb = pbLrExpect( LABEL, out, begIdx, nbElement, base, step, period, KIND );\
+         if( errNb != TA_TEST_PASS )                                                 \
+            return errNb;                                                            \
+      } while( 0 )
+
+   PB_LR_RUN( TA_LINEARREG,           "LINEARREG@1025",           PB_LR_REG );
+   PB_LR_RUN( TA_LINEARREG_SLOPE,     "LINEARREG_SLOPE@1025",     PB_LR_SLOPE );
+   PB_LR_RUN( TA_LINEARREG_INTERCEPT, "LINEARREG_INTERCEPT@1025", PB_LR_INTERCEPT );
+   PB_LR_RUN( TA_TSF,                 "TSF@1025",                 PB_LR_TSF );
+   PB_LR_RUN( TA_LINEARREG_ANGLE,     "LINEARREG_ANGLE@1025",     PB_LR_ANGLE );
+
+   #undef PB_LR_RUN
 
    return TA_TEST_PASS;
 }

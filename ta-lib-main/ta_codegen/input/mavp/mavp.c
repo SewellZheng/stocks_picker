@@ -9,6 +9,8 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  021807 MF     Initial Version
+ *  072026 MF,CC  Fix #130. Stage results locally so in-place (outReal==inReal)
+ *                calls no longer corrupt the input the ma() passes re-read.
  */
 
 int mavp_lookback(int optInMinPeriod, int optInMaxPeriod, TA_MAType optInMAType)
@@ -28,6 +30,8 @@ TA_RetCode mavp(int startIdx, int endIdx,
    int i, j, lookbackTotal, outputSize, tempInt, curPeriod;
    int *localPeriodArray;
    double *localOutputArray;
+   double *localFinalArray;
+   int finalIsAllocated;
    int localBegIdx;
    int localNbElement;
    TA_RetCode retCode;
@@ -81,6 +85,21 @@ TA_RetCode mavp(int startIdx, int endIdx,
    double *localOutputArray = malloc((outputSize) * sizeof(double));
    int *localPeriodArray = malloc((outputSize) * sizeof(int));
 
+   /* In-place defence (issue #130): each ma() pass below re-reads inReal over
+    * the full range, so with outReal==inReal the results are staged in a
+    * scratch buffer and copied once at the end. A regular call writes
+    * straight to outReal and skips both the allocation and the copy. */
+   finalIsAllocated = 0;
+   if( outReal == inReal )
+   {
+      finalIsAllocated = 1;
+      localFinalArray = malloc((outputSize) * sizeof(double));
+   }
+   else
+   {
+      localFinalArray = outReal;
+   }
+
    /* Copy caller array of period into local buffer.
     * At the same time, truncate to min/max.
     */
@@ -121,27 +140,37 @@ TA_RetCode mavp(int startIdx, int endIdx,
          {
             free(localOutputArray);
             free(localPeriodArray);
-            *outBegIdx = 0;
+            if( finalIsAllocated ) { free(localFinalArray); }
+               *outBegIdx = 0;
             *outNBElement = 0;
             return retCode;
          }
 
-         outReal[i] = localOutputArray[i];
+         localFinalArray[i] = localOutputArray[i];
          for( j=i+1; j < outputSize; j++ )
          {
             if( localPeriodArray[j] == curPeriod )
             {
                localPeriodArray[j] = 0; /* Flag to avoid recalculation */
-               outReal[j] = localOutputArray[j];
+               localFinalArray[j] = localOutputArray[j];
             }
          }
       }
    }
 
+   /* Pointer-inequality guard, not finalIsAllocated: in backends where the
+    * scratch election materializes as a copy (Rust), the copy-back must
+    * always run; in C/Java the non-aliased self-copy is skipped. */
+   if( localFinalArray != outReal )
+   {
+      memcpy(outReal, localFinalArray, outputSize * sizeof(double));
+   }
+
    free(localOutputArray);
    free(localPeriodArray);
+   if( finalIsAllocated ) { free(localFinalArray); }
 
-   /* Done. Inform the caller of the success. */
+      /* Done. Inform the caller of the success. */
    *outBegIdx = startIdx;
    *outNBElement = outputSize;
    return TA_SUCCESS;

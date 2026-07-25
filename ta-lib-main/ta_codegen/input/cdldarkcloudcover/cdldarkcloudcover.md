@@ -10,7 +10,10 @@ A two-candle bearish reversal pattern: a long white candle followed by a black c
 
 ## Inputs
 
-- `inPriceOHLC` — OHLC price series (open, high, low, close)
+- `inOpen` — Open price of each bar
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
 
 ## Outputs
 
@@ -18,7 +21,7 @@ A two-candle bearish reversal pattern: a long white candle followed by a black c
 
 ## Parameters
 
-- `optInPenetration` — Fraction of candle 1's real body that candle 2's close must penetrate below close[i-1] (default 0.5); larger values require deeper penetration
+- `optInPenetration` — Fraction of candle 1's real body that candle 2's close must penetrate below close[i-1]; larger values require deeper penetration
 
 ## Implementation
 

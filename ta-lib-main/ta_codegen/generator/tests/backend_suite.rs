@@ -58,6 +58,14 @@ fn load_indicator(name: &str) -> (ir::FuncDef, HashMap<String, ir::EnumDef>) {
     (func_def, enums)
 }
 
+/// Load the shared `enums.yaml` (MAType, FuncUnstId) — the same source of truth
+/// the generator derives its var() maps from. Used by tests that render enum
+/// constants without needing a full indicator.
+fn load_enums() -> HashMap<String, ir::EnumDef> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input/enums.yaml");
+    parser::enums::load_enums(&path)
+}
+
 /// Like [`load_indicator`], but wires a hand-written source body onto the real
 /// YAML metadata — for fixtures that no shipped `.c` provides. Mirrors the
 /// production load path (`wire_parsed_source`), matching the function by name.
@@ -1715,10 +1723,7 @@ fn backends_render_max_min_fmax_fmin_abs() {
         camel_case: None,
         hint: None,
         flags: vec![],
-        inputs: vec![Input {
-            name: "inReal".to_string(),
-            param_type: ParamType::Real,
-        }],
+        inputs: vec![Input::new("inReal", ParamType::Real)],
         optional_inputs: vec![],
         outputs: vec![Output {
             name: "outReal".to_string(),
@@ -2218,10 +2223,7 @@ fn make_func_with_helper_call(
         camel_case: None,
         hint: None,
         flags: vec![],
-        inputs: vec![ir::Input {
-            name: "inReal".to_string(),
-            param_type: ir::ParamType::Real,
-        }],
+        inputs: vec![ir::Input::new("inReal", ir::ParamType::Real)],
         optional_inputs: vec![],
         outputs: vec![ir::Output {
             name: "outReal".to_string(),
@@ -2314,10 +2316,7 @@ fn inlining_counter_avoids_name_collisions() {
         camel_case: None,
         hint: None,
         flags: vec![],
-        inputs: vec![ir::Input {
-            name: "inReal".to_string(),
-            param_type: ir::ParamType::Real,
-        }],
+        inputs: vec![ir::Input::new("inReal", ir::ParamType::Real)],
         optional_inputs: vec![],
         outputs: vec![ir::Output {
             name: "outReal".to_string(),
@@ -4030,10 +4029,7 @@ fn rust_lookback_param_minus() {
         camel_case: None,
         hint: None,
         flags: vec![],
-        inputs: vec![ir::Input {
-            name: "inReal".to_string(),
-            param_type: ir::ParamType::Real,
-        }],
+        inputs: vec![ir::Input::new("inReal", ir::ParamType::Real)],
         optional_inputs: vec![ir::OptInput {
             name: "optInTimePeriod".to_string(),
             param_type: ir::ParamType::Integer,
@@ -4088,10 +4084,7 @@ fn rust_lookback_none() {
         camel_case: None,
         hint: None,
         flags: vec![],
-        inputs: vec![ir::Input {
-            name: "inReal".to_string(),
-            param_type: ir::ParamType::Real,
-        }],
+        inputs: vec![ir::Input::new("inReal", ir::ParamType::Real)],
         optional_inputs: vec![],
         outputs: vec![ir::Output {
             name: "outReal".to_string(),
@@ -4294,10 +4287,7 @@ fn rust_lookback_code_renders_var_types_correctly() {
         camel_case: None,
         hint: None,
         flags: vec![],
-        inputs: vec![ir::Input {
-            name: "inReal".to_string(),
-            param_type: ir::ParamType::Real,
-        }],
+        inputs: vec![ir::Input::new("inReal", ir::ParamType::Real)],
         optional_inputs: vec![],
         outputs: vec![ir::Output {
             name: "outReal".to_string(),
@@ -4361,7 +4351,9 @@ fn rust_lookback_code_renders_var_types_correctly() {
 
 /// Helper to call Java render_statement with minimal boilerplate.
 fn render_java_stmt(stmt: &ir::Statement) -> String {
-    let enums = HashMap::new();
+    // Real enums so MAType constants resolve from the enums.yaml-derived map
+    // (var() no longer hardcodes the TA_MAType_* → MAType.<Pascal> arms).
+    let enums = load_enums();
     let registry = make_registry();
     let helpers = HelperRegistry::empty();
     let inline_counter = std::cell::Cell::new(0);
@@ -5620,7 +5612,8 @@ fn stochrsi_lookback_cross_calls() {
 
 #[test]
 fn java_var_name_mappings() {
-    let stmts = vec![
+    // Fixed (non-enum) constant renderings.
+    let mut cases: Vec<(String, String)> = [
         ("COMPATIBILITY", "this.compatibility"),
         ("METASTOCK", "Compatibility.Metastock"),
         ("DEFAULT", "Compatibility.Default"),
@@ -5628,26 +5621,29 @@ fn java_var_name_mappings() {
         ("SUCCESS", "RetCode.Success"),
         ("ALLOC_ERR", "RetCode.AllocErr"),
         ("INTERNAL_ERROR", "RetCode.InternalError"),
-        ("TA_MAType_SMA", "MAType.Sma"),
-        ("TA_MAType_EMA", "MAType.Ema"),
-        ("TA_MAType_WMA", "MAType.Wma"),
-        ("TA_MAType_DEMA", "MAType.Dema"),
-        ("TA_MAType_TEMA", "MAType.Tema"),
-        ("TA_MAType_TRIMA", "MAType.Trima"),
-        ("TA_MAType_KAMA", "MAType.Kama"),
-        ("TA_MAType_MAMA", "MAType.Mama"),
-        ("TA_MAType_T3", "MAType.T3"),
-    ];
+    ]
+    .iter()
+    .map(|(a, b)| ((*a).to_string(), (*b).to_string()))
+    .collect();
 
-    for (var_name, expected) in stmts {
+    // MAType constants are derived from enums.yaml — iterate the enum rather than
+    // a literal table so the test can never go stale when a TA_MAType_X row lands.
+    let enums = load_enums();
+    let matype = &enums["MAType"];
+    assert!(!matype.variants.is_empty(), "MAType enum should be non-empty");
+    for v in &matype.variants {
+        cases.push((v.c_name.clone(), format!("MAType.{}", v.pascal_name)));
+    }
+
+    for (var_name, expected) in cases {
         let stmt = ir::Statement::Assign {
             target: ir::Expr::Var("result".to_string()),
-            value: ir::Expr::Var(var_name.to_string()),
+            value: ir::Expr::Var(var_name.clone()),
             compound: false,
         };
         let rendered = render_java_stmt(&stmt);
         assert!(
-            rendered.contains(expected),
+            rendered.contains(&expected),
             "Java Var '{var_name}' should map to '{expected}': {rendered}"
         );
     }
@@ -6370,10 +6366,13 @@ fn test_c_ma_dispatch_stream_section() {
         "MAMA OpenAndFill forwards outReal + NULL"
     );
     assert!(!c.contains("/* no mama stream */"), "no MAMA reject arm remains");
-    // Update/Peek identity short-circuit reads the handle's params.
+    // Update/Peek identity short-circuit reads the handle's params; the guard
+    // also covers the period-independent TA_MAType_DISABLED identity (issue #93).
     assert!(
-        c.contains("if( stream->optInTimePeriod == 1 )"),
-        "identity short-circuit on the handle"
+        c.contains(
+            "if( stream->optInTimePeriod == 1 || stream->optInMAType == TA_MAType_DISABLED )"
+        ),
+        "identity short-circuit on the handle (period 1 or DISABLED)"
     );
     // Peek keeps the handle logically const (const sub cast, no state copy).
     assert!(
@@ -6892,4 +6891,54 @@ fn test_c_bbands_open_frees_prior_intermediate_on_oom() {
         ),
         "scratch output arrays must clean up progressively on OOM"
     );
+}
+
+/// #142 regression: period-scaled dividers/sums must compute in floating point,
+/// never a bare int32 product. The WMA/HMA triangular divider (n*(n+1)/2)
+/// overflows int32 at period 46341; the linear-regression cubic
+/// (n*(n-1)*(2n-1)/6) overflows at period 1025. Both silently returned garbage.
+/// Widening the operands to double is the fix — pin the generated form across
+/// C/Rust/Java so a revert to the int expression trips here instead of at a
+/// period no test data reaches.
+#[test]
+fn test_period_scaled_arithmetic_is_double_not_int32() {
+    // WMA/HMA triangular divider: double, no int32 `>> 1` shift.
+    for name in ["wma", "hma"] {
+        let (func, enums) = load_indicator(name);
+        let out = generate_all(&func, &enums);
+        assert!(
+            !out.c.contains(">> 1"),
+            "{name}: C divider still uses the int32 `>> 1` shift (#142 overflow at period 46341)"
+        );
+        assert!(
+            out.c.contains("(double)optInTimePeriod * (optInTimePeriod + 1) / 2.0"),
+            "{name}: C divider not widened to double (#142)"
+        );
+        assert!(
+            !out.rust.contains(">> 1"),
+            "{name}: Rust divider still forms the int32 product before the cast (#142)"
+        );
+        assert!(
+            !out.java.contains(">> 1"),
+            "{name}: Java divider still uses the int32 `>> 1` shift (#142)"
+        );
+    }
+    // Linear-regression family SumXSqr cubic: double, no int32 `/ 6` division.
+    for name in ["linearreg", "linearreg_slope", "linearreg_intercept", "linearreg_angle", "tsf"] {
+        let (func, enums) = load_indicator(name);
+        let out = generate_all(&func, &enums);
+        assert!(
+            !out.c.contains("/ 6;"),
+            "{name}: C SumXSqr still uses int32 `/ 6` division (#142 cubic overflow at period 1025)"
+        );
+        assert!(
+            out.c
+                .contains("(double)optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6.0"),
+            "{name}: C SumXSqr not widened to double (#142)"
+        );
+        assert!(
+            !out.rust.contains("/ 6) as f64"),
+            "{name}: Rust SumXSqr still forms the int32 cubic before the cast (#142)"
+        );
+    }
 }

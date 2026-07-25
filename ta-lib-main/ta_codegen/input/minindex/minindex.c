@@ -48,8 +48,8 @@ TA_RetCode minindex(int startIdx, int endIdx,
    }
 
    /* Proceed with the calculation for the requested range.
-    * Note that this algorithm allows the input and
-    * output to be the same buffer.
+    * (The integer output can never share the real input's buffer —
+    * different element type; issue #130.)
     */
    outIdx = 0;
    today       = startIdx;
@@ -66,6 +66,7 @@ TA_RetCode minindex(int startIdx, int endIdx,
          lowestIdx = trailingIdx;
          lowest = inReal[lowestIdx];
          i = lowestIdx;
+         TA_UNROLL(4)
          while( ++i<=today )
          {
             tmp = inReal[i];

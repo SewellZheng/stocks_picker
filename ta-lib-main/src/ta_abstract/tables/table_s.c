@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -109,7 +109,7 @@ DEF_FUNCTION( SAR,
               TA_GroupId_OverlapStudies,
               "Parabolic SAR",
               "Sar",
-              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM | TA_FUNC_FLG_START_DEP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM | TA_FUNC_FLG_PATH_DEP
              );
 /* SAR END */
 
@@ -334,7 +334,7 @@ DEF_FUNCTION( SAREXT,
               TA_GroupId_OverlapStudies,
               "Parabolic SAR - Extended",
               "SarExt",
-              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM | TA_FUNC_FLG_START_DEP
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM | TA_FUNC_FLG_PATH_DEP
              );
 /* SAREXT END */
 
@@ -721,7 +721,7 @@ DEF_FUNCTION( STOCHRSI,
               TA_GroupId_MomentumIndicators,
               "Stochastic Relative Strength Index",
               "StochRsi",
-              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
+              TA_FUNC_FLG_STREAM
              );
 /* STOCHRSI END */
 

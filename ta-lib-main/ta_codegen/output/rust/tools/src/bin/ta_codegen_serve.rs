@@ -803,7 +803,7 @@ fn json_i32_array(data: &[i32]) -> String {
 fn func_unst_id_from_int(id: usize) -> Option<FuncUnstId> {
     match id {
         0 => Some(FuncUnstId::Adx),
-        1 => Some(FuncUnstId::Adxr),
+        1 => Some(FuncUnstId::Unused1),
         2 => Some(FuncUnstId::Atr),
         3 => Some(FuncUnstId::Cmo),
         4 => Some(FuncUnstId::Dx),
@@ -824,7 +824,7 @@ fn func_unst_id_from_int(id: usize) -> Option<FuncUnstId> {
         19 => Some(FuncUnstId::PlusDI),
         20 => Some(FuncUnstId::PlusDM),
         21 => Some(FuncUnstId::Rsi),
-        22 => Some(FuncUnstId::StochRsi),
+        22 => Some(FuncUnstId::Unused22),
         23 => Some(FuncUnstId::T3),
         _ => None,
     }
@@ -1434,9 +1434,6 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 inClose = &_json_inClose;
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
-            if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 1, period as i32);
-            }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBegIdx: usize = 0;
@@ -2127,7 +2124,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _json_inReal = parse_f64_array(&params["inReal"]);
                 inReal = &_json_inReal;
             }
-            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(5) as i32;
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
             let optInNbDevUp = params["optInNbDevUp"].as_f64().unwrap_or(2.0) as f64;
             let optInNbDevDn = params["optInNbDevDn"].as_f64().unwrap_or(2.0) as f64;
             let optInMAType = params["optInMAType"].as_i64().unwrap_or(0) as i32;
@@ -8200,6 +8197,102 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             resp.push('}');
             resp
         }
+        "TA_CMF" => {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inHigh: Vec<f64> = Vec::new();
+            let mut _json_inLow: Vec<f64> = Vec::new();
+            let mut _json_inClose: Vec<f64> = Vec::new();
+            let mut _json_inVolume: Vec<f64> = Vec::new();
+            let inHigh: &[f64];
+            let inLow: &[f64];
+            let inClose: &[f64];
+            let inVolume: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inHigh = _fz_h.clone();
+                inHigh = &_json_inHigh;
+                _json_inLow = _fz_l.clone();
+                inLow = &_json_inLow;
+                _json_inClose = _fz_c.clone();
+                inClose = &_json_inClose;
+                _json_inVolume = _fz_v.clone();
+                inVolume = &_json_inVolume;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inHigh = &ref_data.high[..ref_data.n];
+                inLow = &ref_data.low[..ref_data.n];
+                inClose = &ref_data.close[..ref_data.n];
+                inVolume = &ref_data.volume[..ref_data.n];
+            } else {
+                _json_inHigh = parse_f64_array(&params["inHigh"]);
+                inHigh = &_json_inHigh;
+                _json_inLow = parse_f64_array(&params["inLow"]);
+                inLow = &_json_inLow;
+                _json_inClose = parse_f64_array(&params["inClose"]);
+                inClose = &_json_inClose;
+                _json_inVolume = parse_f64_array(&params["inVolume"]);
+                inVolume = &_json_inVolume;
+            }
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
+            let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let start_time = Instant::now();
+            for _bi in 0..bench_iters {
+            rc = core.cmf(
+                startIdx, endIdx,
+                &inHigh,
+                &inLow,
+                &inClose,
+                &inVolume,
+                optInTimePeriod,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+            }
+            let start_time_ung = Instant::now();
+            for _biu in 0..bench_iters {
+            rc = core.cmf_unguarded(
+                startIdx, endIdx,
+                &inHigh,
+                &inLow,
+                &inClose,
+                &inVolume,
+                optInTimePeriod,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            }
+            let elapsed_ns_ung = start_time_ung.elapsed().as_nanos() as u64 / bench_iters as u64;
+            let lookback = core.cmf_lookback(optInTimePeriod);
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{},\"timing_ns_unguarded\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns, elapsed_ns_ung);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push('}');
+            resp
+        }
         "TA_CMO" => {
             let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
@@ -8984,6 +9077,75 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let elapsed_ns_ung = start_time_ung.elapsed().as_nanos() as u64 / bench_iters as u64;
             let lookback = core.floor_lookback();
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{},\"timing_ns_unguarded\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns, elapsed_ns_ung);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push('}');
+            resp
+        }
+        "TA_HMA" => {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inReal: Vec<f64> = Vec::new();
+            let inReal: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inReal = _fz_c.clone();
+                inReal = &_json_inReal;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inReal = &ref_data.close[..ref_data.n];
+            } else {
+                _json_inReal = parse_f64_array(&params["inReal"]);
+                inReal = &_json_inReal;
+            }
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
+            let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let start_time = Instant::now();
+            for _bi in 0..bench_iters {
+            rc = core.hma(
+                startIdx, endIdx,
+                &inReal,
+                optInTimePeriod,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+            }
+            let start_time_ung = Instant::now();
+            for _biu in 0..bench_iters {
+            rc = core.hma_unguarded(
+                startIdx, endIdx,
+                &inReal,
+                optInTimePeriod,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            }
+            let elapsed_ns_ung = start_time_ung.elapsed().as_nanos() as u64 / bench_iters as u64;
+            let lookback = core.hma_lookback(optInTimePeriod);
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{},\"timing_ns_unguarded\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns, elapsed_ns_ung);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push('}');
@@ -13234,9 +13396,6 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let optInFastK_Period = params["optInFastK_Period"].as_i64().unwrap_or(5) as i32;
             let optInFastD_Period = params["optInFastD_Period"].as_i64().unwrap_or(3) as i32;
             let optInFastD_MAType = params["optInFastD_MAType"].as_i64().unwrap_or(0) as i32;
-            if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 22, period as i32);
-            }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBuf1: Vec<f64> = vec![0.0f64; out_size];
@@ -14245,6 +14404,84 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             resp.push('}');
             resp
         }
+        "TA_VWMA" => {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inReal: Vec<f64> = Vec::new();
+            let mut _json_inVolume: Vec<f64> = Vec::new();
+            let inReal: &[f64];
+            let inVolume: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inReal = _fz_c.clone();
+                inReal = &_json_inReal;
+                _json_inVolume = _fz_v.clone();
+                inVolume = &_json_inVolume;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inReal = &ref_data.close[..ref_data.n];
+                inVolume = &ref_data.volume[..ref_data.n];
+            } else {
+                _json_inReal = parse_f64_array(&params["inReal"]);
+                inReal = &_json_inReal;
+                _json_inVolume = parse_f64_array(&params["inVolume"]);
+                inVolume = &_json_inVolume;
+            }
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(30) as i32;
+            let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let start_time = Instant::now();
+            for _bi in 0..bench_iters {
+            rc = core.vwma(
+                startIdx, endIdx,
+                &inReal,
+                &inVolume,
+                optInTimePeriod,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+            }
+            let start_time_ung = Instant::now();
+            for _biu in 0..bench_iters {
+            rc = core.vwma_unguarded(
+                startIdx, endIdx,
+                &inReal,
+                &inVolume,
+                optInTimePeriod,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            }
+            let elapsed_ns_ung = start_time_ung.elapsed().as_nanos() as u64 / bench_iters as u64;
+            let lookback = core.vwma_lookback(optInTimePeriod);
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{},\"timing_ns_unguarded\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns, elapsed_ns_ung);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push('}');
+            resp
+        }
         "TA_WCLPRICE" => {
             let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
@@ -14568,6 +14805,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_CDLUPSIDEGAP2CROWS",
                 "TA_CDLXSIDEGAP3METHODS",
                 "TA_CEIL",
+                "TA_CMF",
                 "TA_CMO",
                 "TA_CMOU",
                 "TA_CORREL",
@@ -14579,6 +14817,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_EMA",
                 "TA_EXP",
                 "TA_FLOOR",
+                "TA_HMA",
                 "TA_HT_DCPERIOD",
                 "TA_HT_DCPHASE",
                 "TA_HT_PHASOR",
@@ -14649,6 +14888,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_TYPPRICE",
                 "TA_ULTOSC",
                 "TA_VAR",
+                "TA_VWMA",
                 "TA_WCLPRICE",
                 "TA_WILLR",
                 "TA_WMA",
@@ -14908,7 +15148,7 @@ fn abstract_lookback(core: &Core, func_name: &str, params: &Value) -> Option<usi
             Some(core.avgprice_lookback())
         }
         "BBANDS" => {
-            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(5) as i32;
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
             let optInNbDevUp = params["optInNbDevUp"].as_f64().unwrap_or(2.0) as f64;
             let optInNbDevDn = params["optInNbDevDn"].as_f64().unwrap_or(2.0) as f64;
             let optInMAType = params["optInMAType"].as_i64().unwrap_or(0) as i32;
@@ -15118,6 +15358,10 @@ fn abstract_lookback(core: &Core, func_name: &str, params: &Value) -> Option<usi
         "CEIL" => {
             Some(core.ceil_lookback())
         }
+        "CMF" => {
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
+            Some(core.cmf_lookback(optInTimePeriod))
+        }
         "CMO" => {
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             Some(core.cmo_lookback(optInTimePeriod))
@@ -15156,6 +15400,10 @@ fn abstract_lookback(core: &Core, func_name: &str, params: &Value) -> Option<usi
         }
         "FLOOR" => {
             Some(core.floor_lookback())
+        }
+        "HMA" => {
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
+            Some(core.hma_lookback(optInTimePeriod))
         }
         "HT_DCPERIOD" => {
             Some(core.ht_dcperiod_lookback())
@@ -15452,6 +15700,10 @@ fn abstract_lookback(core: &Core, func_name: &str, params: &Value) -> Option<usi
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(5) as i32;
             let optInNbDev = params["optInNbDev"].as_f64().unwrap_or(1.0) as f64;
             Some(core.var_lookback(optInTimePeriod, optInNbDev))
+        }
+        "VWMA" => {
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(30) as i32;
+            Some(core.vwma_lookback(optInTimePeriod))
         }
         "WCLPRICE" => {
             Some(core.wclprice_lookback())
@@ -16084,7 +16336,6 @@ fn sv_adxr(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let mut cb = core.to_builder();
-        if let Some(id) = func_unst_id_from_int(1usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(0usize) { cb = cb.unstable_period(id, svK); }
         let c2 = cb.build();
         let rc = c2.adxr(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
@@ -16850,7 +17101,7 @@ fn sv_bbands(core: &Core, params: &Value) -> String {
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
     }
-    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(5) as i32;
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
     let optInNbDevUp = params["optInNbDevUp"].as_f64().unwrap_or(2.0);
     let optInNbDevDn = params["optInNbDevDn"].as_f64().unwrap_or(2.0);
     let optInMAType = params["optInMAType"].as_i64().unwrap_or(0) as i32;
@@ -22724,6 +22975,92 @@ fn sv_ceil(core: &Core, params: &Value) -> String {
     format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), diag)
 }
 
+fn sv_cmf(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
+    if svCompat != 0 {
+        return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
+    }
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let cb = core.to_builder();
+        let c2 = cb.build();
+        let rc = c2.cmf(0, svN - 1, &fz_h, &fz_l, &fz_c, &fz_v, optInTimePeriod, &mut beg, &mut nb, &mut b0);
+        let lb = c2.cmf_lookback(optInTimePeriod);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.cmf_open(&fz_h, &fz_l, &fz_c, &fz_v, optInTimePeriod).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![0.0f64; svN];
+        let mut fBeg = 0usize;
+        let mut fNb = 0usize;
+        match c2.cmf_open_and_fill(&fz_h, &fz_l, &fz_c, &fz_v, optInTimePeriod, &mut fBeg, &mut fNb, &mut f0) {
+            Err(_) => { fill_ok = false; }
+            Ok(_h) => {
+                if fBeg != beg || fNb != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if f0[i].to_bits() != b0[i].to_bits() { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let seed_shift: usize = 0;
+        let mut pcs = vec![lb + 1 + seed_shift, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.cmf_open(&fz_h[..p], &fz_l[..p], &fz_c[..p], &fz_v[..p], optInTimePeriod) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if v0.to_bits() != b0[p - 1 - beg].to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    for t in p..svN {
+                        if t % 7 == 0 {
+                            let pk = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]);
+                            let up = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]);
+                            if pk.to_bits() != up.to_bits() { peek_all = false; }
+                            if up.to_bits() != b0[t - beg].to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        } else {
+                            let up = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]);
+                            if up.to_bits() != b0[t - beg].to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            if c2.cmf_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], &fz_v[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), diag)
+}
+
 fn sv_cmo(core: &Core, params: &Value) -> String {
     let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
     let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -23664,6 +24001,92 @@ fn sv_floor(core: &Core, params: &Value) -> String {
         }
         if lb >= 1 && lb < svN {
             if c2.floor_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), diag)
+}
+
+fn sv_hma(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
+    if svCompat != 0 {
+        return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
+    }
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let cb = core.to_builder();
+        let c2 = cb.build();
+        let rc = c2.hma(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
+        let lb = c2.hma_lookback(optInTimePeriod);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.hma_open(&fz_c, optInTimePeriod).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![0.0f64; svN];
+        let mut fBeg = 0usize;
+        let mut fNb = 0usize;
+        match c2.hma_open_and_fill(&fz_c, optInTimePeriod, &mut fBeg, &mut fNb, &mut f0) {
+            Err(_) => { fill_ok = false; }
+            Ok(_h) => {
+                if fBeg != beg || fNb != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if f0[i].to_bits() != b0[i].to_bits() { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let seed_shift: usize = 0;
+        let mut pcs = vec![lb + 1 + seed_shift, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.hma_open(&fz_c[..p], optInTimePeriod) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if v0.to_bits() != b0[p - 1 - beg].to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    for t in p..svN {
+                        if t % 7 == 0 {
+                            let pk = st.peek(fz_c[t]);
+                            let up = st.update(fz_c[t]);
+                            if pk.to_bits() != up.to_bits() { peek_all = false; }
+                            if up.to_bits() != b0[t - beg].to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        } else {
+                            let up = st.update(fz_c[t]);
+                            if up.to_bits() != b0[t - beg].to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            if c2.hma_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
     format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), diag)
@@ -28671,7 +29094,6 @@ fn sv_stochrsi(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let mut cb = core.to_builder();
-        if let Some(id) = func_unst_id_from_int(22usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(23usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
@@ -29857,6 +30279,92 @@ fn sv_var(core: &Core, params: &Value) -> String {
     format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), diag)
 }
 
+fn sv_vwma(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
+    if svCompat != 0 {
+        return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
+    }
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(30) as i32;
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let cb = core.to_builder();
+        let c2 = cb.build();
+        let rc = c2.vwma(0, svN - 1, &fz_c, &fz_v, optInTimePeriod, &mut beg, &mut nb, &mut b0);
+        let lb = c2.vwma_lookback(optInTimePeriod);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.vwma_open(&fz_c, &fz_v, optInTimePeriod).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![0.0f64; svN];
+        let mut fBeg = 0usize;
+        let mut fNb = 0usize;
+        match c2.vwma_open_and_fill(&fz_c, &fz_v, optInTimePeriod, &mut fBeg, &mut fNb, &mut f0) {
+            Err(_) => { fill_ok = false; }
+            Ok(_h) => {
+                if fBeg != beg || fNb != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if f0[i].to_bits() != b0[i].to_bits() { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let seed_shift: usize = 0;
+        let mut pcs = vec![lb + 1 + seed_shift, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.vwma_open(&fz_c[..p], &fz_v[..p], optInTimePeriod) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if v0.to_bits() != b0[p - 1 - beg].to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    for t in p..svN {
+                        if t % 7 == 0 {
+                            let pk = st.peek(fz_c[t], fz_v[t]);
+                            let up = st.update(fz_c[t], fz_v[t]);
+                            if pk.to_bits() != up.to_bits() { peek_all = false; }
+                            if up.to_bits() != b0[t - beg].to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        } else {
+                            let up = st.update(fz_c[t], fz_v[t]);
+                            if up.to_bits() != b0[t - beg].to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            if c2.vwma_open(&fz_c[..lb], &fz_v[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), diag)
+}
+
 fn sv_wclprice(core: &Core, params: &Value) -> String {
     let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
     let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -30198,6 +30706,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_CDLUPSIDEGAP2CROWS" => sv_cdlupsidegap2crows(core, params),
         "TA_CDLXSIDEGAP3METHODS" => sv_cdlxsidegap3methods(core, params),
         "TA_CEIL" => sv_ceil(core, params),
+        "TA_CMF" => sv_cmf(core, params),
         "TA_CMO" => sv_cmo(core, params),
         "TA_CMOU" => sv_cmou(core, params),
         "TA_CORREL" => sv_correl(core, params),
@@ -30209,6 +30718,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_EMA" => sv_ema(core, params),
         "TA_EXP" => sv_exp(core, params),
         "TA_FLOOR" => sv_floor(core, params),
+        "TA_HMA" => sv_hma(core, params),
         "TA_HT_DCPERIOD" => sv_ht_dcperiod(core, params),
         "TA_HT_DCPHASE" => sv_ht_dcphase(core, params),
         "TA_HT_PHASOR" => sv_ht_phasor(core, params),
@@ -30279,6 +30789,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_TYPPRICE" => sv_typprice(core, params),
         "TA_ULTOSC" => sv_ultosc(core, params),
         "TA_VAR" => sv_var(core, params),
+        "TA_VWMA" => sv_vwma(core, params),
         "TA_WCLPRICE" => sv_wclprice(core, params),
         "TA_WILLR" => sv_willr(core, params),
         "TA_WMA" => sv_wma(core, params),

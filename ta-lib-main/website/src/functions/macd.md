@@ -30,9 +30,21 @@ MACD = EMA_fast - EMA_slow;  Signal = EMA(MACD, signalPeriod);  Hist = MACD - Si
 
 ## Parameters
 
-- `optInFastPeriod` — Period of the fast EMA
-- `optInSlowPeriod` — Period of the slow EMA
-- `optInSignalPeriod` — Smoothing period of the signal line
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInFastPeriod` | integer | 12 | 2–100000 | Period of the fast EMA |
+| `optInSlowPeriod` | integer | 26 | 2–100000 | Period of the slow EMA |
+| `optInSignalPeriod` | integer | 9 | 1–100000 | Smoothing period of the signal line |
+
+## Properties
+
+**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period) — Inherited from EMA, which MACD computes internally; tunable via EMA's unstable period.
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

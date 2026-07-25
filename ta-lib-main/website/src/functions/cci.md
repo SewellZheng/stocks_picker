@@ -18,7 +18,9 @@ CCI = (TP_last - SMA) / (0.015 * meanDev)
 
 ## Inputs
 
-- `inPriceHLC` — High, Low, Close series (typical price is their average)
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
 
 ## Outputs
 
@@ -26,7 +28,19 @@ CCI = (TP_last - SMA) / (0.015 * meanDev)
 
 ## Parameters
 
-- `optInTimePeriod` — Number of bars in the averaging/deviation window
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInTimePeriod` | integer | 14 | 2–100000 | Number of bars in the averaging/deviation window |
+
+## Properties
+
+**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

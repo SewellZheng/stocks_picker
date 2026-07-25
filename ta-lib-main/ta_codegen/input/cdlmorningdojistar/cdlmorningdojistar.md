@@ -11,7 +11,10 @@ A three-candle bullish reversal pattern: a long black candle, then a doji that g
 
 ## Inputs
 
-- `inPriceOHLC` — Open, High, Low, Close price series
+- `inOpen` — Open price of each bar
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
 
 ## Outputs
 
@@ -19,7 +22,7 @@ A three-candle bullish reversal pattern: a long black candle, then a doji that g
 
 ## Parameters
 
-- `optInPenetration` — Fraction (default 0.3) of the 1st candle's real body the 3rd close must exceed above close[i-2]; larger values demand deeper penetration into the black body
+- `optInPenetration` — Fraction of the 1st candle's real body the 3rd close must exceed above close[i-2]; larger values demand deeper penetration into the black body
 
 ## Implementation
 

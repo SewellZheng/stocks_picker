@@ -259,9 +259,9 @@ static int json_is_error(const char *json)
 /* ---- Unstable period lookup ---- */
 
 /* Map function name to TA_FuncUnstId for range-sweep tolerance selection.
- * Entries are the 22 functions that carry TA_FUNC_FLG_UNST_PER, plus the 8
- * EMA-derived functions (DEMA/TEMA/TRIX/MACD/MACDEXT/MACDFIX + APO/PPO) that
- * converge like EMA. APO and PPO now default to EMA (issue #120), so their
+ * Entries are the 20 functions that carry TA_FUNC_FLG_UNST_PER, plus the 10
+ * derived functions (DEMA/TEMA/TRIX/MACD/MACDEXT/MACDFIX + APO/PPO via EMA,
+ * ADXR/STOCHRSI via ADX/RSI) that converge through an internal callee. APO and PPO now default to EMA (issue #120), so their
  * default-parameter range sweep is EMA-converging and needs the loose convergence
  * envelope; the envelope is a safe superset for their finite-window (SMA/WMA/…)
  * parameterisations too. (MACDEXT defaults to SMA but is in this list on the same
@@ -275,7 +275,6 @@ typedef struct {
 
 static const UnstableLookup UNSTABLE_MAP[] = {
     {"ADX",          TA_FUNC_UNST_ADX},
-    {"ADXR",         TA_FUNC_UNST_ADXR},
     {"ATR",          TA_FUNC_UNST_ATR},
     {"CMO",          TA_FUNC_UNST_CMO},
     {"DX",           TA_FUNC_UNST_DX},
@@ -301,7 +300,6 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     {"PLUS_DI",      TA_FUNC_UNST_PLUS_DI},
     {"PLUS_DM",      TA_FUNC_UNST_PLUS_DM},
     {"RSI",          TA_FUNC_UNST_RSI},
-    {"STOCHRSI",     TA_FUNC_UNST_STOCHRSI},
     {"T3",           TA_FUNC_UNST_T3},
     /* EMA-derived: doRangeTest sweeps UNST_EMA, as the hand MA tests do. */
     {"DEMA",         TA_FUNC_UNST_EMA},
@@ -313,6 +311,10 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     /* APO/PPO default to EMA (#120) -> EMA-converging, like MACDEXT. */
     {"APO",          TA_FUNC_UNST_EMA},
     {"PPO",          TA_FUNC_UNST_EMA},
+    /* ADXR/STOCHRSI own knobs were inert and retired (#129); they converge
+     * via their internal ADX/RSI, like the EMA-derived set above. */
+    {"ADXR",         TA_FUNC_UNST_ADX},
+    {"STOCHRSI",     TA_FUNC_UNST_RSI},
 };
 #define NUM_UNSTABLE_MAP (sizeof(UNSTABLE_MAP) / sizeof(UNSTABLE_MAP[0]))
 
@@ -324,15 +326,6 @@ static TA_FuncUnstId get_unst_id(const char *funcName)
             return UNSTABLE_MAP[i].id;
     }
     return TA_FUNC_UNST_NONE;
-}
-
-/* doRangeTest convergence driver; ADXR converges via its internal ADX
- * (same mapping as test_adx.c). Codegen sweeps keep get_unst_id(). */
-static TA_FuncUnstId get_range_unst_id(const char *funcName)
-{
-    if( strcmp(funcName, "ADXR") == 0 ) return TA_FUNC_UNST_ADX;
-    if( strcmp(funcName, "STOCHRSI") == 0 ) return TA_FUNC_UNST_RSI;
-    return get_unst_id(funcName);
 }
 
 /* ---- Generic CodegenRangeTestParam (Task 6) ---- */
@@ -1057,8 +1050,8 @@ static unsigned int get_integer_tolerance(const TA_FuncInfo *funcInfo)
      * Tolerances mirror the hand-written tests (test_adx.c, test_1in_*.c),
      * extended to the whole Wilder family for sampling robustness. */
     /* The start-dependent set is declared at the function definition site by the
-     * `start_dependent` YAML flag (issue #127), surfaced through ta_abstract as
-     * TA_FUNC_FLG_START_DEP — a single source of truth read here from the same
+     * `path_dependent` YAML flag (issue #127), surfaced through ta_abstract as
+     * TA_FUNC_FLG_PATH_DEP — a single source of truth read here from the same
      * flags every ta_abstract consumer sees, no hand-edited second list for each
      * new cumulative / seed-anchored indicator. */
     static const struct { const char *name; unsigned int tol; } perFuncTol[] = {
@@ -1069,7 +1062,7 @@ static unsigned int get_integer_tolerance(const TA_FuncInfo *funcInfo)
         { "HT_DCPHASE", 360 },
         { "HT_SINE", 10 },
     };
-    if( funcInfo->flags & TA_FUNC_FLG_START_DEP )
+    if( funcInfo->flags & TA_FUNC_FLG_PATH_DEP )
         return TA_DO_NOT_COMPARE;
     for( unsigned int i = 0; i < sizeof(perFuncTol)/sizeof(perFuncTol[0]); i++ )
     {
@@ -1102,9 +1095,9 @@ static TA_RangeStability stability_class(const TA_FuncInfo *funcInfo)
 {
     /* SKIP is NOT maintained as a second list here: it is exactly the set that
      * get_integer_tolerance() marks TA_DO_NOT_COMPARE -- the functions carrying
-     * the `start_dependent` YAML flag (accumulations seeded at startIdx and
+     * the `path_dependent` YAML flag (accumulations seeded at startIdx and
      * path-dependent state machines), surfaced through ta_abstract as
-     * TA_FUNC_FLG_START_DEP (issue #127).
+     * TA_FUNC_FLG_PATH_DEP (issue #127).
      * Deriving it from that single source guarantees the real-output skip (this
      * class, via dataWithinReasonableRange) and the integer-output skip
      * (doRangeTestFixSize, keyed on the same DO_NOT_COMPARE) can never drift
@@ -1160,7 +1153,7 @@ static TA_RangeStability stability_class(const TA_FuncInfo *funcInfo)
         if( strcmp(funcInfo->name, epsilon[i]) == 0 )
             return TA_STABLE_EPSILON;
 
-    if( get_range_unst_id(funcInfo->name) != TA_FUNC_UNST_NONE )
+    if( get_unst_id(funcInfo->name) != TA_FUNC_UNST_NONE )
         return TA_STABLE_CONVERGING;
 
     /* Default: a finite-window function without an unstable period compares at
@@ -1245,6 +1238,16 @@ typedef struct {
     int               passed;
     int               failed;
     int               skipped;
+    /* Names behind the aggregate `skipped` count. An unnamed "N skipped" reads
+     * as noise; naming them is what makes a post-cutover addition's reduced
+     * coverage visible at a glance (issue #137). */
+    char              skipNames[MAX_FUNCTIONS][20];
+    int               nbSkipNames;
+    char              intInputSkipNames[MAX_FUNCTIONS][20];
+    int               nbIntInputSkipNames;
+    /* sweep_one_function has its own subset gate that used to `return` with no
+     * counter at all — sweep skips were invisible even in the aggregate. */
+    int               sweepSkipped;
     int               langIndex;   /* index into ALL_LANGUAGES */
     const CodegenLanguage *lang;
     /* Ref differential sweep counters */
@@ -1280,7 +1283,14 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     {
         char needle[80];
         snprintf(needle, sizeof(needle), "\"TA_%s\"", funcInfo->name);
-        if( !strstr(ctx->refFuncList, needle) ) { ctx->skipped++; return; }
+        if( !strstr(ctx->refFuncList, needle) )
+        {
+            if( ctx->nbSkipNames < MAX_FUNCTIONS )
+                strncpy(ctx->skipNames[ctx->nbSkipNames++], funcInfo->name,
+                        sizeof(ctx->skipNames[0]) - 1);
+            ctx->skipped++;
+            return;
+        }
     }
 
     /* Skip functions with integer inputs (very rare, no test data) */
@@ -1315,6 +1325,9 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                     sizeof(g_timingResults[ridx].funcName) - 1);
         }
         /* langs[langIndex].tested stays 0 (skipped) */
+        if( ctx->nbIntInputSkipNames < MAX_FUNCTIONS )
+            strncpy(ctx->intInputSkipNames[ctx->nbIntInputSkipNames++], funcInfo->name,
+                    sizeof(ctx->intInputSkipNames[0]) - 1);
         ctx->skipped++;
         return;
     }
@@ -1506,7 +1519,7 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         errNb = doRangeTestEx(
             codegen_range_generic,
             stability_class(funcInfo),
-            get_range_unst_id(funcInfo->name),
+            get_unst_id(funcInfo->name),
             (void *)&params,
             funcInfo->nbOutput,
             get_integer_tolerance(funcInfo));
@@ -1611,6 +1624,32 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
  */
 
 #define SWEEP_MAX_OPT 16
+
+/* --- Post-freeze enum values (issue #139) --------------------------------
+ * TA_MAType_HMA (9) exists only in the current library: the frozen oracles
+ * (ta_ref_serve @ reference-pre-cutover, ta_064_serve @ v0.6.4) reject it
+ * with TA_BAD_PARAM while the current side computes -- a guaranteed false
+ * mismatch that would diff the feature itself, not a bug. Vector builders
+ * that feed a FROZEN oracle therefore skip IntegerList values above this
+ * max, and the affected run summaries print the skip count so the exclusion
+ * is loud, never silent. Current-vs-current gates are unaffected and DO
+ * exercise the new value: --xlang-hash, stream_verify's enum sweep, the
+ * VARIANT gate and the COMPOSITE hand tests (TA_MAType_HMA dispatch parity).
+ * When a frozen oracle is re-frozen on a tag that includes #139, raise (or
+ * retire) this max accordingly. */
+#define FROZEN_ORACLE_MATYPE_MAX 8   /* == TA_MAType_T3; HMA(9) added by #139 */
+static long long g_frozenEnumSkips = 0;
+
+static int frozen_excludes_enum_value(const TA_OptInputParameterInfo *oi, int value)
+{
+    if( oi->paramName && strstr(oi->paramName, "MAType")
+        && value > FROZEN_ORACLE_MATYPE_MAX )
+    {
+        g_frozenEnumSkips++;
+        return 1;
+    }
+    return 0;
+}
 
 /* Send a set_compatibility to one server. Returns 1 on success. */
 static int sweep_set_compat(CodegenPipe *pipe, int mode, char *respBuf)
@@ -1797,7 +1836,7 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     {
         char needle[80];
         snprintf(needle, sizeof(needle), "\"TA_%s\"", funcInfo->name);
-        if( !strstr(ctx->refFuncList, needle) ) return;
+        if( !strstr(ctx->refFuncList, needle) ) { ctx->sweepSkipped++; return; }
     }
 
     /* Skip functions with integer inputs (same rule as the main pass). */
@@ -1869,7 +1908,11 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         const TA_OptInputParameterInfo *optInfo;
         TA_GetOptInputParameterInfo(funcInfo->handle, i, &optInfo);
 
-        double cand[8];
+        /* Sized past the widest single-param list (MAType: 11 values today, 10
+         * non-default after #93's DISABLED) so the cap below never silently drops
+         * a value even if FROZEN_ORACLE_MATYPE_MAX is retired after a re-freeze
+         * (which would let all non-default MATypes through). */
+        double cand[16];
         int nc = 0;
 
         if( optInfo->type == TA_OptInput_IntegerRange )
@@ -1898,9 +1941,18 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         {
             const TA_IntegerList *l = (const TA_IntegerList *)optInfo->dataSet;
             unsigned int e;
-            for( e = 0; e < l->nbElement && nc < 8; e++ )
+            for( e = 0; e < l->nbElement; e++ )
             {
-                if( l->data[e].value != (int)optInfo->defaultValue )
+                if( l->data[e].value == (int)optInfo->defaultValue )
+                    continue;
+                /* This sweep diffs against the frozen ta_ref_serve: skip enum
+                 * values it predates (counted; see FROZEN_ORACLE_MATYPE_MAX).
+                 * Evaluated BEFORE the cand cap so the exclusion stays loud --
+                 * an `nc` bound in the loop condition would silently truncate
+                 * the tail value instead of counting it. */
+                if( frozen_excludes_enum_value( optInfo, l->data[e].value ) )
+                    continue;
+                if( nc < 16 )
                     cand[nc++] = (double)l->data[e].value;
             }
         }
@@ -2017,8 +2069,15 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
  * functions (and servers without the method) answer with an error and are
  * counted as skips. See docs/streaming-api-proposal.md, Verification. */
 
-#define STREAM_MAX_OPT 8
-#define STREAM_MAX_VEC 64
+/* Headroom over the widest shipped function (SAREXT, 8) so a normal-sized new
+ * function cannot reach the cap. Overflow is a hard failure, never a skip. */
+#define STREAM_MAX_OPT 16
+/* Sized for the widest stream-vector enumeration: MACDEXT carries 3 MAType
+ * params, so its count is 6*M+1 in the MAType-list length M (base 4 + 3 params *
+ * (2 base-vector crosses * (M-1) non-default arms + 1 out-of-list)). M=11 today
+ * (#93 added TA_MAType_DISABLED) => 67; 128 keeps runway for ~10 more MATypes
+ * before MACDEXT reaches it again. Overflow is a hard failure, never a skip. */
+#define STREAM_MAX_VEC 128
 #define STREAM_N       240
 
 static int stream_flag(const char *resp, const char *key)
@@ -2614,6 +2673,9 @@ static ErrorNumber test_codegen_for_language(
     ctx.passed         = 0;
     ctx.failed         = 0;
     ctx.skipped        = 0;
+    ctx.nbSkipNames    = 0;
+    ctx.nbIntInputSkipNames = 0;
+    ctx.sweepSkipped   = 0;
     ctx.langIndex      = langIndex;
     ctx.lang           = lang;
 
@@ -2630,7 +2692,21 @@ static ErrorNumber test_codegen_for_language(
             && strstr(refFuncList, "\"functions\"") )
             ctx.refFuncList = refFuncList;
         else
-            printf("  (warning: ta_ref_serve list_functions failed — subset gate disabled)\n");
+        {
+            /* Fail, don't warn. With refFuncList NULL the subset gate is off,
+             * every function is compared against a reference that does not
+             * have all of them, and the run still prints "0 skipped" — which
+             * reads as MORE coverage than a healthy run, not less (#137). */
+            printf("\nCODEGEN FAILED: ta_ref_serve list_functions failed, so the "
+                   "subset gate cannot be applied.\n"
+                   "  Continuing would report '0 skipped' while silently comparing "
+                   "post-cutover functions\n  against a reference that lacks them.\n");
+            free(refFuncList);
+            free(requestBuf);
+            free(responseBuf);
+            codegen_pipe_close(&cp);
+            return TA_CODEGEN_SUBSET_GATE_UNAVAILABLE;
+        }
     }
 
     TA_ForEachFunc(test_one_function, &ctx);
@@ -2654,10 +2730,15 @@ static ErrorNumber test_codegen_for_language(
     {
         ctx.sweepVariants  = 0;
         ctx.sweepFunctions = 0;
+        g_frozenEnumSkips  = 0;
         TA_ForEachFunc(sweep_one_function, &ctx);
         printf("  Ref differential sweep: %d variants across %d functions%s\n",
                ctx.sweepVariants, ctx.sweepFunctions,
                ctx.error == TA_TEST_PASS ? ", all match ta_ref_serve" : "");
+        if( g_frozenEnumSkips > 0 )
+            printf("  post-freeze enums: %lld MAType value(s) > %d excluded vs ta_ref_serve "
+                   "(#139; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
+                   g_frozenEnumSkips, FROZEN_ORACLE_MATYPE_MAX);
     }
 
     /* Stream verification: batch-vs-stream bitwise, computed in-server.
@@ -2724,6 +2805,30 @@ static ErrorNumber test_codegen_for_language(
 
     printf("\n  %s: %d passed, %d failed, %d skipped\n",
            lang->display, ctx.passed, ctx.failed, ctx.skipped);
+
+    /* Name the skips — an unnamed "6 skipped" reads as noise. The set is the
+     * same for every language, so print it once (issue #137). All four variants
+     * of every function are gated bitwise anyway by the VARIANT group. */
+    if( langIndex == 0 )
+    {
+        int s;
+        if( ctx.nbSkipNames > 0 )
+        {
+            printf("    no frozen-reference baseline (post-cutover): ");
+            for( s = 0; s < ctx.nbSkipNames; s++ )
+                printf("%s%s", ctx.skipNames[s], (s + 1 < ctx.nbSkipNames) ? "," : "");
+            printf("  [sweep skipped %d; all still bitwise-gated by VARIANT]\n",
+                   ctx.sweepSkipped);
+        }
+        if( ctx.nbIntInputSkipNames > 0 )
+        {
+            printf("    integer inputs (no test data): ");
+            for( s = 0; s < ctx.nbIntInputSkipNames; s++ )
+                printf("%s%s", ctx.intInputSkipNames[s],
+                       (s + 1 < ctx.nbIntInputSkipNames) ? "," : "");
+            printf("\n");
+        }
+    }
 
     return TA_TEST_PASS;
 }
@@ -3094,12 +3199,20 @@ static void write_markdown_report(const char *filepath, const char *languageFilt
 static const char *const argv_064[] = {"./ta_064_serve", NULL};
 
 #define FUZZ_MAXN     256   /* bars per config (<= MAX_NB_TEST_ELEMENT) */
-#define FUZZ_MAX_OPT  8
-#define FUZZ_MAX_VEC  48    /* parameter vectors per function. Sized for the
-                             * widest sweep (MACDEXT: 3 period ranges x up to 6
-                             * candidates + 3 MAType lists x 8 = ~42, + defaults).
-                             * fuzz_build_vectors reports any overflow and the
-                             * caller fails the run loudly (no silent drop). */
+#define FUZZ_MAX_OPT  16
+#define FUZZ_MAX_CAND 24    /* candidate values per single param. Only the MAType
+                             * list can approach it: 11 values today (#93 added
+                             * DISABLED) => 10 non-default. Overflow here is
+                             * counted into *overflow so it fails the run LOUDLY —
+                             * without this the MAType sweep would truncate
+                             * silently (it never reaches the FUZZ_MAX_VEC guard). */
+#define FUZZ_MAX_VEC  80    /* parameter vectors per function. MACDEXT is widest:
+                             * 3 period ranges (~6 candidates each) + 3 MAType
+                             * lists (M-1 each) + the defaults vector = ~3*M+16 in
+                             * the MAType-list length M; M=11 today => 48. 80 gives
+                             * runway to M=21, matching STREAM_MAX_VEC.
+                             * fuzz_build_vectors reports any overflow (this cap or
+                             * the cand cap) and the caller fails the run loudly. */
 #define FUZZ_MIN_PERIOD 2   /* period 1 is out of scope vs 0.6.4 (see CLAUDE.md) */
 typedef char fuzz_maxn_fits_output_bufs[FUZZ_MAXN <= MAX_NB_TEST_ELEMENT ? 1 : -1];
 
@@ -3221,9 +3334,14 @@ static unsigned long long fuzz_parse_hash(const char *resp)
 }
 
 /* Parameter vectors: defaults + one-param-varied boundary/list sweeps. */
+/* frozenOracle: 1 when the vectors feed a frozen oracle (--fuzz-064's
+ * ta_064_serve) -- IntegerList values the freeze predates are then excluded
+ * (see FROZEN_ORACLE_MATYPE_MAX). --xlang-hash is current-vs-current and
+ * passes 0, so the new values stay bitwise-gated there. */
 static int fuzz_build_vectors(const TA_FuncInfo *fi,
                               double vec[FUZZ_MAX_VEC][FUZZ_MAX_OPT],
-                              int *overflow)
+                              int *overflow,
+                              int frozenOracle)
 {
     *overflow = 0;
     double def[FUZZ_MAX_OPT];
@@ -3244,7 +3362,7 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
     {
         const TA_OptInputParameterInfo *oi;
         TA_GetOptInputParameterInfo(fi->handle, i, &oi);
-        double cand[10]; int nc = 0, c;
+        double cand[FUZZ_MAX_CAND]; int nc = 0, c;
 
         if( oi->type == TA_OptInput_IntegerRange )
         {
@@ -3265,15 +3383,25 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
                 if( r && v > (int)r->max ) v = (int)r->max;
                 if( v == def_i ) continue;
                 int dup = 0; for( c = 0; c < nc; c++ ) if( (int)cand[c] == v ) dup = 1;
-                if( !dup && nc < 10 ) cand[nc++] = (double)v;
+                if( !dup && nc < FUZZ_MAX_CAND ) cand[nc++] = (double)v;  /* <= 6, cannot overflow */
             }
         }
         else if( oi->type == TA_OptInput_IntegerList )
         {
             const TA_IntegerList *l = (const TA_IntegerList *)oi->dataSet;
-            for( unsigned int e2 = 0; l && e2 < l->nbElement && nc < 10; e2++ )
-                if( l->data[e2].value != (int)oi->defaultValue )
-                    cand[nc++] = (double)l->data[e2].value;
+            for( unsigned int e2 = 0; l && e2 < l->nbElement; e2++ )
+            {
+                if( l->data[e2].value == (int)oi->defaultValue ) continue;
+                if( frozenOracle && frozen_excludes_enum_value( oi, l->data[e2].value ) )
+                    continue;
+                /* A MAType list longer than cand[] would otherwise truncate
+                 * SILENTLY here (this loop never reaches the FUZZ_MAX_VEC guard
+                 * below), quietly dropping arms from the sweep. Count it so the
+                 * run fails loudly instead. #93 took the list to 11 (10
+                 * non-default); FUZZ_MAX_CAND keeps headroom above that. */
+                if( nc >= FUZZ_MAX_CAND ) { (*overflow)++; continue; }
+                cand[nc++] = (double)l->data[e2].value;
+            }
         }
         else if( oi->type == TA_OptInput_RealRange )
         {
@@ -3285,7 +3413,7 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
                 if( fabs(v) > 1e30 ) continue;
                 if( r && (v < r->min || v > r->max) ) continue;
                 if( v == def[i] ) continue;
-                if( nc < 10 ) cand[nc++] = v;
+                if( nc < FUZZ_MAX_CAND ) cand[nc++] = v;  /* <= 2, cannot overflow */
             }
         }
 
@@ -3389,9 +3517,17 @@ static int fma_needs_input_scale(const char *name)
         || strcmp(name, "HT_PHASOR") == 0;
 }
 
-enum { TOL_ABS = 0, TOL_REL_IN = 1, TOL_NAN_TO = 2 };
+enum { TOL_ABS = 0, TOL_REL_IN = 1, TOL_NAN_TO = 2, TOL_REL_OUT = 3 };
 static const struct { const char *name; int mode; double tol; double cap; } FUZZ_064_TOL[] = {
     { "CCI",                 TOL_ABS,    1e-9, 0.0 },  /* #7   near-zero identical-price fix */
+    /* #118 cancellation-free variance. Bounded relative to the OUTPUT, not the
+     * input: VAR's output is a squared quantity, so an inScale-relative bound is
+     * the wrong dimension for it and would be meaningless at FUZZ_EXTREME
+     * magnitudes. Only well-conditioned windows reach here at all — see
+     * fuzz_variance_condition(). */
+    { "VAR",                 TOL_REL_OUT, 1e-9, 0.0 }, /* #118 */
+    { "STDDEV",              TOL_REL_OUT, 1e-9, 0.0 }, /* #118 */
+    { "BBANDS",              TOL_REL_OUT, 1e-9, 0.0 }, /* #118 */
     { "LINEARREG",           TOL_REL_IN, 1e-9, 0.0 },  /* #103 O(1) sliding-sum recurrence   */
     { "LINEARREG_SLOPE",     TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
     { "LINEARREG_INTERCEPT", TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
@@ -3408,6 +3544,70 @@ static const void *fuzz_064_tol_lookup(const char *name, int *mode, double *tol,
         { *mode = FUZZ_064_TOL[i].mode; *tol = FUZZ_064_TOL[i].tol; *cap = FUZZ_064_TOL[i].cap;
           return &FUZZ_064_TOL[i]; }
     return NULL;
+}
+
+/* Conditioning of v0.6.4's variance form over the windows a case evaluates.
+ *
+ * 0.6.4 computes variance as E[x^2] - mean^2, which cancels catastrophically
+ * when the mean dominates the spread (SourceForge bug 90); 0.8.1 uses the
+ * shifted-data form and does not. The severity is the condition number
+ * kappa = mean^2 / variance: 0.6.4 loses roughly log10(kappa) significant
+ * digits, i.e. its relative error is about DBL_EPSILON * kappa.
+ *
+ * Crucially the severity is NOT a property of the window alone. Both versions
+ * keep RUNNING sums over the sliding window, so the accumulators carry rounding
+ * from every value they ever absorbed, not just the ones currently inside it.
+ * On FUZZ_EXTREME (values alternating ~1e9 and ~1e-7) a window of tiny values
+ * looks perfectly conditioned on its own -- measured kappa 26.7 -- while 0.6.4
+ * reports 256 for a true variance of 7.6e-16, because its accumulator absorbed
+ * the ~1e9 values earlier and carries an absolute error of eps*(1e9)^2 ~ 220.
+ *
+ * So the measure is the largest magnitude the accumulators absorb over the case,
+ * squared, against the smallest window variance the case reports:
+ *
+ *     kappa = max|x|^2 / min(variance)
+ *
+ * The naive bound on 0.6.4's relative error is DBL_EPSILON * kappa, but the
+ * sliding accumulator also rounds once per step, so long cases drift further:
+ * at kappa just under 1e6 a 240-bar VAR case was measured at 1.21e-9 relative,
+ * about 5x the naive estimate. The threshold is therefore set an order of
+ * magnitude tighter than the model, which keeps observed divergence inside the
+ * manifest's 1e-9 bound with margin. Returns HUGE_VAL for a flat window, where
+ * 0.6.4 can go negative and produce NaN through the sqrt. */
+#define FUZZ_VAR_MAX_KAPPA 1.0e5
+static double fuzz_variance_condition( const double *x, int n, int period, int s, int e )
+{
+    double maxAbs = 0.0, minVar = HUGE_VAL;
+    int t, first, j;
+
+    if( period < 2 ) return 0.0;      /* no cancellation possible */
+    first = (s > period - 1) ? s : period - 1;
+    if( first > e || first >= n ) return 0.0;
+
+    /* Largest magnitude the running accumulators absorb over this case, from the
+     * first bar they read (window start of the first output) through the last. */
+    for( j = first - period + 1; j <= e && j < n; j++ )
+    {
+        double m = fabs(x[j]);
+        if( m > maxAbs ) maxAbs = m;
+    }
+
+    /* Smallest window variance the case reports. Two-pass on purpose: the test
+     * must not reuse the algorithm under test to decide whether to trust the
+     * oracle. */
+    for( t = first; t <= e && t < n; t++ )
+    {
+        double sum = 0.0, mean, var = 0.0;
+        for( j = t - period + 1; j <= t; j++ ) sum += x[j];
+        mean = sum / (double)period;
+        for( j = t - period + 1; j <= t; j++ ) { double dv = x[j] - mean; var += dv * dv; }
+        var /= (double)period;
+        if( !(var > 0.0) ) return HUGE_VAL;   /* flat window: 0.6.4 can go negative */
+        if( var < minVar ) minVar = var;
+    }
+    if( !(minVar > 0.0) || !(maxAbs > 0.0) ) return HUGE_VAL;
+
+    return (maxAbs * maxAbs) / minVar;
 }
 
 /* Returns 0 if a REAL divergence, 1 if benign (+0.0 vs -0.0), 2 if tolerated
@@ -3483,8 +3683,16 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
                     continue;
                 }
                 double d = a - b; if( d < 0 ) d = -d;
+                /* TOL_REL_OUT is output-relative, so its bound is per element and
+                 * cannot be precomputed like the others. */
+                double outBound = tolBound;
+                if( tolEntry && tolMode == TOL_REL_OUT )
+                {
+                    double m = fabs(a) > fabs(b) ? fabs(a) : fabs(b);
+                    outBound = tolVal * m;
+                }
                 if( a == b ) benignDiff = 1;        /* numerically equal => signed zero */
-                else if( tolEntry && d <= tolBound ) tolDiff = 1; /* within manifest bound */
+                else if( tolEntry && d <= outBound ) tolDiff = 1; /* within manifest bound */
 #if FMA_TRANSITION_TOLERANCE
                 /* One-time FMA re-baseline: within the 1e-9 relative contract,
                  * output-relative (`1e-9 × max(|current|, |v0.6.4|)`). The
@@ -3549,7 +3757,21 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
     if( ctx->error != TA_TEST_PASS ) return;
     if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) ) return;
-    if( funcInfo->nbOptInput > FUZZ_MAX_OPT ) return;
+
+    /* Overflowing the cap must FAIL, not skip. A silent return here would drop
+     * the function from the differential entirely — no message, no counter — so
+     * the run stays green while testing nothing. Same treatment as the
+     * STREAM_MAX_OPT guard above. */
+    if( funcInfo->nbOptInput > FUZZ_MAX_OPT )
+    {
+        printf("FUZZ PARAM OVERFLOW [TA_%s]: %u opt params > FUZZ_MAX_OPT (%d) — "
+               "raise the cap; skipping would make this function's gate vacuous\n",
+               funcInfo->name, funcInfo->nbOptInput, FUZZ_MAX_OPT);
+        ctx->failures++;
+        ctx->funcsWithFailures++;
+        ctx->error = TA_CODEGEN_OUTPUT_MISMATCH;
+        return;
+    }
 
     /* Subset tolerance is 0.6.4-only: skip functions added after 0.6.4. */
     if( ctx->funcList )
@@ -3569,14 +3791,16 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
     /* VAR/STDDEV/BBANDS intentionally diverge from 0.6.4 (issue #118): their
      * variance moved from the catastrophically-cancelling E[x^2]-mean^2 to a
-     * cancellation-free shifted-data form, so on ill-conditioned windows 0.6.4
-     * (which collapsed - SourceForge bug 90) is the wrong oracle. Excluded from the
-     * differential fuzz; the new behaviour is pinned by test_stddev.c and the
-     * BBANDS stable-variance test, and stays bitwise cross-language (--xlang-hash)
-     * and batch==stream (stream_verify). */
-    if( strcmp(funcInfo->name, "VAR") == 0 ||
-        strcmp(funcInfo->name, "STDDEV") == 0 ||
-        strcmp(funcInfo->name, "BBANDS") == 0 ) { ctx->varianceSkipped++; return; }
+     * cancellation-free shifted-data form, so on ILL-CONDITIONED windows 0.6.4
+     * (which collapsed - SourceForge bug 90) is the wrong oracle. Those cases are
+     * skipped per-case below, gated on fuzz_variance_condition(); every
+     * well-conditioned case IS compared, at the manifest's output-relative bound.
+     * The new behaviour is additionally pinned by test_stddev.c and the BBANDS
+     * stable-variance test, stays bitwise cross-language (--xlang-hash) and
+     * batch==stream (stream_verify). */
+    int isVarianceFunc = ( strcmp(funcInfo->name, "VAR") == 0 ||
+                           strcmp(funcInfo->name, "STDDEV") == 0 ||
+                           strcmp(funcInfo->name, "BBANDS") == 0 );
 
     for( i = 0; i < funcInfo->nbInput; i++ )
     {
@@ -3603,11 +3827,11 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
     double vec[FUZZ_MAX_VEC][FUZZ_MAX_OPT];
     int vecOverflow = 0;
-    int nvec = fuzz_build_vectors(funcInfo, vec, &vecOverflow);
+    int nvec = fuzz_build_vectors(funcInfo, vec, &vecOverflow, 1);
     if( vecOverflow > 0 )
     {
         printf("FUZZ VECTOR OVERFLOW [TA_%s]: %d parameter value(s) dropped by "
-               "FUZZ_MAX_VEC — they would go uncompared vs 0.6.4\n",
+               "the FUZZ_MAX_VEC/FUZZ_MAX_CAND caps — they would go uncompared vs 0.6.4\n",
                funcInfo->name, vecOverflow);
         ctx->failures++;   /* run fails: failures != 0 (see the 064 exit check) */
         TA_ParamHolderFree(paramHolder);
@@ -3690,6 +3914,15 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                         }
                     }
                     if( skip98 ) { ctx->skipped98++; continue; }
+                }
+
+                /* #118: compare against 0.6.4 only where its cancelling variance
+                 * form still has significant digits. optInTimePeriod is opt 0 for
+                 * all three; the primary input is close (g_fzBuf[3]). */
+                if( isVarianceFunc )
+                {
+                    double kappa = fuzz_variance_condition( g_fzBuf[3], n, (int)vec[k][0], s, e );
+                    if( kappa > FUZZ_VAR_MAX_KAPPA ) { ctx->varianceSkipped++; continue; }
                 }
 
                 TA_Integer curBeg = 0, curNb = 0;
@@ -3798,6 +4031,7 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     else
         printf("  (warning: list_functions failed — subset gate disabled)\n");
 
+    g_frozenEnumSkips = 0;
     TA_ForEachFunc(fuzz_one_function, &ctx);
 
     free(ctx.reqBuf); free(ctx.respBuf); free(funcList);
@@ -3822,11 +4056,15 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
                "FMA-enabled release is tagged (PR #96)\n", ctx.fmaTol, ctx.maxFmaRel);
 #endif
     if( ctx.stochRsiSkipped > 0 )
-        printf("stochrsi-skipped: %lld STOCHRSI case(s) — intentionally diverges from 0.6.4 (issue #107); pinned by test_stoch.c\n",
+        printf("stochrsi-skipped: %lld STOCHRSI function(s) skipped entirely — intentionally diverges from 0.6.4 (issue #107); pinned by test_stoch.c\n",
                ctx.stochRsiSkipped);
+    if( g_frozenEnumSkips > 0 )
+        printf("post-freeze enums: %lld MAType value(s) > %d excluded vs v0.6.4 "
+               "(#139; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
+               g_frozenEnumSkips, FROZEN_ORACLE_MATYPE_MAX);
     if( ctx.varianceSkipped > 0 )
-        printf("variance-skipped: %lld VAR/STDDEV/BBANDS case(s) — cancellation-free variance re-baseline (issue #118); pinned by test_stddev.c + BBANDS stable-variance test\n",
-               ctx.varianceSkipped);
+        printf("variance-skipped: %lld VAR/STDDEV/BBANDS case(s) ill-conditioned for 0.6.4 (kappa > %.0e, issue #118); every better-conditioned case was compared\n",
+               ctx.varianceSkipped, (double)FUZZ_VAR_MAX_KAPPA);
     if( ctx.serverRestarts )
         printf("oracle restarts (recovered crashes): %d\n", ctx.serverRestarts);
     if( ctx.comparisons == 0 )
@@ -3917,6 +4155,21 @@ typedef struct {
     int          funcsWithFailures;
     ErrorNumber  error;
 } XlangCtx;
+
+/* Count the functions the gate will actually visit, so the banner cannot drift
+ * from reality the way a hardcoded literal does (it read 162 against 165). */
+static void codegen_count_cb(const TA_FuncInfo *funcInfo, void *opaqueData)
+{
+    (void)funcInfo;
+    (*(int *)opaqueData)++;
+}
+
+static int codegen_function_count(void)
+{
+    int n = 0;
+    TA_ForEachFunc(codegen_count_cb, &n);
+    return n;
+}
 
 /* Parse a hex hash string field; *present=0 if the field is absent (which for a
  * gen_present request means the server does not speak the out_hash protocol). */
@@ -4264,7 +4517,18 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
     if( ctx->error != TA_TEST_PASS ) return;
     if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) ) return;
-    if( funcInfo->nbOptInput > FUZZ_MAX_OPT ) return;
+
+    /* See fuzz_one_function: a silent skip would remove this function from the
+     * cross-language bitwise gate with no trace. Fail loudly instead. */
+    if( funcInfo->nbOptInput > FUZZ_MAX_OPT )
+    {
+        printf("XLANG PARAM OVERFLOW [TA_%s]: %u opt params > FUZZ_MAX_OPT (%d) — "
+               "raise the cap; skipping would make this function's gate vacuous\n",
+               funcInfo->name, funcInfo->nbOptInput, FUZZ_MAX_OPT);
+        ctx->funcsWithFailures++;
+        ctx->error = TA_CODEGEN_OUTPUT_MISMATCH;
+        return;
+    }
 
     for( i = 0; i < funcInfo->nbInput; i++ )
     {
@@ -4291,7 +4555,7 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
     double vec[FUZZ_MAX_VEC][FUZZ_MAX_OPT];
     int vecOverflow = 0;
-    int nvec = fuzz_build_vectors(funcInfo, vec, &vecOverflow);
+    int nvec = fuzz_build_vectors(funcInfo, vec, &vecOverflow, 0);
     if( vecOverflow > 0 )
     {
         printf("XLANG VECTOR OVERFLOW [TA_%s]: %d parameter value(s) dropped\n",
@@ -4553,7 +4817,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
     if( inFails == 0 && ctx.error == TA_TEST_PASS )
     {
         printf("\nOutput parity gate (%d function(s) x shapes x seeds x sizes x params x subranges)...\n",
-               162);
+               codegen_function_count());
         TA_ForEachFunc(xlang_one_function, &ctx);
     }
     else if( inFails > 0 )

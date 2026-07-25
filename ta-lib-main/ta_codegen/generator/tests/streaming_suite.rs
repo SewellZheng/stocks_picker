@@ -522,6 +522,7 @@ fn every_matype_is_streamable_except_tracked_blockers() {
         ("KAMA", "kama"),
         ("MAMA", "mama"),
         ("T3", "t3"),
+        ("HMA", "hma"),
     ];
     // Not-yet-streamable MAType functions (deep blockers). MUST ONLY SHRINK.
     // NOW EMPTY: MAMA streamed in M7c (it is an ordinary HT function — WMA ring +
@@ -575,7 +576,7 @@ fn ma_derives_dispatch_plan() {
     };
     assert_eq!(dp.param, "optInMAType");
     assert!(dp.identity.is_some(), "period==1 identity path");
-    assert_eq!(dp.arms.len(), 9, "all nine batch arms recognized");
+    assert_eq!(dp.arms.len(), 10, "all ten batch arms recognized");
     let supported: Vec<&str> = dp
         .arms
         .iter()
@@ -584,13 +585,15 @@ fn ma_derives_dispatch_plan() {
         .collect();
     assert_eq!(
         supported,
-        ["sma", "ema", "wma", "dema", "tema", "trima", "kama", "mama", "t3"],
+        ["sma", "ema", "wma", "dema", "tema", "trima", "kama", "mama", "t3", "hma"],
         "every arm streams: single-output MAs plus MAMA via its nullable FAMA \
-         (TRIMA joined in M6c, MAMA via nullable outputs in #125)"
+         (TRIMA joined in M6c, MAMA via nullable outputs in #125, HMA via the \
+         dual-mode buffer union in #141)"
     );
-    // No reject arms remain — MAMA is now a supported trailing-NULL delegation.
+    // No reject arms remain: HMA (#139) was the last, flipped to supported by
+    // its YAML `stream` flag + the dual-mode per-arm buffer union (#141).
     let rejected: Vec<&str> = dp.unsupported_labels();
-    assert!(rejected.is_empty(), "no MAType rejects: got {rejected:?}");
+    assert!(rejected.is_empty(), "no reject arms remain, got {rejected:?}");
     // The MAMA arm forwards mama's output 0 (the MAMA line) into MA's single
     // output and discards output 1 (FAMA, nullable) as NULL. This map is what
     // the C emitter renders as `TA_MAMA_*( ..., outReal, NULL )`.

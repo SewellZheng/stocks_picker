@@ -1644,6 +1644,28 @@ public class TaCodegenServe {
         out int outBegIdx, out int outNBElement,
         double[] outArr0);
 
+    [DllImport("ta_codegen_funcs", EntryPoint = "TA_CMF")]
+    static extern int TA_CMF(
+        int startIdx, int endIdx,
+        double[] inHigh,
+        double[] inLow,
+        double[] inClose,
+        double[] inVolume,
+        int optInTimePeriod,
+        out int outBegIdx, out int outNBElement,
+        double[] outArr0);
+
+    [DllImport("ta_codegen_funcs", EntryPoint = "TA_CMF_Unguarded")]
+    static extern int TA_CMF_Unguarded(
+        int startIdx, int endIdx,
+        double[] inHigh,
+        double[] inLow,
+        double[] inClose,
+        double[] inVolume,
+        int optInTimePeriod,
+        out int outBegIdx, out int outNBElement,
+        double[] outArr0);
+
     [DllImport("ta_codegen_funcs", EntryPoint = "TA_CMO")]
     static extern int TA_CMO(
         int startIdx, int endIdx,
@@ -1815,6 +1837,22 @@ public class TaCodegenServe {
     static extern int TA_FLOOR_Unguarded(
         int startIdx, int endIdx,
         double[] inReal,
+        out int outBegIdx, out int outNBElement,
+        double[] outArr0);
+
+    [DllImport("ta_codegen_funcs", EntryPoint = "TA_HMA")]
+    static extern int TA_HMA(
+        int startIdx, int endIdx,
+        double[] inReal,
+        int optInTimePeriod,
+        out int outBegIdx, out int outNBElement,
+        double[] outArr0);
+
+    [DllImport("ta_codegen_funcs", EntryPoint = "TA_HMA_Unguarded")]
+    static extern int TA_HMA_Unguarded(
+        int startIdx, int endIdx,
+        double[] inReal,
+        int optInTimePeriod,
         out int outBegIdx, out int outNBElement,
         double[] outArr0);
 
@@ -3062,6 +3100,24 @@ public class TaCodegenServe {
         out int outBegIdx, out int outNBElement,
         double[] outArr0);
 
+    [DllImport("ta_codegen_funcs", EntryPoint = "TA_VWMA")]
+    static extern int TA_VWMA(
+        int startIdx, int endIdx,
+        double[] inReal,
+        double[] inVolume,
+        int optInTimePeriod,
+        out int outBegIdx, out int outNBElement,
+        double[] outArr0);
+
+    [DllImport("ta_codegen_funcs", EntryPoint = "TA_VWMA_Unguarded")]
+    static extern int TA_VWMA_Unguarded(
+        int startIdx, int endIdx,
+        double[] inReal,
+        double[] inVolume,
+        int optInTimePeriod,
+        out int outBegIdx, out int outNBElement,
+        double[] outArr0);
+
     [DllImport("ta_codegen_funcs", EntryPoint = "TA_WCLPRICE")]
     static extern int TA_WCLPRICE(
         int startIdx, int endIdx,
@@ -3441,8 +3497,6 @@ public class TaCodegenServe {
                     inClose = GetDoubleArray(p, "inClose");
                 }
                 int optInTimePeriod = p.TryGetProperty("optInTimePeriod", out var _optInTimePeriodVal) ? _optInTimePeriodVal.GetInt32() : 14;
-                int unstablePeriod = p.TryGetProperty("unstablePeriod", out var _upVal) ? _upVal.GetInt32() : 0;
-                TA_SetUnstablePeriod(1, unstablePeriod);
                 double[] outArr0 = new double[n];
                 int rc = 0;
                 int outBegIdx = 0, outNBElement = 0;
@@ -3836,7 +3890,7 @@ public class TaCodegenServe {
                 } else {
                     inReal = GetDoubleArray(p, "inReal");
                 }
-                int optInTimePeriod = p.TryGetProperty("optInTimePeriod", out var _optInTimePeriodVal) ? _optInTimePeriodVal.GetInt32() : 5;
+                int optInTimePeriod = p.TryGetProperty("optInTimePeriod", out var _optInTimePeriodVal) ? _optInTimePeriodVal.GetInt32() : 20;
                 double optInNbDevUp = p.TryGetProperty("optInNbDevUp", out var _optInNbDevUpVal) ? _optInNbDevUpVal.GetDouble() : 2;
                 double optInNbDevDn = p.TryGetProperty("optInNbDevDn", out var _optInNbDevDnVal) ? _optInNbDevDnVal.GetDouble() : 2;
                 int optInMAType = p.TryGetProperty("optInMAType", out var _optInMATypeVal) ? _optInMATypeVal.GetInt32() : 0;
@@ -7052,6 +7106,56 @@ public class TaCodegenServe {
                 sb.Append("}");
                 return sb.ToString();
             }
+            else if (method == "TA_CMF") {
+                int use_preloaded = p.TryGetProperty("use_preloaded", out var _upre) ? _upre.GetInt32() : 0;
+                int bench_iters = p.TryGetProperty("iters", out var _iters) ? _iters.GetInt32() : 1;
+                if (bench_iters < 1) bench_iters = 1;
+                double[] inHigh = Array.Empty<double>();
+                double[] inLow = Array.Empty<double>();
+                double[] inClose = Array.Empty<double>();
+                double[] inVolume = Array.Empty<double>();
+                if (use_preloaded != 0 && refN > 0) {
+                    inHigh = new double[refN]; Array.Copy(refHigh, inHigh, refN);
+                    inLow = new double[refN]; Array.Copy(refLow, inLow, refN);
+                    inClose = new double[refN]; Array.Copy(refClose, inClose, refN);
+                    inVolume = new double[refN]; Array.Copy(refVolume, inVolume, refN);
+                } else {
+                    inHigh = GetDoubleArray(p, "inHigh");
+                    inLow = GetDoubleArray(p, "inLow");
+                    inClose = GetDoubleArray(p, "inClose");
+                    inVolume = GetDoubleArray(p, "inVolume");
+                }
+                int optInTimePeriod = p.TryGetProperty("optInTimePeriod", out var _optInTimePeriodVal) ? _optInTimePeriodVal.GetInt32() : 20;
+                double[] outArr0 = new double[n];
+                int rc = 0;
+                int outBegIdx = 0, outNBElement = 0;
+                long _t0 = GetNanoTime();
+                for (int _bi = 0; _bi < bench_iters; _bi++) {
+                rc = TA_CMF(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+                }
+                long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
+                if ((p.TryGetProperty("want_hash", out var _wh) ? _wh.GetInt32() : 0) != 0 &&
+                    (p.TryGetProperty("full_output", out var _fo) ? _fo.GetInt32() : 0) == 0) {
+                    ulong _h = SvHashInit();
+                    if (rc == 0 && outNBElement > 0) {
+                        _h = SvHashF64(_h, outArr0, outNBElement);
+                    }
+                    _h = SvHashFin(_h);
+                    return $"{{\"retCode\":{rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement},\"out_hash\":\"{_h:x16}\"}}";
+                }
+                long _t0u = GetNanoTime();
+                for (int _biu = 0; _biu < bench_iters; _biu++) {
+                rc = TA_CMF_Unguarded(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+                }
+                long elapsedNsUng = (GetNanoTime() - _t0u) / bench_iters;
+                var sb = new System.Text.StringBuilder();
+                sb.Append($"{{\"retCode\":{rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement}");
+                sb.Append($",\"outReal\":"); sb.Append(FormatArray(outArr0, outNBElement));
+                sb.Append($",\"timing_ns\":{elapsedNs}");
+                sb.Append($",\"timing_ns_unguarded\":{elapsedNsUng}");
+                sb.Append("}");
+                return sb.ToString();
+            }
             else if (method == "TA_CMO") {
                 int use_preloaded = p.TryGetProperty("use_preloaded", out var _upre) ? _upre.GetInt32() : 0;
                 int bench_iters = p.TryGetProperty("iters", out var _iters) ? _iters.GetInt32() : 1;
@@ -7506,6 +7610,47 @@ public class TaCodegenServe {
                 long _t0u = GetNanoTime();
                 for (int _biu = 0; _biu < bench_iters; _biu++) {
                 rc = TA_FLOOR_Unguarded(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+                }
+                long elapsedNsUng = (GetNanoTime() - _t0u) / bench_iters;
+                var sb = new System.Text.StringBuilder();
+                sb.Append($"{{\"retCode\":{rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement}");
+                sb.Append($",\"outReal\":"); sb.Append(FormatArray(outArr0, outNBElement));
+                sb.Append($",\"timing_ns\":{elapsedNs}");
+                sb.Append($",\"timing_ns_unguarded\":{elapsedNsUng}");
+                sb.Append("}");
+                return sb.ToString();
+            }
+            else if (method == "TA_HMA") {
+                int use_preloaded = p.TryGetProperty("use_preloaded", out var _upre) ? _upre.GetInt32() : 0;
+                int bench_iters = p.TryGetProperty("iters", out var _iters) ? _iters.GetInt32() : 1;
+                if (bench_iters < 1) bench_iters = 1;
+                double[] inReal = Array.Empty<double>();
+                if (use_preloaded != 0 && refN > 0) {
+                    inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
+                } else {
+                    inReal = GetDoubleArray(p, "inReal");
+                }
+                int optInTimePeriod = p.TryGetProperty("optInTimePeriod", out var _optInTimePeriodVal) ? _optInTimePeriodVal.GetInt32() : 20;
+                double[] outArr0 = new double[n];
+                int rc = 0;
+                int outBegIdx = 0, outNBElement = 0;
+                long _t0 = GetNanoTime();
+                for (int _bi = 0; _bi < bench_iters; _bi++) {
+                rc = TA_HMA(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+                }
+                long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
+                if ((p.TryGetProperty("want_hash", out var _wh) ? _wh.GetInt32() : 0) != 0 &&
+                    (p.TryGetProperty("full_output", out var _fo) ? _fo.GetInt32() : 0) == 0) {
+                    ulong _h = SvHashInit();
+                    if (rc == 0 && outNBElement > 0) {
+                        _h = SvHashF64(_h, outArr0, outNBElement);
+                    }
+                    _h = SvHashFin(_h);
+                    return $"{{\"retCode\":{rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement},\"out_hash\":\"{_h:x16}\"}}";
+                }
+                long _t0u = GetNanoTime();
+                for (int _biu = 0; _biu < bench_iters; _biu++) {
+                rc = TA_HMA_Unguarded(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
                 }
                 long elapsedNsUng = (GetNanoTime() - _t0u) / bench_iters;
                 var sb = new System.Text.StringBuilder();
@@ -9982,8 +10127,6 @@ public class TaCodegenServe {
                 int optInFastK_Period = p.TryGetProperty("optInFastK_Period", out var _optInFastK_PeriodVal) ? _optInFastK_PeriodVal.GetInt32() : 5;
                 int optInFastD_Period = p.TryGetProperty("optInFastD_Period", out var _optInFastD_PeriodVal) ? _optInFastD_PeriodVal.GetInt32() : 3;
                 int optInFastD_MAType = p.TryGetProperty("optInFastD_MAType", out var _optInFastD_MATypeVal) ? _optInFastD_MATypeVal.GetInt32() : 0;
-                int unstablePeriod = p.TryGetProperty("unstablePeriod", out var _upVal) ? _upVal.GetInt32() : 0;
-                TA_SetUnstablePeriod(22, unstablePeriod);
                 double[] outArr0 = new double[n];
                 double[] outArr1 = new double[n];
                 int rc = 0;
@@ -10572,6 +10715,50 @@ public class TaCodegenServe {
                 sb.Append("}");
                 return sb.ToString();
             }
+            else if (method == "TA_VWMA") {
+                int use_preloaded = p.TryGetProperty("use_preloaded", out var _upre) ? _upre.GetInt32() : 0;
+                int bench_iters = p.TryGetProperty("iters", out var _iters) ? _iters.GetInt32() : 1;
+                if (bench_iters < 1) bench_iters = 1;
+                double[] inReal = Array.Empty<double>();
+                double[] inVolume = Array.Empty<double>();
+                if (use_preloaded != 0 && refN > 0) {
+                    inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
+                    inVolume = new double[refN]; Array.Copy(refVolume, inVolume, refN);
+                } else {
+                    inReal = GetDoubleArray(p, "inReal");
+                    inVolume = GetDoubleArray(p, "inVolume");
+                }
+                int optInTimePeriod = p.TryGetProperty("optInTimePeriod", out var _optInTimePeriodVal) ? _optInTimePeriodVal.GetInt32() : 30;
+                double[] outArr0 = new double[n];
+                int rc = 0;
+                int outBegIdx = 0, outNBElement = 0;
+                long _t0 = GetNanoTime();
+                for (int _bi = 0; _bi < bench_iters; _bi++) {
+                rc = TA_VWMA(startIdx, endIdx, inReal, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+                }
+                long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
+                if ((p.TryGetProperty("want_hash", out var _wh) ? _wh.GetInt32() : 0) != 0 &&
+                    (p.TryGetProperty("full_output", out var _fo) ? _fo.GetInt32() : 0) == 0) {
+                    ulong _h = SvHashInit();
+                    if (rc == 0 && outNBElement > 0) {
+                        _h = SvHashF64(_h, outArr0, outNBElement);
+                    }
+                    _h = SvHashFin(_h);
+                    return $"{{\"retCode\":{rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement},\"out_hash\":\"{_h:x16}\"}}";
+                }
+                long _t0u = GetNanoTime();
+                for (int _biu = 0; _biu < bench_iters; _biu++) {
+                rc = TA_VWMA_Unguarded(startIdx, endIdx, inReal, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+                }
+                long elapsedNsUng = (GetNanoTime() - _t0u) / bench_iters;
+                var sb = new System.Text.StringBuilder();
+                sb.Append($"{{\"retCode\":{rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement}");
+                sb.Append($",\"outReal\":"); sb.Append(FormatArray(outArr0, outNBElement));
+                sb.Append($",\"timing_ns\":{elapsedNs}");
+                sb.Append($",\"timing_ns_unguarded\":{elapsedNsUng}");
+                sb.Append("}");
+                return sb.ToString();
+            }
             else if (method == "TA_WCLPRICE") {
                 int use_preloaded = p.TryGetProperty("use_preloaded", out var _upre) ? _upre.GetInt32() : 0;
                 int bench_iters = p.TryGetProperty("iters", out var _iters) ? _iters.GetInt32() : 1;
@@ -10870,6 +11057,8 @@ public class TaCodegenServe {
                 sb.Append(",");
                 sb.Append("\"TA_CEIL\"");
                 sb.Append(",");
+                sb.Append("\"TA_CMF\"");
+                sb.Append(",");
                 sb.Append("\"TA_CMO\"");
                 sb.Append(",");
                 sb.Append("\"TA_CMOU\"");
@@ -10891,6 +11080,8 @@ public class TaCodegenServe {
                 sb.Append("\"TA_EXP\"");
                 sb.Append(",");
                 sb.Append("\"TA_FLOOR\"");
+                sb.Append(",");
+                sb.Append("\"TA_HMA\"");
                 sb.Append(",");
                 sb.Append("\"TA_HT_DCPERIOD\"");
                 sb.Append(",");
@@ -11031,6 +11222,8 @@ public class TaCodegenServe {
                 sb.Append("\"TA_ULTOSC\"");
                 sb.Append(",");
                 sb.Append("\"TA_VAR\"");
+                sb.Append(",");
+                sb.Append("\"TA_VWMA\"");
                 sb.Append(",");
                 sb.Append("\"TA_WCLPRICE\"");
                 sb.Append(",");

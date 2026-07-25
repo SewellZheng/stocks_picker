@@ -12,6 +12,7 @@
 //! of `inReal[i]` and `close<open`), and a wrapped line must not start with a list
 //! or blockquote marker.
 
+use super::doc_meta::{self, ensure_period, RangeMeta};
 use crate::ir::{DocDef, EnumDef, FuncDef, OptInput, Output, ParamType};
 use crate::registry::Registry;
 use std::collections::HashMap;
@@ -259,6 +260,8 @@ fn output_desc(name: &str, doc: &DocDef) -> String {
 
 /// One `# Arguments` bullet for an optional parameter: canonical prose plus the
 /// default/range injected from YAML (numbers live only in the YAML — golden rule).
+/// The facts come from [`doc_meta::param_meta`], shared with the website renderer so
+/// the two surfaces cannot drift; only the phrasing below is rustdoc's own.
 fn param_doc(opt: &OptInput, doc: &DocDef, enums: &HashMap<String, EnumDef>) -> String {
     let desc = doc
         .params
@@ -269,47 +272,26 @@ fn param_doc(opt: &OptInput, doc: &DocDef, enums: &HashMap<String, EnumDef>) -> 
         .or_else(|| opt.display_name.clone())
         .unwrap_or_else(|| "Optional parameter".to_string());
 
+    let m = doc_meta::param_meta(opt, enums);
     let mut meta: Vec<String> = Vec::new();
-    match &opt.param_type {
-        ParamType::Enum(enum_name) => {
-            if let Some(def) = enums.get(enum_name) {
-                #[allow(clippy::cast_possible_truncation)]
-                let default = opt.default.unwrap_or(0.0) as i32;
-                if let Some(v) = def.variants.iter().find(|v| v.value == default) {
-                    meta.push(format!("default {} = {}", v.value, v.short_name));
-                }
-                let values: Vec<String> = def
-                    .variants
-                    .iter()
-                    .map(|v| format!("{}={}", v.value, v.short_name))
-                    .collect();
-                meta.push(format!("values: {}", values.join(", ")));
-            }
+    if matches!(opt.param_type, ParamType::Enum(_)) {
+        // An enum's admissible set is its variant list; the default names a variant.
+        if let (Some(d), Some(variant)) = (m.default.as_ref(), m.default_variant.as_ref()) {
+            meta.push(format!("default {d} = {variant}"));
         }
-        ParamType::Integer => {
-            if let Some(default) = opt.default {
-                #[allow(clippy::cast_possible_truncation)]
-                meta.push(format!("default {}", default as i64));
-            }
-            if let Some((lo, hi)) = opt.range {
-                #[allow(clippy::cast_possible_truncation)]
-                meta.push(format!("range {}..={}", lo as i64, hi as i64));
-            }
+        if !m.values.is_empty() {
+            let values: Vec<String> = m.values.iter().map(|(v, n)| format!("{v}={n}")).collect();
+            meta.push(format!("values: {}", values.join(", ")));
         }
-        _ => {
-            if let Some(default) = opt.default {
-                meta.push(format!("default {}", fmt_real(default)));
-            }
-            if let Some((lo, hi)) = opt.range {
-                let lo_bounded = lo.abs() < 1e15;
-                let hi_bounded = hi.abs() < 1e15;
-                match (lo_bounded, hi_bounded) {
-                    (true, true) => meta.push(format!("range {}..={}", fmt_real(lo), fmt_real(hi))),
-                    (true, false) => meta.push(format!("minimum {}", fmt_real(lo))),
-                    (false, true) => meta.push(format!("maximum {}", fmt_real(hi))),
-                    (false, false) => {}
-                }
-            }
+    } else {
+        if let Some(d) = &m.default {
+            meta.push(format!("default {d}"));
+        }
+        match &m.range {
+            RangeMeta::Bounded(lo, hi) => meta.push(format!("range {lo}..={hi}")),
+            RangeMeta::Min(lo) => meta.push(format!("minimum {lo}")),
+            RangeMeta::Max(hi) => meta.push(format!("maximum {hi}")),
+            RangeMeta::Unbounded => {}
         }
     }
 
@@ -349,6 +331,70 @@ fn doc_aliases(func: &FuncDef, doc: &DocDef) -> Vec<String> {
 /// larger than the largest default lookback (~64 for the Hilbert Transform family).
 const EXAMPLE_LEN: usize = 252;
 
+/// `close` carries a second harmonic so it is never at the exact midpoint of the
+/// bar: a midpoint close makes the money-flow multiplier
+/// `((close-low) - (high-close)) / (high-low)` identically zero, which left the
+/// AD/ADOSC/CMF examples unable to fail (issue #136). The harmonic amplitude keeps
+/// `|close - midpoint| < 1.0`, so `close` stays inside `[low, high]`.
+pub(super) const CLOSE_SERIES: &str =
+    "100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin()";
+
+/// `volume` rises overall but falls on some bars: a monotonically increasing volume
+/// never takes the down-volume branch (NVI stays at its 1000.0 seed for every bar).
+pub(super) const VOLUME_SERIES: &str =
+    "10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin()";
+
+/// Input series for the functions that need small inputs: on the default ~100.0
+/// price series ACOS/ASIN are out of domain (every output `NaN`) and TANH saturates
+/// to a constant 1.0.
+pub(super) const UNIT_SERIES: &str = "(0.1 * i as f64).sin()";
+
+/// Functions whose example needs an input in `[-1, 1]` to be meaningful.
+pub(super) fn unit_domain(func: &FuncDef) -> bool {
+    matches!(func.name.to_uppercase().as_str(), "ACOS" | "ASIN" | "TANH")
+}
+
+/// The example input series for one input, as `(variable name, source lines)`.
+/// `open` and `close` both stay inside `[low, high]`: their offset from the bar
+/// midpoint never reaches 1.0. Returns `None` for an unknown input shape, which
+/// drops the example.
+fn example_input(func: &FuncDef, input: &str) -> Option<(&'static str, Vec<String>)> {
+    Some(match input {
+        "inReal" if unit_domain(func) => ("data", series_def("data", UNIT_SERIES)),
+        "inOpen" => (
+            "open",
+            series_def("open", "100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin()"),
+        ),
+        "inHigh" => (
+            "high",
+            series_def("high", "101.0 + 10.0 * (0.1 * i as f64).sin()"),
+        ),
+        "inLow" => (
+            "low",
+            series_def("low", "99.0 + 10.0 * (0.1 * i as f64).sin()"),
+        ),
+        "inClose" => ("close", series_def("close", CLOSE_SERIES)),
+        "inVolume" => ("volume", series_def("volume", VOLUME_SERIES)),
+        "inPeriods" => (
+            "periods",
+            vec![format!("let periods = vec![14.0; {EXAMPLE_LEN}];")],
+        ),
+        "inReal" => (
+            "data",
+            series_def("data", "100.0 + 10.0 * (0.1 * i as f64).sin()"),
+        ),
+        "inReal0" => (
+            "data0",
+            series_def("data0", "100.0 + 10.0 * (0.1 * i as f64).sin()"),
+        ),
+        "inReal1" => (
+            "data1",
+            series_def("data1", "100.0 + 10.0 * (0.1 * i as f64 + 0.7).sin()"),
+        ),
+        _ => return None,
+    })
+}
+
 /// Build a runnable `# Examples` doctest that calls the guarded function on
 /// deterministic synthetic data with every optional parameter at its default,
 /// and asserts success. Returned lines are raw markdown (no `///` prefix).
@@ -358,51 +404,11 @@ fn example_doctest(func: &FuncDef, snake: &str) -> Option<Vec<String>> {
     lines.push("use ta_lib::{Core, RetCode};".to_string());
     lines.push(String::new());
 
-    // Input series, in signature order. `open` stays within [low, high] because
-    // its phase shift keeps |open - close| < 1.0.
     let mut first_series: Option<String> = None;
     let mut args: Vec<String> = Vec::new();
     for input in &func.inputs {
-        let (var, def) = match input.name.as_str() {
-            "inOpen" => (
-                "open",
-                series_def("open", "100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin()"),
-            ),
-            "inHigh" => (
-                "high",
-                series_def("high", "101.0 + 10.0 * (0.1 * i as f64).sin()"),
-            ),
-            "inLow" => (
-                "low",
-                series_def("low", "99.0 + 10.0 * (0.1 * i as f64).sin()"),
-            ),
-            "inClose" => (
-                "close",
-                series_def("close", "100.0 + 10.0 * (0.1 * i as f64).sin()"),
-            ),
-            "inVolume" => (
-                "volume",
-                series_def("volume", "10_000.0 + 100.0 * i as f64"),
-            ),
-            "inPeriods" => (
-                "periods",
-                format!("let periods = vec![14.0; {EXAMPLE_LEN}];"),
-            ),
-            "inReal" => (
-                "data",
-                series_def("data", "100.0 + 10.0 * (0.1 * i as f64).sin()"),
-            ),
-            "inReal0" => (
-                "data0",
-                series_def("data0", "100.0 + 10.0 * (0.1 * i as f64).sin()"),
-            ),
-            "inReal1" => (
-                "data1",
-                series_def("data1", "100.0 + 10.0 * (0.1 * i as f64 + 0.7).sin()"),
-            ),
-            _ => return None, // unknown input shape: skip the example
-        };
-        lines.push(def);
+        let (var, def) = example_input(func, &input.name)?;
+        lines.extend(def);
         if first_series.is_none() {
             first_series = Some(var.to_string());
         }
@@ -454,13 +460,33 @@ fn example_doctest(func: &FuncDef, snake: &str) -> Option<Vec<String>> {
     }
     lines.push("assert_eq!(ret, RetCode::Success);".to_string());
     lines.push("assert!(out_nb > 0);".to_string());
+    // Assert on the values, not just the return code: a successful call never
+    // emits NaN or infinity.
+    if let Some(output) = func
+        .outputs
+        .iter()
+        .find(|o| o.param_type != ParamType::Integer)
+    {
+        let var = output_var_name(output);
+        lines.push(format!(
+            "assert!({var}[..out_nb].iter().all(|v| v.is_finite()));"
+        ));
+    }
     lines.push("```".to_string());
     Some(lines)
 }
 
 /// `let <name>: Vec<f64> = (0..252).map(|i| <expr>).collect();`
-fn series_def(name: &str, expr: &str) -> String {
-    format!("let {name}: Vec<f64> = (0..{EXAMPLE_LEN}).map(|i| {expr}).collect();")
+pub(super) fn series_def(name: &str, expr: &str) -> Vec<String> {
+    let one_line = format!("let {name}: Vec<f64> = (0..{EXAMPLE_LEN}).map(|i| {expr}).collect();");
+    if one_line.len() <= WRAP {
+        return vec![one_line];
+    }
+    vec![
+        format!("let {name}: Vec<f64> = (0..{EXAMPLE_LEN})"),
+        format!("    .map(|i| {expr})"),
+        "    .collect();".to_string(),
+    ]
 }
 
 /// Example variable name for an output: `outRealUpperBand` → `upper_band`,
@@ -500,35 +526,14 @@ fn camel_to_snake(s: &str) -> String {
 // Formatting / escaping helpers
 // ---------------------------------------------------------------------------
 
-/// True when `v` is an exactly-representable integer we can print without a fraction.
-fn is_integral(v: f64) -> bool {
-    (v - v.trunc()).abs() < f64::EPSILON && v.abs() < 1e15
-}
-
-/// Format an f64 for prose (`2` not `2.0`, `0.02` untouched).
-fn fmt_real(v: f64) -> String {
-    if is_integral(v) {
-        format!("{v:.0}")
-    } else {
-        format!("{v}")
-    }
-}
-
-/// Format an f64 as a Rust literal (`2.0`, `0.02`).
+/// Format an f64 as a Rust literal (`2.0`, `0.02`). Distinct from `doc_meta::fmt_real`,
+/// which drops the fraction: this one feeds generated doctest source, where `2` would
+/// be an integer literal and fail to type-check as an `f64` argument.
 fn fmt_real_literal(v: f64) -> String {
-    if is_integral(v) {
+    if doc_meta::is_integral(v) {
         format!("{v:.1}")
     } else {
         format!("{v}")
-    }
-}
-
-fn ensure_period(s: &str) -> String {
-    let t = s.trim_end();
-    if t.is_empty() || t.ends_with(['.', '!', '?', ')']) {
-        t.to_string()
-    } else {
-        format!("{t}.")
     }
 }
 
@@ -536,24 +541,78 @@ fn ensure_period(s: &str) -> String {
 /// start an intra-doc link and `<` an (unclosed) HTML tag — both draw rustdoc
 /// lints on text like `inReal[i]` or `close<open`. Inside backtick code spans,
 /// escapes would render literally, so leave those intact.
+///
+/// A genuine inline link, `[label](https://…)`, is passed through unescaped. Escaping its
+/// opening bracket would strand the URL as plain text, which renders as the literal
+/// `\[label](https://…)` *and* trips rustdoc's `bare_urls` lint — the docs are required to
+/// build warning-free. Only a bracket whose matching `]` is immediately followed by
+/// `(<scheme-or-path>)` qualifies, so `inReal[i]` and `close[i](t)`-style prose still escape.
 fn escape_prose(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 8);
     let mut in_code = false;
-    for c in text.chars() {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
         match c {
             '`' => {
                 in_code = !in_code;
                 out.push(c);
             }
-            '[' | '<' if !in_code => {
+            '[' if !in_code => {
+                if let Some(end) = inline_link_end(&chars, i) {
+                    let link: String = chars[i..end].iter().collect();
+                    // A site-absolute destination (`/functions/sma`) is written for
+                    // ta-lib.org, where the page is served from the site root. Rustdoc has
+                    // no such root — docs.rs would resolve it against its own domain — so
+                    // point it at the real page instead.
+                    out.push_str(&link.replace("](/", "](https://ta-lib.org/"));
+                    i = end;
+                    continue;
+                }
+                out.push('\\');
+                out.push(c);
+            }
+            '<' if !in_code => {
                 out.push('\\');
                 out.push(c);
             }
             '\n' => out.push(' '), // reflow: paragraphs re-wrap on emit
             _ => out.push(c),
         }
+        i += 1;
     }
     out
+}
+
+/// If a well-formed inline link starts at `start` (`chars[start] == '['`), the index one
+/// past its closing `)`. The label must not itself contain a bracket, and the destination
+/// must look like a URL or a site-absolute path — a parenthesis that merely follows a
+/// bracketed aside is not a link.
+fn inline_link_end(chars: &[char], start: usize) -> Option<usize> {
+    let close = chars[start + 1..]
+        .iter()
+        .position(|c| *c == ']' || *c == '[')
+        .map(|p| start + 1 + p)
+        .filter(|p| chars[*p] == ']')?;
+    if chars.get(close + 1) != Some(&'(') {
+        return None;
+    }
+    let paren = chars[close + 2..]
+        .iter()
+        .position(|c| *c == ')' || *c == '(')
+        .map(|p| close + 2 + p)
+        .filter(|p| chars[*p] == ')')?;
+    let dest: String = chars[close + 2..paren].iter().collect();
+    let is_url = dest.starts_with("http://")
+        || dest.starts_with("https://")
+        || dest.starts_with('/')
+        || dest.starts_with('#');
+    if is_url && !dest.contains(char::is_whitespace) {
+        Some(paren + 1)
+    } else {
+        None
+    }
 }
 
 /// A wrapped-`///` doc-comment writer.
@@ -675,6 +734,33 @@ mod tests {
         assert_eq!(escape_prose("`a[i] < b`"), "`a[i] < b`");
     }
 
+    /// A real inline link survives intact: escaping it would strand the URL as plain text
+    /// and trip rustdoc's `bare_urls` lint.
+    #[test]
+    fn inline_links_are_not_escaped() {
+        assert_eq!(
+            escape_prose("see [TradingView](https://tv.com/x) for more"),
+            "see [TradingView](https://tv.com/x) for more"
+        );
+        // Site-absolute destinations are rebased: docs.rs has no ta-lib.org root.
+        assert_eq!(
+            escape_prose("the [`SMA`](/functions/sma) page"),
+            "the [`SMA`](https://ta-lib.org/functions/sma) page"
+        );
+    }
+
+    /// Bracketed prose that merely happens to be followed by parentheses is still escaped —
+    /// only a URL-ish destination makes it a link.
+    #[test]
+    fn bracketed_prose_is_still_escaped() {
+        assert_eq!(escape_prose("range [-1, 1]"), "range \\[-1, 1]");
+        assert_eq!(escape_prose("close[i](t)"), "close\\[i](t)");
+        assert_eq!(
+            escape_prose("[label](not a url)"),
+            "\\[label](not a url)"
+        );
+    }
+
     #[test]
     fn output_var_names() {
         let out = |name: &str, pt: ParamType| Output {
@@ -709,10 +795,11 @@ mod tests {
         assert_eq!(camel_to_snake("SlowK"), "slow_k");
     }
 
+    /// Doctest arguments are Rust source: a whole-number `f64` default must keep its
+    /// `.0` or the generated example fails to compile. (Prose formatting is
+    /// `doc_meta::fmt_real`, tested there.)
     #[test]
-    fn real_formatting() {
-        assert_eq!(fmt_real(2.0), "2");
-        assert_eq!(fmt_real(0.02), "0.02");
+    fn real_literal_formatting() {
         assert_eq!(fmt_real_literal(2.0), "2.0");
         assert_eq!(fmt_real_literal(0.3), "0.3");
     }

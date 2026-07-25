@@ -15,11 +15,24 @@ MFM = ((close-low) - (high-close)) / (high-low); AD_t = AD_{t-1} + MFM_t * volum
 
 ## Inputs
 
-- `inPriceHLCV` — High, low, close, and volume series
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
+- `inVolume` — Volume of each bar
 
 ## Outputs
 
 - `outReal` — Cumulative A/D line value per bar
+
+## Properties
+
+**Numerical Stability:** [Path-Dependent](/functions/stability#path-dependent)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

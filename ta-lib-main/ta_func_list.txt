@@ -79,6 +79,7 @@ CDLUNIQUE3RIVER     Unique 3 River
 CDLUPSIDEGAP2CROWS  Upside Gap Two Crows
 CDLXSIDEGAP3METHODS Upside/Downside Gap Three Methods
 CEIL                Vector Ceil
+CMF                 Chaikin Money Flow
 CMO                 Chande Momentum Oscillator
 CMOU                Chande Momentum Oscillator (Unsmoothed)
 CORREL              Pearson's Correlation Coefficient (r)
@@ -90,6 +91,7 @@ DX                  Directional Movement Index
 EMA                 Exponential Moving Average
 EXP                 Vector Arithmetic Exp
 FLOOR               Vector Floor
+HMA                 Hull Moving Average
 HT_DCPERIOD         Hilbert Transform - Dominant Cycle Period
 HT_DCPHASE          Hilbert Transform - Dominant Cycle Phase
 HT_PHASOR           Hilbert Transform - Phasor Components
@@ -160,6 +162,7 @@ TSF                 Time Series Forecast
 TYPPRICE            Typical Price
 ULTOSC              Ultimate Oscillator
 VAR                 Variance
+VWMA                Volume Weighted Moving Average
 WCLPRICE            Weighted Close Price
 WILLR               Williams' %R
 WMA                 Weighted Moving Average

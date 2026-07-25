@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -37,6 +37,32 @@
 #include <stddef.h>
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
+
+/* HMA BEGIN */
+static const TA_InputParameterInfo    *TA_HMA_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_HMA_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_HMA_OptInputs[] =
+{ &TA_DEF_UI_TimePeriod_20_MINIMUM2,
+  NULL
+};
+
+DEF_FUNCTION( HMA,
+              TA_GroupId_OverlapStudies,
+              "Hull Moving Average",
+              "Hma",
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
+             );
+/* HMA END */
 
 /* HT_DCPERIOD BEGIN */
 static const TA_InputParameterInfo    *TA_HT_DCPERIOD_Inputs[]    =
@@ -202,6 +228,7 @@ DEF_FUNCTION( HT_TRENDMODE,
  ****************************************************************************/
 const TA_FuncDef *TA_DEF_TableH[] =
 {
+   ADD_TO_TABLE(HMA),
    ADD_TO_TABLE(HT_DCPERIOD),
    ADD_TO_TABLE(HT_DCPHASE),
    ADD_TO_TABLE(HT_PHASOR),

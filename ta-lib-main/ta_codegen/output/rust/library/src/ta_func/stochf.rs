@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -57,6 +57,8 @@
  *  071026 MF,CC Fix #107. Guard the Fast-K division with TA_IS_ZERO, not an
  *               exact `diff != 0.0`, so a machine-flat window yields 0 instead
  *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
+ *  072026 MF,CC Fix #130. Never elect outFastD as the K scratch buffer: %D's
+ *               in-place ma() destroyed the raw K before the final copy.
  */
 
 // Import types from parent module
@@ -78,7 +80,8 @@ impl Core {
     ///   5, range 1..=100000)
     /// * `optInFastD_Period` — Smoothing period for the Fast-D line (default 3, range 1..=100000)
     /// * `optInFastD_MAType` — Moving-average type used to smooth Fast-D (default 0 = SMA,
-    ///   values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
+    ///   values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
+    ///   10=DISABLED)
     ///
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
     /// to select their default value.
@@ -121,14 +124,15 @@ impl Core {
     ///
     /// * `startIdx` — Start index of the requested calculation range.
     /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inHigh` — High prices per bar.
-    /// * `inLow` — Low prices per bar.
-    /// * `inClose` — Close prices per bar.
+    /// * `inHigh` — High price of each bar.
+    /// * `inLow` — Low price of each bar.
+    /// * `inClose` — Close price of each bar.
     /// * `optInFastK_Period` — Lookback window for the highest-high/lowest-low of Fast-K (default
     ///   5, range 1..=100000)
     /// * `optInFastD_Period` — Smoothing period for the Fast-D line (default 3, range 1..=100000)
     /// * `optInFastD_MAType` — Moving-average type used to smooth Fast-D (default 0 = SMA,
-    ///   values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
+    ///   values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
+    ///   10=DISABLED)
     /// * `outBegIdx` — Set to the input index of the first output value.
     /// * `outNBElement` — Set to the number of output values written.
     /// * `outFastK` — Raw %K stochastic line.
@@ -154,7 +158,9 @@ impl Core {
     ///
     /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let mut out_beg = 0;
@@ -168,6 +174,7 @@ impl Core {
     /// );
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
+    /// assert!(fast_k[..out_nb].iter().all(|v| v.is_finite()));
     /// ```
     ///
     /// # See also
@@ -295,13 +302,14 @@ impl Core {
         // Allocate a temporary buffer large enough to
         // store the K.
         //
-        // If the output is the same as the input, great
-        // we just save ourself one memory allocation.
+        // When outFastK aliases a price input the caller buffer doubles as the
+        // scratch, saving one allocation: the K writes trail the min/max window
+        // reads, and the final memmove is overlap-safe. outFastD must NOT be
+        // elected: the %D ma() below would then run in place over the raw K
+        // that the memmove into outFastK still needs (issue #130).
         bufferIsAllocated = 0;
         if outFastK.as_ptr() == inHigh.as_ptr() || outFastK.as_ptr() == inLow.as_ptr() || outFastK.as_ptr() == inClose.as_ptr() {
             tempBuffer = outFastK.to_vec();
-        } else if outFastD.as_ptr() == inHigh.as_ptr() || outFastD.as_ptr() == inLow.as_ptr() || outFastD.as_ptr() == inClose.as_ptr() {
-            tempBuffer = outFastD.to_vec();
         } else {
             bufferIsAllocated = 1;
             tempBuffer = vec![0.0_f64; ((endIdx - today + 1) * 1) as usize];
@@ -463,8 +471,6 @@ impl Core {
         bufferIsAllocated = 0;
         if outFastK.as_ptr() == inHigh.as_ptr() || outFastK.as_ptr() == inLow.as_ptr() || outFastK.as_ptr() == inClose.as_ptr() {
             tempBuffer = outFastK.to_vec();
-        } else if outFastD.as_ptr() == inHigh.as_ptr() || outFastD.as_ptr() == inLow.as_ptr() || outFastD.as_ptr() == inClose.as_ptr() {
-            tempBuffer = outFastD.to_vec();
         } else {
             bufferIsAllocated = 1;
             tempBuffer = vec![0.0_f64; ((endIdx - today + 1) * 1) as usize];
@@ -771,13 +777,14 @@ impl Core {
         // Allocate a temporary buffer large enough to
         // store the K.
         //
-        // If the output is the same as the input, great
-        // we just save ourself one memory allocation.
+        // When outFastK aliases a price input the caller buffer doubles as the
+        // scratch, saving one allocation: the K writes trail the min/max window
+        // reads, and the final memmove is overlap-safe. outFastD must NOT be
+        // elected: the %D ma() below would then run in place over the raw K
+        // that the memmove into outFastK still needs (issue #130).
         bufferIsAllocated = 0;
         if sc_outFastK.as_ptr() == inHigh.as_ptr() || sc_outFastK.as_ptr() == inLow.as_ptr() || sc_outFastK.as_ptr() == inClose.as_ptr() {
             tempBuffer = sc_outFastK.to_vec();
-        } else if sc_outFastD.as_ptr() == inHigh.as_ptr() || sc_outFastD.as_ptr() == inLow.as_ptr() || sc_outFastD.as_ptr() == inClose.as_ptr() {
-            tempBuffer = sc_outFastD.to_vec();
         } else {
             bufferIsAllocated = 1;
             tempBuffer = vec![0.0_f64; ((endIdx - today + 1) * 1) as usize];
@@ -927,7 +934,9 @@ impl Core {
     /// use ta_lib::Core;
     /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.stochf_open(&high, &low, &close, 5, 3, 0).expect("enough history");
@@ -1060,13 +1069,14 @@ impl Core {
         // Allocate a temporary buffer large enough to
         // store the K.
         //
-        // If the output is the same as the input, great
-        // we just save ourself one memory allocation.
+        // When outFastK aliases a price input the caller buffer doubles as the
+        // scratch, saving one allocation: the K writes trail the min/max window
+        // reads, and the final memmove is overlap-safe. outFastD must NOT be
+        // elected: the %D ma() below would then run in place over the raw K
+        // that the memmove into outFastK still needs (issue #130).
         bufferIsAllocated = 0;
         if sc_outFastK.as_ptr() == inHigh.as_ptr() || sc_outFastK.as_ptr() == inLow.as_ptr() || sc_outFastK.as_ptr() == inClose.as_ptr() {
             tempBuffer = sc_outFastK.to_vec();
-        } else if sc_outFastD.as_ptr() == inHigh.as_ptr() || sc_outFastD.as_ptr() == inLow.as_ptr() || sc_outFastD.as_ptr() == inClose.as_ptr() {
-            tempBuffer = sc_outFastD.to_vec();
         } else {
             bufferIsAllocated = 1;
             tempBuffer = vec![0.0_f64; ((endIdx - today + 1) * 1) as usize];

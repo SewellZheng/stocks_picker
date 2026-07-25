@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -56,6 +56,8 @@
  *  072106 MF,AM   Fix #1526632. Add missing atan().
  *  071326 MF,CC   O(period) per-bar rescan -> O(1) sliding-sum recurrence
  *                 (numerics-changing). See issue #103.
+ *  072026 MF,CC   Read the departing value before the output write so in-place
+ *                 (outReal==inReal) calls stay correct. See issue #130.
  */
 
 // Import types from parent module
@@ -139,6 +141,7 @@ impl Core {
     /// );
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
+    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
     /// ```
     ///
     /// # See also
@@ -212,8 +215,8 @@ impl Core {
         // Index into the output.
         today = startIdx;
         trailingIdx = startIdx - lookbackTotal;
-        SumX = ((optInTimePeriod * (optInTimePeriod - 1)) as f64) * 0.5;
-        SumXSqr = ((optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6) as f64);
+        SumX = (optInTimePeriod as f64) * (((optInTimePeriod - 1)) as f64) * 0.5;
+        SumXSqr = (optInTimePeriod as f64) * (((optInTimePeriod - 1)) as f64) * (((2 * optInTimePeriod - 1)) as f64) / 6.0;
         Divisor = SumX * SumX - ((optInTimePeriod) as f64) * SumXSqr;
         // Prime the two data-dependent window sums for the first output with a
         // one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -229,6 +232,7 @@ impl Core {
             SumXY += (i as f64) * tempValue1;
         }
         m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
+        trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
         outReal[outIdx] = (m).atan() * (180.0 / 3.141592653589793);
         outIdx += 1;
         today += 1;
@@ -237,11 +241,14 @@ impl Core {
         // the departing value at full weight (subtracts period*trailingValue). Same
         // incremental identity as WMA/CORREL; the output arithmetic is unchanged.
         // (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+        // Each departing value is read before the output write of the same bar:
+        // with outReal==inReal (in-place, #130) that write lands on the cell the
+        // next iteration departs from.
         while today <= endIdx {
-            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             SumXY = SumXY + SumY - (optInTimePeriod as f64) * trailingValue;
             SumY = SumY - trailingValue + inReal[today];
             m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
+            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             outReal[outIdx] = (m).atan() * (180.0 / 3.141592653589793);
             outIdx += 1;
             today += 1;
@@ -296,8 +303,8 @@ impl Core {
         outIdx = 0;
         today = startIdx;
         trailingIdx = startIdx - lookbackTotal;
-        SumX = ((optInTimePeriod * (optInTimePeriod - 1)) as f64) * 0.5;
-        SumXSqr = ((optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6) as f64);
+        SumX = (optInTimePeriod as f64) * (((optInTimePeriod - 1)) as f64) * 0.5;
+        SumXSqr = (optInTimePeriod as f64) * (((optInTimePeriod - 1)) as f64) * (((2 * optInTimePeriod - 1)) as f64) / 6.0;
         Divisor = SumX * SumX - ((optInTimePeriod) as f64) * SumXSqr;
         SumXY = 0.0;
         SumY = 0.0;
@@ -309,14 +316,15 @@ impl Core {
             SumXY += (i as f64) * tempValue1;
         }
         m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
+        trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
         outReal[outIdx] = (m).atan() * (180.0 / 3.141592653589793);
         outIdx += 1;
         today += 1;
         while today <= endIdx {
-            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             SumXY = SumXY + SumY - (optInTimePeriod as f64) * trailingValue;
             SumY = SumY - trailingValue + inReal[today];
             m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
+            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             outReal[outIdx] = (m).atan() * (180.0 / 3.141592653589793);
             outIdx += 1;
             today += 1;
@@ -347,6 +355,7 @@ struct LinearregAngleStreamState {
     SumXY: f64,
     SumY: f64,
     Divisor: f64,
+    trailingValue: f64,
     ringPos_trailingIdx: usize,
     ringCap_trailingIdx: usize,
     ring_trailingIdx_inReal: Vec<f64>,
@@ -361,14 +370,13 @@ struct LinearregAngleStreamState {
 impl Core {
     fn linearreg_angle_step_internal(&self, sp: &mut LinearregAngleStreamState, inReal: f64, outReal: &mut f64) {
         let mut m: f64 = 0.0_f64;
-        let mut trailingValue: f64 = 0.0_f64;
         if sp.ringCap_trailingIdx == 0 {
             sp.ring_trailingIdx_inReal[0] = inReal;
         }
-        trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-        sp.SumXY = sp.SumXY + sp.SumY - (sp.optInTimePeriod as f64) * trailingValue;
-        sp.SumY = sp.SumY - trailingValue + inReal;
+        sp.SumXY = sp.SumXY + sp.SumY - (sp.optInTimePeriod as f64) * sp.trailingValue;
+        sp.SumY = sp.SumY - sp.trailingValue + inReal;
         m = (((sp.optInTimePeriod) as f64) * sp.SumXY - sp.SumX * sp.SumY) / sp.Divisor;
+        sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
         (*outReal) = (m).atan() * (180.0 / 3.141592653589793);
         sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
         sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -441,8 +449,8 @@ impl Core {
         // Index into the output.
         today = startIdx;
         trailingIdx = startIdx - lookbackTotal;
-        SumX = ((optInTimePeriod * (optInTimePeriod - 1)) as f64) * 0.5;
-        SumXSqr = ((optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6) as f64);
+        SumX = (optInTimePeriod as f64) * (((optInTimePeriod - 1)) as f64) * 0.5;
+        SumXSqr = (optInTimePeriod as f64) * (((optInTimePeriod - 1)) as f64) * (((2 * optInTimePeriod - 1)) as f64) / 6.0;
         Divisor = SumX * SumX - ((optInTimePeriod) as f64) * SumXSqr;
         // Prime the two data-dependent window sums for the first output with a
         // one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -458,6 +466,7 @@ impl Core {
             SumXY += (i as f64) * tempValue1;
         }
         m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
+        trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
         lastValue_outReal = (m).atan() * (180.0 / 3.141592653589793);
         today += 1;
         // Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -465,11 +474,14 @@ impl Core {
         // the departing value at full weight (subtracts period*trailingValue). Same
         // incremental identity as WMA/CORREL; the output arithmetic is unchanged.
         // (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+        // Each departing value is read before the output write of the same bar:
+        // with outReal==inReal (in-place, #130) that write lands on the cell the
+        // next iteration departs from.
         while today <= endIdx {
-            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             SumXY = SumXY + SumY - (optInTimePeriod as f64) * trailingValue;
             SumY = SumY - trailingValue + inReal[today];
             m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
+            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             lastValue_outReal = (m).atan() * (180.0 / 3.141592653589793);
             today += 1;
         }
@@ -491,6 +503,7 @@ impl Core {
             SumXY,
             SumY,
             Divisor,
+            trailingValue,
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
             ring_trailingIdx_inReal,
@@ -587,8 +600,8 @@ impl Core {
         // Index into the output.
         today = startIdx;
         trailingIdx = startIdx - lookbackTotal;
-        SumX = ((optInTimePeriod * (optInTimePeriod - 1)) as f64) * 0.5;
-        SumXSqr = ((optInTimePeriod * (optInTimePeriod - 1) * (2 * optInTimePeriod - 1) / 6) as f64);
+        SumX = (optInTimePeriod as f64) * (((optInTimePeriod - 1)) as f64) * 0.5;
+        SumXSqr = (optInTimePeriod as f64) * (((optInTimePeriod - 1)) as f64) * (((2 * optInTimePeriod - 1)) as f64) / 6.0;
         Divisor = SumX * SumX - ((optInTimePeriod) as f64) * SumXSqr;
         // Prime the two data-dependent window sums for the first output with a
         // one-time full-window scan. SumX/SumXSqr/Divisor are period-only constants;
@@ -604,6 +617,7 @@ impl Core {
             SumXY += (i as f64) * tempValue1;
         }
         m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
+        trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
         outReal[outIdx] = (m).atan() * (180.0 / 3.141592653589793);
         outIdx += 1;
         today += 1;
@@ -612,11 +626,14 @@ impl Core {
         // the departing value at full weight (subtracts period*trailingValue). Same
         // incremental identity as WMA/CORREL; the output arithmetic is unchanged.
         // (perf #103 -- numerics-changing: running total vs per-bar fresh sum.)
+        // Each departing value is read before the output write of the same bar:
+        // with outReal==inReal (in-place, #130) that write lands on the cell the
+        // next iteration departs from.
         while today <= endIdx {
-            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             SumXY = SumXY + SumY - (optInTimePeriod as f64) * trailingValue;
             SumY = SumY - trailingValue + inReal[today];
             m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
+            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             outReal[outIdx] = (m).atan() * (180.0 / 3.141592653589793);
             outIdx += 1;
             today += 1;
@@ -639,6 +656,7 @@ impl Core {
             SumXY,
             SumY,
             Divisor,
+            trailingValue,
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
             ring_trailingIdx_inReal,

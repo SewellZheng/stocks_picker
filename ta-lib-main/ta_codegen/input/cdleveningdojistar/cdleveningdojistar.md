@@ -10,7 +10,10 @@ A three-candle bearish reversal pattern: a long white candle, a doji that gaps u
 
 ## Inputs
 
-- `inPriceOHLC` — Open, High, Low, Close price series
+- `inOpen` — Open price of each bar
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
 
 ## Outputs
 
@@ -18,7 +21,7 @@ A three-candle bearish reversal pattern: a long white candle, a doji that gaps u
 
 ## Parameters
 
-- `optInPenetration` — Fraction of the 1st real body the 3rd candle's close must penetrate (default 0.3); larger demands a deeper close into the first body
+- `optInPenetration` — Fraction of the 1st real body the 3rd candle's close must penetrate; larger demands a deeper close into the first body
 
 ## Implementation
 

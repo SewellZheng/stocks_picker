@@ -17,7 +17,8 @@ On penetration: reverse, SAR := prior EP, reset af = Acceleration. SAR clamped e
 
 ## Inputs
 
-- `inPriceHL` — High/Low price series
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
 
 ## Outputs
 
@@ -25,8 +26,20 @@ On penetration: reverse, SAR := prior EP, reset af = Acceleration. SAR clamped e
 
 ## Parameters
 
-- `optInAcceleration` — Step added to the acceleration factor on each new extreme point
-- `optInMaximum` — Ceiling on the acceleration factor
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInAcceleration` | real | 0.02 | ≥ 0 | Step added to the acceleration factor on each new extreme point |
+| `optInMaximum` | real | 0.2 | ≥ 0 | Ceiling on the acceleration factor |
+
+## Properties
+
+**Numerical Stability:** [Path-Dependent](/functions/stability#path-dependent)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">✅</span> **Overlap Input** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on the same scale as the input price, so it is drawn over the price chart." data-tip="Output is on the same scale as the input price, so it is drawn over the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Independent Y-Axis</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

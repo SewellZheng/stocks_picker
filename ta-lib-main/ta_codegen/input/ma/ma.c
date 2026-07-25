@@ -15,13 +15,15 @@
  *  052603 MF   Adapt code to compile with .NET Managed C++
  *  111603 MF   Allow period of 1. Just copy input into output.
  *  060907 MF   Use TA_SMA/TA_EMA instead of internal implementation.
+ *  072226 MF,CC Add HMA (issue #139).
+ *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
  */
 
 int ma_lookback(int optInTimePeriod, TA_MAType optInMAType)
 {
    int retValue;
 
-   if( optInTimePeriod <= 1 )
+   if( optInTimePeriod <= 1 || optInMAType == TA_MAType_DISABLED )
       return 0;
 
    switch( optInMAType )
@@ -62,6 +64,10 @@ int ma_lookback(int optInTimePeriod, TA_MAType optInMAType)
          retValue = t3_lookback( optInTimePeriod, 0.7 );
          break;
 
+      case TA_MAType_HMA:
+         retValue = hma_lookback( optInTimePeriod );
+         break;
+
       default:
          retValue = 0;
    }
@@ -81,7 +87,9 @@ TA_RetCode ma(int startIdx, int endIdx,
    int nbElement;
    int outIdx, todayIdx;
 
-   if( optInTimePeriod == 1 )
+   /* No-smoothing identity: period 1 (every MA type) or the explicit
+    * TA_MAType_DISABLED (any period, issue #93). One copy path, lookback 0. */
+   if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
       nbElement = endIdx-startIdx+1;
       *outNBElement = nbElement;
@@ -140,6 +148,11 @@ TA_RetCode ma(int startIdx, int endIdx,
       case TA_MAType_T3:
          retCode = t3( startIdx, endIdx, inReal,
             optInTimePeriod, 0.7,
+            outBegIdx, outNBElement, outReal );
+         break;
+
+      case TA_MAType_HMA:
+         retCode = hma( startIdx, endIdx, inReal, optInTimePeriod,
             outBegIdx, outNBElement, outReal );
          break;
 

@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or
@@ -69,12 +69,17 @@
  *                average and standard deviation into a single pass. Bit-identical.
  *  071726 MF,CC  #118 SMA-path deviation now uses the cancellation-free variance
  *                (var.c); two recurrences in one pass. Bit-identical.
+ *  072426 MF,CC  Lookback is now max(MA, STDDEV) so it is honest for MA types
+ *                whose lookback is below the deviation's (MAMA >= 34, and
+ *                TA_MAType_DISABLED); required for streaming (issue #93).
  */
 
 TA_LIB_API int TA_BBANDS_Lookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType )
 {
+   int maLookback;
+   int stddevLookback;
    if( (int)optInTimePeriod == (int)0x80000000 )
-      optInTimePeriod = 5;
+      optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return -1;
    if( optInNbDevUp == -4e37 )
@@ -83,14 +88,21 @@ TA_LIB_API int TA_BBANDS_Lookback( int optInTimePeriod, double optInNbDevUp, dou
       optInNbDevDn = 2;
    if( (int)optInMAType == (int)0x80000000 )
       optInMAType = 0;
-   /* The lookback is driven by the middle band moving average. It also governs
-    * how the caller sizes the output buffers, which must hold the full moving
-    * average that ma() writes below - so it must not exceed the MA lookback,
-    * even when the standard deviation (lookback optInTimePeriod-1) clamps the
-    * first output to a later bar (outBegIdx > lookback for TA_MAType_MAMA with
-    * a large period). See the realignment in bbands() for that case.
+   /* A band value needs BOTH the middle-band moving average and the standard
+    * deviation of the outer bands, so the first valid output is the later of the
+    * two lookbacks. For every MA type whose lookback is at least
+    * optInTimePeriod-1 this equals the MA lookback (unchanged); it rises above it
+    * only when the MA lookback is the smaller one - TA_MAType_MAMA at
+    * optInTimePeriod >= 34 (constant MAMA lookback 32) and TA_MAType_DISABLED
+    * (MA lookback 0, issue #93). Reporting the honest value keeps
+    * outBegIdx == lookback: issue #99 kept it at the MA lookback, which
+    * under-reported those cases (outBegIdx > lookback) and broke streaming, whose
+    * Open is tied to lookback+1. The middle band still begins at the MA's earlier
+    * begIdx internally and is realigned to this later bar in bbands() below.
     */
-   return TA_MA_Lookback(optInTimePeriod,optInMAType);
+   maLookback = TA_MA_Lookback(optInTimePeriod,optInMAType);
+   stddevLookback = TA_STDDEV_Lookback(optInTimePeriod,1.0);
+   return (maLookback > stddevLookback) ? maLookback : stddevLookback;
 }
 
 TA_FMA_MULTIVERSION
@@ -124,7 +136,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
    if( !inReal )
       return TA_BAD_PARAM;
    if( (int)optInTimePeriod == (int)0x80000000 )
-      optInTimePeriod = 5;
+      optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
    if( optInNbDevUp == -4e37 )
@@ -645,7 +657,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
    if( !inReal )
       return TA_BAD_PARAM;
    if( (int)optInTimePeriod == (int)0x80000000 )
-      optInTimePeriod = 5;
+      optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
    if( optInNbDevUp == -4e37 )
@@ -665,15 +677,15 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
 
    if( optInMAType == TA_MAType_SMA )
    {
-      if( (void *)inReal == (void *)outRealUpperBand )
+      if( 0 )
       {
          tempBuffer1 = outRealMiddleBand;
          tempBuffer2 = outRealLowerBand;
-      } else if( (void *)inReal == (void *)outRealLowerBand )
+      } else if( 0 )
       {
          tempBuffer1 = outRealMiddleBand;
          tempBuffer2 = outRealUpperBand;
-      } else if( (void *)inReal == (void *)outRealMiddleBand )
+      } else if( 0 )
       {
          tempBuffer1 = outRealLowerBand;
          tempBuffer2 = outRealUpperBand;
@@ -682,7 +694,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
          tempBuffer1 = outRealMiddleBand;
          tempBuffer2 = outRealUpperBand;
       }
-      if( (void *)tempBuffer1 == (void *)inReal || (void *)tempBuffer2 == (void *)inReal )
+      if( 0 || 0 )
       {
          return TA_BAD_PARAM;
       }
@@ -784,7 +796,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
       } while( _i <= endIdx );
       *outNBElement= _outIdx;
       *outBegIdx= startIdx;
-      if( (void *)tempBuffer1 != (void *)outRealMiddleBand )
+      if( tempBuffer1 != outRealMiddleBand )
       {
          memcpy(outRealMiddleBand,tempBuffer1,*outNBElement * sizeof(double));
       }
@@ -893,15 +905,15 @@ TA_RetCode TA_S_BBANDS_Unguarded( int    startIdx,
 
    if( optInMAType == TA_MAType_SMA )
    {
-      if( (void *)inReal == (void *)outRealUpperBand )
+      if( 0 )
       {
          tempBuffer1 = outRealMiddleBand;
          tempBuffer2 = outRealLowerBand;
-      } else if( (void *)inReal == (void *)outRealLowerBand )
+      } else if( 0 )
       {
          tempBuffer1 = outRealMiddleBand;
          tempBuffer2 = outRealUpperBand;
-      } else if( (void *)inReal == (void *)outRealMiddleBand )
+      } else if( 0 )
       {
          tempBuffer1 = outRealLowerBand;
          tempBuffer2 = outRealUpperBand;
@@ -910,7 +922,7 @@ TA_RetCode TA_S_BBANDS_Unguarded( int    startIdx,
          tempBuffer1 = outRealMiddleBand;
          tempBuffer2 = outRealUpperBand;
       }
-      if( (void *)tempBuffer1 == (void *)inReal || (void *)tempBuffer2 == (void *)inReal )
+      if( 0 || 0 )
       {
          return TA_BAD_PARAM;
       }
@@ -1012,7 +1024,7 @@ TA_RetCode TA_S_BBANDS_Unguarded( int    startIdx,
       } while( _i <= endIdx );
       *outNBElement= _outIdx;
       *outBegIdx= startIdx;
-      if( (void *)tempBuffer1 != (void *)outRealMiddleBand )
+      if( tempBuffer1 != outRealMiddleBand )
       {
          memcpy(outRealMiddleBand,tempBuffer1,*outNBElement * sizeof(double));
       }
@@ -1169,7 +1181,7 @@ TA_RetCode TA_BBANDS_OpenInternal( struct TA_BBANDS_Stream **stream, const doubl
    if( !inReal || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == (int)0x80000000 )
-      optInTimePeriod = 5;
+      optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
    if( optInNbDevUp == -4e37 )
@@ -1364,7 +1376,7 @@ TA_LIB_API TA_RetCode TA_BBANDS_OpenAndFill( TA_BBANDS_Stream **stream, const do
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( (const void *)outRealUpperBand == (const void *)inReal || (const void *)outRealMiddleBand == (const void *)inReal || (const void *)outRealLowerBand == (const void *)inReal || (const void *)outRealUpperBand == (const void *)outRealMiddleBand || (const void *)outRealUpperBand == (const void *)outRealLowerBand || (const void *)outRealMiddleBand == (const void *)outRealLowerBand ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == (int)0x80000000 )
-      optInTimePeriod = 5;
+      optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
    if( optInNbDevUp == -4e37 )

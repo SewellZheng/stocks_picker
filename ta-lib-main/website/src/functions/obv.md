@@ -15,12 +15,22 @@ OBV[i] = OBV[i-1] + (inReal[i] > inReal[i-1] ? V[i] : inReal[i] < inReal[i-1] ? 
 
 ## Inputs
 
-- `inReal` — Price series compared bar-over-bar (typically close)
-- `inPriceV` — Volume added/subtracted each bar
+- `inReal` — Price series, typically close
+- `inVolume` — Volume of each bar
 
 ## Outputs
 
 - `outReal` — Cumulative on-balance volume
+
+## Properties
+
+**Numerical Stability:** [Path-Dependent](/functions/stability#path-dependent)
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

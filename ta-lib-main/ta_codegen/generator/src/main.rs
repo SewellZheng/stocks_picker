@@ -482,6 +482,21 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         None => backends::all_names(),
     };
 
+    // Documentation gate — the first thing that runs, before the stale-file clean and
+    // before any backend writes. The website renders every function's `## Parameters`
+    // from its .md joined to the YAML, so a section that disagrees with the YAML is
+    // caught while the tree is still untouched; failing later would abort with
+    // `src/ta_func/*.c` already deleted by the clean below. Validates every function
+    // regardless of `--func`, because the website is regenerated in full either way.
+    // Same fail-fast shape as the streaming gate in Phase 1.
+    if let Err(errors) = backends::docs_site::validate_docs(&load_all_yaml_defs(&base), &root) {
+        for e in &errors {
+            eprintln!("error: {e}");
+        }
+        eprintln!("       (documentation input: see docs/ta_codegen_input_doc.md)");
+        std::process::exit(1);
+    }
+
     // Clean stale per-function output files before generating.
     // This prevents generate-servers from picking up outdated artifacts
     // (e.g., stale Core_*.java files that were generated with old code).
@@ -551,13 +566,6 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         generated_funcs.push(func_def);
     }
 
-    // Phase 2: Generate output for each backend
-    for func_def in &generated_funcs {
-        for backend in &backends_to_run {
-            generate_backend(func_def, backend, &enums, &registry, &helper_registry, &out_base);
-        }
-    }
-
     // For cross-function outputs (func_list, Makefile.am), use all definitions
     // regardless of --func filter. Reuse already-parsed data when unfiltered.
     let all_yaml_defs;
@@ -567,6 +575,13 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     } else {
         &generated_funcs
     };
+
+    // Phase 2: Generate output for each backend
+    for func_def in &generated_funcs {
+        for backend in &backends_to_run {
+            generate_backend(func_def, backend, &enums, &registry, &helper_registry, &out_base);
+        }
+    }
 
     // The Rust crate scaffolding (Cargo.toml, lib.rs, README.md, mod.rs) is a
     // cross-function output: always built from ALL definitions so a filtered
@@ -582,7 +597,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
 
     // Website pages for ta-lib.org — generated into docs/ (NOT ta_codegen/output),
     // one page per function from its ta_codegen/input/<name>/<name>.md source.
-    backends::docs_site::generate(all_funcs, &root);
+    backends::docs_site::generate(all_funcs, &enums, &root);
 
     // Generated regions inside otherwise hand-written website pages (e.g. the
     // unstable-period function list, kept in step with the FuncUnstId enum).
@@ -632,6 +647,10 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         // Generate ta_abstract layer from YAML definitions
         backends::ta_abstract_c::generate(all_funcs, &enums, &out_base);
 
+        // Generate the four-variant dispatcher ta_regtest's variant-parity gate
+        // drives (issue #137). A header, so neither source list needs an entry.
+        backends::variant_frame::generate(all_funcs, &enums, &root);
+
         // Take over gen_code's two remaining C-side scalar generators:
         //   - the FuncUnstId enum (GENCODE SECTION 1) in the public header ta_defs.h
         //   - the TA_SetRetCodeInfo table in ta_common/ta_retcode.c (from the csv)
@@ -648,8 +667,10 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     // and stay under ta_codegen/output/, but Java — like C — is a shipped product).
     if backends_to_run.contains(&"java") {
         let java_pkg = root.join("ta_codegen/output/java/library/src/com/tictactec/ta/lib");
-        // FuncUnstId.java depends only on enums.yaml — always safe to regenerate.
+        // FuncUnstId.java + MAType.java depend only on enums.yaml — always safe
+        // to regenerate.
         backends::java_enums::generate(&enums, &java_pkg.join("FuncUnstId.java"));
+        backends::java_enums::generate_matype(&enums, &java_pkg.join("MAType.java"));
         // Core.java's GENCODE section and CoreAnnotated.java splice ALL indicators
         // into a single file, so only regenerate on a full (unfiltered) run — a
         // --func subset would drop every other indicator's methods.

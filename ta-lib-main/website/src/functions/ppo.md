@@ -25,9 +25,23 @@ The standard form is exponential with periods 12 and 26 — ((12-day EMA - 26-da
 
 ## Parameters
 
-- `optInFastPeriod` — Period of the fast MA
-- `optInSlowPeriod` — Period of the slow MA
-- `optInMAType` — Moving average type used for both MAs
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInFastPeriod` | integer | 12 | 2–100000 | Period of the fast MA |
+| `optInSlowPeriod` | integer | 26 | 2–100000 | Period of the slow MA |
+| `optInMAType` | MAType | EMA (1) | any MAType | Moving average type used for both MAs |
+
+*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED*
+
+## Properties
+
+**Numerical Stability:** [Depends on MA Type](/functions/stability#depends-on-ma-type) — This function's default, EMA, has an initial unstable period.
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

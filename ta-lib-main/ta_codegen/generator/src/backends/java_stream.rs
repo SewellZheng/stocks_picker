@@ -60,7 +60,7 @@ use crate::streaming::{self, StreamModel, StreamPlan};
 
 use super::fma::{self, FmaVarSets};
 use super::java::{
-    collect_address_of_vars, collect_double_address_of_vars, collect_matype_vars,
+    build_matype_map, collect_address_of_vars, collect_double_address_of_vars, collect_matype_vars,
     emit_opt_param_validation, java_type_str, render_expr, render_hoisted_blocks,
     render_statement_ctx, to_java_method_name, JavaRenderCtx, JAVA_CANDLE_FNS,
 };
@@ -796,6 +796,8 @@ fn stream_ctx<'a>(
         float_input_params: empty,
         inline_counter: counter,
         fma: Some(fma_sets),
+        // Stream bodies dispatch MA-type structurally, never via `== TA_MAType_*`.
+        matype_map: HashMap::new(),
     }
 }
 
@@ -1234,6 +1236,7 @@ fn emit_open_region(
         float_input_params: &empty,
         inline_counter: counter,
         fma: Some(stream_fma),
+        matype_map: HashMap::new(),
     };
 
     // VarDecl initializations (mirrors gen_func_inner).
@@ -1729,6 +1732,41 @@ fn dual_scalar_union(
     order
 }
 
+/// The union field list of the handle class: mode-A fields first, then
+/// mode-B-only fields (HMA: the general arm's half-period ring + d-CIRCBUF
+/// array). A name both lists carry must agree on type (mirrors Rust).
+fn dual_union_fields(func: &FuncDef, fields_a: &[Field], fields_b: &[Field]) -> Vec<Field> {
+    let mut fields: Vec<Field> = fields_a.to_vec();
+    let a_types: HashMap<&String, &String> = fields_a.iter().map(|(n, t, _)| (n, t)).collect();
+    for f in fields_b {
+        if let Some(prev) = a_types.get(&f.0) {
+            assert!(
+                **prev == f.1,
+                "{}: dual-mode field `{}` has conflicting types across modes",
+                func.name,
+                f.0
+            );
+        } else {
+            fields.push(f.clone());
+        }
+    }
+    fields
+}
+
+/// `sp.<field> = <default>;` for the OTHER mode's exclusive ARRAY fields —
+/// scalars stay at Java's zero default, but an array left null would NPE in
+/// the deep-copy constructor (peek/copy clone every array field).
+fn dual_complement_capture(own: &[Field], other: &[Field]) -> String {
+    let own_names: HashSet<&String> = own.iter().map(|(n, _, _)| n).collect();
+    let mut s = String::new();
+    for (name, jty, default) in other {
+        if !own_names.contains(name) && jty.ends_with("[]") {
+            let _ = writeln!(s, "      sp.{name} = {default};");
+        }
+    }
+    s
+}
+
 #[allow(clippy::too_many_arguments)]
 fn emit_dual_mode(
     o: &mut String,
@@ -1751,16 +1789,16 @@ fn emit_dual_mode(
     step_settings.extend(detect_candle_settings(&mb.steady_stmts));
 
     let union_scalars = dual_scalar_union(func, ma, mb);
-    // Both modes must carry IDENTICAL non-scalar state (TRIMA's odd/even arms
-    // share the very same rings; DI/DM have none) — mirror C/Rust's assertion.
-    assert!(
-        state_fields_from(func, ma, &[], &step_settings)
-            == state_fields_from(func, mb, &[], &step_settings),
-        "{}: dual-mode modes carry differing non-scalar state; a real per-arm \
-         union is not supported",
-        func.name
-    );
-    let fields = state_fields_from(func, ma, &union_scalars, &step_settings);
+    // The handle carries the UNION of both modes' state: shared fields once
+    // (TRIMA's odd/even arms share the very same rings; DI/DM overlap fully),
+    // then mode-B-only fields (HMA's half-period ring + d-CIRCBUF array). The
+    // mode is fixed at open, so each arm's step touches only its own fields;
+    // the inactive mode's arrays are seeded to their 1-slot defaults in the
+    // arm capture (the deep-copy constructor clones every array — mirrors
+    // C/Rust's union struct).
+    let fields_a = state_fields_from(func, ma, &union_scalars, &step_settings);
+    let fields_b = state_fields_from(func, mb, &union_scalars, &step_settings);
+    let fields = dual_union_fields(func, &fields_a, &fields_b);
     emit_handle_class(o, func, &fields, "");
 
     // --- step: one function, the mode re-derived from the stored param ------
@@ -1806,9 +1844,11 @@ fn emit_dual_mode(
                 OutMode::Scalar => CurSource::LastValue,
                 OutMode::Fill => CurSource::FillArray,
             };
+            let (own, other) = if k == 0 { (&fields_a, &fields_b) } else { (&fields_b, &fields_a) };
+            let complement = dual_complement_capture(own, other);
             emit_capture(
                 &mut s, func, arm, &union_scalars, &step_settings, registry, helpers,
-                stream_fma, counter, mode, Some(cur_source), "",
+                stream_fma, counter, mode, Some(cur_source), &complement,
             );
             let _ = writeln!(s, "      return RetCode.Success;");
             o.push_str(&indent_block(&s, 3));
@@ -1898,7 +1938,10 @@ fn emit_dispatch(
     let bar_args = inputs.join(", ");
     let base = java_base(func);
     let empty = HashSet::new();
-    let ctx = stream_ctx(&empty, counter, stream_fma);
+    let mut ctx = stream_ctx(&empty, counter, stream_fma);
+    // The dispatch identity guard can compare `optInMAType == TA_MAType_*`
+    // (TA_MAType_DISABLED, #93); resolve those to their constant like batch.
+    ctx.matype_map = build_matype_map(enums);
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
     let lb_call = format!("{base}Lookback({})", lb_args.join(", "));
 
@@ -2696,6 +2739,7 @@ fn emit_composed_open(
         float_input_params: &empty,
         inline_counter: counter,
         fma: Some(stream_fma),
+        matype_map: HashMap::new(),
     };
     let region_len = region_stmts.len();
     let mut inserts: Vec<(usize, String)> = Vec::new();

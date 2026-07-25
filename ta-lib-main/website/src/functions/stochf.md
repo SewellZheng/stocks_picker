@@ -20,7 +20,9 @@ FastD = MA(FastK, FastD_Period, FastD_MAType)
 
 ## Inputs
 
-- `inPriceHLC` — High/Low/Close price series
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
 
 ## Outputs
 
@@ -29,9 +31,23 @@ FastD = MA(FastK, FastD_Period, FastD_MAType)
 
 ## Parameters
 
-- `optInFastK_Period` — Lookback window for the highest-high/lowest-low of Fast-K
-- `optInFastD_Period` — Smoothing period for the Fast-D line
-- `optInFastD_MAType` — Moving-average type used to smooth Fast-D
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInFastK_Period` | integer | 5 | 1–100000 | Lookback window for the highest-high/lowest-low of Fast-K |
+| `optInFastD_Period` | integer | 3 | 1–100000 | Smoothing period for the Fast-D line |
+| `optInFastD_MAType` | MAType | SMA (0) | any MAType | Moving-average type used to smooth Fast-D |
+
+*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED*
+
+## Properties
+
+**Numerical Stability:** [Depends on MA Type](/functions/stability#depends-on-ma-type) — This function's default, SMA, is start-independent.
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
+| <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

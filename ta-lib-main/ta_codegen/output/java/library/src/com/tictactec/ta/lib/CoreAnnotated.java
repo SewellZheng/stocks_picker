@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -429,7 +429,7 @@ public int adxrLookback(
 @FuncInfo(
         name  = "ADXR",
         group = "Momentum Indicators",
-        flags = 167772160,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 1,
         nbOutput   = 1
@@ -554,8 +554,8 @@ public RetCode apo(
             @IntegerList(
                     paramName    = "optInMAType",
                     defaultValue = 1,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInMAType,
             MInteger     outBegIdx,
@@ -997,7 +997,7 @@ public RetCode bbands(
             )
             @IntegerRange(
                     paramName    = "optInTimePeriod",
-                    defaultValue = 5,
+                    defaultValue = 20,
                     min          = 2,
                     max          = 100000,
                     suggested_start     = 4,
@@ -1051,8 +1051,8 @@ public RetCode bbands(
             @IntegerList(
                     paramName    = "optInMAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInMAType,
             MInteger     outBegIdx,
@@ -4370,6 +4370,71 @@ public RetCode ceil(
 ); }
 
 
+public int cmfLookback(
+        int optInTimePeriod) {
+    return super.cmfLookback(
+        optInTimePeriod); }
+
+@FuncInfo(
+        name  = "CMF",
+        group = "Volume Indicators",
+        flags = 33554432,
+        nbInput    = 1,
+        nbOptInput = 1,
+        nbOutput   = 1
+)
+public RetCode cmf(
+            int startIdx,
+            int endIdx,
+            @InputParameterInfo(
+                paramName = "inPriceHLCV",
+                flags     = 30,
+                type = InputParameterType.TA_Input_Price
+            )
+            double inHigh [],
+            double inLow [],
+            double inClose [],
+            double inVolume [],
+            @OptInputParameterInfo(
+                paramName    = "optInTimePeriod",
+                displayName  = "Time Period",
+                flags        = 0,
+                type    = OptInputParameterType.TA_OptInput_IntegerRange,
+                dataSet = com.tictactec.ta.lib.meta.annotation.IntegerRange.class
+            )
+            @IntegerRange(
+                    paramName    = "optInTimePeriod",
+                    defaultValue = 20,
+                    min          = 2,
+                    max          = 100000,
+                    suggested_start     = 4,
+                    suggested_end       = 200,
+                    suggested_increment = 1
+            )
+            int optInTimePeriod,
+            MInteger     outBegIdx,
+            MInteger     outNBElement,
+            @OutputParameterInfo(
+                paramName = "outReal",
+                flags     = 1,
+                type = OutputParameterType.TA_Output_Real
+            )
+            double outReal[]
+) {
+    return super.cmf (
+        startIdx,
+        endIdx,
+        inHigh ,
+        inLow ,
+        inClose ,
+        inVolume ,
+        optInTimePeriod,
+        outBegIdx,
+        outNBElement,
+        outReal
+); }
+
+
 public int cmoLookback(
         int optInTimePeriod) {
     return super.cmoLookback(
@@ -4941,6 +5006,65 @@ public RetCode floor(
         startIdx,
         endIdx,
         inReal,
+        outBegIdx,
+        outNBElement,
+        outReal
+); }
+
+
+public int hmaLookback(
+        int optInTimePeriod) {
+    return super.hmaLookback(
+        optInTimePeriod); }
+
+@FuncInfo(
+        name  = "HMA",
+        group = "Overlap Studies",
+        flags = 50331648,
+        nbInput    = 1,
+        nbOptInput = 1,
+        nbOutput   = 1
+)
+public RetCode hma(
+            int startIdx,
+            int endIdx,
+            @InputParameterInfo(
+                paramName = "inReal",
+                flags     = 0,
+                type = InputParameterType.TA_Input_Real
+            )
+            double inReal[],
+            @OptInputParameterInfo(
+                paramName    = "optInTimePeriod",
+                displayName  = "Time Period",
+                flags        = 0,
+                type    = OptInputParameterType.TA_OptInput_IntegerRange,
+                dataSet = com.tictactec.ta.lib.meta.annotation.IntegerRange.class
+            )
+            @IntegerRange(
+                    paramName    = "optInTimePeriod",
+                    defaultValue = 20,
+                    min          = 2,
+                    max          = 100000,
+                    suggested_start     = 4,
+                    suggested_end       = 200,
+                    suggested_increment = 1
+            )
+            int optInTimePeriod,
+            MInteger     outBegIdx,
+            MInteger     outNBElement,
+            @OutputParameterInfo(
+                paramName = "outReal",
+                flags     = 1,
+                type = OutputParameterType.TA_Output_Real
+            )
+            double outReal[]
+) {
+    return super.hma (
+        startIdx,
+        endIdx,
+        inReal,
+        optInTimePeriod,
         outBegIdx,
         outNBElement,
         outReal
@@ -5697,8 +5821,8 @@ public RetCode movingAverage(
             @IntegerList(
                     paramName    = "optInMAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInMAType,
             MInteger     outBegIdx,
@@ -5894,8 +6018,8 @@ public RetCode macdExt(
             @IntegerList(
                     paramName    = "optInFastMAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInFastMAType,
             @OptInputParameterInfo(
@@ -5925,8 +6049,8 @@ public RetCode macdExt(
             @IntegerList(
                     paramName    = "optInSlowMAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInSlowMAType,
             @OptInputParameterInfo(
@@ -5956,8 +6080,8 @@ public RetCode macdExt(
             @IntegerList(
                     paramName    = "optInSignalMAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInSignalMAType,
             MInteger     outBegIdx,
@@ -6236,8 +6360,8 @@ public RetCode movingAverageVariablePeriod(
             @IntegerList(
                     paramName    = "optInMAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInMAType,
             MInteger     outBegIdx,
@@ -7442,8 +7566,8 @@ public RetCode ppo(
             @IntegerList(
                     paramName    = "optInMAType",
                     defaultValue = 1,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInMAType,
             MInteger     outBegIdx,
@@ -7581,8 +7705,8 @@ public RetCode pvo(
             @IntegerList(
                     paramName    = "optInMAType",
                     defaultValue = 1,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInMAType,
             MInteger     outBegIdx,
@@ -8532,8 +8656,8 @@ public RetCode stoch(
             @IntegerList(
                     paramName    = "optInSlowK_MAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInSlowK_MAType,
             @OptInputParameterInfo(
@@ -8563,8 +8687,8 @@ public RetCode stoch(
             @IntegerList(
                     paramName    = "optInSlowD_MAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInSlowD_MAType,
             MInteger     outBegIdx,
@@ -8672,8 +8796,8 @@ public RetCode stochF(
             @IntegerList(
                     paramName    = "optInFastD_MAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInFastD_MAType,
             MInteger     outBegIdx,
@@ -8721,7 +8845,7 @@ public int stochRsiLookback(
 @FuncInfo(
         name  = "STOCHRSI",
         group = "Momentum Indicators",
-        flags = 167772160,
+        flags = 33554432,
         nbInput    = 1,
         nbOptInput = 4,
         nbOutput   = 2
@@ -8796,8 +8920,8 @@ public RetCode stochRsi(
             @IntegerList(
                     paramName    = "optInFastD_MAType",
                     defaultValue = 0,
-                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8 },
-                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3" }
+                    value  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 },
+                    string = { "SMA", "EMA", "WMA", "DEMA", "TEMA", "TRIMA", "KAMA", "MAMA", "T3", "HMA", "DISABLED" }
             )
             MAType optInFastD_MAType,
             MInteger     outBegIdx,
@@ -9602,6 +9726,72 @@ public RetCode variance(
         inReal,
         optInTimePeriod,
         optInNbDev,
+        outBegIdx,
+        outNBElement,
+        outReal
+); }
+
+
+public int vwmaLookback(
+        int optInTimePeriod) {
+    return super.vwmaLookback(
+        optInTimePeriod); }
+
+@FuncInfo(
+        name  = "VWMA",
+        group = "Overlap Studies",
+        flags = 50331648,
+        nbInput    = 2,
+        nbOptInput = 1,
+        nbOutput   = 1
+)
+public RetCode vwma(
+            int startIdx,
+            int endIdx,
+            @InputParameterInfo(
+                paramName = "inReal",
+                flags     = 0,
+                type = InputParameterType.TA_Input_Real
+            )
+            double inReal[],
+            @InputParameterInfo(
+                paramName = "inPriceV",
+                flags     = 16,
+                type = InputParameterType.TA_Input_Price
+            )
+            double inVolume [],
+            @OptInputParameterInfo(
+                paramName    = "optInTimePeriod",
+                displayName  = "Time Period",
+                flags        = 0,
+                type    = OptInputParameterType.TA_OptInput_IntegerRange,
+                dataSet = com.tictactec.ta.lib.meta.annotation.IntegerRange.class
+            )
+            @IntegerRange(
+                    paramName    = "optInTimePeriod",
+                    defaultValue = 30,
+                    min          = 1,
+                    max          = 100000,
+                    suggested_start     = 1,
+                    suggested_end       = 200,
+                    suggested_increment = 1
+            )
+            int optInTimePeriod,
+            MInteger     outBegIdx,
+            MInteger     outNBElement,
+            @OutputParameterInfo(
+                paramName = "outReal",
+                flags     = 1,
+                type = OutputParameterType.TA_Output_Real
+            )
+            double outReal[]
+) {
+    return super.vwma (
+        startIdx,
+        endIdx,
+        inReal,
+        inVolume ,
+        optInTimePeriod,
         outBegIdx,
         outNBElement,
         outReal

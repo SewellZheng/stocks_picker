@@ -16,30 +16,39 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
   - CMOU: Chande Momentum Oscillator, Unsmoothed (#124)
   - NVI: Negative Volume Index (#126)
   - PVI: Positive Volume Index (#126)
-- Algo Optimisations:
-  - ~3x to 7x faster: DEMA, TEMA and TRIX
-  - ~8x faster: MACD and MACDFIX
-  - ~8x faster: MACDEXT when all three MA types are EMA.
-  - ~2.4x faster: ACCBANDS
-  - ~20% faster: VAR, STDDEV, BBANDS
-  - ~10% faster: ATR and NATR
+  - VWMA: Volume Weighted Moving Average (#131)
+  - CMF: Chaikin Money Flow (#134)
+  - HMA: Hull Moving Average (#139).
+- New MAType (for MA, BBANDS, STOCK etc...):
+  - TA_MAType_HMA (#139)
+### Speed Optimisations
+- ~3x to 7x faster: DEMA, TEMA and TRIX
+- ~8x faster: MACD and MACDFIX
+- ~8x faster: MACDEXT when MA types are EMA.
+- ~2.4x faster: ACCBANDS
+- ~20% faster: VAR, STDDEV, BBANDS
+- ~10% faster: ATR and NATR
 
 ### Changed
+- (#133) BBANDS default `optInTimePeriod` changed from 5 to 20, as intended by John Bollinger.
 - (#120) PPO and APO now default `optInMAType` to EMA (was SMA), matching Gerald Appel's original PPO/MACD definition. Pass `TA_MAType_SMA` explicitly to keep the previous behavior.
 - (#96) Fused multiply-add and other floating-point re-ordering produce minor output differences; an intentional modernization.
-- API: `TA_FUNC_UNST_MFI` and `TA_FUNC_UNST_IMI` enum constants removed
+- (#4,#14) API: `TA_FUNC_UNST_MFI` and `TA_FUNC_UNST_IMI` enum constants removed
+- (#129) API: `TA_FUNC_UNST_ADXR` and `TA_FUNC_UNST_STOCHRSI` enum constants removed.
 - (#122) Removed the `ide/` directory (Visual Studio/Xcode/MSVC project files). Use autotools, CMake and vcpkg instead.
 
 ### Deprecated
 - `TA_SetCompatibility()` and `TA_GetCompatibility()`. The notion of variant (e.g. MetaStock compatibility) is not actively maintained and will be removed in a future release. Default behavior is unaffected.
 
 ### Fixed
+- (#130) In-place calls (same buffer as input and output) returned wrong values for STOCH, STOCHF and MAVP. Regular (separate-buffer) calls were always correct.
 - (#118) VAR, STDDEV and BBANDS more precise and faster.
 - (#33) Float overflow in the single-precision (`TA_S_*`) functions. Thanks @iglesias !
 - (#64) Website docs mixing up CDL3LINESTRIKE with CDL3OUTSIDE's description. Thanks @mw66 !
 - (#7) CCI returned a spurious value when all prices over the period were identical; Thanks @trufanov-nok for identifying and resolving this!
 - (#57) Missing TA_GetVersionString function in Windows DLL. Thanks @Youngv !
-- (#98) TRIX and NATR returned wrong values when startIdx > lookback, and a non-zero unstable period changed IMI's summation window.
+- (#98) TRIX and NATR returned wrong values when startIdx > lookback. NATR additionally left output slots unwritten for any bar with a zero close.
+- (#98) A non-zero unstable period changed IMI's summation window.
 - (#107) MFI and STOCHRSI could return a wrong value when floating-point rounding left a near-zero result that was then compared exactly against zero. Thanks @Caleblgx, @trufanov-nok and @mrjbq7 !
 - (#4,#14) MFI and IMI are no longer flagged as having an unstable period. Thanks @mw66 and @wony-zheng !
 - (#99) BBANDS with `TA_MAType_MAMA` and a period >= 34 returned a misaligned middle band.

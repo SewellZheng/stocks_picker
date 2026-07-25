@@ -10,7 +10,10 @@ A three-candle reversal pattern: a long body, then a gapped-away doji, then a bo
 
 ## Inputs
 
-- `inPriceOHLC` — Open, High, Low, Close price series
+- `inOpen` — Open price of each bar
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
 
 ## Outputs
 
@@ -18,7 +21,7 @@ A three-candle reversal pattern: a long body, then a gapped-away doji, then a bo
 
 ## Parameters
 
-- `optInPenetration` — Fraction of the 1st candle's real body the 3rd close must penetrate; default 0.3, range [0, TA_REAL_MAX]
+- `optInPenetration` — Fraction of the 1st candle's real body the 3rd close must penetrate
 
 ## Implementation
 

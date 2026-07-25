@@ -29,9 +29,23 @@ p_i = clamp((int)inPeriods[startIdx+i], optInMinPeriod, optInMaxPeriod); outReal
 
 ## Parameters
 
-- `optInMinPeriod` — lower clamp for per-bar period
-- `optInMaxPeriod` — upper clamp for per-bar period
-- `optInMAType` — moving-average type applied
+| Parameter | Type | Default | Accepted values | Description |
+| --- | --- | --- | --- | --- |
+| `optInMinPeriod` | integer | 2 | 1–100000 | Lower clamp for the per-bar period |
+| `optInMaxPeriod` | integer | 30 | 1–100000 | Upper clamp for the per-bar period |
+| `optInMAType` | MAType | SMA (0) | any MAType | Moving-average type applied |
+
+*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED*
+
+## Properties
+
+**Numerical Stability:** [Depends on MA Type](/functions/stability#depends-on-ma-type) — This function's default, SMA, is start-independent.
+
+| Display<br>Flags |
+| :-- |
+| <span class="flag-box">✅</span> **Overlap Input** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on the same scale as the input price, so it is drawn over the price chart." data-tip="Output is on the same scale as the input price, so it is drawn over the price chart.">i</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Independent Y-Axis</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
 
 ## Implementation
 

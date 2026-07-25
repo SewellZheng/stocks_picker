@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -50,6 +50,8 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  021807 MF     Initial Version
+ *  072026 MF,CC  Fix #130. Stage results locally so in-place (outReal==inReal)
+ *                calls no longer corrupt the input the ma() passes re-read.
  */
 
 // Import types from parent module
@@ -67,10 +69,10 @@ impl Core {
     ///
     /// # Arguments
     ///
-    /// * `optInMinPeriod` — lower clamp for per-bar period (default 2, range 1..=100000)
-    /// * `optInMaxPeriod` — upper clamp for per-bar period (default 30, range 1..=100000)
-    /// * `optInMAType` — moving-average type applied (default 0 = SMA, values: 0=SMA, 1=EMA,
-    ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
+    /// * `optInMinPeriod` — Lower clamp for the per-bar period (default 2, range 1..=100000)
+    /// * `optInMaxPeriod` — Upper clamp for the per-bar period (default 30, range 1..=100000)
+    /// * `optInMAType` — Moving-average type applied (default 0 = SMA, values: 0=SMA, 1=EMA,
+    ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED)
     ///
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
     /// to select their default value.
@@ -110,10 +112,10 @@ impl Core {
     /// * `endIdx` — End index of the requested calculation range (inclusive).
     /// * `inReal` — series to be averaged.
     /// * `inPeriods` — per-bar desired MA period.
-    /// * `optInMinPeriod` — lower clamp for per-bar period (default 2, range 1..=100000)
-    /// * `optInMaxPeriod` — upper clamp for per-bar period (default 30, range 1..=100000)
-    /// * `optInMAType` — moving-average type applied (default 0 = SMA, values: 0=SMA, 1=EMA,
-    ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3)
+    /// * `optInMinPeriod` — Lower clamp for the per-bar period (default 2, range 1..=100000)
+    /// * `optInMaxPeriod` — Upper clamp for the per-bar period (default 30, range 1..=100000)
+    /// * `optInMAType` — Moving-average type applied (default 0 = SMA, values: 0=SMA, 1=EMA,
+    ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED)
     /// * `outBegIdx` — Set to the input index of the first output value.
     /// * `outNBElement` — Set to the number of output values written.
     /// * `outReal` — variable-period moving average.
@@ -150,6 +152,7 @@ impl Core {
     /// );
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
+    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
     /// ```
     ///
     /// # See also
@@ -194,6 +197,8 @@ impl Core {
         let mut curPeriod: usize = 0_usize;
         let mut localPeriodArray: Vec<i32> = Vec::new();
         let mut localOutputArray: Vec<f64> = Vec::new();
+        let mut localFinalArray: Vec<f64> = Vec::new();
+        let mut finalIsAllocated: usize = 0_usize;
         let mut localBegIdx: usize = 0_usize;
         let mut localNbElement: usize = 0_usize;
         let mut retCode: RetCode = RetCode::Success;
@@ -236,6 +241,17 @@ impl Core {
         // Allocate intermediate local buffer.
         localOutputArray = vec![0.0_f64; (outputSize * 1) as usize];
         localPeriodArray = vec![0_i32; (outputSize * 1) as usize];
+        // In-place defence (issue #130): each ma() pass below re-reads inReal over
+        // the full range, so with outReal==inReal the results are staged in a
+        // scratch buffer and copied once at the end. A regular call writes
+        // straight to outReal and skips both the allocation and the copy.
+        finalIsAllocated = 0;
+        if outReal.as_ptr() == inReal.as_ptr() {
+            finalIsAllocated = 1;
+            localFinalArray = vec![0.0_f64; (outputSize * 1) as usize];
+        } else {
+            localFinalArray = outReal.to_vec();
+        }
         // Copy caller array of period into local buffer.
         // At the same time, truncate to min/max.
         // for( i = 0; i < outputSize; i += 1 )
@@ -268,23 +284,38 @@ impl Core {
                 // Calculation of the MA required.
                 retCode = self.ma_unguarded(startIdx, endIdx, inReal, (curPeriod) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localOutputArray[..]);
                 if retCode != RetCode::Success {
+                    if finalIsAllocated != 0 {
+                    }
                     (*outBegIdx) = 0;
                     (*outNBElement) = 0;
                     return retCode;
                 }
-                outReal[i] = ((localOutputArray[i]) as f64);
+                localFinalArray[i] = localOutputArray[i];
                 // for( j = i + 1; j < outputSize; j += 1 )
                 j = i + 1;
                 while j < outputSize {
                     if (localPeriodArray[j]) as usize == curPeriod {
                         localPeriodArray[j] = 0;
                         // Flag to avoid recalculation
-                        outReal[j] = ((localOutputArray[j]) as f64);
+                        localFinalArray[j] = localOutputArray[j];
                     }
                     j += 1;
                 }
             }
             i += 1;
+        }
+        // Pointer-inequality guard, not finalIsAllocated: in backends where the
+        // scratch election materializes as a copy (Rust), the copy-back must
+        // always run; in C/Java the non-aliased self-copy is skipped.
+        if localFinalArray.as_ptr() != outReal.as_ptr() {
+            {
+            let _n = (outputSize * 1) as usize;
+            let _di = (0) as usize;
+            let _si = (0) as usize;
+            outReal[_di.._di + _n].copy_from_slice(&localFinalArray[_si.._si + _n]);
+        };
+        }
+        if finalIsAllocated != 0 {
         }
         // Done. Inform the caller of the success.
         (*outBegIdx) = startIdx;
@@ -319,6 +350,8 @@ impl Core {
         let mut curPeriod: usize = 0_usize;
         let mut localPeriodArray: Vec<i32> = Vec::new();
         let mut localOutputArray: Vec<f64> = Vec::new();
+        let mut localFinalArray: Vec<f64> = Vec::new();
+        let mut finalIsAllocated: usize = 0_usize;
         let mut localBegIdx: usize = 0_usize;
         let mut localNbElement: usize = 0_usize;
         let mut retCode: RetCode = RetCode::Success;
@@ -354,6 +387,13 @@ impl Core {
         outputSize = endIdx - tempInt + 1;
         localOutputArray = vec![0.0_f64; (outputSize * 1) as usize];
         localPeriodArray = vec![0_i32; (outputSize * 1) as usize];
+        finalIsAllocated = 0;
+        if outReal.as_ptr() == inReal.as_ptr() {
+            finalIsAllocated = 1;
+            localFinalArray = vec![0.0_f64; (outputSize * 1) as usize];
+        } else {
+            localFinalArray = outReal.to_vec();
+        }
         // for( i = 0; i < outputSize; i += 1 )
         i = 0;
         while i < outputSize {
@@ -373,22 +413,34 @@ impl Core {
             if curPeriod != 0 {
                 retCode = self.ma_unguarded(startIdx, endIdx, inReal, (curPeriod) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localOutputArray[..]);
                 if retCode != RetCode::Success {
+                    if finalIsAllocated != 0 {
+                    }
                     (*outBegIdx) = 0;
                     (*outNBElement) = 0;
                     return retCode;
                 }
-                outReal[i] = ((localOutputArray[i]) as f64);
+                localFinalArray[i] = localOutputArray[i];
                 // for( j = i + 1; j < outputSize; j += 1 )
                 j = i + 1;
                 while j < outputSize {
                     if (localPeriodArray[j]) as usize == curPeriod {
                         localPeriodArray[j] = 0;
-                        outReal[j] = ((localOutputArray[j]) as f64);
+                        localFinalArray[j] = localOutputArray[j];
                     }
                     j += 1;
                 }
             }
             i += 1;
+        }
+        if localFinalArray.as_ptr() != outReal.as_ptr() {
+            {
+            let _n = (outputSize * 1) as usize;
+            let _di = (0) as usize;
+            let _si = (0) as usize;
+            outReal[_di.._di + _n].copy_from_slice(&localFinalArray[_si.._si + _n]);
+        };
+        }
+        if finalIsAllocated != 0 {
         }
         (*outBegIdx) = startIdx;
         (*outNBElement) = outputSize;

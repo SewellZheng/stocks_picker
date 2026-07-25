@@ -84,6 +84,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_CDLUPSIDEGAP2CROWS.c \
 	ta_CDLXSIDEGAP3METHODS.c \
 	ta_CEIL.c \
+	ta_CMF.c \
 	ta_CMO.c \
 	ta_CMOU.c \
 	ta_CORREL.c \
@@ -95,6 +96,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_EMA.c \
 	ta_EXP.c \
 	ta_FLOOR.c \
+	ta_HMA.c \
 	ta_HT_DCPERIOD.c \
 	ta_HT_DCPHASE.c \
 	ta_HT_PHASOR.c \
@@ -165,6 +167,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_TYPPRICE.c \
 	ta_ULTOSC.c \
 	ta_VAR.c \
+	ta_VWMA.c \
 	ta_WCLPRICE.c \
 	ta_WILLR.c \
 	ta_WMA.c

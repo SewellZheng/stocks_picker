@@ -35,11 +35,11 @@
       int outIdx = 0;
       int i = 0;
       int trailingIdx = 0;
-      int divider = 0;
       double periodSum = 0;
       double periodSub = 0;
       double tempReal = 0;
       double trailingValue = 0;
+      double divider = 0;
       int lookbackTotal = 0;
       if( startIdx < 0 ) {
          return RetCode.OutOfRangeStartIndex ;
@@ -73,14 +73,20 @@
       if( optInTimePeriod == 1 ) {
          outBegIdx.value = startIdx;
          outNBElement.value = endIdx - startIdx + 1;
-         System.arraycopy(inReal, startIdx, outReal, 0, (int)outNBElement.value * 1);
+         /* Element loop, not a block copy: the C single-precision variant reads a
+          * float array, so a double-sized byte copy would reinterpret and
+          * over-read it (#137). Forward order keeps the in-place case correct (#94).
+          */
+         inIdx = startIdx;
+         for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+            outReal[i] = inReal[inIdx++];
+         }
          return RetCode.Success ;
       }
-      /* Calculate the divider (always an integer value).
-       * By induction: 1+2+3+4+'n' = n(n+1)/2
-       * '>>1' is usually faster than '/2' for unsigned.
+      /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+       * int product n*(n+1) overflows int32 at n>=46341 (#142).
        */
-      divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+      divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
       /* The algo used here use a very basic property of
        * multiplication/addition: (x*2) = x+x
        *
@@ -159,11 +165,11 @@
       int outIdx = 0;
       int i = 0;
       int trailingIdx = 0;
-      int divider = 0;
       double periodSum = 0;
       double periodSub = 0;
       double tempReal = 0;
       double trailingValue = 0;
+      double divider = 0;
       int lookbackTotal = 0;
       lookbackTotal = optInTimePeriod - 1;
       if( startIdx < lookbackTotal ) {
@@ -177,10 +183,13 @@
       if( optInTimePeriod == 1 ) {
          outBegIdx.value = startIdx;
          outNBElement.value = endIdx - startIdx + 1;
-         System.arraycopy(inReal, startIdx, outReal, 0, (int)outNBElement.value * 1);
+         inIdx = startIdx;
+         for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+            outReal[i] = inReal[inIdx++];
+         }
          return RetCode.Success ;
       }
-      divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+      divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
       outIdx = 0;
       trailingIdx = startIdx - lookbackTotal;
       periodSub = (double)0.0;
@@ -219,11 +228,11 @@
       int outIdx = 0;
       int i = 0;
       int trailingIdx = 0;
-      int divider = 0;
       double periodSum = 0;
       double periodSub = 0;
       double tempReal = 0;
       double trailingValue = 0;
+      double divider = 0;
       int lookbackTotal = 0;
       if( startIdx < 0 ) {
          return RetCode.OutOfRangeStartIndex ;
@@ -248,10 +257,13 @@
       if( optInTimePeriod == 1 ) {
          outBegIdx.value = startIdx;
          outNBElement.value = endIdx - startIdx + 1;
-         System.arraycopy(inReal, startIdx, outReal, 0, (int)outNBElement.value * 1);
+         inIdx = startIdx;
+         for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+            outReal[i] = (double)inReal[inIdx++];
+         }
          return RetCode.Success ;
       }
-      divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+      divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
       outIdx = 0;
       trailingIdx = startIdx - lookbackTotal;
       periodSub = (double)0.0;
@@ -290,11 +302,11 @@
       int outIdx = 0;
       int i = 0;
       int trailingIdx = 0;
-      int divider = 0;
       double periodSum = 0;
       double periodSub = 0;
       double tempReal = 0;
       double trailingValue = 0;
+      double divider = 0;
       int lookbackTotal = 0;
       lookbackTotal = optInTimePeriod - 1;
       if( startIdx < lookbackTotal ) {
@@ -308,10 +320,13 @@
       if( optInTimePeriod == 1 ) {
          outBegIdx.value = startIdx;
          outNBElement.value = endIdx - startIdx + 1;
-         System.arraycopy(inReal, startIdx, outReal, 0, (int)outNBElement.value * 1);
+         inIdx = startIdx;
+         for( i = 0; i < (int)outNBElement.value; i += 1 ) {
+            outReal[i] = (double)inReal[inIdx++];
+         }
          return RetCode.Success ;
       }
-      divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+      divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
       outIdx = 0;
       trailingIdx = startIdx - lookbackTotal;
       periodSub = (double)0.0;
@@ -358,10 +373,10 @@
    public static final class WmaStream {
       final Core core;
       int optInTimePeriod;
-      int divider;
       double periodSum;
       double periodSub;
       double trailingValue;
+      double divider;
       int ringPos_trailingIdx;
       int ringCap_trailingIdx;
       double[] ring_trailingIdx_inReal;
@@ -372,10 +387,10 @@
       WmaStream( WmaStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
-         this.divider = other.divider;
          this.periodSum = other.periodSum;
          this.periodSub = other.periodSub;
          this.trailingValue = other.trailingValue;
+         this.divider = other.divider;
          this.ringPos_trailingIdx = other.ringPos_trailingIdx;
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
@@ -460,11 +475,11 @@
       int outIdx = 0;
       int i = 0;
       int trailingIdx = 0;
-      int divider = 0;
       double periodSum = 0;
       double periodSub = 0;
       double tempReal = 0;
       double trailingValue = 0;
+      double divider = 0;
       int lookbackTotal = 0;
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
@@ -484,10 +499,10 @@
             return RetCode.OutOfRangeEndIndex;
          }
          sp.optInTimePeriod = optInTimePeriod;
-         sp.divider = 0;
          sp.periodSum = 0.0;
          sp.periodSub = 0.0;
          sp.trailingValue = 0.0;
+         sp.divider = 0.0;
          sp.ringPos_trailingIdx = 0;
          sp.ringCap_trailingIdx = 0;
          sp.ring_trailingIdx_inReal = new double[1];
@@ -512,11 +527,10 @@
        * In that case outputs equals inputs for the requested
        * range.
        */
-      /* Calculate the divider (always an integer value).
-       * By induction: 1+2+3+4+'n' = n(n+1)/2
-       * '>>1' is usually faster than '/2' for unsigned.
+      /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+       * int product n*(n+1) overflows int32 at n>=46341 (#142).
        */
-      divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+      divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
       /* The algo used here use a very basic property of
        * multiplication/addition: (x*2) = x+x
        *
@@ -590,10 +604,10 @@
       double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
       System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
       sp.optInTimePeriod = optInTimePeriod;
-      sp.divider = divider;
       sp.periodSum = periodSum;
       sp.periodSub = periodSub;
       sp.trailingValue = trailingValue;
+      sp.divider = divider;
       sp.ringPos_trailingIdx = 0;
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -606,11 +620,11 @@
       int outIdx = 0;
       int i = 0;
       int trailingIdx = 0;
-      int divider = 0;
       double periodSum = 0;
       double periodSub = 0;
       double tempReal = 0;
       double trailingValue = 0;
+      double divider = 0;
       int lookbackTotal = 0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
@@ -631,10 +645,10 @@
             return RetCode.OutOfRangeEndIndex;
          }
          sp.optInTimePeriod = optInTimePeriod;
-         sp.divider = 0;
          sp.periodSum = 0.0;
          sp.periodSub = 0.0;
          sp.trailingValue = 0.0;
+         sp.divider = 0.0;
          sp.ringPos_trailingIdx = 0;
          sp.ringCap_trailingIdx = 0;
          sp.ring_trailingIdx_inReal = new double[1];
@@ -665,11 +679,10 @@
        * In that case outputs equals inputs for the requested
        * range.
        */
-      /* Calculate the divider (always an integer value).
-       * By induction: 1+2+3+4+'n' = n(n+1)/2
-       * '>>1' is usually faster than '/2' for unsigned.
+      /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
+       * int product n*(n+1) overflows int32 at n>=46341 (#142).
        */
-      divider = optInTimePeriod * (optInTimePeriod + 1) >> 1;
+      divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
       /* The algo used here use a very basic property of
        * multiplication/addition: (x*2) = x+x
        *
@@ -743,10 +756,10 @@
       double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
       System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
       sp.optInTimePeriod = optInTimePeriod;
-      sp.divider = divider;
       sp.periodSum = periodSum;
       sp.periodSub = periodSub;
       sp.trailingValue = trailingValue;
+      sp.divider = divider;
       sp.ringPos_trailingIdx = 0;
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;

@@ -789,7 +789,11 @@ pub fn walk_stmt_exprs(s: &Statement, f: &mut dyn FnMut(&Expr)) {
             }
         }
         Statement::Expr(e) => f(e),
-        Statement::CircBuf(_) | Statement::Comment(_) | Statement::Break | Statement::Continue => {}
+        Statement::CircBuf(_)
+        | Statement::Comment(_)
+        | Statement::UnrollHint { .. }
+        | Statement::Break
+        | Statement::Continue => {}
     }
 }
 
@@ -923,7 +927,33 @@ pub fn input_array_names(func: &FuncDef) -> Vec<String> {
 /// (ATR/NATR period<=1 → TRANGE) — computes values the transition function
 /// cannot reproduce, so the function is rejected until it gets explicit
 /// stream support (the "open-time delegation" class in the proposal).
-/// Recognize a top-level param==1 identity path (see [`IdentityPath`]).
+/// `<param> == 1` / `<param> <= 1` — the classic period-1 no-smoothing guard.
+fn is_period_one_guard(e: &Expr, params: &[String]) -> bool {
+    matches!(
+        e,
+        Expr::BinOp(l, BinOp::Eq | BinOp::LessEq, r)
+            if matches!(l.as_ref(), Expr::Var(v) if params.contains(v))
+                && matches!(r.as_ref(), Expr::IntLiteral(1))
+    )
+}
+
+/// `<param> == <NAMED_CONST>` — a parameter compared for equality against a
+/// named constant (a `Var` that is not itself a parameter, e.g. the enum
+/// value `TA_MAType_DISABLED`). Lets a period-independent identity sentinel
+/// join the period-1 guard as an OR disjunct (issue #93).
+fn is_type_sentinel_guard(e: &Expr, params: &[String]) -> bool {
+    matches!(
+        e,
+        Expr::BinOp(l, BinOp::Eq, r)
+            if matches!(l.as_ref(), Expr::Var(v) if params.contains(v))
+                && matches!(r.as_ref(), Expr::Var(c) if !params.contains(c))
+    )
+}
+
+/// Recognize a top-level no-smoothing identity path (see [`IdentityPath`]):
+/// either `<param> == 1` / `<param> <= 1`, or that OR'd with a type-sentinel
+/// equality `<param> == <ENUM_CONST>` (TA_MAType_DISABLED). The whole guard
+/// condition is captured verbatim and reproduced at every stream surface.
 /// Returns the path and the index of its top-level `If` statement.
 fn detect_identity_path(
     body: &[Statement],
@@ -944,14 +974,17 @@ fn detect_identity_path(
         if !else_body.is_empty() {
             continue;
         }
-        // Guard: <param> == 1 or <param> <= 1.
-        let is_param_one_guard = matches!(
-            condition,
-            Expr::BinOp(l, BinOp::Eq | BinOp::LessEq, r)
-                if matches!(l.as_ref(), Expr::Var(v) if params.contains(v))
-                    && matches!(r.as_ref(), Expr::IntLiteral(1))
-        );
-        if !is_param_one_guard {
+        // Guard: `<param> == 1` / `<param> <= 1`, optionally OR'd with a
+        // type-sentinel equality (`... || optInMAType == TA_MAType_DISABLED`).
+        let is_identity_guard = is_period_one_guard(condition, params)
+            || match condition {
+                Expr::BinOp(a, BinOp::Or, b) => {
+                    (is_period_one_guard(a, params) && is_type_sentinel_guard(b, params))
+                        || (is_type_sentinel_guard(a, params) && is_period_one_guard(b, params))
+                }
+                _ => false,
+            };
+        if !is_identity_guard {
             continue;
         }
         // Body must end with `return SUCCESS` and contain exactly one loop
@@ -2942,6 +2975,7 @@ fn stmt_kind(s: &Statement) -> &'static str {
         Statement::For { .. } | Statement::ForC { .. } => "for loop",
         Statement::Switch { .. } => "switch",
         Statement::Return { .. } => "return",
+        Statement::UnrollHint { .. } => "unroll hint",
         Statement::Break => "break",
         Statement::Continue => "continue",
         Statement::Block { .. } => "block",
@@ -5805,10 +5839,7 @@ mod tests {
             camel_case: None,
             hint: None,
             flags: vec![],
-            inputs: vec![Input {
-                name: "inReal".into(),
-                param_type: ParamType::Real,
-            }],
+            inputs: vec![Input::new("inReal", ParamType::Real)],
             optional_inputs: vec![],
             outputs: vec![Output {
                 name: "outReal".into(),

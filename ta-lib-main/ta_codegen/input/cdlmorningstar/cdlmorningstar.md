@@ -11,7 +11,10 @@ A three-candle bottom-reversal pattern: a long black candle, a small-bodied star
 
 ## Inputs
 
-- `inPriceOHLC` — Open, High, Low, Close price series
+- `inOpen` — Open price of each bar
+- `inHigh` — High price of each bar
+- `inLow` — Low price of each bar
+- `inClose` — Close price of each bar
 
 ## Outputs
 
@@ -19,7 +22,7 @@ A three-candle bottom-reversal pattern: a long black candle, a small-bodied star
 
 ## Parameters
 
-- `optInPenetration` — Fraction of the 1st candle's body the 3rd close must exceed above the 1st close; larger = deeper penetration required (default 0.3)
+- `optInPenetration` — Fraction of the 1st candle's body the 3rd close must exceed above the 1st close; larger = deeper penetration required
 
 ## Implementation
 

@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -1895,6 +1895,29 @@ unsigned int TA_CEIL_FramePPLB( const TA_ParamHolderPriv *params )
    (void)params;
    return TA_CEIL_Lookback( );
 }
+TA_RetCode TA_CMF_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+{
+   return TA_CMF(
+               startIdx,
+               endIdx,
+               params->in[0].data.inPrice.high, /* inHigh */
+               params->in[0].data.inPrice.low, /* inLow */
+               params->in[0].data.inPrice.close, /* inClose */
+               params->in[0].data.inPrice.volume, /* inVolume */
+               params->optIn[0].data.optInInteger, /* optInTimePeriod*/
+               outBegIdx, 
+               outNBElement, 
+               params->out[0].data.outReal /*  outReal */
+               );
+}
+unsigned int TA_CMF_FramePPLB( const TA_ParamHolderPriv *params )
+{
+   return TA_CMF_Lookback(params->optIn[0].data.optInInteger /* optInTimePeriod*/ );
+}
 TA_RetCode TA_CMO_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -2118,6 +2141,26 @@ unsigned int TA_FLOOR_FramePPLB( const TA_ParamHolderPriv *params )
 {
    (void)params;
    return TA_FLOOR_Lookback( );
+}
+TA_RetCode TA_HMA_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+{
+   return TA_HMA(
+               startIdx,
+               endIdx,
+               params->in[0].data.inReal, /* inReal */
+               params->optIn[0].data.optInInteger, /* optInTimePeriod*/
+               outBegIdx, 
+               outNBElement, 
+               params->out[0].data.outReal /*  outReal */
+               );
+}
+unsigned int TA_HMA_FramePPLB( const TA_ParamHolderPriv *params )
+{
+   return TA_HMA_Lookback(params->optIn[0].data.optInInteger /* optInTimePeriod*/ );
 }
 TA_RetCode TA_HT_DCPERIOD_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
@@ -3638,6 +3681,27 @@ unsigned int TA_VAR_FramePPLB( const TA_ParamHolderPriv *params )
 {
    return TA_VAR_Lookback(params->optIn[0].data.optInInteger, /* optInTimePeriod*/
                     params->optIn[1].data.optInReal /* optInNbDev*/ );
+}
+TA_RetCode TA_VWMA_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+{
+   return TA_VWMA(
+               startIdx,
+               endIdx,
+               params->in[0].data.inReal, /* inReal */
+               params->in[1].data.inPrice.volume, /* inVolume */
+               params->optIn[0].data.optInInteger, /* optInTimePeriod*/
+               outBegIdx, 
+               outNBElement, 
+               params->out[0].data.outReal /*  outReal */
+               );
+}
+unsigned int TA_VWMA_FramePPLB( const TA_ParamHolderPriv *params )
+{
+   return TA_VWMA_Lookback(params->optIn[0].data.optInInteger /* optInTimePeriod*/ );
 }
 TA_RetCode TA_WCLPRICE_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,

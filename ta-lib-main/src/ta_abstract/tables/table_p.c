@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2025, Mario Fortier
+/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -152,7 +152,7 @@ DEF_FUNCTION( PVI,
               TA_GroupId_VolumeIndicators,
               "Positive Volume Index",
               "Pvi",
-              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_START_DEP
+              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_PATH_DEP
              );
 /* PVI END */
 
