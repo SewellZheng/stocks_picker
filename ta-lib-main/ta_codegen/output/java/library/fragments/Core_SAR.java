@@ -14,6 +14,20 @@
  *  122104 MF,CF  Fix#1089506 for out-of-bound access to ep_temp.
  */
 
+   /**
+    * Number of leading input bars {@link Core#sar} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInAcceleration Step added to the acceleration factor on each new
+    *        extreme point (default 0.02; minimum 0; {@code -4e37} selects the
+    *        default).
+    * @param optInMaximum Ceiling on the acceleration factor (default 0.2;
+    *        minimum 0; {@code -4e37} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int sarLookback( double optInAcceleration, double optInMaximum )
    {
       if( optInAcceleration == -4e37 ) {
@@ -32,15 +46,15 @@
       return 1 ;
 
    }
-   public RetCode sar( int startIdx,
-                       int endIdx,
-                       double inHigh[],
-                       double inLow[],
-                       double optInAcceleration,
-                       double optInMaximum,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode sarInternal( int startIdx,
+                        int endIdx,
+                        double inHigh[],
+                        double inLow[],
+                        double optInAcceleration,
+                        double optInMaximum,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outReal[] )
    {
       RetCode retCode;
       int isLong = 0;
@@ -139,7 +153,7 @@
        * (ep is just used as a temp buffer here, the name
        *  of the parameter is not significant).
        */
-      retCode = minusDMUnguarded(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
+      retCode = minusDMUnguardedInternal(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
       if( ep_temp[0] > 0 ) {
          isLong = 0;
       } else {
@@ -287,15 +301,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode sarUnguarded( int startIdx,
-                                int endIdx,
-                                double inHigh[],
-                                double inLow[],
-                                double optInAcceleration,
-                                double optInMaximum,
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                double outReal[] )
+   RetCode sarUnguardedInternal( int startIdx,
+                                 int endIdx,
+                                 double inHigh[],
+                                 double inLow[],
+                                 double optInAcceleration,
+                                 double optInMaximum,
+                                 MInteger outBegIdx,
+                                 MInteger outNBElement,
+                                 double outReal[] )
    {
       RetCode retCode;
       int isLong = 0;
@@ -323,7 +337,7 @@
          optInAcceleration = optInMaximum;
          af = optInAcceleration;
       }
-      retCode = minusDMUnguarded(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
+      retCode = minusDMUnguardedInternal(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
       if( ep_temp[0] > 0 ) {
          isLong = 0;
       } else {
@@ -431,15 +445,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode sar( int startIdx,
-                       int endIdx,
-                       float inHigh[],
-                       float inLow[],
-                       double optInAcceleration,
-                       double optInMaximum,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode sarInternal( int startIdx,
+                        int endIdx,
+                        float inHigh[],
+                        float inLow[],
+                        double optInAcceleration,
+                        double optInMaximum,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outReal[] )
    {
       RetCode retCode;
       int isLong = 0;
@@ -483,7 +497,7 @@
          optInAcceleration = optInMaximum;
          af = optInAcceleration;
       }
-      retCode = minusDMUnguarded(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
+      retCode = minusDMUnguardedInternal(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
       if( ep_temp[0] > 0 ) {
          isLong = 0;
       } else {
@@ -591,15 +605,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode sarUnguarded( int startIdx,
-                                int endIdx,
-                                float inHigh[],
-                                float inLow[],
-                                double optInAcceleration,
-                                double optInMaximum,
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                double outReal[] )
+   RetCode sarUnguardedInternal( int startIdx,
+                                 int endIdx,
+                                 float inHigh[],
+                                 float inLow[],
+                                 double optInAcceleration,
+                                 double optInMaximum,
+                                 MInteger outBegIdx,
+                                 MInteger outNBElement,
+                                 double outReal[] )
    {
       RetCode retCode;
       int isLong = 0;
@@ -627,7 +641,7 @@
          optInAcceleration = optInMaximum;
          af = optInAcceleration;
       }
-      retCode = minusDMUnguarded(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
+      retCode = minusDMUnguardedInternal(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
       if( ep_temp[0] > 0 ) {
          isLong = 0;
       } else {
@@ -734,6 +748,184 @@
       }
       outNBElement.value = outIdx;
       return RetCode.Success ;
+   }
+   /**
+    * Wilder's Parabolic SAR (Stop And Reverse): a trailing stop/reverse level
+    * that accelerates toward price via an acceleration factor. Signals trend
+    * direction and trailing exit points. SAR below price = uptrend (long); SAR
+    * above price = downtrend (short). Price crossing SAR flips direction.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * SAR_next = SAR + af * (EP - SAR)
+    * EP = extreme point (highest high in long / lowest low in short); af starts at Acceleration, += Acceleration each new EP, capped at Maximum.
+    * On penetration: reverse, SAR := prior EP, reset af = Acceleration. SAR clamped each bar so it does not penetrate the prior/current bar's range.
+    * }</pre>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#sarLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param optInAcceleration Step added to the acceleration factor on each new
+    *        extreme point (default 0.02; minimum 0; {@code -4e37} selects the
+    *        default).
+    * @param optInMaximum Ceiling on the acceleration factor (default 0.2;
+    *        minimum 0; {@code -4e37} selects the default).
+    * @param outReal Parabolic SAR stop/reverse level per bar. Must hold at
+    *        least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#sarExt
+    * @see Core#minusDM
+    * @see Core#plusDM
+    */
+   public OutRange sar( int startIdx,
+                        int endIdx,
+                        double inHigh[],
+                        double inLow[],
+                        double optInAcceleration,
+                        double optInMaximum,
+                        double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = sarInternal(startIdx, endIdx, inHigh, inLow, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("SAR", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Wilder's Parabolic SAR (Stop And Reverse): a trailing stop/reverse level
+    * that accelerates toward price via an acceleration factor. Signals trend
+    * direction and trailing exit points. SAR below price = uptrend (long); SAR
+    * above price = downtrend (short). Price crossing SAR flips direction. —
+    * <b>unchecked</b> variant of {@link Core#sar}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange sarUnguarded( int startIdx,
+                                 int endIdx,
+                                 double inHigh[],
+                                 double inLow[],
+                                 double optInAcceleration,
+                                 double optInMaximum,
+                                 double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      sarUnguardedInternal(startIdx, endIdx, inHigh, inLow, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Wilder's Parabolic SAR (Stop And Reverse): a trailing stop/reverse level
+    * that accelerates toward price via an acceleration factor. Signals trend
+    * direction and trailing exit points. SAR below price = uptrend (long); SAR
+    * above price = downtrend (short). Price crossing SAR flips direction.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * SAR_next = SAR + af * (EP - SAR)
+    * EP = extreme point (highest high in long / lowest low in short); af starts at Acceleration, += Acceleration each new EP, capped at Maximum.
+    * On penetration: reverse, SAR := prior EP, reset af = Acceleration. SAR clamped each bar so it does not penetrate the prior/current bar's range.
+    * }</pre>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#sarLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param optInAcceleration Step added to the acceleration factor on each new
+    *        extreme point (default 0.02; minimum 0; {@code -4e37} selects the
+    *        default).
+    * @param optInMaximum Ceiling on the acceleration factor (default 0.2;
+    *        minimum 0; {@code -4e37} selects the default).
+    * @param outReal Parabolic SAR stop/reverse level per bar. Must hold at
+    *        least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#sarExt
+    * @see Core#minusDM
+    * @see Core#plusDM
+    */
+   public OutRange sar( int startIdx,
+                        int endIdx,
+                        float inHigh[],
+                        float inLow[],
+                        double optInAcceleration,
+                        double optInMaximum,
+                        double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = sarInternal(startIdx, endIdx, inHigh, inLow, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("SAR", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Wilder's Parabolic SAR (Stop And Reverse): a trailing stop/reverse level
+    * that accelerates toward price via an acceleration factor. Signals trend
+    * direction and trailing exit points. SAR below price = uptrend (long); SAR
+    * above price = downtrend (short). Price crossing SAR flips direction. —
+    * <b>unchecked</b> variant of {@link Core#sar}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange sarUnguarded( int startIdx,
+                                 int endIdx,
+                                 float inHigh[],
+                                 float inLow[],
+                                 double optInAcceleration,
+                                 double optInMaximum,
+                                 double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      sarUnguardedInternal(startIdx, endIdx, inHigh, inLow, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
    }
 /**** Streaming API *****/
 
@@ -763,8 +955,15 @@
       double ep;
       double sar;
       double cur_outReal;
+      OutRange fillRange;
 
       SarStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#sarOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       SarStream( SarStream other ) {
          this.core = other.core;
@@ -777,6 +976,7 @@
          this.ep = other.ep;
          this.sar = other.sar;
          this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -1037,7 +1237,7 @@
        * (ep is just used as a temp buffer here, the name
        *  of the parameter is not significant).
        */
-      retCode = minusDMUnguarded(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
+      retCode = minusDMUnguardedInternal(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
       if( ep_temp[0] > 0 ) {
          isLong = 0;
       } else {
@@ -1297,7 +1497,7 @@
        * (ep is just used as a temp buffer here, the name
        *  of the parameter is not significant).
        */
-      retCode = minusDMUnguarded(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
+      retCode = minusDMUnguardedInternal(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
       if( ep_temp[0] > 0 ) {
          isLong = 0;
       } else {
@@ -1491,11 +1691,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link SarStream#fillRange()}.
     */
-   public SarStream sarOpenAndFill( double inHigh[], double inLow[], double optInAcceleration, double optInMaximum, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public SarStream sarOpenAndFill( double inHigh[], double inLow[], double optInAcceleration, double optInMaximum, double outReal[] )
    {
       SarStream sp = new SarStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = sarOpenAndFillBody(sp, inHigh, inLow, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

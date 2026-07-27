@@ -663,17 +663,17 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     }
 
     // Take over gen_code's Java role: generate the shipped Java library files into
-    // java/src/com/tictactec/ta/lib/ (the Rust/.NET bindings have no canonical home
+    // java/src/io/github/talib/ (the Rust/.NET bindings have no canonical home
     // and stay under ta_codegen/output/, but Java — like C — is a shipped product).
     if backends_to_run.contains(&"java") {
-        let java_pkg = root.join("ta_codegen/output/java/library/src/com/tictactec/ta/lib");
+        let java_pkg = root.join("ta_codegen/output/java/library/src/io/github/talib");
         // FuncUnstId.java + MAType.java depend only on enums.yaml — always safe
         // to regenerate.
         backends::java_enums::generate(&enums, &java_pkg.join("FuncUnstId.java"));
         backends::java_enums::generate_matype(&enums, &java_pkg.join("MAType.java"));
-        // Core.java's GENCODE section and CoreAnnotated.java splice ALL indicators
-        // into a single file, so only regenerate on a full (unfiltered) run — a
-        // --func subset would drop every other indicator's methods.
+        // Core.java's GENCODE section splices ALL indicators into a single file,
+        // so only regenerate on a full (unfiltered) run — a --func subset would
+        // drop every other indicator's methods.
         if func_filter.is_none() {
             backends::java_shipped::generate_core(
                 &generated_funcs,
@@ -682,14 +682,16 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
                 &helper_registry,
                 &java_pkg.join("Core.java"),
             );
-            backends::java_shipped::generate_annotated(
+            // The shipped introspection registry, from the same rows the
+            // JSON-RPC server's table renders (so the two cannot disagree).
+            backends::java_metadata::generate(
                 &generated_funcs,
                 &enums,
-                &java_pkg.join("CoreAnnotated.java"),
+                &root.join("ta_codegen/output/java/library/src"),
             );
         } else {
             println!(
-                "  (skipping shipped Core.java/CoreAnnotated.java — needs a full \
+                "  (skipping shipped Core.java + metadata registry — needs a full \
                  generate without --func)"
             );
         }
@@ -1070,6 +1072,11 @@ fn build_servers(backend_filter: Option<&str>) {
                 std::fs::create_dir_all(&class_dir).ok();
                 match std::process::Command::new("javac")
                     .args([
+                        // JDK 17 (LTS) floor: the spliced public wrappers return
+                        // `record OutRange`. Pinning it here means a too-old JDK
+                        // fails with a clear unsupported-release error.
+                        "--release",
+                        JAVA_RELEASE,
                         "-d",
                         class_dir.to_str().unwrap(),
                         java_dir.join("TaCodegenServe.java").to_str().unwrap(),
@@ -1085,6 +1092,9 @@ fn build_servers(backend_filter: Option<&str>) {
                         failures += 1;
                         println!("FAILED (javac not found: {})", e);
                     }
+                }
+                if !build_java_library(&root, &bin_dir) {
+                    failures += 1;
                 }
             }
             "dotnet" => {
@@ -1187,6 +1197,188 @@ fn build_servers(backend_filter: Option<&str>) {
              real break reads as green."
         );
         std::process::exit(1);
+    }
+}
+
+/// Compile the **shipped** Java library and run its junit-free tests.
+///
+/// The JSON-RPC server above is self-contained (it splices the same per-function
+/// fragments into its own inline `Core`), so building it proves nothing about
+/// `output/java/library/` — which is the artifact users get. Without this step the
+/// shipped tree has no compile coverage at all in any gate, and a break in the
+/// hand-written scaffolding (`Core.java`'s preserved region, `CoreBuilder`, the
+/// shared types) surfaces only when someone opens an IDE.
+///
+/// The in-tree JUnit-3 tests are skipped: `junit.jar` is not in the tree and no
+/// script or CI job ever ran them. The junit-free `main()` tests are compiled AND
+/// executed — "compile + one call" is the project's standing Java rule. Skips are
+/// printed, never silent.
+///
+/// Returns `true` on success.
+fn build_java_library(root: &Path, bin_dir: &Path) -> bool {
+    let src_root = root.join("ta_codegen/output/java/library/src");
+    if !src_root.exists() {
+        println!("  Building Java library... SKIPPED (no {})", src_root.display());
+        return true;
+    }
+
+    let mut sources: Vec<std::path::PathBuf> = Vec::new();
+    let mut junit_skipped: Vec<String> = Vec::new();
+    collect_java_sources(&src_root, &mut sources, &mut junit_skipped);
+    sources.sort();
+    junit_skipped.sort();
+
+    print!("  Building Java library ({} files)... ", sources.len());
+    let class_dir = bin_dir.join("ta_codegen_java_lib");
+    let _ = std::fs::remove_dir_all(&class_dir);
+    std::fs::create_dir_all(&class_dir).ok();
+
+    let mut cmd = std::process::Command::new("javac");
+    cmd.arg("--release").arg(JAVA_RELEASE).arg("-d").arg(&class_dir).arg("-nowarn");
+    for src in &sources {
+        cmd.arg(src);
+    }
+    match cmd.status() {
+        Ok(s) if s.success() => println!("OK"),
+        Ok(s) => {
+            println!("FAILED (exit {})", s.code().unwrap_or(-1));
+            return false;
+        }
+        Err(e) => {
+            println!("FAILED (javac not found: {})", e);
+            return false;
+        }
+    }
+    if !junit_skipped.is_empty() {
+        println!(
+            "    (skipped {} junit-dependent test file(s), no junit.jar in tree: {})",
+            junit_skipped.len(),
+            junit_skipped.join(", ")
+        );
+    }
+
+    // Javadoc doclint: the "do the docs actually build" gate. The Javadoc on the
+    // batch API is generated from the canonical `<name>.md` prose, so a stray `<`
+    // or an unresolvable `@see` would otherwise ship silently — javac does not
+    // look inside comments. `-missing` is off: the streaming handles and the
+    // internal cores are deliberately undocumented.
+    print!("  Checking Java javadoc (doclint)... ");
+    let doc_dir = bin_dir.join("ta_codegen_java_doc");
+    let _ = std::fs::remove_dir_all(&doc_dir);
+    let mut jdoc = std::process::Command::new("javadoc");
+    jdoc.arg("-Xdoclint:all,-missing")
+        .arg("-quiet")
+        .arg("--release")
+        .arg(JAVA_RELEASE)
+        .arg("-d")
+        .arg(&doc_dir);
+    for src in &sources {
+        // Test sources are not part of the published API surface.
+        if !src.to_string_lossy().contains("/test/") {
+            jdoc.arg(src);
+        }
+    }
+    match jdoc.output() {
+        Ok(o) if o.status.success() => println!("OK"),
+        Ok(o) => {
+            println!("FAILED (exit {})", o.status.code().unwrap_or(-1));
+            print!("{}", String::from_utf8_lossy(&o.stderr));
+            return false;
+        }
+        Err(e) => {
+            // javadoc ships with the JDK; if it is absent so is javac, and the
+            // compile above would already have failed.
+            println!("SKIPPED (javadoc not found: {e})");
+        }
+    }
+
+    // Run every test class DISCOVERED in the sources, not a hardcoded list: a
+    // hardcoded roster is how the retired `AllTests` suite went vacuous (it
+    // named one class, which a later change deleted, and `ant test` kept
+    // passing). A new *Test.java with a main() is picked up automatically; one
+    // without a main() is a hard error rather than a silent skip.
+    let tests = discover_java_tests(&sources);
+    if tests.is_empty() {
+        println!("  Building Java library... FAILED (no test classes discovered)");
+        return false;
+    }
+    for test in &tests {
+        print!("  Running Java {}... ", test);
+        match std::process::Command::new("java")
+            .arg("-cp")
+            .arg(&class_dir)
+            .arg(format!("io.github.talib.test.{test}"))
+            .status()
+        {
+            Ok(s) if s.success() => println!("OK"),
+            Ok(s) => {
+                println!("FAILED (exit {})", s.code().unwrap_or(-1));
+                return false;
+            }
+            Err(e) => {
+                println!("FAILED (java not found: {})", e);
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Every `*Test.java` in the shipped library's test package, in a stable order.
+///
+/// Discovered rather than listed so a new suite cannot be compiled-but-never-run
+/// (the `AllTests` trap). A `*Test.java` without a `main()` is reported and
+/// counted as a failure: silently skipping it would recreate exactly the vacuity
+/// this replaces.
+fn discover_java_tests(sources: &[std::path::PathBuf]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for src in sources {
+        let Some(stem) = src.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+            continue;
+        };
+        if !stem.ends_with("Test") {
+            continue;
+        }
+        let text = std::fs::read_to_string(src).unwrap_or_default();
+        if text.contains("public static void main(") {
+            out.push(stem);
+        } else {
+            println!("  WARNING: {stem} looks like a test but has no main() — not run");
+        }
+    }
+    out.sort();
+    out
+}
+
+/// JDK floor for everything Java this tool compiles, kept in one place so the
+/// server and the shipped library cannot drift apart. Mirrors `build.xml`'s
+/// `release="17"`.
+const JAVA_RELEASE: &str = "17";
+
+/// Recursively collect `.java` sources under `dir`, partitioning out the files
+/// that need junit (which is not in the tree).
+fn collect_java_sources(
+    dir: &Path,
+    sources: &mut Vec<std::path::PathBuf>,
+    junit_skipped: &mut Vec<String>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_java_sources(&path, sources, junit_skipped);
+        } else if path.extension().is_some_and(|e| e == "java") {
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            if text.contains("import junit.") || text.contains("junit.framework") {
+                junit_skipped.push(
+                    path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                );
+            } else {
+                sources.push(path);
+            }
+        }
     }
 }
 

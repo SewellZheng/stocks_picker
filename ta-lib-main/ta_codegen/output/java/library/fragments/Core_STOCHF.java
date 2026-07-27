@@ -20,6 +20,23 @@
  *               in-place ma() destroyed the raw K before the final copy.
  */
 
+   /**
+    * Number of leading input bars {@link Core#stochF} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInFastK_Period Lookback window for the highest-high/lowest-low
+    *        of Fast-K (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects
+    *        the default).
+    * @param optInFastD_Period Smoothing period for the Fast-D line (default 3;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInFastD_MAType Moving-average type used to smooth Fast-D
+    *        (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA,
+    *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int stochFLookback( int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
    {
       if( optInFastK_Period == Integer.MIN_VALUE ) {
@@ -40,18 +57,18 @@
       return retValue ;
 
    }
-   public RetCode stochF( int startIdx,
-                          int endIdx,
-                          double inHigh[],
-                          double inLow[],
-                          double inClose[],
-                          int optInFastK_Period,
-                          int optInFastD_Period,
-                          MAType optInFastD_MAType,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outFastK[],
-                          double outFastD[] )
+   RetCode stochFInternal( int startIdx,
+                           int endIdx,
+                           double inHigh[],
+                           double inLow[],
+                           double inClose[],
+                           int optInFastK_Period,
+                           int optInFastD_Period,
+                           MAType optInFastD_MAType,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outFastK[],
+                           double outFastD[] )
    {
       RetCode retCode;
       double lowest = 0;
@@ -231,7 +248,7 @@
       /* Fast-K calculation completed. This K calculation is returned
        * to the caller. It is smoothed to become Fast-D.
        */
-      retCode = movingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastD);
+      retCode = movingAverageUnguardedInternal(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastD);
       if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
          if( (bufferIsAllocated) != 0 ) {
          }
@@ -264,18 +281,18 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode stochFUnguarded( int startIdx,
-                                   int endIdx,
-                                   double inHigh[],
-                                   double inLow[],
-                                   double inClose[],
-                                   int optInFastK_Period,
-                                   int optInFastD_Period,
-                                   MAType optInFastD_MAType,
-                                   MInteger outBegIdx,
-                                   MInteger outNBElement,
-                                   double outFastK[],
-                                   double outFastD[] )
+   RetCode stochFUnguardedInternal( int startIdx,
+                                    int endIdx,
+                                    double inHigh[],
+                                    double inLow[],
+                                    double inClose[],
+                                    int optInFastK_Period,
+                                    int optInFastD_Period,
+                                    MAType optInFastD_MAType,
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    double outFastK[],
+                                    double outFastD[] )
    {
       RetCode retCode;
       double lowest = 0;
@@ -364,7 +381,7 @@
          trailingIdx += 1;
          today += 1;
       }
-      retCode = movingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastD);
+      retCode = movingAverageUnguardedInternal(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastD);
       if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
          if( (bufferIsAllocated) != 0 ) {
          }
@@ -383,18 +400,18 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode stochF( int startIdx,
-                          int endIdx,
-                          float inHigh[],
-                          float inLow[],
-                          float inClose[],
-                          int optInFastK_Period,
-                          int optInFastD_Period,
-                          MAType optInFastD_MAType,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outFastK[],
-                          double outFastD[] )
+   RetCode stochFInternal( int startIdx,
+                           int endIdx,
+                           float inHigh[],
+                           float inLow[],
+                           float inClose[],
+                           int optInFastK_Period,
+                           int optInFastD_Period,
+                           MAType optInFastD_MAType,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outFastK[],
+                           double outFastD[] )
    {
       RetCode retCode;
       double lowest = 0;
@@ -502,7 +519,7 @@
          trailingIdx += 1;
          today += 1;
       }
-      retCode = movingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastD);
+      retCode = movingAverageUnguardedInternal(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastD);
       if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
          if( (bufferIsAllocated) != 0 ) {
          }
@@ -521,18 +538,18 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode stochFUnguarded( int startIdx,
-                                   int endIdx,
-                                   float inHigh[],
-                                   float inLow[],
-                                   float inClose[],
-                                   int optInFastK_Period,
-                                   int optInFastD_Period,
-                                   MAType optInFastD_MAType,
-                                   MInteger outBegIdx,
-                                   MInteger outNBElement,
-                                   double outFastK[],
-                                   double outFastD[] )
+   RetCode stochFUnguardedInternal( int startIdx,
+                                    int endIdx,
+                                    float inHigh[],
+                                    float inLow[],
+                                    float inClose[],
+                                    int optInFastK_Period,
+                                    int optInFastD_Period,
+                                    MAType optInFastD_MAType,
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    double outFastK[],
+                                    double outFastD[] )
    {
       RetCode retCode;
       double lowest = 0;
@@ -621,7 +638,7 @@
          trailingIdx += 1;
          today += 1;
       }
-      retCode = movingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastD);
+      retCode = movingAverageUnguardedInternal(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastD);
       if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
          if( (bufferIsAllocated) != 0 ) {
          }
@@ -639,6 +656,214 @@
       }
       outBegIdx.value = startIdx;
       return RetCode.Success ;
+   }
+   /**
+    * Fast Stochastic Oscillator: the raw %K line and its
+    * moving-average-smoothed %D line. Unlike STOCH (which slows both lines),
+    * STOCHF returns the unsmoothed FastK and FastD. Oscillates 0-100; &gt;80
+    * overbought, &lt;20 oversold.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * FastK = 100 * (Close - LowestLow) / (HighestHigh - LowestLow), over the last FastK_Period bars (incl. today)
+    * FastD = MA(FastK, FastD_Period, FastD_MAType)
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>When the high-low range over the window is zero, %K is set to 0 instead of being undefined.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#stochFLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param optInFastK_Period Lookback window for the highest-high/lowest-low
+    *        of Fast-K (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects
+    *        the default).
+    * @param optInFastD_Period Smoothing period for the Fast-D line (default 3;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInFastD_MAType Moving-average type used to smooth Fast-D
+    *        (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA,
+    *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED).
+    * @param outFastK Raw %K stochastic line. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @param outFastD MA-smoothed %K (signal line) Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#stoch
+    * @see Core#stochRsi
+    * @see Core#movingAverage
+    */
+   public OutRange stochF( int startIdx,
+                           int endIdx,
+                           double inHigh[],
+                           double inLow[],
+                           double inClose[],
+                           int optInFastK_Period,
+                           int optInFastD_Period,
+                           MAType optInFastD_MAType,
+                           double outFastK[],
+                           double outFastD[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = stochFInternal(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
+      if( retCode != RetCode.Success ) {
+         throw failure("STOCHF", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Fast Stochastic Oscillator: the raw %K line and its
+    * moving-average-smoothed %D line. Unlike STOCH (which slows both lines),
+    * STOCHF returns the unsmoothed FastK and FastD. Oscillates 0-100; &gt;80
+    * overbought, &lt;20 oversold. — <b>unchecked</b> variant of
+    * {@link Core#stochF}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange stochFUnguarded( int startIdx,
+                                    int endIdx,
+                                    double inHigh[],
+                                    double inLow[],
+                                    double inClose[],
+                                    int optInFastK_Period,
+                                    int optInFastD_Period,
+                                    MAType optInFastD_MAType,
+                                    double outFastK[],
+                                    double outFastD[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      stochFUnguardedInternal(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Fast Stochastic Oscillator: the raw %K line and its
+    * moving-average-smoothed %D line. Unlike STOCH (which slows both lines),
+    * STOCHF returns the unsmoothed FastK and FastD. Oscillates 0-100; &gt;80
+    * overbought, &lt;20 oversold.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * FastK = 100 * (Close - LowestLow) / (HighestHigh - LowestLow), over the last FastK_Period bars (incl. today)
+    * FastD = MA(FastK, FastD_Period, FastD_MAType)
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>When the high-low range over the window is zero, %K is set to 0 instead of being undefined.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#stochFLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param optInFastK_Period Lookback window for the highest-high/lowest-low
+    *        of Fast-K (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects
+    *        the default).
+    * @param optInFastD_Period Smoothing period for the Fast-D line (default 3;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInFastD_MAType Moving-average type used to smooth Fast-D
+    *        (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA,
+    *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED).
+    * @param outFastK Raw %K stochastic line. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @param outFastD MA-smoothed %K (signal line) Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#stoch
+    * @see Core#stochRsi
+    * @see Core#movingAverage
+    */
+   public OutRange stochF( int startIdx,
+                           int endIdx,
+                           float inHigh[],
+                           float inLow[],
+                           float inClose[],
+                           int optInFastK_Period,
+                           int optInFastD_Period,
+                           MAType optInFastD_MAType,
+                           double outFastK[],
+                           double outFastD[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = stochFInternal(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
+      if( retCode != RetCode.Success ) {
+         throw failure("STOCHF", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Fast Stochastic Oscillator: the raw %K line and its
+    * moving-average-smoothed %D line. Unlike STOCH (which slows both lines),
+    * STOCHF returns the unsmoothed FastK and FastD. Oscillates 0-100; &gt;80
+    * overbought, &lt;20 oversold. — <b>unchecked</b> variant of
+    * {@link Core#stochF}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange stochFUnguarded( int startIdx,
+                                    int endIdx,
+                                    float inHigh[],
+                                    float inLow[],
+                                    float inClose[],
+                                    int optInFastK_Period,
+                                    int optInFastD_Period,
+                                    MAType optInFastD_MAType,
+                                    double outFastK[],
+                                    double outFastD[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      stochFUnguardedInternal(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
+      return new OutRange(outBegIdx.value, outNBElement.value);
    }
 /**** Streaming API *****/
 
@@ -678,8 +903,15 @@
       double cur_outFastD;
       Value cachedValue;
       MovingAverageStream sub0;
+      OutRange fillRange;
 
       StochFStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#stochFOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       StochFStream( StochFStream other ) {
          this.core = other.core;
@@ -702,6 +934,7 @@
          this.cur_outFastD = other.cur_outFastD;
          this.cachedValue = other.cachedValue;
          this.sub0 = new MovingAverageStream(other.sub0);
+         this.fillRange = other.fillRange;
       }
 
       /** One output set, in batch output order. Immutable. */
@@ -1021,7 +1254,7 @@
       /* Sub-stream 0: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MovingAverageStream sub0 = movingAverageOpenInternal(java.util.Arrays.copyOfRange(tempBuffer, 0, (outIdx - 1) + 1), 0, optInFastD_Period, optInFastD_MAType);
-      retCode = movingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, sc_outFastD);
+      retCode = movingAverageUnguardedInternal(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, sc_outFastD);
       if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
          if( (bufferIsAllocated) != 0 ) {
          }
@@ -1275,7 +1508,7 @@
       /* Sub-stream 0: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MovingAverageStream sub0 = movingAverageOpenInternal(java.util.Arrays.copyOfRange(tempBuffer, 0, (outIdx - 1) + 1), 0, optInFastD_Period, optInFastD_MAType);
-      retCode = movingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, sc_outFastD);
+      retCode = movingAverageUnguardedInternal(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, sc_outFastD);
       if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
          if( (bufferIsAllocated) != 0 ) {
          }
@@ -1382,11 +1615,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link StochFStream#fillRange()}.
     */
-   public StochFStream stochFOpenAndFill( double inHigh[], double inLow[], double inClose[], int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, MInteger outBegIdx, MInteger outNBElement, double outFastK[], double outFastD[] )
+   public StochFStream stochFOpenAndFill( double inHigh[], double inLow[], double inClose[], int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, double outFastK[], double outFastD[] )
    {
       StochFStream sp = new StochFStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = stochFOpenAndFillBody(sp, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

@@ -12,6 +12,15 @@
  *  103104 AC   Creation
  */
 
+   /**
+    * Number of leading input bars {@link Core#cdlIdentical3Crows} consumes
+    * before it can produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int cdlIdentical3CrowsLookback( )
    {
       int Equal_rangeType = this.candleSettings[CandleSettingType.Equal.ordinal()].rangeType.ordinal();
@@ -23,15 +32,15 @@
       return Math.max(ShadowVeryShort_avgPeriod, Equal_avgPeriod) + 2 ;
 
    }
-   public RetCode cdlIdentical3Crows( int startIdx,
-                                      int endIdx,
-                                      double inOpen[],
-                                      double inHigh[],
-                                      double inLow[],
-                                      double inClose[],
-                                      MInteger outBegIdx,
-                                      MInteger outNBElement,
-                                      int outInteger[] )
+   RetCode cdlIdentical3CrowsInternal( int startIdx,
+                                       int endIdx,
+                                       double inOpen[],
+                                       double inHigh[],
+                                       double inLow[],
+                                       double inClose[],
+                                       MInteger outBegIdx,
+                                       MInteger outNBElement,
+                                       int outInteger[] )
    {
       double[] ShadowVeryShortPeriodTotal = new double[3];
       double[] EqualPeriodTotal = new double[3];
@@ -141,15 +150,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdlIdentical3CrowsUnguarded( int startIdx,
-                                               int endIdx,
-                                               double inOpen[],
-                                               double inHigh[],
-                                               double inLow[],
-                                               double inClose[],
-                                               MInteger outBegIdx,
-                                               MInteger outNBElement,
-                                               int outInteger[] )
+   RetCode cdlIdentical3CrowsUnguardedInternal( int startIdx,
+                                                int endIdx,
+                                                double inOpen[],
+                                                double inHigh[],
+                                                double inLow[],
+                                                double inClose[],
+                                                MInteger outBegIdx,
+                                                MInteger outNBElement,
+                                                int outInteger[] )
    {
       double[] ShadowVeryShortPeriodTotal = new double[3];
       double[] EqualPeriodTotal = new double[3];
@@ -217,15 +226,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdlIdentical3Crows( int startIdx,
-                                      int endIdx,
-                                      float inOpen[],
-                                      float inHigh[],
-                                      float inLow[],
-                                      float inClose[],
-                                      MInteger outBegIdx,
-                                      MInteger outNBElement,
-                                      int outInteger[] )
+   RetCode cdlIdentical3CrowsInternal( int startIdx,
+                                       int endIdx,
+                                       float inOpen[],
+                                       float inHigh[],
+                                       float inLow[],
+                                       float inClose[],
+                                       MInteger outBegIdx,
+                                       MInteger outNBElement,
+                                       int outInteger[] )
    {
       double[] ShadowVeryShortPeriodTotal = new double[3];
       double[] EqualPeriodTotal = new double[3];
@@ -299,15 +308,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdlIdentical3CrowsUnguarded( int startIdx,
-                                               int endIdx,
-                                               float inOpen[],
-                                               float inHigh[],
-                                               float inLow[],
-                                               float inClose[],
-                                               MInteger outBegIdx,
-                                               MInteger outNBElement,
-                                               int outInteger[] )
+   RetCode cdlIdentical3CrowsUnguardedInternal( int startIdx,
+                                                int endIdx,
+                                                float inOpen[],
+                                                float inHigh[],
+                                                float inLow[],
+                                                float inClose[],
+                                                MInteger outBegIdx,
+                                                MInteger outNBElement,
+                                                int outInteger[] )
    {
       double[] ShadowVeryShortPeriodTotal = new double[3];
       double[] EqualPeriodTotal = new double[3];
@@ -375,6 +384,176 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
+   /**
+    * A three-candle bearish reversal pattern: three consecutive declining black
+    * candles, each with a very short (or no) lower shadow, where each candle
+    * after the first opens at or very near the prior candle's close. A hit
+    * signals a bearish reversal (pattern is always bearish).
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Does not verify the preceding uptrend that the bearish reversal classically assumes.</li>
+    * <li>Does not require the three bodies to be equal in size; 'identical' refers only to each candle opening at or near the previous candle's close.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cdlIdentical3CrowsLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inOpen Open price of each bar.
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param outInteger -100 when the pattern is detected (always bearish), 0
+    *        otherwise. Never emits +100. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cdl3BlackCrows
+    * @see Core#cdl2Crows
+    */
+   public OutRange cdlIdentical3Crows( int startIdx,
+                                       int endIdx,
+                                       double inOpen[],
+                                       double inHigh[],
+                                       double inLow[],
+                                       double inClose[],
+                                       int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cdlIdentical3CrowsInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("CDLIDENTICAL3CROWS", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A three-candle bearish reversal pattern: three consecutive declining black
+    * candles, each with a very short (or no) lower shadow, where each candle
+    * after the first opens at or very near the prior candle's close. A hit
+    * signals a bearish reversal (pattern is always bearish). — <b>unchecked</b>
+    * variant of {@link Core#cdlIdentical3Crows}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cdlIdentical3CrowsUnguarded( int startIdx,
+                                                int endIdx,
+                                                double inOpen[],
+                                                double inHigh[],
+                                                double inLow[],
+                                                double inClose[],
+                                                int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cdlIdentical3CrowsUnguardedInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A three-candle bearish reversal pattern: three consecutive declining black
+    * candles, each with a very short (or no) lower shadow, where each candle
+    * after the first opens at or very near the prior candle's close. A hit
+    * signals a bearish reversal (pattern is always bearish).
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Does not verify the preceding uptrend that the bearish reversal classically assumes.</li>
+    * <li>Does not require the three bodies to be equal in size; 'identical' refers only to each candle opening at or near the previous candle's close.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cdlIdentical3CrowsLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inOpen Open price of each bar.
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param outInteger -100 when the pattern is detected (always bearish), 0
+    *        otherwise. Never emits +100. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cdl3BlackCrows
+    * @see Core#cdl2Crows
+    */
+   public OutRange cdlIdentical3Crows( int startIdx,
+                                       int endIdx,
+                                       float inOpen[],
+                                       float inHigh[],
+                                       float inLow[],
+                                       float inClose[],
+                                       int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cdlIdentical3CrowsInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("CDLIDENTICAL3CROWS", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A three-candle bearish reversal pattern: three consecutive declining black
+    * candles, each with a very short (or no) lower shadow, where each candle
+    * after the first opens at or very near the prior candle's close. A hit
+    * signals a bearish reversal (pattern is always bearish). — <b>unchecked</b>
+    * variant of {@link Core#cdlIdentical3Crows}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cdlIdentical3CrowsUnguarded( int startIdx,
+                                                int endIdx,
+                                                float inOpen[],
+                                                float inHigh[],
+                                                float inLow[],
+                                                float inClose[],
+                                                int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cdlIdentical3CrowsUnguardedInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -432,8 +611,15 @@
       int cs_ShadowVeryShort_avgPeriod;
       double cs_ShadowVeryShort_factor;
       int cur_outInteger;
+      OutRange fillRange;
 
       CdlIdentical3CrowsStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#cdlIdentical3CrowsOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       CdlIdentical3CrowsStream( CdlIdentical3CrowsStream other ) {
          this.core = other.core;
@@ -475,6 +661,7 @@
          this.cs_ShadowVeryShort_avgPeriod = other.cs_ShadowVeryShort_avgPeriod;
          this.cs_ShadowVeryShort_factor = other.cs_ShadowVeryShort_factor;
          this.cur_outInteger = other.cur_outInteger;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -1042,11 +1229,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link CdlIdentical3CrowsStream#fillRange()}.
     */
-   public CdlIdentical3CrowsStream cdlIdentical3CrowsOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   public CdlIdentical3CrowsStream cdlIdentical3CrowsOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
       CdlIdentical3CrowsStream sp = new CdlIdentical3CrowsStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = cdlIdentical3CrowsOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

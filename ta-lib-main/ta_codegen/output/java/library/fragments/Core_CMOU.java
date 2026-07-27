@@ -12,6 +12,17 @@
  *  071626 MF,CC  Initial version.
  */
 
+   /**
+    * Number of leading input bars {@link Core#cmou} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInTimePeriod Number of trailing price changes summed (default
+    *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int cmouLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -29,13 +40,13 @@
       return optInTimePeriod ;
 
    }
-   public RetCode cmou( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode cmouInternal( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -158,13 +169,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode cmouUnguarded( int startIdx,
-                                 int endIdx,
-                                 double inReal[],
-                                 int optInTimePeriod,
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 double outReal[] )
+   RetCode cmouUnguardedInternal( int startIdx,
+                                  int endIdx,
+                                  double inReal[],
+                                  int optInTimePeriod,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -242,13 +253,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode cmou( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode cmouInternal( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -337,13 +348,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode cmouUnguarded( int startIdx,
-                                 int endIdx,
-                                 float inReal[],
-                                 int optInTimePeriod,
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 double outReal[] )
+   RetCode cmouUnguardedInternal( int startIdx,
+                                  int endIdx,
+                                  float inReal[],
+                                  int optInTimePeriod,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -421,6 +432,176 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
+   /**
+    * Chande Momentum Oscillator: Tushar Chande's original momentum oscillator,
+    * computed from **plain moving-window sums** of the up-moves and down-moves
+    * over the period. Bounded in [-100,+100]; positive = net upward momentum,
+    * negative = net downward. CMOU is the version as defined by Chande in his
+    * book *The New Technical Trader* (1994), and is the more common
+    * implementation used by TradingView ({@code ta.cmo}), QuantConnect and
+    * pandas-ta's default. See [{@code CMO}](/functions/cmo) for a smoothed
+    * variant of CMOU.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * d = P[t]-P[t-1]; over the trailing `optInTimePeriod` changes accumulate Su = sum of the positive d, Sd = sum of -d for negative d. CMOU = 100 * (Su-Sd)/(Su+Sd); 0 when Su+Sd == 0 (an exactly flat window). Unlike CMO, the sums are the plain period totals (a moving-window sum), not Wilder-smoothed averages, so there is no unstable period.
+    * }</pre>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cmouLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price/value series.
+    * @param optInTimePeriod Number of trailing price changes summed (default
+    *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal CMOU oscillator value. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cmo
+    * @see Core#rsi
+    */
+   public OutRange cmou( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInTimePeriod,
+                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cmouInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("CMOU", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Chande Momentum Oscillator: Tushar Chande's original momentum oscillator,
+    * computed from **plain moving-window sums** of the up-moves and down-moves
+    * over the period. Bounded in [-100,+100]; positive = net upward momentum,
+    * negative = net downward. CMOU is the version as defined by Chande in his
+    * book *The New Technical Trader* (1994), and is the more common
+    * implementation used by TradingView ({@code ta.cmo}), QuantConnect and
+    * pandas-ta's default. See [{@code CMO}](/functions/cmo) for a smoothed
+    * variant of CMOU. — <b>unchecked</b> variant of {@link Core#cmou}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cmouUnguarded( int startIdx,
+                                  int endIdx,
+                                  double inReal[],
+                                  int optInTimePeriod,
+                                  double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cmouUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Chande Momentum Oscillator: Tushar Chande's original momentum oscillator,
+    * computed from **plain moving-window sums** of the up-moves and down-moves
+    * over the period. Bounded in [-100,+100]; positive = net upward momentum,
+    * negative = net downward. CMOU is the version as defined by Chande in his
+    * book *The New Technical Trader* (1994), and is the more common
+    * implementation used by TradingView ({@code ta.cmo}), QuantConnect and
+    * pandas-ta's default. See [{@code CMO}](/functions/cmo) for a smoothed
+    * variant of CMOU.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * d = P[t]-P[t-1]; over the trailing `optInTimePeriod` changes accumulate Su = sum of the positive d, Sd = sum of -d for negative d. CMOU = 100 * (Su-Sd)/(Su+Sd); 0 when Su+Sd == 0 (an exactly flat window). Unlike CMO, the sums are the plain period totals (a moving-window sum), not Wilder-smoothed averages, so there is no unstable period.
+    * }</pre>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cmouLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price/value series.
+    * @param optInTimePeriod Number of trailing price changes summed (default
+    *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal CMOU oscillator value. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cmo
+    * @see Core#rsi
+    */
+   public OutRange cmou( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInTimePeriod,
+                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cmouInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("CMOU", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Chande Momentum Oscillator: Tushar Chande's original momentum oscillator,
+    * computed from **plain moving-window sums** of the up-moves and down-moves
+    * over the period. Bounded in [-100,+100]; positive = net upward momentum,
+    * negative = net downward. CMOU is the version as defined by Chande in his
+    * book *The New Technical Trader* (1994), and is the more common
+    * implementation used by TradingView ({@code ta.cmo}), QuantConnect and
+    * pandas-ta's default. See [{@code CMO}](/functions/cmo) for a smoothed
+    * variant of CMOU. — <b>unchecked</b> variant of {@link Core#cmou}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cmouUnguarded( int startIdx,
+                                  int endIdx,
+                                  float inReal[],
+                                  int optInTimePeriod,
+                                  double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cmouUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -450,8 +631,15 @@
       int ringCap_trailingIdx;
       double[] ring_trailingIdx_inReal;
       double cur_outReal;
+      OutRange fillRange;
 
       CmouStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#cmouOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       CmouStream( CmouStream other ) {
          this.core = other.core;
@@ -465,6 +653,7 @@
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
          this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -870,11 +1059,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link CmouStream#fillRange()}.
     */
-   public CmouStream cmouOpenAndFill( double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public CmouStream cmouOpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
       CmouStream sp = new CmouStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = cmouOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

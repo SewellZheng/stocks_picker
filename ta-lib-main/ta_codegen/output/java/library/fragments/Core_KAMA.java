@@ -21,6 +21,20 @@
  *                with TA_MA's period-1 copy, so identity is explicit.
  */
 
+   /**
+    * Number of leading input bars {@link Core#kama} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    * <p>This function is recursive, so the result also includes this
+    * {@code Core}'s unstable-period setting — which is why it is an instance
+    * method.
+    *
+    * @param optInTimePeriod Lookback window for the efficiency ratio (default
+    *        30; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int kamaLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -34,13 +48,13 @@
       return optInTimePeriod + this.unstablePeriod[FuncUnstId.Kama.ordinal()] ;
 
    }
-   public RetCode kama( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode kamaInternal( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double constMax = 0;
       double constDiff = 0;
@@ -218,13 +232,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode kamaUnguarded( int startIdx,
-                                 int endIdx,
-                                 double inReal[],
-                                 int optInTimePeriod,
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 double outReal[] )
+   RetCode kamaUnguardedInternal( int startIdx,
+                                  int endIdx,
+                                  double inReal[],
+                                  int optInTimePeriod,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  double outReal[] )
    {
       double constMax = 0;
       double constDiff = 0;
@@ -330,13 +344,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode kama( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode kamaInternal( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double constMax = 0;
       double constDiff = 0;
@@ -453,13 +467,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode kamaUnguarded( int startIdx,
-                                 int endIdx,
-                                 float inReal[],
-                                 int optInTimePeriod,
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 double outReal[] )
+   RetCode kamaUnguardedInternal( int startIdx,
+                                  int endIdx,
+                                  float inReal[],
+                                  int optInTimePeriod,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  double outReal[] )
    {
       double constMax = 0;
       double constDiff = 0;
@@ -565,6 +579,178 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
+   /**
+    * Kaufman Adaptive Moving Average: an EMA whose smoothing factor adapts each
+    * bar to an efficiency ratio (directional move vs. total volatility). Reacts
+    * fast in trends and smooths in ranging markets. Flat KAMA =
+    * non-trending/ranging market. KAMA tracking price closely = efficient
+    * trend.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * ER = |price[t] - price[t-period]| / sum(|price[i]-price[i-1]|, last period bars)
+    * SC = (ER*(2/3 - 2/31) + 2/31)^2
+    * KAMA[t] = KAMA[t-1] + SC*(price[t] - KAMA[t-1])
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>A period of 1 performs no smoothing: the output is a copy of the input, consistent with {@code MA(period=1)} for every MAType. (The natural KAMA math at period 1 would degenerate to a fixed-alpha EMA because the efficiency ratio is always 1, so the copy is made explicit.) Allowed since 0.6.5.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#kamaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price series.
+    * @param optInTimePeriod Lookback window for the efficiency ratio (default
+    *        30; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal Adaptive moving average line. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#mama
+    * @see Core#ema
+    * @see Core#movingAverage
+    */
+   public OutRange kama( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInTimePeriod,
+                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = kamaInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("KAMA", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Kaufman Adaptive Moving Average: an EMA whose smoothing factor adapts each
+    * bar to an efficiency ratio (directional move vs. total volatility). Reacts
+    * fast in trends and smooths in ranging markets. Flat KAMA =
+    * non-trending/ranging market. KAMA tracking price closely = efficient
+    * trend. — <b>unchecked</b> variant of {@link Core#kama}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange kamaUnguarded( int startIdx,
+                                  int endIdx,
+                                  double inReal[],
+                                  int optInTimePeriod,
+                                  double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      kamaUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Kaufman Adaptive Moving Average: an EMA whose smoothing factor adapts each
+    * bar to an efficiency ratio (directional move vs. total volatility). Reacts
+    * fast in trends and smooths in ranging markets. Flat KAMA =
+    * non-trending/ranging market. KAMA tracking price closely = efficient
+    * trend.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * ER = |price[t] - price[t-period]| / sum(|price[i]-price[i-1]|, last period bars)
+    * SC = (ER*(2/3 - 2/31) + 2/31)^2
+    * KAMA[t] = KAMA[t-1] + SC*(price[t] - KAMA[t-1])
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>A period of 1 performs no smoothing: the output is a copy of the input, consistent with {@code MA(period=1)} for every MAType. (The natural KAMA math at period 1 would degenerate to a fixed-alpha EMA because the efficiency ratio is always 1, so the copy is made explicit.) Allowed since 0.6.5.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#kamaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price series.
+    * @param optInTimePeriod Lookback window for the efficiency ratio (default
+    *        30; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal Adaptive moving average line. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#mama
+    * @see Core#ema
+    * @see Core#movingAverage
+    */
+   public OutRange kama( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInTimePeriod,
+                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = kamaInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("KAMA", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Kaufman Adaptive Moving Average: an EMA whose smoothing factor adapts each
+    * bar to an efficiency ratio (directional move vs. total volatility). Reacts
+    * fast in trends and smooths in ranging markets. Flat KAMA =
+    * non-trending/ranging market. KAMA tracking price closely = efficient
+    * trend. — <b>unchecked</b> variant of {@link Core#kama}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange kamaUnguarded( int startIdx,
+                                  int endIdx,
+                                  float inReal[],
+                                  int optInTimePeriod,
+                                  double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      kamaUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -595,8 +781,15 @@
       int ringCap_trailingIdx;
       double[] ring_trailingIdx_inReal;
       double cur_outReal;
+      OutRange fillRange;
 
       KamaStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#kamaOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       KamaStream( KamaStream other ) {
          this.core = other.core;
@@ -611,6 +804,7 @@
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
          this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -1139,11 +1333,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link KamaStream#fillRange()}.
     */
-   public KamaStream kamaOpenAndFill( double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public KamaStream kamaOpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
       KamaStream sp = new KamaStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = kamaOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

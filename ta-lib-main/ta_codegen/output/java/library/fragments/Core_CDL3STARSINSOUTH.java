@@ -12,6 +12,15 @@
  *  022705 AC   Creation
  */
 
+   /**
+    * Number of leading input bars {@link Core#cdl3StarsInSouth} consumes before
+    * it can produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int cdl3StarsInSouthLookback( )
    {
       int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -29,15 +38,15 @@
       return Math.max(Math.max(ShadowVeryShort_avgPeriod, ShadowLong_avgPeriod), Math.max(BodyLong_avgPeriod, BodyShort_avgPeriod)) + 2 ;
 
    }
-   public RetCode cdl3StarsInSouth( int startIdx,
-                                    int endIdx,
-                                    double inOpen[],
-                                    double inHigh[],
-                                    double inLow[],
-                                    double inClose[],
-                                    MInteger outBegIdx,
-                                    MInteger outNBElement,
-                                    int outInteger[] )
+   RetCode cdl3StarsInSouthInternal( int startIdx,
+                                     int endIdx,
+                                     double inOpen[],
+                                     double inHigh[],
+                                     double inLow[],
+                                     double inClose[],
+                                     MInteger outBegIdx,
+                                     MInteger outNBElement,
+                                     int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       double BodyShortPeriodTotal = 0;
@@ -172,15 +181,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdl3StarsInSouthUnguarded( int startIdx,
-                                             int endIdx,
-                                             double inOpen[],
-                                             double inHigh[],
-                                             double inLow[],
-                                             double inClose[],
-                                             MInteger outBegIdx,
-                                             MInteger outNBElement,
-                                             int outInteger[] )
+   RetCode cdl3StarsInSouthUnguardedInternal( int startIdx,
+                                              int endIdx,
+                                              double inOpen[],
+                                              double inHigh[],
+                                              double inLow[],
+                                              double inClose[],
+                                              MInteger outBegIdx,
+                                              MInteger outNBElement,
+                                              int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       double BodyShortPeriodTotal = 0;
@@ -269,15 +278,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdl3StarsInSouth( int startIdx,
-                                    int endIdx,
-                                    float inOpen[],
-                                    float inHigh[],
-                                    float inLow[],
-                                    float inClose[],
-                                    MInteger outBegIdx,
-                                    MInteger outNBElement,
-                                    int outInteger[] )
+   RetCode cdl3StarsInSouthInternal( int startIdx,
+                                     int endIdx,
+                                     float inOpen[],
+                                     float inHigh[],
+                                     float inLow[],
+                                     float inClose[],
+                                     MInteger outBegIdx,
+                                     MInteger outNBElement,
+                                     int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       double BodyShortPeriodTotal = 0;
@@ -372,15 +381,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdl3StarsInSouthUnguarded( int startIdx,
-                                             int endIdx,
-                                             float inOpen[],
-                                             float inHigh[],
-                                             float inLow[],
-                                             float inClose[],
-                                             MInteger outBegIdx,
-                                             MInteger outNBElement,
-                                             int outInteger[] )
+   RetCode cdl3StarsInSouthUnguardedInternal( int startIdx,
+                                              int endIdx,
+                                              float inOpen[],
+                                              float inHigh[],
+                                              float inLow[],
+                                              float inClose[],
+                                              MInteger outBegIdx,
+                                              MInteger outNBElement,
+                                              int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       double BodyShortPeriodTotal = 0;
@@ -469,6 +478,184 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
+   /**
+    * A three-candle bullish reversal pattern of three consecutive black candles
+    * that progressively shrink and stabilize: a long black candle with a long
+    * lower shadow, a smaller black candle probing lower, then a small black
+    * marubozu contained within the second candle's range. A hit (+100) signals
+    * a bullish reversal; per the code comment it is meaningful in a downtrend,
+    * but the function does not verify prior trend.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Does not verify the prior downtrend the pattern classically assumes for significance.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cdl3StarsInSouthLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inOpen Open price of each bar.
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param outInteger +100 on the bar where the pattern completes (always
+    *        bullish), 0 otherwise. Never emits -100. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cdl3BlackCrows
+    * @see Core#cdlIdentical3Crows
+    * @see Core#cdl3WhiteSoldiers
+    */
+   public OutRange cdl3StarsInSouth( int startIdx,
+                                     int endIdx,
+                                     double inOpen[],
+                                     double inHigh[],
+                                     double inLow[],
+                                     double inClose[],
+                                     int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cdl3StarsInSouthInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("CDL3STARSINSOUTH", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A three-candle bullish reversal pattern of three consecutive black candles
+    * that progressively shrink and stabilize: a long black candle with a long
+    * lower shadow, a smaller black candle probing lower, then a small black
+    * marubozu contained within the second candle's range. A hit (+100) signals
+    * a bullish reversal; per the code comment it is meaningful in a downtrend,
+    * but the function does not verify prior trend. — <b>unchecked</b> variant
+    * of {@link Core#cdl3StarsInSouth}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cdl3StarsInSouthUnguarded( int startIdx,
+                                              int endIdx,
+                                              double inOpen[],
+                                              double inHigh[],
+                                              double inLow[],
+                                              double inClose[],
+                                              int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cdl3StarsInSouthUnguardedInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A three-candle bullish reversal pattern of three consecutive black candles
+    * that progressively shrink and stabilize: a long black candle with a long
+    * lower shadow, a smaller black candle probing lower, then a small black
+    * marubozu contained within the second candle's range. A hit (+100) signals
+    * a bullish reversal; per the code comment it is meaningful in a downtrend,
+    * but the function does not verify prior trend.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Does not verify the prior downtrend the pattern classically assumes for significance.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cdl3StarsInSouthLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inOpen Open price of each bar.
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param outInteger +100 on the bar where the pattern completes (always
+    *        bullish), 0 otherwise. Never emits -100. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cdl3BlackCrows
+    * @see Core#cdlIdentical3Crows
+    * @see Core#cdl3WhiteSoldiers
+    */
+   public OutRange cdl3StarsInSouth( int startIdx,
+                                     int endIdx,
+                                     float inOpen[],
+                                     float inHigh[],
+                                     float inLow[],
+                                     float inClose[],
+                                     int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cdl3StarsInSouthInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("CDL3STARSINSOUTH", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A three-candle bullish reversal pattern of three consecutive black candles
+    * that progressively shrink and stabilize: a long black candle with a long
+    * lower shadow, a smaller black candle probing lower, then a small black
+    * marubozu contained within the second candle's range. A hit (+100) signals
+    * a bullish reversal; per the code comment it is meaningful in a downtrend,
+    * but the function does not verify prior trend. — <b>unchecked</b> variant
+    * of {@link Core#cdl3StarsInSouth}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cdl3StarsInSouthUnguarded( int startIdx,
+                                              int endIdx,
+                                              float inOpen[],
+                                              float inHigh[],
+                                              float inLow[],
+                                              float inClose[],
+                                              int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cdl3StarsInSouthUnguardedInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -547,8 +734,15 @@
       int cs_ShadowVeryShort_avgPeriod;
       double cs_ShadowVeryShort_factor;
       int cur_outInteger;
+      OutRange fillRange;
 
       Cdl3StarsInSouthStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#cdl3StarsInSouthOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       Cdl3StarsInSouthStream( Cdl3StarsInSouthStream other ) {
          this.core = other.core;
@@ -611,6 +805,7 @@
          this.cs_ShadowVeryShort_avgPeriod = other.cs_ShadowVeryShort_avgPeriod;
          this.cs_ShadowVeryShort_factor = other.cs_ShadowVeryShort_factor;
          this.cur_outInteger = other.cur_outInteger;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -1376,11 +1571,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link Cdl3StarsInSouthStream#fillRange()}.
     */
-   public Cdl3StarsInSouthStream cdl3StarsInSouthOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   public Cdl3StarsInSouthStream cdl3StarsInSouthOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
       Cdl3StarsInSouthStream sp = new Cdl3StarsInSouthStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = cdl3StarsInSouthOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

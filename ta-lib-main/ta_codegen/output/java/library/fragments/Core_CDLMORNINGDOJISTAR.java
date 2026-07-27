@@ -12,6 +12,19 @@
  *  100304 AC   Creation
  */
 
+   /**
+    * Number of leading input bars {@link Core#cdlMorningDojiStar} consumes
+    * before it can produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInPenetration Fraction of the 1st candle's real body the 3rd
+    *        close must exceed above close[i-2]; larger values demand deeper
+    *        penetration into the black body (default 0.3; minimum 0; {@code -4e37}
+    *        selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int cdlMorningDojiStarLookback( double optInPenetration )
    {
       if( optInPenetration == -4e37 ) {
@@ -31,16 +44,16 @@
       return Math.max(Math.max(BodyDoji_avgPeriod, BodyLong_avgPeriod), BodyShort_avgPeriod) + 2 ;
 
    }
-   public RetCode cdlMorningDojiStar( int startIdx,
-                                      int endIdx,
-                                      double inOpen[],
-                                      double inHigh[],
-                                      double inLow[],
-                                      double inClose[],
-                                      double optInPenetration,
-                                      MInteger outBegIdx,
-                                      MInteger outNBElement,
-                                      int outInteger[] )
+   RetCode cdlMorningDojiStarInternal( int startIdx,
+                                       int endIdx,
+                                       double inOpen[],
+                                       double inHigh[],
+                                       double inLow[],
+                                       double inClose[],
+                                       double optInPenetration,
+                                       MInteger outBegIdx,
+                                       MInteger outNBElement,
+                                       int outInteger[] )
    {
       double BodyDojiPeriodTotal = 0;
       double BodyLongPeriodTotal = 0;
@@ -154,16 +167,16 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdlMorningDojiStarUnguarded( int startIdx,
-                                               int endIdx,
-                                               double inOpen[],
-                                               double inHigh[],
-                                               double inLow[],
-                                               double inClose[],
-                                               double optInPenetration,
-                                               MInteger outBegIdx,
-                                               MInteger outNBElement,
-                                               int outInteger[] )
+   RetCode cdlMorningDojiStarUnguardedInternal( int startIdx,
+                                                int endIdx,
+                                                double inOpen[],
+                                                double inHigh[],
+                                                double inLow[],
+                                                double inClose[],
+                                                double optInPenetration,
+                                                MInteger outBegIdx,
+                                                MInteger outNBElement,
+                                                int outInteger[] )
    {
       double BodyDojiPeriodTotal = 0;
       double BodyLongPeriodTotal = 0;
@@ -233,16 +246,16 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdlMorningDojiStar( int startIdx,
-                                      int endIdx,
-                                      float inOpen[],
-                                      float inHigh[],
-                                      float inLow[],
-                                      float inClose[],
-                                      double optInPenetration,
-                                      MInteger outBegIdx,
-                                      MInteger outNBElement,
-                                      int outInteger[] )
+   RetCode cdlMorningDojiStarInternal( int startIdx,
+                                       int endIdx,
+                                       float inOpen[],
+                                       float inHigh[],
+                                       float inLow[],
+                                       float inClose[],
+                                       double optInPenetration,
+                                       MInteger outBegIdx,
+                                       MInteger outNBElement,
+                                       int outInteger[] )
    {
       double BodyDojiPeriodTotal = 0;
       double BodyLongPeriodTotal = 0;
@@ -323,16 +336,16 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdlMorningDojiStarUnguarded( int startIdx,
-                                               int endIdx,
-                                               float inOpen[],
-                                               float inHigh[],
-                                               float inLow[],
-                                               float inClose[],
-                                               double optInPenetration,
-                                               MInteger outBegIdx,
-                                               MInteger outNBElement,
-                                               int outInteger[] )
+   RetCode cdlMorningDojiStarUnguardedInternal( int startIdx,
+                                                int endIdx,
+                                                float inOpen[],
+                                                float inHigh[],
+                                                float inLow[],
+                                                float inClose[],
+                                                double optInPenetration,
+                                                MInteger outBegIdx,
+                                                MInteger outNBElement,
+                                                int outInteger[] )
    {
       double BodyDojiPeriodTotal = 0;
       double BodyLongPeriodTotal = 0;
@@ -402,6 +415,196 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
+   /**
+    * A three-candle bullish reversal pattern: a long black candle, then a doji
+    * that gaps down, then a white candle closing well up into the first
+    * candle's body. It is the doji-star variant of the morning star. A hit
+    * (+100) signals a bullish reversal; most meaningful after a downtrend,
+    * which this function does not verify.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>The gap-down is measured between the candles' real bodies, not between their high/low ranges.</li>
+    * <li>A prior downtrend is not verified.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cdlMorningDojiStarLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inOpen Open price of each bar.
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param optInPenetration Fraction of the 1st candle's real body the 3rd
+    *        close must exceed above close[i-2]; larger values demand deeper
+    *        penetration into the black body (default 0.3; minimum 0; {@code -4e37}
+    *        selects the default).
+    * @param outInteger +100 when the pattern is detected, 0 otherwise. Always
+    *        bullish; never emits -100. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cdlMorningStar
+    * @see Core#cdlEveningDojiStar
+    * @see Core#cdlEveningStar
+    * @see Core#cdlDojiStar
+    */
+   public OutRange cdlMorningDojiStar( int startIdx,
+                                       int endIdx,
+                                       double inOpen[],
+                                       double inHigh[],
+                                       double inLow[],
+                                       double inClose[],
+                                       double optInPenetration,
+                                       int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cdlMorningDojiStarInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("CDLMORNINGDOJISTAR", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A three-candle bullish reversal pattern: a long black candle, then a doji
+    * that gaps down, then a white candle closing well up into the first
+    * candle's body. It is the doji-star variant of the morning star. A hit
+    * (+100) signals a bullish reversal; most meaningful after a downtrend,
+    * which this function does not verify. — <b>unchecked</b> variant of
+    * {@link Core#cdlMorningDojiStar}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cdlMorningDojiStarUnguarded( int startIdx,
+                                                int endIdx,
+                                                double inOpen[],
+                                                double inHigh[],
+                                                double inLow[],
+                                                double inClose[],
+                                                double optInPenetration,
+                                                int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cdlMorningDojiStarUnguardedInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A three-candle bullish reversal pattern: a long black candle, then a doji
+    * that gaps down, then a white candle closing well up into the first
+    * candle's body. It is the doji-star variant of the morning star. A hit
+    * (+100) signals a bullish reversal; most meaningful after a downtrend,
+    * which this function does not verify.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>The gap-down is measured between the candles' real bodies, not between their high/low ranges.</li>
+    * <li>A prior downtrend is not verified.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cdlMorningDojiStarLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inOpen Open price of each bar.
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param optInPenetration Fraction of the 1st candle's real body the 3rd
+    *        close must exceed above close[i-2]; larger values demand deeper
+    *        penetration into the black body (default 0.3; minimum 0; {@code -4e37}
+    *        selects the default).
+    * @param outInteger +100 when the pattern is detected, 0 otherwise. Always
+    *        bullish; never emits -100. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cdlMorningStar
+    * @see Core#cdlEveningDojiStar
+    * @see Core#cdlEveningStar
+    * @see Core#cdlDojiStar
+    */
+   public OutRange cdlMorningDojiStar( int startIdx,
+                                       int endIdx,
+                                       float inOpen[],
+                                       float inHigh[],
+                                       float inLow[],
+                                       float inClose[],
+                                       double optInPenetration,
+                                       int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cdlMorningDojiStarInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("CDLMORNINGDOJISTAR", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A three-candle bullish reversal pattern: a long black candle, then a doji
+    * that gaps down, then a white candle closing well up into the first
+    * candle's body. It is the doji-star variant of the morning star. A hit
+    * (+100) signals a bullish reversal; most meaningful after a downtrend,
+    * which this function does not verify. — <b>unchecked</b> variant of
+    * {@link Core#cdlMorningDojiStar}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cdlMorningDojiStarUnguarded( int startIdx,
+                                                int endIdx,
+                                                float inOpen[],
+                                                float inHigh[],
+                                                float inLow[],
+                                                float inClose[],
+                                                double optInPenetration,
+                                                int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cdlMorningDojiStarUnguardedInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -461,8 +664,15 @@
       int cs_BodyShort_avgPeriod;
       double cs_BodyShort_factor;
       int cur_outInteger;
+      OutRange fillRange;
 
       CdlMorningDojiStarStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#cdlMorningDojiStarOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       CdlMorningDojiStarStream( CdlMorningDojiStarStream other ) {
          this.core = other.core;
@@ -506,6 +716,7 @@
          this.cs_BodyShort_avgPeriod = other.cs_BodyShort_avgPeriod;
          this.cs_BodyShort_factor = other.cs_BodyShort_factor;
          this.cur_outInteger = other.cur_outInteger;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -1056,11 +1267,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link CdlMorningDojiStarStream#fillRange()}.
     */
-   public CdlMorningDojiStarStream cdlMorningDojiStarOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   public CdlMorningDojiStarStream cdlMorningDojiStarOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], double optInPenetration, int outInteger[] )
    {
       CdlMorningDojiStarStream sp = new CdlMorningDojiStarStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = cdlMorningDojiStarOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

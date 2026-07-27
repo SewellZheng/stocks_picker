@@ -15,6 +15,18 @@
  *  050703 MF   Fix algorithm base on Adrian Michel bug report #748163
  */
 
+   /**
+    * Number of leading input bars {@link Core#aroonOsc} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInTimePeriod Lookback window for locating the highest high and
+    *        lowest low (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects
+    *        the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int aroonOscLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -25,14 +37,14 @@
       return optInTimePeriod ;
 
    }
-   public RetCode aroonOsc( int startIdx,
-                            int endIdx,
-                            double inHigh[],
-                            double inLow[],
-                            int optInTimePeriod,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode aroonOscInternal( int startIdx,
+                             int endIdx,
+                             double inHigh[],
+                             double inLow[],
+                             int optInTimePeriod,
+                             MInteger outBegIdx,
+                             MInteger outNBElement,
+                             double outReal[] )
    {
       double lowest = 0;
       double highest = 0;
@@ -151,14 +163,14 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode aroonOscUnguarded( int startIdx,
-                                     int endIdx,
-                                     double inHigh[],
-                                     double inLow[],
-                                     int optInTimePeriod,
-                                     MInteger outBegIdx,
-                                     MInteger outNBElement,
-                                     double outReal[] )
+   RetCode aroonOscUnguardedInternal( int startIdx,
+                                      int endIdx,
+                                      double inHigh[],
+                                      double inLow[],
+                                      int optInTimePeriod,
+                                      MInteger outBegIdx,
+                                      MInteger outNBElement,
+                                      double outReal[] )
    {
       double lowest = 0;
       double highest = 0;
@@ -230,14 +242,14 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode aroonOsc( int startIdx,
-                            int endIdx,
-                            float inHigh[],
-                            float inLow[],
-                            int optInTimePeriod,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode aroonOscInternal( int startIdx,
+                             int endIdx,
+                             float inHigh[],
+                             float inLow[],
+                             int optInTimePeriod,
+                             MInteger outBegIdx,
+                             MInteger outNBElement,
+                             double outReal[] )
    {
       double lowest = 0;
       double highest = 0;
@@ -320,14 +332,14 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode aroonOscUnguarded( int startIdx,
-                                     int endIdx,
-                                     float inHigh[],
-                                     float inLow[],
-                                     int optInTimePeriod,
-                                     MInteger outBegIdx,
-                                     MInteger outNBElement,
-                                     double outReal[] )
+   RetCode aroonOscUnguardedInternal( int startIdx,
+                                      int endIdx,
+                                      float inHigh[],
+                                      float inLow[],
+                                      int optInTimePeriod,
+                                      MInteger outBegIdx,
+                                      MInteger outNBElement,
+                                      double outReal[] )
    {
       double lowest = 0;
       double highest = 0;
@@ -399,6 +411,176 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
+   /**
+    * Aroon Oscillator: AroonUp minus AroonDown over a lookback window. Measures
+    * trend direction and strength on a -100..+100 scale. Positive when the high
+    * is more recent than the low (up-trend); negative when the low is more
+    * recent (down-trend).
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * factor = 100 / optInTimePeriod
+    * AroonUp   = factor * (period - (today - highestIdx))
+    * AroonDown = factor * (period - (today - lowestIdx))
+    * AroonOsc  = AroonUp - AroonDown = factor * (highestIdx - lowestIdx)
+    * highestIdx/lowestIdx = bar index of the highest high / lowest low in the last (period+1) bars.
+    * }</pre>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#aroonOscLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param optInTimePeriod Lookback window for locating the highest high and
+    *        lowest low (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects
+    *        the default).
+    * @param outReal Aroon oscillator value (AroonUp - AroonDown) Must hold at
+    *        least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#aroon
+    * @see Core#minMax
+    */
+   public OutRange aroonOsc( int startIdx,
+                             int endIdx,
+                             double inHigh[],
+                             double inLow[],
+                             int optInTimePeriod,
+                             double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = aroonOscInternal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("AROONOSC", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Aroon Oscillator: AroonUp minus AroonDown over a lookback window. Measures
+    * trend direction and strength on a -100..+100 scale. Positive when the high
+    * is more recent than the low (up-trend); negative when the low is more
+    * recent (down-trend). — <b>unchecked</b> variant of {@link Core#aroonOsc}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange aroonOscUnguarded( int startIdx,
+                                      int endIdx,
+                                      double inHigh[],
+                                      double inLow[],
+                                      int optInTimePeriod,
+                                      double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      aroonOscUnguardedInternal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Aroon Oscillator: AroonUp minus AroonDown over a lookback window. Measures
+    * trend direction and strength on a -100..+100 scale. Positive when the high
+    * is more recent than the low (up-trend); negative when the low is more
+    * recent (down-trend).
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * factor = 100 / optInTimePeriod
+    * AroonUp   = factor * (period - (today - highestIdx))
+    * AroonDown = factor * (period - (today - lowestIdx))
+    * AroonOsc  = AroonUp - AroonDown = factor * (highestIdx - lowestIdx)
+    * highestIdx/lowestIdx = bar index of the highest high / lowest low in the last (period+1) bars.
+    * }</pre>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#aroonOscLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param optInTimePeriod Lookback window for locating the highest high and
+    *        lowest low (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects
+    *        the default).
+    * @param outReal Aroon oscillator value (AroonUp - AroonDown) Must hold at
+    *        least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#aroon
+    * @see Core#minMax
+    */
+   public OutRange aroonOsc( int startIdx,
+                             int endIdx,
+                             float inHigh[],
+                             float inLow[],
+                             int optInTimePeriod,
+                             double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = aroonOscInternal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("AROONOSC", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Aroon Oscillator: AroonUp minus AroonDown over a lookback window. Measures
+    * trend direction and strength on a -100..+100 scale. Positive when the high
+    * is more recent than the low (up-trend); negative when the low is more
+    * recent (down-trend). — <b>unchecked</b> variant of {@link Core#aroonOsc}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange aroonOscUnguarded( int startIdx,
+                                      int endIdx,
+                                      float inHigh[],
+                                      float inLow[],
+                                      int optInTimePeriod,
+                                      double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      aroonOscUnguardedInternal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -432,8 +614,15 @@
       double[] x_inHigh;
       double[] x_inLow;
       double cur_outReal;
+      OutRange fillRange;
 
       AroonOscStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#aroonOscOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       AroonOscStream( AroonOscStream other ) {
          this.core = other.core;
@@ -451,6 +640,7 @@
          this.x_inHigh = other.x_inHigh.clone();
          this.x_inLow = other.x_inLow.clone();
          this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -884,11 +1074,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link AroonOscStream#fillRange()}.
     */
-   public AroonOscStream aroonOscOpenAndFill( double inHigh[], double inLow[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public AroonOscStream aroonOscOpenAndFill( double inHigh[], double inLow[], int optInTimePeriod, double outReal[] )
    {
       AroonOscStream sp = new AroonOscStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = aroonOscOpenAndFillBody(sp, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

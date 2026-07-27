@@ -13,6 +13,20 @@
  *  021806 MF,BT   Fix #1434450 reported by BT.
  */
 
+   /**
+    * Number of leading input bars {@link Core#cmo} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    * <p>This function is recursive, so the result also includes this
+    * {@code Core}'s unstable-period setting — which is why it is an instance
+    * method.
+    *
+    * @param optInTimePeriod Bars over which gains/losses are smoothed (default
+    *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int cmoLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -22,19 +36,16 @@
       }
       int retValue;
       retValue = optInTimePeriod + this.unstablePeriod[FuncUnstId.Cmo.ordinal()];
-      if( this.compatibility == Compatibility.Metastock ) {
-         retValue -= 1;
-      }
       return retValue ;
 
    }
-   public RetCode cmo( int startIdx,
-                       int endIdx,
-                       double inReal[],
-                       int optInTimePeriod,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode cmoInternal( int startIdx,
+                        int endIdx,
+                        double inReal[],
+                        int optInTimePeriod,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -115,50 +126,6 @@
        * no need to calculate since this
        * first value will be surely skip.
        */
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         /* Preserve prevValue because it may get
-          * overwritten by the output.
-          * (because output ptr could be the same as input ptr).
-          */
-         savePrevValue = prevValue;
-         /* No unstable period, so must calculate first output
-          * particular to Metastock.
-          * (Metastock re-use the first price bar, so there
-          *  is no loss/gain at first. Beats me why they
-          *  are doing all this).
-          */
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = inReal[today++];
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / optInTimePeriod;
-         tempValue2 = prevGain / optInTimePeriod;
-         tempValue3 = tempValue2 - tempValue1;
-         tempValue4 = tempValue1 + tempValue2;
-         /* Write the output. */
-         if( !((-0.00000000000001 < tempValue4) && (tempValue4 < 0.00000000000001)) ) {
-            outReal[outIdx++] = 100 * (tempValue3 / tempValue4);
-         } else {
-            outReal[outIdx++] = 0.0;
-         }
-         /* Are we done? */
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.Success ;
-         }
-         /* Start over for the next price bar. */
-         today -= optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       /* Remaining of the processing is identical
        * for both Classic calculation and Metastock.
        */
@@ -245,13 +212,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode cmoUnguarded( int startIdx,
-                                int endIdx,
-                                double inReal[],
-                                int optInTimePeriod,
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                double outReal[] )
+   RetCode cmoUnguardedInternal( int startIdx,
+                                 int endIdx,
+                                 double inReal[],
+                                 int optInTimePeriod,
+                                 MInteger outBegIdx,
+                                 MInteger outNBElement,
+                                 double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -289,37 +256,6 @@
       today = startIdx - lookbackTotal;
       prevValue = inReal[today];
       unstablePeriod = this.unstablePeriod[FuncUnstId.Cmo.ordinal()];
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         savePrevValue = prevValue;
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = inReal[today++];
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / optInTimePeriod;
-         tempValue2 = prevGain / optInTimePeriod;
-         tempValue3 = tempValue2 - tempValue1;
-         tempValue4 = tempValue1 + tempValue2;
-         if( !((-0.00000000000001 < tempValue4) && (tempValue4 < 0.00000000000001)) ) {
-            outReal[outIdx++] = 100 * (tempValue3 / tempValue4);
-         } else {
-            outReal[outIdx++] = 0.0;
-         }
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.Success ;
-         }
-         today -= optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       prevGain = 0.0;
       prevLoss = 0.0;
       today += 1;
@@ -383,13 +319,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode cmo( int startIdx,
-                       int endIdx,
-                       float inReal[],
-                       int optInTimePeriod,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode cmoInternal( int startIdx,
+                        int endIdx,
+                        float inReal[],
+                        int optInTimePeriod,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -438,37 +374,6 @@
       today = startIdx - lookbackTotal;
       prevValue = (double)inReal[today];
       unstablePeriod = this.unstablePeriod[FuncUnstId.Cmo.ordinal()];
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         savePrevValue = prevValue;
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = (double)inReal[today++];
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / optInTimePeriod;
-         tempValue2 = prevGain / optInTimePeriod;
-         tempValue3 = tempValue2 - tempValue1;
-         tempValue4 = tempValue1 + tempValue2;
-         if( !((-0.00000000000001 < tempValue4) && (tempValue4 < 0.00000000000001)) ) {
-            outReal[outIdx++] = 100 * (tempValue3 / tempValue4);
-         } else {
-            outReal[outIdx++] = 0.0;
-         }
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.Success ;
-         }
-         today -= optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       prevGain = 0.0;
       prevLoss = 0.0;
       today += 1;
@@ -532,13 +437,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode cmoUnguarded( int startIdx,
-                                int endIdx,
-                                float inReal[],
-                                int optInTimePeriod,
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                double outReal[] )
+   RetCode cmoUnguardedInternal( int startIdx,
+                                 int endIdx,
+                                 float inReal[],
+                                 int optInTimePeriod,
+                                 MInteger outBegIdx,
+                                 MInteger outNBElement,
+                                 double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -576,37 +481,6 @@
       today = startIdx - lookbackTotal;
       prevValue = (double)inReal[today];
       unstablePeriod = this.unstablePeriod[FuncUnstId.Cmo.ordinal()];
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         savePrevValue = prevValue;
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = (double)inReal[today++];
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / optInTimePeriod;
-         tempValue2 = prevGain / optInTimePeriod;
-         tempValue3 = tempValue2 - tempValue1;
-         tempValue4 = tempValue1 + tempValue2;
-         if( !((-0.00000000000001 < tempValue4) && (tempValue4 < 0.00000000000001)) ) {
-            outReal[outIdx++] = 100 * (tempValue3 / tempValue4);
-         } else {
-            outReal[outIdx++] = 0.0;
-         }
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.Success ;
-         }
-         today -= optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       prevGain = 0.0;
       prevLoss = 0.0;
       today += 1;
@@ -670,6 +544,168 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
+   /**
+    * Chande Momentum Oscillator: bounded momentum measure from Wilder-smoothed
+    * average up-moves and down-moves. Identical to RSI except the numerator
+    * uses (gain-loss) instead of gain. Bounded in [-100,+100]; positive = net
+    * upward momentum, negative = net downward.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * d = P[t]-P[t-1]; over the initial period accumulate gain = sum of positive d, loss = sum of -d for negative d. Wilder-smooth each: prevGain = (prevGain*(period-1) + gain_today)/period (same for loss). CMO = 100 * (prevGain-prevLoss)/(prevGain+prevLoss); 0 when prevGain+prevLoss == 0.
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Gains and losses are smoothed with Wilder's method (as in RSI) rather than the simple period sums of Chande's original definition.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cmoLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price/value series.
+    * @param optInTimePeriod Bars over which gains/losses are smoothed (default
+    *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal CMO oscillator value. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#rsi
+    */
+   public OutRange cmo( int startIdx,
+                        int endIdx,
+                        double inReal[],
+                        int optInTimePeriod,
+                        double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cmoInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("CMO", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Chande Momentum Oscillator: bounded momentum measure from Wilder-smoothed
+    * average up-moves and down-moves. Identical to RSI except the numerator
+    * uses (gain-loss) instead of gain. Bounded in [-100,+100]; positive = net
+    * upward momentum, negative = net downward. — <b>unchecked</b> variant of
+    * {@link Core#cmo}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cmoUnguarded( int startIdx,
+                                 int endIdx,
+                                 double inReal[],
+                                 int optInTimePeriod,
+                                 double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cmoUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Chande Momentum Oscillator: bounded momentum measure from Wilder-smoothed
+    * average up-moves and down-moves. Identical to RSI except the numerator
+    * uses (gain-loss) instead of gain. Bounded in [-100,+100]; positive = net
+    * upward momentum, negative = net downward.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * d = P[t]-P[t-1]; over the initial period accumulate gain = sum of positive d, loss = sum of -d for negative d. Wilder-smooth each: prevGain = (prevGain*(period-1) + gain_today)/period (same for loss). CMO = 100 * (prevGain-prevLoss)/(prevGain+prevLoss); 0 when prevGain+prevLoss == 0.
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Gains and losses are smoothed with Wilder's method (as in RSI) rather than the simple period sums of Chande's original definition.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cmoLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price/value series.
+    * @param optInTimePeriod Bars over which gains/losses are smoothed (default
+    *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal CMO oscillator value. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#rsi
+    */
+   public OutRange cmo( int startIdx,
+                        int endIdx,
+                        float inReal[],
+                        int optInTimePeriod,
+                        double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cmoInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("CMO", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Chande Momentum Oscillator: bounded momentum measure from Wilder-smoothed
+    * average up-moves and down-moves. Identical to RSI except the numerator
+    * uses (gain-loss) instead of gain. Bounded in [-100,+100]; positive = net
+    * upward momentum, negative = net downward. — <b>unchecked</b> variant of
+    * {@link Core#cmo}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cmoUnguarded( int startIdx,
+                                 int endIdx,
+                                 float inReal[],
+                                 int optInTimePeriod,
+                                 double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cmoUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -694,8 +730,15 @@
       double prevLoss;
       double prevValue;
       double cur_outReal;
+      OutRange fillRange;
 
       CmoStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#cmoOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       CmoStream( CmoStream other ) {
          this.core = other.core;
@@ -704,6 +747,7 @@
          this.prevLoss = other.prevLoss;
          this.prevValue = other.prevValue;
          this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -852,50 +896,6 @@
        * no need to calculate since this
        * first value will be surely skip.
        */
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         /* Preserve prevValue because it may get
-          * overwritten by the output.
-          * (because output ptr could be the same as input ptr).
-          */
-         savePrevValue = prevValue;
-         /* No unstable period, so must calculate first output
-          * particular to Metastock.
-          * (Metastock re-use the first price bar, so there
-          *  is no loss/gain at first. Beats me why they
-          *  are doing all this).
-          */
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = inReal[today++];
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / optInTimePeriod;
-         tempValue2 = prevGain / optInTimePeriod;
-         tempValue3 = tempValue2 - tempValue1;
-         tempValue4 = tempValue1 + tempValue2;
-         /* Write the output. */
-         if( !((-0.00000000000001 < tempValue4) && (tempValue4 < 0.00000000000001)) ) {
-            lastValue_outReal = 100 * (tempValue3 / tempValue4);
-         } else {
-            lastValue_outReal = 0.0;
-         }
-         /* Are we done? */
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.OutOfRangeEndIndex ;
-         }
-         /* Start over for the next price bar. */
-         today -= optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       /* Remaining of the processing is identical
        * for both Classic calculation and Metastock.
        */
@@ -1075,50 +1075,6 @@
        * no need to calculate since this
        * first value will be surely skip.
        */
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         /* Preserve prevValue because it may get
-          * overwritten by the output.
-          * (because output ptr could be the same as input ptr).
-          */
-         savePrevValue = prevValue;
-         /* No unstable period, so must calculate first output
-          * particular to Metastock.
-          * (Metastock re-use the first price bar, so there
-          *  is no loss/gain at first. Beats me why they
-          *  are doing all this).
-          */
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = inReal[today++];
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / optInTimePeriod;
-         tempValue2 = prevGain / optInTimePeriod;
-         tempValue3 = tempValue2 - tempValue1;
-         tempValue4 = tempValue1 + tempValue2;
-         /* Write the output. */
-         if( !((-0.00000000000001 < tempValue4) && (tempValue4 < 0.00000000000001)) ) {
-            outReal[outIdx++] = 100 * (tempValue3 / tempValue4);
-         } else {
-            outReal[outIdx++] = 0.0;
-         }
-         /* Are we done? */
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.OutOfRangeEndIndex ;
-         }
-         /* Start over for the next price bar. */
-         today -= optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       /* Remaining of the processing is identical
        * for both Classic calculation and Metastock.
        */
@@ -1247,11 +1203,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link CmoStream#fillRange()}.
     */
-   public CmoStream cmoOpenAndFill( double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public CmoStream cmoOpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
       CmoStream sp = new CmoStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = cmoOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

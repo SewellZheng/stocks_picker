@@ -20,6 +20,17 @@
  *                lockstep pass (bit-exact, no temporary buffers).
  */
 
+   /**
+    * Number of leading input bars {@link Core#tema} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInTimePeriod EMA period used for all three passes (default 30;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int temaLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -33,13 +44,13 @@
       return retValue * 3 ;
 
    }
-   public RetCode tema( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode temaInternal( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double prevEMA1 = 0;
       double prevEMA2 = 0;
@@ -135,45 +146,33 @@
        * is written only after inReal[startIdx+outIdx] was read.
        */
       optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
-      if( this.compatibility == Compatibility.Default ) {
-         /* Seed EMA1 with a simple average of the first
-          * 'period' price bars.
-          */
-         today = startIdx - lookbackTotal;
-         i = optInTimePeriod;
-         tempReal = 0.0;
-         while( i-- > 0 ) {
-            tempReal += inReal[today++];
-         }
-         prevEMA1 = tempReal / optInTimePeriod;
-         /* Advance EMA1 alone through its unstable period, up to
-          * the bar where EMA2 seeding begins.
-          */
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         /* Seed EMA2 with a simple average of the first 'period'
-          * EMA1 values, accumulated as EMA1 produces them.
-          */
-         tempReal = 0.0;
-         tempReal += prevEMA1;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            tempReal += prevEMA1;
-         }
-         prevEMA2 = tempReal / optInTimePeriod;
-      } else {
-         /* Metastock/Tradestation: seed EMA1 from the first price
-          * bar, EMA2 from the first EMA1 value.
-          */
-         prevEMA1 = inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         prevEMA2 = prevEMA1;
+      /* Seed EMA1 with a simple average of the first
+       * 'period' price bars.
+       */
+      today = startIdx - lookbackTotal;
+      i = optInTimePeriod;
+      tempReal = 0.0;
+      while( i-- > 0 ) {
+         tempReal += inReal[today++];
       }
+      prevEMA1 = tempReal / optInTimePeriod;
+      /* Advance EMA1 alone through its unstable period, up to
+       * the bar where EMA2 seeding begins.
+       */
+      while( today <= startIdx - lookbackEMA * 2 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+      }
+      /* Seed EMA2 with a simple average of the first 'period'
+       * EMA1 values, accumulated as EMA1 produces them.
+       */
+      tempReal = 0.0;
+      tempReal += prevEMA1;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         tempReal += prevEMA1;
+      }
+      prevEMA2 = tempReal / optInTimePeriod;
       /* Advance EMA1 and EMA2 in lockstep through the unstable
        * period of EMA2, up to the bar where EMA3 seeding begins.
        */
@@ -181,25 +180,18 @@
          prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
       }
-      if( this.compatibility == Compatibility.Default ) {
-         /* Seed EMA3 with a simple average of the first 'period'
-          * EMA2 values, accumulated as EMA2 produces them.
-          */
-         tempReal = 0.0;
+      /* Seed EMA3 with a simple average of the first 'period'
+       * EMA2 values, accumulated as EMA2 produces them.
+       */
+      tempReal = 0.0;
+      tempReal += prevEMA2;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
          tempReal += prevEMA2;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-            tempReal += prevEMA2;
-         }
-         prevEMA3 = tempReal / optInTimePeriod;
-      } else {
-         /* Metastock/Tradestation: seed EMA3 from the first EMA2
-          * value.
-          */
-         prevEMA3 = prevEMA2;
       }
+      prevEMA3 = tempReal / optInTimePeriod;
       /* Advance all three EMA in lockstep through the unstable
        * period of EMA3, up to the first output bar.
        */
@@ -226,13 +218,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode temaUnguarded( int startIdx,
-                                 int endIdx,
-                                 double inReal[],
-                                 int optInTimePeriod,
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 double outReal[] )
+   RetCode temaUnguardedInternal( int startIdx,
+                                  int endIdx,
+                                  double inReal[],
+                                  int optInTimePeriod,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  double outReal[] )
    {
       double prevEMA1 = 0;
       double prevEMA2 = 0;
@@ -264,50 +256,37 @@
          return RetCode.Success ;
       }
       optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
-      if( this.compatibility == Compatibility.Default ) {
-         today = startIdx - lookbackTotal;
-         i = optInTimePeriod;
-         tempReal = 0.0;
-         while( i-- > 0 ) {
-            tempReal += inReal[today++];
-         }
-         prevEMA1 = tempReal / optInTimePeriod;
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         tempReal = 0.0;
-         tempReal += prevEMA1;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            tempReal += prevEMA1;
-         }
-         prevEMA2 = tempReal / optInTimePeriod;
-      } else {
-         prevEMA1 = inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         prevEMA2 = prevEMA1;
+      today = startIdx - lookbackTotal;
+      i = optInTimePeriod;
+      tempReal = 0.0;
+      while( i-- > 0 ) {
+         tempReal += inReal[today++];
       }
+      prevEMA1 = tempReal / optInTimePeriod;
+      while( today <= startIdx - lookbackEMA * 2 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+      }
+      tempReal = 0.0;
+      tempReal += prevEMA1;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         tempReal += prevEMA1;
+      }
+      prevEMA2 = tempReal / optInTimePeriod;
       while( today <= startIdx - lookbackEMA ) {
          prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
       }
-      if( this.compatibility == Compatibility.Default ) {
-         tempReal = 0.0;
+      tempReal = 0.0;
+      tempReal += prevEMA2;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
          tempReal += prevEMA2;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-            tempReal += prevEMA2;
-         }
-         prevEMA3 = tempReal / optInTimePeriod;
-      } else {
-         prevEMA3 = prevEMA2;
       }
+      prevEMA3 = tempReal / optInTimePeriod;
       while( today <= startIdx ) {
          prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
@@ -325,13 +304,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode tema( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode temaInternal( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double prevEMA1 = 0;
       double prevEMA2 = 0;
@@ -374,50 +353,37 @@
          return RetCode.Success ;
       }
       optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
-      if( this.compatibility == Compatibility.Default ) {
-         today = startIdx - lookbackTotal;
-         i = optInTimePeriod;
-         tempReal = 0.0;
-         while( i-- > 0 ) {
-            tempReal += (double)inReal[today++];
-         }
-         prevEMA1 = tempReal / optInTimePeriod;
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         tempReal = 0.0;
-         tempReal += prevEMA1;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            tempReal += prevEMA1;
-         }
-         prevEMA2 = tempReal / optInTimePeriod;
-      } else {
-         prevEMA1 = (double)inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         prevEMA2 = prevEMA1;
+      today = startIdx - lookbackTotal;
+      i = optInTimePeriod;
+      tempReal = 0.0;
+      while( i-- > 0 ) {
+         tempReal += (double)inReal[today++];
       }
+      prevEMA1 = tempReal / optInTimePeriod;
+      while( today <= startIdx - lookbackEMA * 2 ) {
+         prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+      }
+      tempReal = 0.0;
+      tempReal += prevEMA1;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         tempReal += prevEMA1;
+      }
+      prevEMA2 = tempReal / optInTimePeriod;
       while( today <= startIdx - lookbackEMA ) {
          prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
       }
-      if( this.compatibility == Compatibility.Default ) {
-         tempReal = 0.0;
+      tempReal = 0.0;
+      tempReal += prevEMA2;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
          tempReal += prevEMA2;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-            tempReal += prevEMA2;
-         }
-         prevEMA3 = tempReal / optInTimePeriod;
-      } else {
-         prevEMA3 = prevEMA2;
       }
+      prevEMA3 = tempReal / optInTimePeriod;
       while( today <= startIdx ) {
          prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
@@ -435,13 +401,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode temaUnguarded( int startIdx,
-                                 int endIdx,
-                                 float inReal[],
-                                 int optInTimePeriod,
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 double outReal[] )
+   RetCode temaUnguardedInternal( int startIdx,
+                                  int endIdx,
+                                  float inReal[],
+                                  int optInTimePeriod,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  double outReal[] )
    {
       double prevEMA1 = 0;
       double prevEMA2 = 0;
@@ -473,50 +439,37 @@
          return RetCode.Success ;
       }
       optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
-      if( this.compatibility == Compatibility.Default ) {
-         today = startIdx - lookbackTotal;
-         i = optInTimePeriod;
-         tempReal = 0.0;
-         while( i-- > 0 ) {
-            tempReal += (double)inReal[today++];
-         }
-         prevEMA1 = tempReal / optInTimePeriod;
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         tempReal = 0.0;
-         tempReal += prevEMA1;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            tempReal += prevEMA1;
-         }
-         prevEMA2 = tempReal / optInTimePeriod;
-      } else {
-         prevEMA1 = (double)inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         prevEMA2 = prevEMA1;
+      today = startIdx - lookbackTotal;
+      i = optInTimePeriod;
+      tempReal = 0.0;
+      while( i-- > 0 ) {
+         tempReal += (double)inReal[today++];
       }
+      prevEMA1 = tempReal / optInTimePeriod;
+      while( today <= startIdx - lookbackEMA * 2 ) {
+         prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+      }
+      tempReal = 0.0;
+      tempReal += prevEMA1;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         tempReal += prevEMA1;
+      }
+      prevEMA2 = tempReal / optInTimePeriod;
       while( today <= startIdx - lookbackEMA ) {
          prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
       }
-      if( this.compatibility == Compatibility.Default ) {
-         tempReal = 0.0;
+      tempReal = 0.0;
+      tempReal += prevEMA2;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
          tempReal += prevEMA2;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-            tempReal += prevEMA2;
-         }
-         prevEMA3 = tempReal / optInTimePeriod;
-      } else {
-         prevEMA3 = prevEMA2;
       }
+      prevEMA3 = tempReal / optInTimePeriod;
       while( today <= startIdx ) {
          prevEMA1 = Math.fma((double)inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
@@ -533,6 +486,168 @@
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
       return RetCode.Success ;
+   }
+   /**
+    * Triple Exponential Moving Average: a smoothed price overlay built from
+    * three successively-applied EMAs to reduce lag versus a plain EMA. Distinct
+    * from EMA3, also called "triple EMA" in the literature.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * EMA1=EMA(t,period); EMA2=EMA(EMA1,period); EMA3=EMA(EMA2,period); TEMA = 3*EMA1 - 3*EMA2 + EMA3
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#temaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price/data series.
+    * @param optInTimePeriod EMA period used for all three passes (default 30;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal The TEMA line. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#ema
+    * @see Core#dema
+    * @see Core#t3
+    */
+   public OutRange tema( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInTimePeriod,
+                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = temaInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("TEMA", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Triple Exponential Moving Average: a smoothed price overlay built from
+    * three successively-applied EMAs to reduce lag versus a plain EMA. Distinct
+    * from EMA3, also called "triple EMA" in the literature. — <b>unchecked</b>
+    * variant of {@link Core#tema}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange temaUnguarded( int startIdx,
+                                  int endIdx,
+                                  double inReal[],
+                                  int optInTimePeriod,
+                                  double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      temaUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Triple Exponential Moving Average: a smoothed price overlay built from
+    * three successively-applied EMAs to reduce lag versus a plain EMA. Distinct
+    * from EMA3, also called "triple EMA" in the literature.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * EMA1=EMA(t,period); EMA2=EMA(EMA1,period); EMA3=EMA(EMA2,period); TEMA = 3*EMA1 - 3*EMA2 + EMA3
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#temaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price/data series.
+    * @param optInTimePeriod EMA period used for all three passes (default 30;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal The TEMA line. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#ema
+    * @see Core#dema
+    * @see Core#t3
+    */
+   public OutRange tema( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInTimePeriod,
+                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = temaInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("TEMA", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Triple Exponential Moving Average: a smoothed price overlay built from
+    * three successively-applied EMAs to reduce lag versus a plain EMA. Distinct
+    * from EMA3, also called "triple EMA" in the literature. — <b>unchecked</b>
+    * variant of {@link Core#tema}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange temaUnguarded( int startIdx,
+                                  int endIdx,
+                                  float inReal[],
+                                  int optInTimePeriod,
+                                  double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      temaUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
    }
 /**** Streaming API *****/
 
@@ -559,8 +674,15 @@
       double prevEMA3;
       double optInK_1;
       double cur_outReal;
+      OutRange fillRange;
 
       TemaStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#temaOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       TemaStream( TemaStream other ) {
          this.core = other.core;
@@ -570,6 +692,7 @@
          this.prevEMA3 = other.prevEMA3;
          this.optInK_1 = other.optInK_1;
          this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -723,45 +846,33 @@
        * is written only after inReal[startIdx+outIdx] was read.
        */
       optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
-      if( this.compatibility == Compatibility.Default ) {
-         /* Seed EMA1 with a simple average of the first
-          * 'period' price bars.
-          */
-         today = startIdx - lookbackTotal;
-         i = optInTimePeriod;
-         tempReal = 0.0;
-         while( i-- > 0 ) {
-            tempReal += inReal[today++];
-         }
-         prevEMA1 = tempReal / optInTimePeriod;
-         /* Advance EMA1 alone through its unstable period, up to
-          * the bar where EMA2 seeding begins.
-          */
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         /* Seed EMA2 with a simple average of the first 'period'
-          * EMA1 values, accumulated as EMA1 produces them.
-          */
-         tempReal = 0.0;
-         tempReal += prevEMA1;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            tempReal += prevEMA1;
-         }
-         prevEMA2 = tempReal / optInTimePeriod;
-      } else {
-         /* Metastock/Tradestation: seed EMA1 from the first price
-          * bar, EMA2 from the first EMA1 value.
-          */
-         prevEMA1 = inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         prevEMA2 = prevEMA1;
+      /* Seed EMA1 with a simple average of the first
+       * 'period' price bars.
+       */
+      today = startIdx - lookbackTotal;
+      i = optInTimePeriod;
+      tempReal = 0.0;
+      while( i-- > 0 ) {
+         tempReal += inReal[today++];
       }
+      prevEMA1 = tempReal / optInTimePeriod;
+      /* Advance EMA1 alone through its unstable period, up to
+       * the bar where EMA2 seeding begins.
+       */
+      while( today <= startIdx - lookbackEMA * 2 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+      }
+      /* Seed EMA2 with a simple average of the first 'period'
+       * EMA1 values, accumulated as EMA1 produces them.
+       */
+      tempReal = 0.0;
+      tempReal += prevEMA1;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         tempReal += prevEMA1;
+      }
+      prevEMA2 = tempReal / optInTimePeriod;
       /* Advance EMA1 and EMA2 in lockstep through the unstable
        * period of EMA2, up to the bar where EMA3 seeding begins.
        */
@@ -769,25 +880,18 @@
          prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
       }
-      if( this.compatibility == Compatibility.Default ) {
-         /* Seed EMA3 with a simple average of the first 'period'
-          * EMA2 values, accumulated as EMA2 produces them.
-          */
-         tempReal = 0.0;
+      /* Seed EMA3 with a simple average of the first 'period'
+       * EMA2 values, accumulated as EMA2 produces them.
+       */
+      tempReal = 0.0;
+      tempReal += prevEMA2;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
          tempReal += prevEMA2;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-            tempReal += prevEMA2;
-         }
-         prevEMA3 = tempReal / optInTimePeriod;
-      } else {
-         /* Metastock/Tradestation: seed EMA3 from the first EMA2
-          * value.
-          */
-         prevEMA3 = prevEMA2;
       }
+      prevEMA3 = tempReal / optInTimePeriod;
       /* Advance all three EMA in lockstep through the unstable
        * period of EMA3, up to the first output bar.
        */
@@ -929,45 +1033,33 @@
        * is written only after inReal[startIdx+outIdx] was read.
        */
       optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
-      if( this.compatibility == Compatibility.Default ) {
-         /* Seed EMA1 with a simple average of the first
-          * 'period' price bars.
-          */
-         today = startIdx - lookbackTotal;
-         i = optInTimePeriod;
-         tempReal = 0.0;
-         while( i-- > 0 ) {
-            tempReal += inReal[today++];
-         }
-         prevEMA1 = tempReal / optInTimePeriod;
-         /* Advance EMA1 alone through its unstable period, up to
-          * the bar where EMA2 seeding begins.
-          */
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         /* Seed EMA2 with a simple average of the first 'period'
-          * EMA1 values, accumulated as EMA1 produces them.
-          */
-         tempReal = 0.0;
-         tempReal += prevEMA1;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            tempReal += prevEMA1;
-         }
-         prevEMA2 = tempReal / optInTimePeriod;
-      } else {
-         /* Metastock/Tradestation: seed EMA1 from the first price
-          * bar, EMA2 from the first EMA1 value.
-          */
-         prevEMA1 = inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackEMA * 2 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         }
-         prevEMA2 = prevEMA1;
+      /* Seed EMA1 with a simple average of the first
+       * 'period' price bars.
+       */
+      today = startIdx - lookbackTotal;
+      i = optInTimePeriod;
+      tempReal = 0.0;
+      while( i-- > 0 ) {
+         tempReal += inReal[today++];
       }
+      prevEMA1 = tempReal / optInTimePeriod;
+      /* Advance EMA1 alone through its unstable period, up to
+       * the bar where EMA2 seeding begins.
+       */
+      while( today <= startIdx - lookbackEMA * 2 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+      }
+      /* Seed EMA2 with a simple average of the first 'period'
+       * EMA1 values, accumulated as EMA1 produces them.
+       */
+      tempReal = 0.0;
+      tempReal += prevEMA1;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         tempReal += prevEMA1;
+      }
+      prevEMA2 = tempReal / optInTimePeriod;
       /* Advance EMA1 and EMA2 in lockstep through the unstable
        * period of EMA2, up to the bar where EMA3 seeding begins.
        */
@@ -975,25 +1067,18 @@
          prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
       }
-      if( this.compatibility == Compatibility.Default ) {
-         /* Seed EMA3 with a simple average of the first 'period'
-          * EMA2 values, accumulated as EMA2 produces them.
-          */
-         tempReal = 0.0;
+      /* Seed EMA3 with a simple average of the first 'period'
+       * EMA2 values, accumulated as EMA2 produces them.
+       */
+      tempReal = 0.0;
+      tempReal += prevEMA2;
+      i = optInTimePeriod - 1;
+      while( i-- > 0 ) {
+         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
+         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
          tempReal += prevEMA2;
-         i = optInTimePeriod - 1;
-         while( i-- > 0 ) {
-            prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-            prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-            tempReal += prevEMA2;
-         }
-         prevEMA3 = tempReal / optInTimePeriod;
-      } else {
-         /* Metastock/Tradestation: seed EMA3 from the first EMA2
-          * value.
-          */
-         prevEMA3 = prevEMA2;
       }
+      prevEMA3 = tempReal / optInTimePeriod;
       /* Advance all three EMA in lockstep through the unstable
        * period of EMA3, up to the first output bar.
        */
@@ -1063,11 +1148,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link TemaStream#fillRange()}.
     */
-   public TemaStream temaOpenAndFill( double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public TemaStream temaOpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
       TemaStream sp = new TemaStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = temaOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

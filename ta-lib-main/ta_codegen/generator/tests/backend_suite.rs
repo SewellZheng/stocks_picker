@@ -206,8 +206,9 @@ fn check_java_variants(j: &str, lower: &str, name: &str) {
         lower
     );
     assert!(
-        j.contains(&format!("RetCode {}(", lower)) || j.contains(&format!("RetCode {} (", lower)),
-        "{}: Java missing {} function",
+        j.contains(&format!("RetCode {}Internal(", lower))
+            || j.contains(&format!("RetCode {}Internal (", lower)),
+        "{}: Java missing {} internal core",
         name,
         lower
     );
@@ -379,9 +380,10 @@ fn test_ma_java_cross_calls() {
         j.contains("emaLookback("),
         "Java: MA should call emaLookback"
     );
-    // Bare cross-indicator calls resolve to Unguarded (skip validation)
-    assert!(j.contains("smaUnguarded("), "Java: MA should call smaUnguarded");
-    assert!(j.contains("emaUnguarded("), "Java: MA should call emaUnguarded");
+    // Bare cross-indicator calls resolve to the unguarded internal core
+    // (skip validation, and keep the C-shaped MInteger out-params).
+    assert!(j.contains("smaUnguardedInternal("), "Java: MA should call smaUnguardedInternal");
+    assert!(j.contains("emaUnguardedInternal("), "Java: MA should call emaUnguardedInternal");
 }
 
 #[test]
@@ -464,8 +466,8 @@ fn test_java_sma_guarded_has_validation() {
     let (func, enums) = load_indicator("sma");
     let out = generate_all(&func, &enums);
 
-    // Extract guarded function (between "RetCode sma(" and "smaUnguarded(")
-    let guarded = extract_section(&out.java, "RetCode sma(", "smaUnguarded(");
+    // Extract the guarded core (between its own signature and the unguarded one)
+    let guarded = extract_section(&out.java, "RetCode smaInternal(", "smaUnguardedInternal(");
     assert!(
         guarded.contains("OutOfRangeStartIndex"),
         "Java guarded SMA should have start index validation"
@@ -602,10 +604,31 @@ fn test_rsi_java_unstable_period() {
         out.java.contains("this.unstablePeriod"),
         "Java RSI should reference this.unstablePeriod"
     );
-    assert!(
-        out.java.contains("this.compatibility"),
-        "Java RSI should reference this.compatibility"
-    );
+}
+
+/// Java pins compatibility to Default and carries no such field, so the branches
+/// are constant-folded at render time. RSI is the witness: its lookback has a
+/// bare `== METASTOCK` test and its body a compound
+/// `unstablePeriod == 0 && ... == METASTOCK` one, and both arms are dead here.
+///
+/// C renders the same IR and must keep both arms — that contrast is what makes
+/// this non-vacuous (an empty Java body would satisfy the first assert alone).
+#[test]
+fn java_compatibility_is_folded_away() {
+    for name in ["rsi", "cmo", "ema", "dema", "tema", "trix", "macd", "macdfix"] {
+        let (func, enums) = load_indicator(name);
+        let out = generate_all(&func, &enums);
+
+        assert!(
+            !out.java.contains("compatibility ==") && !out.java.contains("Compatibility."),
+            "Java {name} must not reference the compatibility field — it is folded away"
+        );
+        assert!(
+            out.c.contains("TA_GLOBALS_COMPATIBILITY"),
+            "C {name} must keep both compatibility arms (proves the Java fold is \
+             a backend choice, not an empty input)"
+        );
+    }
 }
 
 // --- EMA: unstable period + ARRAY_COPY ---
@@ -2607,7 +2630,7 @@ fn candle_settings_unpacking_in_lookback() {
         "Rust lookback should contain candle settings unpacking"
     );
 
-    let java_lookback_end = java_out.find("public RetCode cdl2Crows(").unwrap();
+    let java_lookback_end = java_out.find("RetCode cdl2CrowsInternal(").unwrap();
     let java_lookback = &java_out[..java_lookback_end];
     assert!(
         java_lookback.contains("this.candleSettings[CandleSettingType.BodyLong.ordinal()]"),
@@ -4660,8 +4683,8 @@ fn java_ma_cross_indicator_calls() {
     // Anchor the call site so demaUnguarded(/temaUnguarded( (adjacent dispatch
     // arms) cannot substring-shadow the EMA arm.
     assert!(
-        j.contains("= emaUnguarded("),
-        "Java MA should call emaUnguarded(): {j}"
+        j.contains("= emaUnguardedInternal("),
+        "Java MA should call emaUnguardedInternal(): {j}"
     );
     assert!(
         j.contains("= emaLookback("),
@@ -5574,7 +5597,7 @@ fn java_macd_lookback_code_rendering() {
     let out = generate_all(&func, &enums);
     let j = &out.java;
 
-    let lookback_end = j.find("public RetCode macd(").unwrap();
+    let lookback_end = j.find("RetCode macdInternal(").unwrap();
     let lookback = &j[..lookback_end];
     assert!(
         lookback.contains("macdLookback"),
@@ -5612,11 +5635,11 @@ fn stochrsi_lookback_cross_calls() {
 
 #[test]
 fn java_var_name_mappings() {
-    // Fixed (non-enum) constant renderings.
+    // Fixed (non-enum) constant renderings. COMPATIBILITY/METASTOCK/DEFAULT are
+    // deliberately absent: Java pins the mode to Default and the branches are
+    // constant-folded away before rendering, so those names never reach `var`
+    // (reaching it panics — see `java_compatibility_is_folded_away`).
     let mut cases: Vec<(String, String)> = [
-        ("COMPATIBILITY", "this.compatibility"),
-        ("METASTOCK", "Compatibility.Metastock"),
-        ("DEFAULT", "Compatibility.Default"),
         ("BAD_PARAM", "RetCode.BadParam"),
         ("SUCCESS", "RetCode.Success"),
         ("ALLOC_ERR", "RetCode.AllocErr"),

@@ -14,6 +14,20 @@
  *  062804 MF   Resolve div by zero bug on limit case.
  */
 
+   /**
+    * Number of leading input bars {@link Core#rsi} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    * <p>This function is recursive, so the result also includes this
+    * {@code Core}'s unstable-period setting — which is why it is an instance
+    * method.
+    *
+    * @param optInTimePeriod Lookback for the gain/loss averaging (default 14;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int rsiLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -23,19 +37,16 @@
       }
       int retValue;
       retValue = optInTimePeriod + this.unstablePeriod[FuncUnstId.Rsi.ordinal()];
-      if( this.compatibility == Compatibility.Metastock ) {
-         retValue = retValue - 1;
-      }
       return retValue ;
 
    }
-   public RetCode rsi( int startIdx,
-                       int endIdx,
-                       double inReal[],
-                       int optInTimePeriod,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode rsiInternal( int startIdx,
+                        int endIdx,
+                        double inReal[],
+                        int optInTimePeriod,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -117,52 +128,6 @@
        * no need to calculate since this
        * first value will be surely skip.
        */
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         /* Preserve prevValue because it may get
-          * overwritten by the output.
-          * (because output ptr could be the same as input ptr).
-          */
-         savePrevValue = prevValue;
-         /* No unstable period, so must calculate first output
-          * particular to Metastock.
-          * (Metastock re-use the first price bar, so there
-          *  is no loss/gain at first. Beats me why they
-          *  are doing all this).
-          */
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = (double)inReal[today];
-            today = today + 1;
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0.0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / (double)optInTimePeriod;
-         tempValue2 = prevGain / (double)optInTimePeriod;
-         /* Write the output. */
-         tempValue1 = tempValue2 + tempValue1;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
-            outReal[outIdx] = 100.0 * (tempValue2 / tempValue1);
-            outIdx = outIdx + 1;
-         } else {
-            outReal[outIdx] = 0.0;
-            outIdx = outIdx + 1;
-         }
-         /* Are we done? */
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.Success ;
-         }
-         /* Start over for the next price bar. */
-         today = today - (int)optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       /* Remaining of the processing is identical
        * for both Classic calculation and Metastock.
        */
@@ -255,13 +220,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode rsiUnguarded( int startIdx,
-                                int endIdx,
-                                double inReal[],
-                                int optInTimePeriod,
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                double outReal[] )
+   RetCode rsiUnguardedInternal( int startIdx,
+                                 int endIdx,
+                                 double inReal[],
+                                 int optInTimePeriod,
+                                 MInteger outBegIdx,
+                                 MInteger outNBElement,
+                                 double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -297,39 +262,6 @@
       today = startIdx - lookbackTotal;
       prevValue = (double)inReal[today];
       unstablePeriod = this.unstablePeriod[FuncUnstId.Rsi.ordinal()];
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         savePrevValue = prevValue;
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = (double)inReal[today];
-            today = today + 1;
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0.0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / (double)optInTimePeriod;
-         tempValue2 = prevGain / (double)optInTimePeriod;
-         tempValue1 = tempValue2 + tempValue1;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
-            outReal[outIdx] = 100.0 * (tempValue2 / tempValue1);
-            outIdx = outIdx + 1;
-         } else {
-            outReal[outIdx] = 0.0;
-            outIdx = outIdx + 1;
-         }
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.Success ;
-         }
-         today = today - (int)optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       prevGain = 0.0;
       prevLoss = 0.0;
       today = today + 1;
@@ -399,13 +331,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode rsi( int startIdx,
-                       int endIdx,
-                       float inReal[],
-                       int optInTimePeriod,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode rsiInternal( int startIdx,
+                        int endIdx,
+                        float inReal[],
+                        int optInTimePeriod,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -452,39 +384,6 @@
       today = startIdx - lookbackTotal;
       prevValue = (double)inReal[today];
       unstablePeriod = this.unstablePeriod[FuncUnstId.Rsi.ordinal()];
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         savePrevValue = prevValue;
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = (double)inReal[today];
-            today = today + 1;
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0.0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / (double)optInTimePeriod;
-         tempValue2 = prevGain / (double)optInTimePeriod;
-         tempValue1 = tempValue2 + tempValue1;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
-            outReal[outIdx] = 100.0 * (tempValue2 / tempValue1);
-            outIdx = outIdx + 1;
-         } else {
-            outReal[outIdx] = 0.0;
-            outIdx = outIdx + 1;
-         }
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.Success ;
-         }
-         today = today - (int)optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       prevGain = 0.0;
       prevLoss = 0.0;
       today = today + 1;
@@ -554,13 +453,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode rsiUnguarded( int startIdx,
-                                int endIdx,
-                                float inReal[],
-                                int optInTimePeriod,
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                double outReal[] )
+   RetCode rsiUnguardedInternal( int startIdx,
+                                 int endIdx,
+                                 float inReal[],
+                                 int optInTimePeriod,
+                                 MInteger outBegIdx,
+                                 MInteger outNBElement,
+                                 double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -596,39 +495,6 @@
       today = startIdx - lookbackTotal;
       prevValue = (double)inReal[today];
       unstablePeriod = this.unstablePeriod[FuncUnstId.Rsi.ordinal()];
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         savePrevValue = prevValue;
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = (double)inReal[today];
-            today = today + 1;
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0.0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / (double)optInTimePeriod;
-         tempValue2 = prevGain / (double)optInTimePeriod;
-         tempValue1 = tempValue2 + tempValue1;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
-            outReal[outIdx] = 100.0 * (tempValue2 / tempValue1);
-            outIdx = outIdx + 1;
-         } else {
-            outReal[outIdx] = 0.0;
-            outIdx = outIdx + 1;
-         }
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.Success ;
-         }
-         today = today - (int)optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       prevGain = 0.0;
       prevLoss = 0.0;
       today = today + 1;
@@ -698,6 +564,190 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
+   /**
+    * Wilder's Relative Strength Index, a momentum oscillator bounded 0-100 from
+    * the ratio of average gains to average losses over the period. Used to
+    * gauge overbought/oversold conditions. &gt;70 overbought, &lt;30 oversold.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * $$
+    * \begin{aligned}
+    * U_t &= \max(X_t - X_{t-1},\ 0)
+    * &  D_t &= \max(X_{t-1} - X_t,\ 0) \\[4pt]
+    * \overline{U}_t &= \begin{cases}
+    * \operatorname{SMA}(U, n)_t                 & \text{if } t = n \\[4pt]
+    * \dfrac{(n-1)\,\overline{U}_{t-1} + U_t}{n} & \text{if } t > n
+    * \end{cases}
+    * &  \overline{D}_t &= \begin{cases}
+    * \operatorname{SMA}(D, n)_t                 & \text{if } t = n \\[4pt]
+    * \dfrac{(n-1)\,\overline{D}_{t-1} + D_t}{n} & \text{if } t > n
+    * \end{cases} \\[4pt]
+    * \mathrm{RS}_t &= \frac{\overline{U}_t}{\overline{D}_t}
+    * &  \mathrm{RSI}_t &= 100 - \frac{100}{1 + \mathrm{RS}_t}
+    * \end{aligned}
+    * $$
+    * where $X$ is the input series and $n$ the period.
+    * }</pre>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#rsiLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Price series (typically close)
+    * @param optInTimePeriod Lookback for the gain/loss averaging (default 14;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal RSI value. Must hold at least {@code endIdx - startIdx + 1}
+    *        values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cmo
+    * @see Core#stochRsi
+    */
+   public OutRange rsi( int startIdx,
+                        int endIdx,
+                        double inReal[],
+                        int optInTimePeriod,
+                        double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = rsiInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("RSI", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Wilder's Relative Strength Index, a momentum oscillator bounded 0-100 from
+    * the ratio of average gains to average losses over the period. Used to
+    * gauge overbought/oversold conditions. &gt;70 overbought, &lt;30 oversold.
+    * — <b>unchecked</b> variant of {@link Core#rsi}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange rsiUnguarded( int startIdx,
+                                 int endIdx,
+                                 double inReal[],
+                                 int optInTimePeriod,
+                                 double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      rsiUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Wilder's Relative Strength Index, a momentum oscillator bounded 0-100 from
+    * the ratio of average gains to average losses over the period. Used to
+    * gauge overbought/oversold conditions. &gt;70 overbought, &lt;30 oversold.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * $$
+    * \begin{aligned}
+    * U_t &= \max(X_t - X_{t-1},\ 0)
+    * &  D_t &= \max(X_{t-1} - X_t,\ 0) \\[4pt]
+    * \overline{U}_t &= \begin{cases}
+    * \operatorname{SMA}(U, n)_t                 & \text{if } t = n \\[4pt]
+    * \dfrac{(n-1)\,\overline{U}_{t-1} + U_t}{n} & \text{if } t > n
+    * \end{cases}
+    * &  \overline{D}_t &= \begin{cases}
+    * \operatorname{SMA}(D, n)_t                 & \text{if } t = n \\[4pt]
+    * \dfrac{(n-1)\,\overline{D}_{t-1} + D_t}{n} & \text{if } t > n
+    * \end{cases} \\[4pt]
+    * \mathrm{RS}_t &= \frac{\overline{U}_t}{\overline{D}_t}
+    * &  \mathrm{RSI}_t &= 100 - \frac{100}{1 + \mathrm{RS}_t}
+    * \end{aligned}
+    * $$
+    * where $X$ is the input series and $n$ the period.
+    * }</pre>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#rsiLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Price series (typically close)
+    * @param optInTimePeriod Lookback for the gain/loss averaging (default 14;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal RSI value. Must hold at least {@code endIdx - startIdx + 1}
+    *        values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cmo
+    * @see Core#stochRsi
+    */
+   public OutRange rsi( int startIdx,
+                        int endIdx,
+                        float inReal[],
+                        int optInTimePeriod,
+                        double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = rsiInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("RSI", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Wilder's Relative Strength Index, a momentum oscillator bounded 0-100 from
+    * the ratio of average gains to average losses over the period. Used to
+    * gauge overbought/oversold conditions. &gt;70 overbought, &lt;30 oversold.
+    * — <b>unchecked</b> variant of {@link Core#rsi}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange rsiUnguarded( int startIdx,
+                                 int endIdx,
+                                 float inReal[],
+                                 int optInTimePeriod,
+                                 double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      rsiUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -722,8 +772,15 @@
       double prevLoss;
       double prevValue;
       double cur_outReal;
+      OutRange fillRange;
 
       RsiStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#rsiOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       RsiStream( RsiStream other ) {
          this.core = other.core;
@@ -732,6 +789,7 @@
          this.prevLoss = other.prevLoss;
          this.prevValue = other.prevValue;
          this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -881,52 +939,6 @@
        * no need to calculate since this
        * first value will be surely skip.
        */
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         /* Preserve prevValue because it may get
-          * overwritten by the output.
-          * (because output ptr could be the same as input ptr).
-          */
-         savePrevValue = prevValue;
-         /* No unstable period, so must calculate first output
-          * particular to Metastock.
-          * (Metastock re-use the first price bar, so there
-          *  is no loss/gain at first. Beats me why they
-          *  are doing all this).
-          */
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = (double)inReal[today];
-            today = today + 1;
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0.0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / (double)optInTimePeriod;
-         tempValue2 = prevGain / (double)optInTimePeriod;
-         /* Write the output. */
-         tempValue1 = tempValue2 + tempValue1;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
-            lastValue_outReal = 100.0 * (tempValue2 / tempValue1);
-            outIdx = outIdx + 1;
-         } else {
-            lastValue_outReal = 0.0;
-            outIdx = outIdx + 1;
-         }
-         /* Are we done? */
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.OutOfRangeEndIndex ;
-         }
-         /* Start over for the next price bar. */
-         today = today - (int)optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       /* Remaining of the processing is identical
        * for both Classic calculation and Metastock.
        */
@@ -1113,52 +1125,6 @@
        * no need to calculate since this
        * first value will be surely skip.
        */
-      if( unstablePeriod == 0 && this.compatibility == Compatibility.Metastock ) {
-         /* Preserve prevValue because it may get
-          * overwritten by the output.
-          * (because output ptr could be the same as input ptr).
-          */
-         savePrevValue = prevValue;
-         /* No unstable period, so must calculate first output
-          * particular to Metastock.
-          * (Metastock re-use the first price bar, so there
-          *  is no loss/gain at first. Beats me why they
-          *  are doing all this).
-          */
-         prevGain = 0.0;
-         prevLoss = 0.0;
-         for( i = optInTimePeriod; i > 0; i -= 1 ) {
-            tempValue1 = (double)inReal[today];
-            today = today + 1;
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            if( tempValue2 < 0.0 ) {
-               prevLoss -= tempValue2;
-            } else {
-               prevGain += tempValue2;
-            }
-         }
-         tempValue1 = prevLoss / (double)optInTimePeriod;
-         tempValue2 = prevGain / (double)optInTimePeriod;
-         /* Write the output. */
-         tempValue1 = tempValue2 + tempValue1;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
-            outReal[outIdx] = 100.0 * (tempValue2 / tempValue1);
-            outIdx = outIdx + 1;
-         } else {
-            outReal[outIdx] = 0.0;
-            outIdx = outIdx + 1;
-         }
-         /* Are we done? */
-         if( today > endIdx ) {
-            outBegIdx.value = startIdx;
-            outNBElement.value = outIdx;
-            return RetCode.OutOfRangeEndIndex ;
-         }
-         /* Start over for the next price bar. */
-         today = today - (int)optInTimePeriod;
-         prevValue = savePrevValue;
-      }
       /* Remaining of the processing is identical
        * for both Classic calculation and Metastock.
        */
@@ -1293,11 +1259,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link RsiStream#fillRange()}.
     */
-   public RsiStream rsiOpenAndFill( double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public RsiStream rsiOpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
       RsiStream sp = new RsiStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = rsiOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

@@ -15,6 +15,17 @@
  *                delegation to macd(...,0,0,...)); bit-exact, streamable.
  */
 
+   /**
+    * Number of leading input bars {@link Core#macdFix} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInSignalPeriod Smoothing period for the signal line (default 9;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int macdFixLookback( int optInSignalPeriod )
    {
       if( optInSignalPeriod == Integer.MIN_VALUE ) {
@@ -30,15 +41,15 @@
       return emaLookback(26) + emaLookback(optInSignalPeriod) ;
 
    }
-   public RetCode macdFix( int startIdx,
-                           int endIdx,
-                           double inReal[],
-                           int optInSignalPeriod,
-                           MInteger outBegIdx,
-                           MInteger outNBElement,
-                           double outMACD[],
-                           double outMACDSignal[],
-                           double outMACDHist[] )
+   RetCode macdFixInternal( int startIdx,
+                            int endIdx,
+                            double inReal[],
+                            int optInSignalPeriod,
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            double outMACD[],
+                            double outMACDSignal[],
+                            double outMACDHist[] )
    {
       double prevFast = 0;
       double prevSlow = 0;
@@ -120,67 +131,49 @@
        * [outIdx] are written only after inReal[startIdx+outIdx] was
        * read.
        */
-      if( this.compatibility == Compatibility.Default ) {
-         /* Seed each price EMA with a simple average of its first
-          * 'period' price bars. The fast window is the tail of the
-          * slow window: consume the leading slow-only bars first,
-          * then accumulate both over the shared bars.
-          */
-         today = startIdx - lookbackTotal;
-         tempReal = 0.0;
-         i = optInSlowPeriod - optInFastPeriod;
-         while( i-- > 0 ) {
-            tempReal += inReal[today++];
-         }
-         prevFast = 0.0;
-         i = optInFastPeriod;
-         while( i-- > 0 ) {
-            prevFast += inReal[today];
-            tempReal += inReal[today++];
-         }
-         prevSlow = tempReal / optInSlowPeriod;
-         prevFast = prevFast / optInFastPeriod;
-         /* Advance both EMA through their unstable period, up to the
-          * first MACD-line bar.
-          */
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         /* Seed the signal EMA with a simple average of the first
-          * 'signal period' MACD-line values, accumulated as they are
-          * produced.
-          */
-         prevSignal = 0.0;
-         prevSignal += macdValue;
-         i = optInSignalPeriod - 1;
-         while( i-- > 0 ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-            macdValue = prevFast - prevSlow;
-            prevSignal += macdValue;
-         }
-         prevSignal = prevSignal / optInSignalPeriod;
-      } else {
-         /* Metastock/Tradestation: seed the fast and slow EMA with
-          * inReal[0], advance them in lockstep up to the first
-          * MACD-line bar, then seed the signal EMA with the first
-          * MACD-line value.
-          */
-         prevFast = inReal[0];
-         prevSlow = inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         prevSignal = macdValue;
+      /* Seed each price EMA with a simple average of its first
+       * 'period' price bars. The fast window is the tail of the
+       * slow window: consume the leading slow-only bars first,
+       * then accumulate both over the shared bars.
+       */
+      today = startIdx - lookbackTotal;
+      tempReal = 0.0;
+      i = optInSlowPeriod - optInFastPeriod;
+      while( i-- > 0 ) {
+         tempReal += inReal[today++];
       }
+      prevFast = 0.0;
+      i = optInFastPeriod;
+      while( i-- > 0 ) {
+         prevFast += inReal[today];
+         tempReal += inReal[today++];
+      }
+      prevSlow = tempReal / optInSlowPeriod;
+      prevFast = prevFast / optInFastPeriod;
+      /* Advance both EMA through their unstable period, up to the
+       * first MACD-line bar.
+       */
+      while( today <= startIdx - lookbackSignal ) {
+         tempReal = inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+      }
+      macdValue = prevFast - prevSlow;
+      /* Seed the signal EMA with a simple average of the first
+       * 'signal period' MACD-line values, accumulated as they are
+       * produced.
+       */
+      prevSignal = 0.0;
+      prevSignal += macdValue;
+      i = optInSignalPeriod - 1;
+      while( i-- > 0 ) {
+         tempReal = inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+         macdValue = prevFast - prevSlow;
+         prevSignal += macdValue;
+      }
+      prevSignal = prevSignal / optInSignalPeriod;
       /* Advance everything in lockstep through the unstable period
        * of the signal EMA, up to the first output bar.
        */
@@ -214,15 +207,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode macdFixUnguarded( int startIdx,
-                                    int endIdx,
-                                    double inReal[],
-                                    int optInSignalPeriod,
-                                    MInteger outBegIdx,
-                                    MInteger outNBElement,
-                                    double outMACD[],
-                                    double outMACDSignal[],
-                                    double outMACDHist[] )
+   RetCode macdFixUnguardedInternal( int startIdx,
+                                     int endIdx,
+                                     double inReal[],
+                                     int optInSignalPeriod,
+                                     MInteger outBegIdx,
+                                     MInteger outNBElement,
+                                     double outMACD[],
+                                     double outMACDSignal[],
+                                     double outMACDHist[] )
    {
       double prevFast = 0;
       double prevSlow = 0;
@@ -255,50 +248,37 @@
          outNBElement.value = 0;
          return RetCode.Success ;
       }
-      if( this.compatibility == Compatibility.Default ) {
-         today = startIdx - lookbackTotal;
-         tempReal = 0.0;
-         i = optInSlowPeriod - optInFastPeriod;
-         while( i-- > 0 ) {
-            tempReal += inReal[today++];
-         }
-         prevFast = 0.0;
-         i = optInFastPeriod;
-         while( i-- > 0 ) {
-            prevFast += inReal[today];
-            tempReal += inReal[today++];
-         }
-         prevSlow = tempReal / optInSlowPeriod;
-         prevFast = prevFast / optInFastPeriod;
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         prevSignal = 0.0;
-         prevSignal += macdValue;
-         i = optInSignalPeriod - 1;
-         while( i-- > 0 ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-            macdValue = prevFast - prevSlow;
-            prevSignal += macdValue;
-         }
-         prevSignal = prevSignal / optInSignalPeriod;
-      } else {
-         prevFast = inReal[0];
-         prevSlow = inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         prevSignal = macdValue;
+      today = startIdx - lookbackTotal;
+      tempReal = 0.0;
+      i = optInSlowPeriod - optInFastPeriod;
+      while( i-- > 0 ) {
+         tempReal += inReal[today++];
       }
+      prevFast = 0.0;
+      i = optInFastPeriod;
+      while( i-- > 0 ) {
+         prevFast += inReal[today];
+         tempReal += inReal[today++];
+      }
+      prevSlow = tempReal / optInSlowPeriod;
+      prevFast = prevFast / optInFastPeriod;
+      while( today <= startIdx - lookbackSignal ) {
+         tempReal = inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+      }
+      macdValue = prevFast - prevSlow;
+      prevSignal = 0.0;
+      prevSignal += macdValue;
+      i = optInSignalPeriod - 1;
+      while( i-- > 0 ) {
+         tempReal = inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+         macdValue = prevFast - prevSlow;
+         prevSignal += macdValue;
+      }
+      prevSignal = prevSignal / optInSignalPeriod;
       while( today <= startIdx ) {
          tempReal = inReal[today++];
          prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
@@ -325,15 +305,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode macdFix( int startIdx,
-                           int endIdx,
-                           float inReal[],
-                           int optInSignalPeriod,
-                           MInteger outBegIdx,
-                           MInteger outNBElement,
-                           double outMACD[],
-                           double outMACDSignal[],
-                           double outMACDHist[] )
+   RetCode macdFixInternal( int startIdx,
+                            int endIdx,
+                            float inReal[],
+                            int optInSignalPeriod,
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            double outMACD[],
+                            double outMACDSignal[],
+                            double outMACDHist[] )
    {
       double prevFast = 0;
       double prevSlow = 0;
@@ -380,50 +360,37 @@
          outNBElement.value = 0;
          return RetCode.Success ;
       }
-      if( this.compatibility == Compatibility.Default ) {
-         today = startIdx - lookbackTotal;
-         tempReal = 0.0;
-         i = optInSlowPeriod - optInFastPeriod;
-         while( i-- > 0 ) {
-            tempReal += (double)inReal[today++];
-         }
-         prevFast = 0.0;
-         i = optInFastPeriod;
-         while( i-- > 0 ) {
-            prevFast += (double)inReal[today];
-            tempReal += (double)inReal[today++];
-         }
-         prevSlow = tempReal / optInSlowPeriod;
-         prevFast = prevFast / optInFastPeriod;
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = (double)inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         prevSignal = 0.0;
-         prevSignal += macdValue;
-         i = optInSignalPeriod - 1;
-         while( i-- > 0 ) {
-            tempReal = (double)inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-            macdValue = prevFast - prevSlow;
-            prevSignal += macdValue;
-         }
-         prevSignal = prevSignal / optInSignalPeriod;
-      } else {
-         prevFast = (double)inReal[0];
-         prevSlow = (double)inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = (double)inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         prevSignal = macdValue;
+      today = startIdx - lookbackTotal;
+      tempReal = 0.0;
+      i = optInSlowPeriod - optInFastPeriod;
+      while( i-- > 0 ) {
+         tempReal += (double)inReal[today++];
       }
+      prevFast = 0.0;
+      i = optInFastPeriod;
+      while( i-- > 0 ) {
+         prevFast += (double)inReal[today];
+         tempReal += (double)inReal[today++];
+      }
+      prevSlow = tempReal / optInSlowPeriod;
+      prevFast = prevFast / optInFastPeriod;
+      while( today <= startIdx - lookbackSignal ) {
+         tempReal = (double)inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+      }
+      macdValue = prevFast - prevSlow;
+      prevSignal = 0.0;
+      prevSignal += macdValue;
+      i = optInSignalPeriod - 1;
+      while( i-- > 0 ) {
+         tempReal = (double)inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+         macdValue = prevFast - prevSlow;
+         prevSignal += macdValue;
+      }
+      prevSignal = prevSignal / optInSignalPeriod;
       while( today <= startIdx ) {
          tempReal = (double)inReal[today++];
          prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
@@ -450,15 +417,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode macdFixUnguarded( int startIdx,
-                                    int endIdx,
-                                    float inReal[],
-                                    int optInSignalPeriod,
-                                    MInteger outBegIdx,
-                                    MInteger outNBElement,
-                                    double outMACD[],
-                                    double outMACDSignal[],
-                                    double outMACDHist[] )
+   RetCode macdFixUnguardedInternal( int startIdx,
+                                     int endIdx,
+                                     float inReal[],
+                                     int optInSignalPeriod,
+                                     MInteger outBegIdx,
+                                     MInteger outNBElement,
+                                     double outMACD[],
+                                     double outMACDSignal[],
+                                     double outMACDHist[] )
    {
       double prevFast = 0;
       double prevSlow = 0;
@@ -491,50 +458,37 @@
          outNBElement.value = 0;
          return RetCode.Success ;
       }
-      if( this.compatibility == Compatibility.Default ) {
-         today = startIdx - lookbackTotal;
-         tempReal = 0.0;
-         i = optInSlowPeriod - optInFastPeriod;
-         while( i-- > 0 ) {
-            tempReal += (double)inReal[today++];
-         }
-         prevFast = 0.0;
-         i = optInFastPeriod;
-         while( i-- > 0 ) {
-            prevFast += (double)inReal[today];
-            tempReal += (double)inReal[today++];
-         }
-         prevSlow = tempReal / optInSlowPeriod;
-         prevFast = prevFast / optInFastPeriod;
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = (double)inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         prevSignal = 0.0;
-         prevSignal += macdValue;
-         i = optInSignalPeriod - 1;
-         while( i-- > 0 ) {
-            tempReal = (double)inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-            macdValue = prevFast - prevSlow;
-            prevSignal += macdValue;
-         }
-         prevSignal = prevSignal / optInSignalPeriod;
-      } else {
-         prevFast = (double)inReal[0];
-         prevSlow = (double)inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = (double)inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         prevSignal = macdValue;
+      today = startIdx - lookbackTotal;
+      tempReal = 0.0;
+      i = optInSlowPeriod - optInFastPeriod;
+      while( i-- > 0 ) {
+         tempReal += (double)inReal[today++];
       }
+      prevFast = 0.0;
+      i = optInFastPeriod;
+      while( i-- > 0 ) {
+         prevFast += (double)inReal[today];
+         tempReal += (double)inReal[today++];
+      }
+      prevSlow = tempReal / optInSlowPeriod;
+      prevFast = prevFast / optInFastPeriod;
+      while( today <= startIdx - lookbackSignal ) {
+         tempReal = (double)inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+      }
+      macdValue = prevFast - prevSlow;
+      prevSignal = 0.0;
+      prevSignal += macdValue;
+      i = optInSignalPeriod - 1;
+      while( i-- > 0 ) {
+         tempReal = (double)inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+         macdValue = prevFast - prevSlow;
+         prevSignal += macdValue;
+      }
+      prevSignal = prevSignal / optInSignalPeriod;
       while( today <= startIdx ) {
          tempReal = (double)inReal[today++];
          prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
@@ -560,6 +514,190 @@
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
       return RetCode.Success ;
+   }
+   /**
+    * MACD with the fast/slow EMAs fixed to the classic 12/26 periods (with the
+    * classic fixed smoothing factors 0.15 and 0.075), exposing only the signal
+    * period. Signal-line crossovers and histogram sign flag momentum shifts.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * MACD = EMA_12 - EMA_26   (fixed k: 0.15 for 12, 0.075 for 26)
+    * Signal = EMA(MACD, signalPeriod),  k = 2/(signalPeriod+1)
+    * Hist = MACD - Signal
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>A signal period of 1 disables signal-line smoothing: the signal equals the MACD line and the histogram is zero. Before 0.6.5 this parameter value produced misaligned output (issues #48/#59).</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#macdFixLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source series (typically close)
+    * @param optInSignalPeriod Smoothing period for the signal line (default 9;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outMACD Fixed EMA12 minus EMA26. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @param outMACDSignal EMA of the MACD line. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @param outMACDHist MACD minus signal. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#macd
+    * @see Core#macdExt
+    * @see Core#ema
+    * @see Core#apo
+    */
+   public OutRange macdFix( int startIdx,
+                            int endIdx,
+                            double inReal[],
+                            int optInSignalPeriod,
+                            double outMACD[],
+                            double outMACDSignal[],
+                            double outMACDHist[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = macdFixInternal(startIdx, endIdx, inReal, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist);
+      if( retCode != RetCode.Success ) {
+         throw failure("MACDFIX", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * MACD with the fast/slow EMAs fixed to the classic 12/26 periods (with the
+    * classic fixed smoothing factors 0.15 and 0.075), exposing only the signal
+    * period. Signal-line crossovers and histogram sign flag momentum shifts. —
+    * <b>unchecked</b> variant of {@link Core#macdFix}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange macdFixUnguarded( int startIdx,
+                                     int endIdx,
+                                     double inReal[],
+                                     int optInSignalPeriod,
+                                     double outMACD[],
+                                     double outMACDSignal[],
+                                     double outMACDHist[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      macdFixUnguardedInternal(startIdx, endIdx, inReal, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * MACD with the fast/slow EMAs fixed to the classic 12/26 periods (with the
+    * classic fixed smoothing factors 0.15 and 0.075), exposing only the signal
+    * period. Signal-line crossovers and histogram sign flag momentum shifts.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * MACD = EMA_12 - EMA_26   (fixed k: 0.15 for 12, 0.075 for 26)
+    * Signal = EMA(MACD, signalPeriod),  k = 2/(signalPeriod+1)
+    * Hist = MACD - Signal
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>A signal period of 1 disables signal-line smoothing: the signal equals the MACD line and the histogram is zero. Before 0.6.5 this parameter value produced misaligned output (issues #48/#59).</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#macdFixLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source series (typically close)
+    * @param optInSignalPeriod Smoothing period for the signal line (default 9;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outMACD Fixed EMA12 minus EMA26. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @param outMACDSignal EMA of the MACD line. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @param outMACDHist MACD minus signal. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#macd
+    * @see Core#macdExt
+    * @see Core#ema
+    * @see Core#apo
+    */
+   public OutRange macdFix( int startIdx,
+                            int endIdx,
+                            float inReal[],
+                            int optInSignalPeriod,
+                            double outMACD[],
+                            double outMACDSignal[],
+                            double outMACDHist[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = macdFixInternal(startIdx, endIdx, inReal, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist);
+      if( retCode != RetCode.Success ) {
+         throw failure("MACDFIX", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * MACD with the fast/slow EMAs fixed to the classic 12/26 periods (with the
+    * classic fixed smoothing factors 0.15 and 0.075), exposing only the signal
+    * period. Signal-line crossovers and histogram sign flag momentum shifts. —
+    * <b>unchecked</b> variant of {@link Core#macdFix}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange macdFixUnguarded( int startIdx,
+                                     int endIdx,
+                                     float inReal[],
+                                     int optInSignalPeriod,
+                                     double outMACD[],
+                                     double outMACDSignal[],
+                                     double outMACDHist[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      macdFixUnguardedInternal(startIdx, endIdx, inReal, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist);
+      return new OutRange(outBegIdx.value, outNBElement.value);
    }
 /**** Streaming API *****/
 
@@ -591,8 +729,15 @@
       double cur_outMACDSignal;
       double cur_outMACDHist;
       Value cachedValue;
+      OutRange fillRange;
 
       MacdFixStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#macdFixOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       MacdFixStream( MacdFixStream other ) {
          this.core = other.core;
@@ -607,6 +752,7 @@
          this.cur_outMACDSignal = other.cur_outMACDSignal;
          this.cur_outMACDHist = other.cur_outMACDHist;
          this.cachedValue = other.cachedValue;
+         this.fillRange = other.fillRange;
       }
 
       /** One output set, in batch output order. Immutable. */
@@ -772,67 +918,49 @@
        * [outIdx] are written only after inReal[startIdx+outIdx] was
        * read.
        */
-      if( this.compatibility == Compatibility.Default ) {
-         /* Seed each price EMA with a simple average of its first
-          * 'period' price bars. The fast window is the tail of the
-          * slow window: consume the leading slow-only bars first,
-          * then accumulate both over the shared bars.
-          */
-         today = startIdx - lookbackTotal;
-         tempReal = 0.0;
-         i = optInSlowPeriod - optInFastPeriod;
-         while( i-- > 0 ) {
-            tempReal += inReal[today++];
-         }
-         prevFast = 0.0;
-         i = optInFastPeriod;
-         while( i-- > 0 ) {
-            prevFast += inReal[today];
-            tempReal += inReal[today++];
-         }
-         prevSlow = tempReal / optInSlowPeriod;
-         prevFast = prevFast / optInFastPeriod;
-         /* Advance both EMA through their unstable period, up to the
-          * first MACD-line bar.
-          */
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         /* Seed the signal EMA with a simple average of the first
-          * 'signal period' MACD-line values, accumulated as they are
-          * produced.
-          */
-         prevSignal = 0.0;
-         prevSignal += macdValue;
-         i = optInSignalPeriod - 1;
-         while( i-- > 0 ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-            macdValue = prevFast - prevSlow;
-            prevSignal += macdValue;
-         }
-         prevSignal = prevSignal / optInSignalPeriod;
-      } else {
-         /* Metastock/Tradestation: seed the fast and slow EMA with
-          * inReal[0], advance them in lockstep up to the first
-          * MACD-line bar, then seed the signal EMA with the first
-          * MACD-line value.
-          */
-         prevFast = inReal[0];
-         prevSlow = inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         prevSignal = macdValue;
+      /* Seed each price EMA with a simple average of its first
+       * 'period' price bars. The fast window is the tail of the
+       * slow window: consume the leading slow-only bars first,
+       * then accumulate both over the shared bars.
+       */
+      today = startIdx - lookbackTotal;
+      tempReal = 0.0;
+      i = optInSlowPeriod - optInFastPeriod;
+      while( i-- > 0 ) {
+         tempReal += inReal[today++];
       }
+      prevFast = 0.0;
+      i = optInFastPeriod;
+      while( i-- > 0 ) {
+         prevFast += inReal[today];
+         tempReal += inReal[today++];
+      }
+      prevSlow = tempReal / optInSlowPeriod;
+      prevFast = prevFast / optInFastPeriod;
+      /* Advance both EMA through their unstable period, up to the
+       * first MACD-line bar.
+       */
+      while( today <= startIdx - lookbackSignal ) {
+         tempReal = inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+      }
+      macdValue = prevFast - prevSlow;
+      /* Seed the signal EMA with a simple average of the first
+       * 'signal period' MACD-line values, accumulated as they are
+       * produced.
+       */
+      prevSignal = 0.0;
+      prevSignal += macdValue;
+      i = optInSignalPeriod - 1;
+      while( i-- > 0 ) {
+         tempReal = inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+         macdValue = prevFast - prevSlow;
+         prevSignal += macdValue;
+      }
+      prevSignal = prevSignal / optInSignalPeriod;
       /* Advance everything in lockstep through the unstable period
        * of the signal EMA, up to the first output bar.
        */
@@ -960,67 +1088,49 @@
        * [outIdx] are written only after inReal[startIdx+outIdx] was
        * read.
        */
-      if( this.compatibility == Compatibility.Default ) {
-         /* Seed each price EMA with a simple average of its first
-          * 'period' price bars. The fast window is the tail of the
-          * slow window: consume the leading slow-only bars first,
-          * then accumulate both over the shared bars.
-          */
-         today = startIdx - lookbackTotal;
-         tempReal = 0.0;
-         i = optInSlowPeriod - optInFastPeriod;
-         while( i-- > 0 ) {
-            tempReal += inReal[today++];
-         }
-         prevFast = 0.0;
-         i = optInFastPeriod;
-         while( i-- > 0 ) {
-            prevFast += inReal[today];
-            tempReal += inReal[today++];
-         }
-         prevSlow = tempReal / optInSlowPeriod;
-         prevFast = prevFast / optInFastPeriod;
-         /* Advance both EMA through their unstable period, up to the
-          * first MACD-line bar.
-          */
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         /* Seed the signal EMA with a simple average of the first
-          * 'signal period' MACD-line values, accumulated as they are
-          * produced.
-          */
-         prevSignal = 0.0;
-         prevSignal += macdValue;
-         i = optInSignalPeriod - 1;
-         while( i-- > 0 ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-            macdValue = prevFast - prevSlow;
-            prevSignal += macdValue;
-         }
-         prevSignal = prevSignal / optInSignalPeriod;
-      } else {
-         /* Metastock/Tradestation: seed the fast and slow EMA with
-          * inReal[0], advance them in lockstep up to the first
-          * MACD-line bar, then seed the signal EMA with the first
-          * MACD-line value.
-          */
-         prevFast = inReal[0];
-         prevSlow = inReal[0];
-         today = 1;
-         while( today <= startIdx - lookbackSignal ) {
-            tempReal = inReal[today++];
-            prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
-            prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
-         }
-         macdValue = prevFast - prevSlow;
-         prevSignal = macdValue;
+      /* Seed each price EMA with a simple average of its first
+       * 'period' price bars. The fast window is the tail of the
+       * slow window: consume the leading slow-only bars first,
+       * then accumulate both over the shared bars.
+       */
+      today = startIdx - lookbackTotal;
+      tempReal = 0.0;
+      i = optInSlowPeriod - optInFastPeriod;
+      while( i-- > 0 ) {
+         tempReal += inReal[today++];
       }
+      prevFast = 0.0;
+      i = optInFastPeriod;
+      while( i-- > 0 ) {
+         prevFast += inReal[today];
+         tempReal += inReal[today++];
+      }
+      prevSlow = tempReal / optInSlowPeriod;
+      prevFast = prevFast / optInFastPeriod;
+      /* Advance both EMA through their unstable period, up to the
+       * first MACD-line bar.
+       */
+      while( today <= startIdx - lookbackSignal ) {
+         tempReal = inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+      }
+      macdValue = prevFast - prevSlow;
+      /* Seed the signal EMA with a simple average of the first
+       * 'signal period' MACD-line values, accumulated as they are
+       * produced.
+       */
+      prevSignal = 0.0;
+      prevSignal += macdValue;
+      i = optInSignalPeriod - 1;
+      while( i-- > 0 ) {
+         tempReal = inReal[today++];
+         prevFast = Math.fma(tempReal - prevFast, fastK, prevFast);
+         prevSlow = Math.fma(tempReal - prevSlow, slowK, prevSlow);
+         macdValue = prevFast - prevSlow;
+         prevSignal += macdValue;
+      }
+      prevSignal = prevSignal / optInSignalPeriod;
       /* Advance everything in lockstep through the unstable period
        * of the signal EMA, up to the first output bar.
        */
@@ -1102,11 +1212,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link MacdFixStream#fillRange()}.
     */
-   public MacdFixStream macdFixOpenAndFill( double inReal[], int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outMACD[], double outMACDSignal[], double outMACDHist[] )
+   public MacdFixStream macdFixOpenAndFill( double inReal[], int optInSignalPeriod, double outMACD[], double outMACDSignal[], double outMACDHist[] )
    {
       MacdFixStream sp = new MacdFixStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = macdFixOpenAndFillBody(sp, inReal, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

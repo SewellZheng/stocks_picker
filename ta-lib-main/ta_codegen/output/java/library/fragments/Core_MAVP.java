@@ -11,8 +11,26 @@
  *  021807 MF     Initial Version
  *  072026 MF,CC  Fix #130. Stage results locally so in-place (outReal==inReal)
  *                calls no longer corrupt the input the ma() passes re-read.
+ *  072626 MF,CC  #143. Group outputs by clamped period (counting sort) and
+ *                bound each ma() pass at its period's last use.
  */
 
+   /**
+    * Number of leading input bars {@link Core#movingAverageVariablePeriod}
+    * consumes before it can produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInMinPeriod Lower clamp for the per-bar period (default 2; range
+    *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInMaxPeriod Upper clamp for the per-bar period (default 30;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInMAType Moving-average type applied (default 0 = SMA; values:
+    *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
+    *        10=DISABLED).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int movingAverageVariablePeriodLookback( int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
    {
       if( optInMinPeriod == Integer.MIN_VALUE ) {
@@ -28,24 +46,31 @@
       return movingAverageLookback(optInMaxPeriod, optInMAType) ;
 
    }
-   public RetCode movingAverageVariablePeriod( int startIdx,
-                                               int endIdx,
-                                               double inReal[],
-                                               double inPeriods[],
-                                               int optInMinPeriod,
-                                               int optInMaxPeriod,
-                                               MAType optInMAType,
-                                               MInteger outBegIdx,
-                                               MInteger outNBElement,
-                                               double outReal[] )
+   RetCode movingAverageVariablePeriodInternal( int startIdx,
+                                                int endIdx,
+                                                double inReal[],
+                                                double inPeriods[],
+                                                int optInMinPeriod,
+                                                int optInMaxPeriod,
+                                                MAType optInMAType,
+                                                MInteger outBegIdx,
+                                                MInteger outNBElement,
+                                                double outReal[] )
    {
       int i = 0;
-      int j = 0;
       int lookbackTotal = 0;
       int outputSize = 0;
       int tempInt = 0;
       int curPeriod = 0;
+      int firstOccurrence = 0;
+      int lastOccurrence = 0;
+      int bucketStart = 0;
+      int bucketEnd = 0;
+      int minUsed = 0;
+      int maxUsed = 0;
       int[] localPeriodArray;
+      int[] sortedIdx;
+      int[] bucketOfs;
       double[] localOutputArray;
       double[] localFinalArray;
       int finalIsAllocated = 0;
@@ -110,6 +135,8 @@
       /* Allocate intermediate local buffer. */
       localOutputArray = new double[(int)(outputSize * 1)];
       localPeriodArray = new int[(int)(outputSize * 1)];
+      /* Output indices grouped by clamped period (counting sort below). */
+      sortedIdx = new int[(int)(outputSize * 1)];
       /* In-place defence (issue #130): each ma() pass below re-reads inReal over
        * the full range, so with outReal==inReal the results are staged in a
        * scratch buffer and copied once at the end. A regular call writes
@@ -122,9 +149,18 @@
       } else {
          localFinalArray = outReal;
       }
-      /* Copy caller array of period into local buffer.
-       * At the same time, truncate to min/max.
+      /* Read the caller array of period, truncate to min/max, and track the
+       * range of periods actually used so all later work is sized by the data,
+       * not by optInMaxPeriod. The floor at 1 (and on minUsed's start value) is
+       * inert through the guarded API (optInMinPeriod >= 1); it keeps an
+       * off-contract unguarded call with a period below 1 from indexing the
+       * occurrence tables out of range.
        */
+      minUsed = optInMaxPeriod;
+      if( minUsed < 1 ) {
+         minUsed = 1;
+      }
+      maxUsed = 1;
       for( i = 0; i < outputSize; i += 1 ) {
          tempInt = (int)inPeriods[startIdx + i];
          if( tempInt < optInMinPeriod ) {
@@ -132,40 +168,90 @@
          } else if( tempInt > optInMaxPeriod ) {
             tempInt = optInMaxPeriod;
          }
+         if( tempInt < 1 ) {
+            tempInt = 1;
+         }
          localPeriodArray[i] = tempInt;
+         if( tempInt < minUsed ) {
+            minUsed = tempInt;
+         }
+         if( tempInt > maxUsed ) {
+            maxUsed = tempInt;
+         }
       }
-      /* Process each element of the input.
-       * For each possible period value, the MA is calculated
-       * only once.
-       * The outReal is then fill up for all element with
-       * the same period.
-       * A local flag (value 0) is set in localPeriodArray
-       * to avoid doing a second time the same calculation.
+      /* Per-period bucket cursor for the counting sort; indexed by absolute
+       * period value, so sized by the largest period actually used.
        */
-      for( i = 0; i < outputSize; i += 1 ) {
-         curPeriod = localPeriodArray[i];
-         if( curPeriod != 0 ) {
-            /* TODO: This portion of the function can be slightly speed
-             *       optimized by making the function without unstable period
-             *       start their calculation at 'startIdx+i' instead of startIdx.
-             */
-            /* Calculation of the MA required. */
-            retCode = movingAverageUnguarded(startIdx, endIdx, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
-            if( retCode != RetCode.Success ) {
-               if( (finalIsAllocated) != 0 ) {
-               }
-               outBegIdx.value = 0;
-               outNBElement.value = 0;
-               return retCode ;
+      bucketOfs = new int[(int)((maxUsed + 2) * 1)];
+      if( minUsed == maxUsed ) {
+         /* Single distinct period: one MA pass, written straight into the
+          * destination buffer. Nothing to group or copy.
+          */
+         retCode = movingAverageUnguardedInternal(startIdx, endIdx, inReal, minUsed, optInMAType, localBegIdx, localNbElement, localFinalArray);
+         if( retCode != RetCode.Success ) {
+            if( (finalIsAllocated) != 0 ) {
             }
-            localFinalArray[i] = localOutputArray[i];
-            for( j = i + 1; j < outputSize; j += 1 ) {
-               if( localPeriodArray[j] == curPeriod ) {
-                  localPeriodArray[j] = 0;
-                  /* Flag to avoid recalculation */
-                  localFinalArray[j] = localOutputArray[j];
+            outBegIdx.value = 0;
+            outNBElement.value = 0;
+            return retCode ;
+         }
+      } else {
+         /* Counting sort: sortedIdx ends up holding the output indices ordered
+          * by period, one contiguous ascending slice per distinct period, with
+          * bucketOfs[p] the end of period p's slice.
+          */
+         for( curPeriod = minUsed; curPeriod <= maxUsed + 1; curPeriod += 1 ) {
+            bucketOfs[curPeriod] = 0;
+         }
+         for( i = 0; i < outputSize; i += 1 ) {
+            bucketOfs[localPeriodArray[i] + 1] = bucketOfs[localPeriodArray[i] + 1] + 1;
+         }
+         for( curPeriod = minUsed; curPeriod <= maxUsed; curPeriod += 1 ) {
+            bucketOfs[curPeriod + 1] = bucketOfs[curPeriod + 1] + bucketOfs[curPeriod];
+         }
+         for( i = 0; i < outputSize; i += 1 ) {
+            tempInt = localPeriodArray[i];
+            sortedIdx[bucketOfs[tempInt]] = i;
+            bucketOfs[tempInt] = bucketOfs[tempInt] + 1;
+         }
+         /* One MA pass per period actually requested, ending at the last output
+          * that uses it: outputs before that point cannot depend on later input
+          * (every MA here fills forward), so the shorter range is bit-identical.
+          * The pass must still START at startIdx: the window MAs (SMA, WMA,
+          * TRIMA, HMA) slide a running accumulator seeded at startIdx-lookback,
+          * so starting at the period's first use would change the rounding path
+          * and break bit-identity, as would moving any recursive MA's warm-up.
+          * The direct indexing of localOutputArray also relies on ma_lookback
+          * being non-decreasing in the period, so the inner call never moves
+          * its own start up. Both properties are pinned by the MAVP/GROUPING
+          * regression test.
+          */
+         bucketStart = 0;
+         for( curPeriod = minUsed; curPeriod <= maxUsed; curPeriod += 1 ) {
+            bucketEnd = bucketOfs[curPeriod];
+            if( bucketEnd > bucketStart ) {
+               firstOccurrence = sortedIdx[bucketStart];
+               lastOccurrence = sortedIdx[bucketEnd - 1];
+               /* Calculation of the MA required. */
+               retCode = movingAverageUnguardedInternal(startIdx, startIdx + lastOccurrence, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
+               if( retCode != RetCode.Success ) {
+                  if( (finalIsAllocated) != 0 ) {
+                  }
+                  outBegIdx.value = 0;
+                  outNBElement.value = 0;
+                  return retCode ;
+               }
+               if( lastOccurrence - firstOccurrence == bucketEnd - 1 - bucketStart ) {
+                  /* The period's outputs form one contiguous run: block copy. */
+                  System.arraycopy(localOutputArray, firstOccurrence, localFinalArray, firstOccurrence, (bucketEnd - bucketStart) * 1);
+               } else {
+                  for( i = bucketStart; i < bucketEnd; i += 1 ) {
+                     tempInt = sortedIdx[i];
+                     localFinalArray[tempInt] = localOutputArray[tempInt];
+                  }
                }
             }
+            bucketStart = bucketEnd;
          }
       }
       /* Pointer-inequality guard, not finalIsAllocated: in backends where the
@@ -182,24 +268,31 @@
       outNBElement.value = outputSize;
       return RetCode.Success ;
    }
-   public RetCode movingAverageVariablePeriodUnguarded( int startIdx,
-                                                        int endIdx,
-                                                        double inReal[],
-                                                        double inPeriods[],
-                                                        int optInMinPeriod,
-                                                        int optInMaxPeriod,
-                                                        MAType optInMAType,
-                                                        MInteger outBegIdx,
-                                                        MInteger outNBElement,
-                                                        double outReal[] )
+   RetCode movingAverageVariablePeriodUnguardedInternal( int startIdx,
+                                                         int endIdx,
+                                                         double inReal[],
+                                                         double inPeriods[],
+                                                         int optInMinPeriod,
+                                                         int optInMaxPeriod,
+                                                         MAType optInMAType,
+                                                         MInteger outBegIdx,
+                                                         MInteger outNBElement,
+                                                         double outReal[] )
    {
       int i = 0;
-      int j = 0;
       int lookbackTotal = 0;
       int outputSize = 0;
       int tempInt = 0;
       int curPeriod = 0;
+      int firstOccurrence = 0;
+      int lastOccurrence = 0;
+      int bucketStart = 0;
+      int bucketEnd = 0;
+      int minUsed = 0;
+      int maxUsed = 0;
       int[] localPeriodArray;
+      int[] sortedIdx;
+      int[] bucketOfs;
       double[] localOutputArray;
       double[] localFinalArray;
       int finalIsAllocated = 0;
@@ -233,6 +326,7 @@
       outputSize = endIdx - tempInt + 1;
       localOutputArray = new double[(int)(outputSize * 1)];
       localPeriodArray = new int[(int)(outputSize * 1)];
+      sortedIdx = new int[(int)(outputSize * 1)];
       finalIsAllocated = 0;
       if( outReal == inReal ) {
          finalIsAllocated = 1;
@@ -240,6 +334,11 @@
       } else {
          localFinalArray = outReal;
       }
+      minUsed = optInMaxPeriod;
+      if( minUsed < 1 ) {
+         minUsed = 1;
+      }
+      maxUsed = 1;
       for( i = 0; i < outputSize; i += 1 ) {
          tempInt = (int)inPeriods[startIdx + i];
          if( tempInt < optInMinPeriod ) {
@@ -247,26 +346,66 @@
          } else if( tempInt > optInMaxPeriod ) {
             tempInt = optInMaxPeriod;
          }
+         if( tempInt < 1 ) {
+            tempInt = 1;
+         }
          localPeriodArray[i] = tempInt;
+         if( tempInt < minUsed ) {
+            minUsed = tempInt;
+         }
+         if( tempInt > maxUsed ) {
+            maxUsed = tempInt;
+         }
       }
-      for( i = 0; i < outputSize; i += 1 ) {
-         curPeriod = localPeriodArray[i];
-         if( curPeriod != 0 ) {
-            retCode = movingAverageUnguarded(startIdx, endIdx, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
-            if( retCode != RetCode.Success ) {
-               if( (finalIsAllocated) != 0 ) {
-               }
-               outBegIdx.value = 0;
-               outNBElement.value = 0;
-               return retCode ;
+      bucketOfs = new int[(int)((maxUsed + 2) * 1)];
+      if( minUsed == maxUsed ) {
+         retCode = movingAverageUnguardedInternal(startIdx, endIdx, inReal, minUsed, optInMAType, localBegIdx, localNbElement, localFinalArray);
+         if( retCode != RetCode.Success ) {
+            if( (finalIsAllocated) != 0 ) {
             }
-            localFinalArray[i] = localOutputArray[i];
-            for( j = i + 1; j < outputSize; j += 1 ) {
-               if( localPeriodArray[j] == curPeriod ) {
-                  localPeriodArray[j] = 0;
-                  localFinalArray[j] = localOutputArray[j];
+            outBegIdx.value = 0;
+            outNBElement.value = 0;
+            return retCode ;
+         }
+      } else {
+         for( curPeriod = minUsed; curPeriod <= maxUsed + 1; curPeriod += 1 ) {
+            bucketOfs[curPeriod] = 0;
+         }
+         for( i = 0; i < outputSize; i += 1 ) {
+            bucketOfs[localPeriodArray[i] + 1] = bucketOfs[localPeriodArray[i] + 1] + 1;
+         }
+         for( curPeriod = minUsed; curPeriod <= maxUsed; curPeriod += 1 ) {
+            bucketOfs[curPeriod + 1] = bucketOfs[curPeriod + 1] + bucketOfs[curPeriod];
+         }
+         for( i = 0; i < outputSize; i += 1 ) {
+            tempInt = localPeriodArray[i];
+            sortedIdx[bucketOfs[tempInt]] = i;
+            bucketOfs[tempInt] = bucketOfs[tempInt] + 1;
+         }
+         bucketStart = 0;
+         for( curPeriod = minUsed; curPeriod <= maxUsed; curPeriod += 1 ) {
+            bucketEnd = bucketOfs[curPeriod];
+            if( bucketEnd > bucketStart ) {
+               firstOccurrence = sortedIdx[bucketStart];
+               lastOccurrence = sortedIdx[bucketEnd - 1];
+               retCode = movingAverageUnguardedInternal(startIdx, startIdx + lastOccurrence, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
+               if( retCode != RetCode.Success ) {
+                  if( (finalIsAllocated) != 0 ) {
+                  }
+                  outBegIdx.value = 0;
+                  outNBElement.value = 0;
+                  return retCode ;
+               }
+               if( lastOccurrence - firstOccurrence == bucketEnd - 1 - bucketStart ) {
+                  System.arraycopy(localOutputArray, firstOccurrence, localFinalArray, firstOccurrence, (bucketEnd - bucketStart) * 1);
+               } else {
+                  for( i = bucketStart; i < bucketEnd; i += 1 ) {
+                     tempInt = sortedIdx[i];
+                     localFinalArray[tempInt] = localOutputArray[tempInt];
+                  }
                }
             }
+            bucketStart = bucketEnd;
          }
       }
       if( localFinalArray != outReal ) {
@@ -278,24 +417,31 @@
       outNBElement.value = outputSize;
       return RetCode.Success ;
    }
-   public RetCode movingAverageVariablePeriod( int startIdx,
-                                               int endIdx,
-                                               float inReal[],
-                                               float inPeriods[],
-                                               int optInMinPeriod,
-                                               int optInMaxPeriod,
-                                               MAType optInMAType,
-                                               MInteger outBegIdx,
-                                               MInteger outNBElement,
-                                               double outReal[] )
+   RetCode movingAverageVariablePeriodInternal( int startIdx,
+                                                int endIdx,
+                                                float inReal[],
+                                                float inPeriods[],
+                                                int optInMinPeriod,
+                                                int optInMaxPeriod,
+                                                MAType optInMAType,
+                                                MInteger outBegIdx,
+                                                MInteger outNBElement,
+                                                double outReal[] )
    {
       int i = 0;
-      int j = 0;
       int lookbackTotal = 0;
       int outputSize = 0;
       int tempInt = 0;
       int curPeriod = 0;
+      int firstOccurrence = 0;
+      int lastOccurrence = 0;
+      int bucketStart = 0;
+      int bucketEnd = 0;
+      int minUsed = 0;
+      int maxUsed = 0;
       int[] localPeriodArray;
+      int[] sortedIdx;
+      int[] bucketOfs;
       double[] localOutputArray;
       double[] localFinalArray;
       int finalIsAllocated = 0;
@@ -345,6 +491,7 @@
       outputSize = endIdx - tempInt + 1;
       localOutputArray = new double[(int)(outputSize * 1)];
       localPeriodArray = new int[(int)(outputSize * 1)];
+      sortedIdx = new int[(int)(outputSize * 1)];
       finalIsAllocated = 0;
       if( false ) {
          finalIsAllocated = 1;
@@ -352,6 +499,11 @@
       } else {
          localFinalArray = outReal;
       }
+      minUsed = optInMaxPeriod;
+      if( minUsed < 1 ) {
+         minUsed = 1;
+      }
+      maxUsed = 1;
       for( i = 0; i < outputSize; i += 1 ) {
          tempInt = (int)(double)inPeriods[startIdx + i];
          if( tempInt < optInMinPeriod ) {
@@ -359,26 +511,66 @@
          } else if( tempInt > optInMaxPeriod ) {
             tempInt = optInMaxPeriod;
          }
+         if( tempInt < 1 ) {
+            tempInt = 1;
+         }
          localPeriodArray[i] = tempInt;
+         if( tempInt < minUsed ) {
+            minUsed = tempInt;
+         }
+         if( tempInt > maxUsed ) {
+            maxUsed = tempInt;
+         }
       }
-      for( i = 0; i < outputSize; i += 1 ) {
-         curPeriod = localPeriodArray[i];
-         if( curPeriod != 0 ) {
-            retCode = movingAverageUnguarded(startIdx, endIdx, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
-            if( retCode != RetCode.Success ) {
-               if( (finalIsAllocated) != 0 ) {
-               }
-               outBegIdx.value = 0;
-               outNBElement.value = 0;
-               return retCode ;
+      bucketOfs = new int[(int)((maxUsed + 2) * 1)];
+      if( minUsed == maxUsed ) {
+         retCode = movingAverageUnguardedInternal(startIdx, endIdx, inReal, minUsed, optInMAType, localBegIdx, localNbElement, localFinalArray);
+         if( retCode != RetCode.Success ) {
+            if( (finalIsAllocated) != 0 ) {
             }
-            localFinalArray[i] = localOutputArray[i];
-            for( j = i + 1; j < outputSize; j += 1 ) {
-               if( localPeriodArray[j] == curPeriod ) {
-                  localPeriodArray[j] = 0;
-                  localFinalArray[j] = localOutputArray[j];
+            outBegIdx.value = 0;
+            outNBElement.value = 0;
+            return retCode ;
+         }
+      } else {
+         for( curPeriod = minUsed; curPeriod <= maxUsed + 1; curPeriod += 1 ) {
+            bucketOfs[curPeriod] = 0;
+         }
+         for( i = 0; i < outputSize; i += 1 ) {
+            bucketOfs[localPeriodArray[i] + 1] = bucketOfs[localPeriodArray[i] + 1] + 1;
+         }
+         for( curPeriod = minUsed; curPeriod <= maxUsed; curPeriod += 1 ) {
+            bucketOfs[curPeriod + 1] = bucketOfs[curPeriod + 1] + bucketOfs[curPeriod];
+         }
+         for( i = 0; i < outputSize; i += 1 ) {
+            tempInt = localPeriodArray[i];
+            sortedIdx[bucketOfs[tempInt]] = i;
+            bucketOfs[tempInt] = bucketOfs[tempInt] + 1;
+         }
+         bucketStart = 0;
+         for( curPeriod = minUsed; curPeriod <= maxUsed; curPeriod += 1 ) {
+            bucketEnd = bucketOfs[curPeriod];
+            if( bucketEnd > bucketStart ) {
+               firstOccurrence = sortedIdx[bucketStart];
+               lastOccurrence = sortedIdx[bucketEnd - 1];
+               retCode = movingAverageUnguardedInternal(startIdx, startIdx + lastOccurrence, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
+               if( retCode != RetCode.Success ) {
+                  if( (finalIsAllocated) != 0 ) {
+                  }
+                  outBegIdx.value = 0;
+                  outNBElement.value = 0;
+                  return retCode ;
+               }
+               if( lastOccurrence - firstOccurrence == bucketEnd - 1 - bucketStart ) {
+                  System.arraycopy(localOutputArray, firstOccurrence, localFinalArray, firstOccurrence, (bucketEnd - bucketStart) * 1);
+               } else {
+                  for( i = bucketStart; i < bucketEnd; i += 1 ) {
+                     tempInt = sortedIdx[i];
+                     localFinalArray[tempInt] = localOutputArray[tempInt];
+                  }
                }
             }
+            bucketStart = bucketEnd;
          }
       }
       if( localFinalArray != outReal ) {
@@ -390,24 +582,31 @@
       outNBElement.value = outputSize;
       return RetCode.Success ;
    }
-   public RetCode movingAverageVariablePeriodUnguarded( int startIdx,
-                                                        int endIdx,
-                                                        float inReal[],
-                                                        float inPeriods[],
-                                                        int optInMinPeriod,
-                                                        int optInMaxPeriod,
-                                                        MAType optInMAType,
-                                                        MInteger outBegIdx,
-                                                        MInteger outNBElement,
-                                                        double outReal[] )
+   RetCode movingAverageVariablePeriodUnguardedInternal( int startIdx,
+                                                         int endIdx,
+                                                         float inReal[],
+                                                         float inPeriods[],
+                                                         int optInMinPeriod,
+                                                         int optInMaxPeriod,
+                                                         MAType optInMAType,
+                                                         MInteger outBegIdx,
+                                                         MInteger outNBElement,
+                                                         double outReal[] )
    {
       int i = 0;
-      int j = 0;
       int lookbackTotal = 0;
       int outputSize = 0;
       int tempInt = 0;
       int curPeriod = 0;
+      int firstOccurrence = 0;
+      int lastOccurrence = 0;
+      int bucketStart = 0;
+      int bucketEnd = 0;
+      int minUsed = 0;
+      int maxUsed = 0;
       int[] localPeriodArray;
+      int[] sortedIdx;
+      int[] bucketOfs;
       double[] localOutputArray;
       double[] localFinalArray;
       int finalIsAllocated = 0;
@@ -441,6 +640,7 @@
       outputSize = endIdx - tempInt + 1;
       localOutputArray = new double[(int)(outputSize * 1)];
       localPeriodArray = new int[(int)(outputSize * 1)];
+      sortedIdx = new int[(int)(outputSize * 1)];
       finalIsAllocated = 0;
       if( false ) {
          finalIsAllocated = 1;
@@ -448,6 +648,11 @@
       } else {
          localFinalArray = outReal;
       }
+      minUsed = optInMaxPeriod;
+      if( minUsed < 1 ) {
+         minUsed = 1;
+      }
+      maxUsed = 1;
       for( i = 0; i < outputSize; i += 1 ) {
          tempInt = (int)(double)inPeriods[startIdx + i];
          if( tempInt < optInMinPeriod ) {
@@ -455,26 +660,66 @@
          } else if( tempInt > optInMaxPeriod ) {
             tempInt = optInMaxPeriod;
          }
+         if( tempInt < 1 ) {
+            tempInt = 1;
+         }
          localPeriodArray[i] = tempInt;
+         if( tempInt < minUsed ) {
+            minUsed = tempInt;
+         }
+         if( tempInt > maxUsed ) {
+            maxUsed = tempInt;
+         }
       }
-      for( i = 0; i < outputSize; i += 1 ) {
-         curPeriod = localPeriodArray[i];
-         if( curPeriod != 0 ) {
-            retCode = movingAverageUnguarded(startIdx, endIdx, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
-            if( retCode != RetCode.Success ) {
-               if( (finalIsAllocated) != 0 ) {
-               }
-               outBegIdx.value = 0;
-               outNBElement.value = 0;
-               return retCode ;
+      bucketOfs = new int[(int)((maxUsed + 2) * 1)];
+      if( minUsed == maxUsed ) {
+         retCode = movingAverageUnguardedInternal(startIdx, endIdx, inReal, minUsed, optInMAType, localBegIdx, localNbElement, localFinalArray);
+         if( retCode != RetCode.Success ) {
+            if( (finalIsAllocated) != 0 ) {
             }
-            localFinalArray[i] = localOutputArray[i];
-            for( j = i + 1; j < outputSize; j += 1 ) {
-               if( localPeriodArray[j] == curPeriod ) {
-                  localPeriodArray[j] = 0;
-                  localFinalArray[j] = localOutputArray[j];
+            outBegIdx.value = 0;
+            outNBElement.value = 0;
+            return retCode ;
+         }
+      } else {
+         for( curPeriod = minUsed; curPeriod <= maxUsed + 1; curPeriod += 1 ) {
+            bucketOfs[curPeriod] = 0;
+         }
+         for( i = 0; i < outputSize; i += 1 ) {
+            bucketOfs[localPeriodArray[i] + 1] = bucketOfs[localPeriodArray[i] + 1] + 1;
+         }
+         for( curPeriod = minUsed; curPeriod <= maxUsed; curPeriod += 1 ) {
+            bucketOfs[curPeriod + 1] = bucketOfs[curPeriod + 1] + bucketOfs[curPeriod];
+         }
+         for( i = 0; i < outputSize; i += 1 ) {
+            tempInt = localPeriodArray[i];
+            sortedIdx[bucketOfs[tempInt]] = i;
+            bucketOfs[tempInt] = bucketOfs[tempInt] + 1;
+         }
+         bucketStart = 0;
+         for( curPeriod = minUsed; curPeriod <= maxUsed; curPeriod += 1 ) {
+            bucketEnd = bucketOfs[curPeriod];
+            if( bucketEnd > bucketStart ) {
+               firstOccurrence = sortedIdx[bucketStart];
+               lastOccurrence = sortedIdx[bucketEnd - 1];
+               retCode = movingAverageUnguardedInternal(startIdx, startIdx + lastOccurrence, inReal, curPeriod, optInMAType, localBegIdx, localNbElement, localOutputArray);
+               if( retCode != RetCode.Success ) {
+                  if( (finalIsAllocated) != 0 ) {
+                  }
+                  outBegIdx.value = 0;
+                  outNBElement.value = 0;
+                  return retCode ;
+               }
+               if( lastOccurrence - firstOccurrence == bucketEnd - 1 - bucketStart ) {
+                  System.arraycopy(localOutputArray, firstOccurrence, localFinalArray, firstOccurrence, (bucketEnd - bucketStart) * 1);
+               } else {
+                  for( i = bucketStart; i < bucketEnd; i += 1 ) {
+                     tempInt = sortedIdx[i];
+                     localFinalArray[tempInt] = localOutputArray[tempInt];
+                  }
                }
             }
+            bucketStart = bucketEnd;
          }
       }
       if( localFinalArray != outReal ) {
@@ -485,6 +730,196 @@
       outBegIdx.value = startIdx;
       outNBElement.value = outputSize;
       return RetCode.Success ;
+   }
+   /**
+    * Moving average whose period varies per bar, driven by a companion period
+    * series. For each bar it computes an MA of the selected type over the
+    * (clamped) period given by inPeriods.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * p_i = clamp((int)inPeriods[startIdx+i], optInMinPeriod, optInMaxPeriod); outReal[i] = MA(inReal, p_i, optInMAType) at bar startIdx+i
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Fractional per-bar periods are truncated to whole numbers before being clamped to the minimum and maximum period.</li>
+    * <li>Period values of 1 perform no smoothing (the bar's output equals its input); the minimum allowed period is 1 since 0.6.5.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#movingAverageVariablePeriodLookback}
+    * is a <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal series to be averaged.
+    * @param inPeriods per-bar desired MA period.
+    * @param optInMinPeriod Lower clamp for the per-bar period (default 2; range
+    *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInMaxPeriod Upper clamp for the per-bar period (default 30;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInMAType Moving-average type applied (default 0 = SMA; values:
+    *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
+    *        10=DISABLED).
+    * @param outReal variable-period moving average. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#movingAverage
+    * @see Core#sma
+    * @see Core#mama
+    * @see Core#t3
+    */
+   public OutRange movingAverageVariablePeriod( int startIdx,
+                                                int endIdx,
+                                                double inReal[],
+                                                double inPeriods[],
+                                                int optInMinPeriod,
+                                                int optInMaxPeriod,
+                                                MAType optInMAType,
+                                                double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = movingAverageVariablePeriodInternal(startIdx, endIdx, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("MAVP", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Moving average whose period varies per bar, driven by a companion period
+    * series. For each bar it computes an MA of the selected type over the
+    * (clamped) period given by inPeriods. — <b>unchecked</b> variant of
+    * {@link Core#movingAverageVariablePeriod}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange movingAverageVariablePeriodUnguarded( int startIdx,
+                                                         int endIdx,
+                                                         double inReal[],
+                                                         double inPeriods[],
+                                                         int optInMinPeriod,
+                                                         int optInMaxPeriod,
+                                                         MAType optInMAType,
+                                                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      movingAverageVariablePeriodUnguardedInternal(startIdx, endIdx, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Moving average whose period varies per bar, driven by a companion period
+    * series. For each bar it computes an MA of the selected type over the
+    * (clamped) period given by inPeriods.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * p_i = clamp((int)inPeriods[startIdx+i], optInMinPeriod, optInMaxPeriod); outReal[i] = MA(inReal, p_i, optInMAType) at bar startIdx+i
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Fractional per-bar periods are truncated to whole numbers before being clamped to the minimum and maximum period.</li>
+    * <li>Period values of 1 perform no smoothing (the bar's output equals its input); the minimum allowed period is 1 since 0.6.5.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#movingAverageVariablePeriodLookback}
+    * is a <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal series to be averaged.
+    * @param inPeriods per-bar desired MA period.
+    * @param optInMinPeriod Lower clamp for the per-bar period (default 2; range
+    *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInMaxPeriod Upper clamp for the per-bar period (default 30;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInMAType Moving-average type applied (default 0 = SMA; values:
+    *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
+    *        10=DISABLED).
+    * @param outReal variable-period moving average. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#movingAverage
+    * @see Core#sma
+    * @see Core#mama
+    * @see Core#t3
+    */
+   public OutRange movingAverageVariablePeriod( int startIdx,
+                                                int endIdx,
+                                                float inReal[],
+                                                float inPeriods[],
+                                                int optInMinPeriod,
+                                                int optInMaxPeriod,
+                                                MAType optInMAType,
+                                                double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = movingAverageVariablePeriodInternal(startIdx, endIdx, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("MAVP", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Moving average whose period varies per bar, driven by a companion period
+    * series. For each bar it computes an MA of the selected type over the
+    * (clamped) period given by inPeriods. — <b>unchecked</b> variant of
+    * {@link Core#movingAverageVariablePeriod}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange movingAverageVariablePeriodUnguarded( int startIdx,
+                                                         int endIdx,
+                                                         float inReal[],
+                                                         float inPeriods[],
+                                                         int optInMinPeriod,
+                                                         int optInMaxPeriod,
+                                                         MAType optInMAType,
+                                                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      movingAverageVariablePeriodUnguardedInternal(startIdx, endIdx, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
    }
 /**** Streaming API *****/
 
@@ -511,8 +946,15 @@
       double cur_outReal;
       // One sub-MA stream per period in [optInMinPeriod, optInMaxPeriod], advanced in lockstep.
       MovingAverageStream[] bank;
+      OutRange fillRange;
 
       MovingAverageVariablePeriodStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#movingAverageVariablePeriodOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       MovingAverageVariablePeriodStream( MovingAverageVariablePeriodStream other ) {
          this.core = other.core;
@@ -524,6 +966,7 @@
          for( int bankIdx = 0; bankIdx < other.bank.length; bankIdx++ ) {
             this.bank[bankIdx] = new MovingAverageStream(other.bank[bankIdx]);
          }
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -731,11 +1174,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link MovingAverageVariablePeriodStream#fillRange()}.
     */
-   public MovingAverageVariablePeriodStream movingAverageVariablePeriodOpenAndFill( double inReal[], double inPeriods[], int optInMinPeriod, int optInMaxPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public MovingAverageVariablePeriodStream movingAverageVariablePeriodOpenAndFill( double inReal[], double inPeriods[], int optInMinPeriod, int optInMaxPeriod, MAType optInMAType, double outReal[] )
    {
       MovingAverageVariablePeriodStream sp = new MovingAverageVariablePeriodStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = movingAverageVariablePeriodOpenAndFillBody(sp, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

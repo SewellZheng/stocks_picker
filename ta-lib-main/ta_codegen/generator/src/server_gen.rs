@@ -176,6 +176,18 @@ fn func_unst_id(name: &str) -> Option<i32> {
 
 /// Replace @@`CORE_XXX`@@ markers in the Java server template with actual
 /// method bodies read from the generated Core_*.java files.
+///
+/// The text spliced here must stay **identical** (modulo the 4-space indent) to
+/// what `java_shipped::generate_core` splices into the shipped `Core.java` — that
+/// identity is the numerical-correctness proof: the server the cross-language
+/// harness measures runs the same source the library ships.
+///
+/// Consecutive `return` lines are therefore a hard error rather than a silent
+/// drop. Java rejects the second as unreachable, so a fragment containing them
+/// would fail to compile in the shipped library anyway; dropping one here would
+/// merely hide that behind a server whose bytes differ from the library's. All
+/// 168 fragments contain zero such pairs, so this costs nothing today and stops
+/// a future emitter from quietly breaking the identity.
 pub fn inline_java_core_methods(template: &str, java_dir: &Path, funcs: &[FuncDef]) -> String {
     let mut result = template.to_string();
     for func in funcs {
@@ -183,17 +195,20 @@ pub fn inline_java_core_methods(template: &str, java_dir: &Path, funcs: &[FuncDe
         let core_path = java_dir.join(format!("Core_{}.java", func.name));
         let replacement = if core_path.exists() {
             let content = std::fs::read_to_string(&core_path).unwrap();
-            // Strip /* Generated */ prefix, remove duplicate consecutive return statements,
-            // and indent properly
+            // Strip the /* Generated */ prefix and indent into the server's Core.
             let mut lines: Vec<String> = Vec::new();
             let mut prev_was_return = false;
-            for line in content.lines() {
+            for (n, line) in content.lines().enumerate() {
                 let trimmed = line.strip_prefix("/* Generated */").unwrap_or(line);
                 let is_return = trimmed.trim().starts_with("return ");
-                // Skip duplicate consecutive return statements (Java treats these as errors)
-                if is_return && prev_was_return {
-                    continue;
-                }
+                assert!(
+                    !(is_return && prev_was_return),
+                    "{}:{}: two consecutive `return` lines. Java rejects the second as \
+                     unreachable, so this fragment cannot compile in the shipped library — \
+                     fix the emitter rather than letting the server and the library differ.",
+                    core_path.display(),
+                    n + 1
+                );
                 prev_was_return = is_return;
                 if trimmed.trim().is_empty() {
                     lines.push(String::new());
@@ -2084,6 +2099,16 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // MInteger helper
     s.push_str("class MInteger { public int value; }\n\n");
 
+    // OutRange + the RetCode->exception mapper: the shipped Core's public
+    // wrappers are part of the spliced fragment text (that identity is the
+    // correctness proof), so the server needs both to compile them. The server
+    // itself calls the internal cores, never these wrappers.
+    s.push_str("record OutRange(int begIdx, int count) {\n");
+    s.push_str("    static final OutRange EMPTY = new OutRange(0, 0);\n");
+    s.push_str("    boolean isEmpty() { return count == 0; }\n");
+    s.push_str("    int endIdx() { return begIdx + count; }\n");
+    s.push_str("}\n\n");
+
     // FuncUnstId and Compatibility enums (referenced by generated Core methods).
     // FuncUnstId is emitted from enums.yaml (source of truth), 6 names per line,
     // plus the server-side `None` sentinel (distinct from the shipped enum's `All`).
@@ -2102,9 +2127,9 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     }
     s.push_str("}\n\n");
 
-    s.push_str("enum Compatibility {\n");
-    s.push_str("    Default, Metastock;\n");
-    s.push_str("}\n\n");
+    // No Compatibility enum: the Java backend constant-folds the Metastock arms
+    // out of the generated indicator code (the shipped Core has no such setting),
+    // so nothing spliced in here can reference one.
 
     // MAType — ordinal == the C enum value (enums.yaml rows are ascending).
     s.push_str("enum MAType {\n");
@@ -2141,7 +2166,6 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // Core class — method bodies are inlined by the caller via inline_java_core_methods()
     s.push_str("class Core {\n");
     s.push_str("    int[] unstablePeriod = new int[FuncUnstId.values().length];\n");
-    s.push_str("    Compatibility compatibility = Compatibility.Default;\n");
     // candleSettings[] in CandleSettingType ordinal order. Defaults from
     // TA_RestoreCandleDefaultSettings in ta_global.c. RangeType: 0=RealBody, 1=HighLow, 2=Shadows.
     s.push_str("    CandleSetting[] candleSettings = {\n");
@@ -2157,6 +2181,18 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        new CandleSetting(RangeType.HighLow,  5,  0.6),   // Far\n");
     s.push_str("        new CandleSetting(RangeType.HighLow,  5,  0.05),  // Equal\n");
     s.push_str("    };\n\n");
+    // Mirrors the shipped Core's mapper — the spliced public wrappers call it.
+    s.push_str("    static RuntimeException failure(String funcName, RetCode retCode) {\n");
+    s.push_str("        String where = \"TA_\" + funcName + \": \";\n");
+    s.push_str("        switch (retCode) {\n");
+    s.push_str("            case OutOfRangeStartIndex: return new IndexOutOfBoundsException(where + \"startIdx out of range\");\n");
+    s.push_str("            case OutOfRangeEndIndex: return new IndexOutOfBoundsException(where + \"endIdx out of range\");\n");
+    s.push_str("            case BadParam: return new IllegalArgumentException(where + \"bad parameter\");\n");
+    s.push_str("            case AllocErr: return new IllegalStateException(where + \"allocation failed\");\n");
+    s.push_str("            case InternalError: return new IllegalStateException(where + \"internal error\");\n");
+    s.push_str("            default: return new IllegalStateException(where + retCode);\n");
+    s.push_str("        }\n");
+    s.push_str("    }\n\n");
     for func in funcs {
         s.push_str(&format!("    // @@CORE_{}@@\n", func.name));
     }
@@ -2350,11 +2386,17 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            return \"{\\\"error\\\":\\\"Invalid id\\\"}\"; \n");
     s.push_str("        }\n");
 
-    // set_compatibility method
+    // set_compatibility method. The Java library exposes no way to select a
+    // compatibility variant (the Metastock arms are constant-folded out of the
+    // generated code), so mode 0 is a no-op and any other mode is an explicit
+    // error — the driver skips that leg rather than silently comparing a Default
+    // run against a Metastock reference. Mirrors the Rust server.
     s.push_str("        else if (json.contains(\"\\\"set_compatibility\\\"\")) {\n");
     s.push_str("            int mode = jsonInt(json, \"mode\");\n");
-    s.push_str("            core.compatibility = (mode == 1) ? Compatibility.Metastock : Compatibility.Default;\n");
-    s.push_str("            return \"{\\\"status\\\":\\\"ok\\\"}\";\n");
+    s.push_str("            if (mode == 0) {\n");
+    s.push_str("                return \"{\\\"status\\\":\\\"ok\\\"}\";\n");
+    s.push_str("            }\n");
+    s.push_str("            return \"{\\\"error\\\":\\\"java has no compatibility API (pinned to Default)\\\"}\";\n");
     s.push_str("        }\n");
 
     // eval_predicate method — boolean near-zero builtin on each input value.
@@ -2501,7 +2543,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         s.push_str("        for (int _bi = 0; _bi < bench_iters; _bi++) {\n");
 
         // Call
-        s.push_str(&format!("        rc = core.{func_lower}(\n"));
+        s.push_str(&format!("        rc = core.{func_lower}Internal(\n"));
         s.push_str("            startIdx, endIdx,\n");
         for name in &input_names {
             s.push_str(&format!("            {name},\n"));
@@ -2542,7 +2584,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         s.push_str("        }\n");
 
         // Unguarded timing loop
-        let unguarded_name = format!("{func_lower}Unguarded");
+        let unguarded_name = format!("{func_lower}UnguardedInternal");
         s.push_str("        long startNsUng = System.nanoTime();\n");
         s.push_str("        for (int _biu = 0; _biu < bench_iters; _biu++) {\n");
         s.push_str(&format!("        rc = core.{unguarded_name}(\n"));
@@ -4414,6 +4456,12 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     s.push_str("        if (svN < 2) svN = 2;\n        if (svN > 256) svN = 256;\n");
     s.push_str("        int svK = jsonInt(json, \"unstablePeriod\");\n");
     s.push_str("        int svCompat = jsonInt(json, \"compatibility\");\n");
+    // Compatibility is pinned to Default in the Java library (the Metastock arms
+    // are constant-folded out of the generated code), so a Metastock leg would
+    // silently re-run the Default one — refuse it instead of passing vacuously.
+    s.push_str("        if (svCompat != 0) {\n");
+    s.push_str("            return \"{\\\"error\\\":\\\"java has no compatibility API (pinned to Default)\\\"}\";\n");
+    s.push_str("        }\n");
     if candle {
         s.push_str("        int candleLegs = jsonInt(json, \"candleLegs\");\n");
     }
@@ -4529,7 +4577,6 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
 
     // Fresh, pinned, configured Core for this round (per-instance settings).
     s.push_str("            Core c2 = new Core();\n");
-    s.push_str("            c2.compatibility = (svCompat == 1) ? Compatibility.Metastock : Compatibility.Default;\n");
     for id in collect_pin_ids(func, funcs) {
         let _ = writeln!(s, "            c2.unstablePeriod[{id}] = svK;");
     }
@@ -4558,11 +4605,10 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
             "                try {{ c2.{base}Open({full_ins}{opts_tail}); r1 = false; }} catch (IllegalArgumentException _e) {{ r1 = true; }}"
         );
         s.push_str(&fdecls.replace("            ", "                "));
-        s.push_str("                MInteger fBegR = new MInteger();\n                MInteger fNbR = new MInteger();\n");
         s.push_str("                boolean r2;\n");
         let _ = writeln!(
             s,
-            "                try {{ c2.{base}OpenAndFill({full_ins}{opts_tail}, fBegR, fNbR{fargs}); r2 = false; }} catch (IllegalArgumentException _e) {{ r2 = true; }}"
+            "                try {{ c2.{base}OpenAndFill({full_ins}{opts_tail}{fargs}); r2 = false; }} catch (IllegalArgumentException _e) {{ r2 = true; }}"
         );
         s.push_str("                boolean okr = r1 && r2;\n");
         s.push_str("                return \"{\\\"retCode\\\":0,\\\"legs\\\":0,\\\"unsupportedArm\\\":1,\\\"ok\\\":\" + (okr ? 1 : 0) + \",\\\"peek_ok\\\":1}\";\n");
@@ -4572,7 +4618,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     // Batch leg.
     let _ = writeln!(
         s,
-        "            RetCode rc = c2.{base}(0, svN - 1, {full_ins}, {opts_lead}beg, nb{bargs});"
+        "            RetCode rc = c2.{base}Internal(0, svN - 1, {full_ins}, {opts_lead}beg, nb{bargs});"
     );
     let _ = writeln!(s, "            int lb = c2.{base}Lookback({opts});");
     s.push_str("            if (rc != RetCode.Success || nb.value == 0) {\n");
@@ -4593,12 +4639,12 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     // OpenAndFill leg (fill == batch arrays, bitwise) + aliasing probes.
     s.push_str("            fillChecked = 1;\n            try {\n");
     s.push_str(&fdecls.replace("            ", "                "));
-    s.push_str("                MInteger fBeg = new MInteger();\n                MInteger fNb = new MInteger();\n");
     let _ = writeln!(
         s,
-        "                Core.{class} _fh = c2.{base}OpenAndFill({full_ins}{opts_tail}, fBeg, fNb{fargs});"
+        "                Core.{class} _fh = c2.{base}OpenAndFill({full_ins}{opts_tail}{fargs});"
     );
-    s.push_str("                if (fBeg.value != beg.value || fNb.value != nb.value) fillOk = false;\n                else {\n");
+    s.push_str("                OutRange _fr = _fh.fillRange();\n");
+    s.push_str("                if (_fr.begIdx() != beg.value || _fr.count() != nb.value) fillOk = false;\n                else {\n");
     for (i, is_int) in out_is_int.iter().enumerate() {
         if *is_int {
             let _ = writeln!(s, "                    for (int i = 0; i < nb.value; i++) if (f{i}[i] != b{i}[i]) fillOk = false;");
@@ -4624,7 +4670,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         };
         let _ = writeln!(
             s,
-            "                try {{ c2.{base}OpenAndFill({full_ins}{opts_tail}, fBeg, fNb{alias_args}); fillOk = false; }} catch (IllegalArgumentException _e) {{ /* expected: output aliases input */ }}"
+            "                try {{ c2.{base}OpenAndFill({full_ins}{opts_tail}{alias_args}); fillOk = false; }} catch (IllegalArgumentException _e) {{ /* expected: output aliases input */ }}"
         );
         if multi && !out_is_int[1] {
             let alias_args2 = {
@@ -4640,7 +4686,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
             };
             let _ = writeln!(
                 s,
-                "                try {{ c2.{base}OpenAndFill({full_ins}{opts_tail}, fBeg, fNb{alias_args2}); fillOk = false; }} catch (IllegalArgumentException _e) {{ /* expected: output aliases output */ }}"
+                "                try {{ c2.{base}OpenAndFill({full_ins}{opts_tail}{alias_args2}); fillOk = false; }} catch (IllegalArgumentException _e) {{ /* expected: output aliases output */ }}"
             );
         }
     }

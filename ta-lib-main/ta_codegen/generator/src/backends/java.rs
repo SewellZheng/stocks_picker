@@ -1,5 +1,6 @@
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 
 use crate::candle_settings::{detect_candle_settings, emit_java_unpacking};
 use crate::helper_registry::{hoist_block_helpers, try_inline_expr, HelperRegistry};
@@ -21,6 +22,111 @@ use super::stmt_walk::StatementEmitter;
 /// short-circuit evaluation — hoisted switch blocks would be evaluated
 /// unconditionally before the `if`.
 pub(crate) const JAVA_CANDLE_FNS: &[&str] = &["ta_candlerange", "ta_candleaverage"];
+
+// ---------------------------------------------------------------------------
+// Compatibility fold (Java pins the mode to Default)
+// ---------------------------------------------------------------------------
+//
+// Metastock compatibility is retired project-wide and Java's `Core` carries no
+// compatibility field at all, so every `TA_GetCompatibility()` test in the shared
+// input sources is a compile-time constant on this backend. Fold it at render
+// time: `== DEFAULT` is true, `== METASTOCK` is false, the surviving `if` arm is
+// spliced in place of the branch. C (which still ships the setting) renders the
+// same IR untouched, so its output is unaffected.
+//
+// The fold hangs off [`StatementEmitter::if_stmt`], which every Java render path
+// funnels through — batch bodies, `LookbackExpr::Code` (CMO/RSI test the mode
+// inside their lookback), and the streaming warm-up opens. Anything that reaches
+// [`ExprEmitter::var`] or the `Compatibility` builtin afterwards is a construct
+// this fold does not understand, and panics rather than emitting a reference to
+// a field that no longer exists.
+
+/// Result of folding a condition against Java's pinned-to-Default compatibility.
+enum CompatFold {
+    /// The condition is a compile-time constant on this backend.
+    Known(bool),
+    /// Not compatibility-dependent, or only partly folded. `changed` is false when
+    /// nothing folded, so the caller can take the untouched rendering path.
+    Open { expr: Expr, changed: bool },
+}
+
+impl CompatFold {
+    /// An operand that folded away nothing.
+    fn unchanged(expr: &Expr) -> Self {
+        CompatFold::Open { expr: expr.clone(), changed: false }
+    }
+}
+
+/// Is this expression the `COMPATIBILITY()` builtin (or its bare-`Var` spelling)?
+fn is_compat_read(expr: &Expr) -> bool {
+    match expr {
+        Expr::Var(n) => n == "COMPATIBILITY",
+        Expr::FuncCall(n, args) => n == "COMPATIBILITY" && args.is_empty(),
+        _ => false,
+    }
+}
+
+/// The truth value of `COMPATIBILITY() == <name>` under the Default pin.
+fn compat_variant_matches(expr: &Expr) -> Option<bool> {
+    match expr {
+        Expr::Var(n) if n == "DEFAULT" => Some(true),
+        Expr::Var(n) if n == "METASTOCK" => Some(false),
+        _ => None,
+    }
+}
+
+/// Fold a condition against the Default pin. Handles both operand orders and
+/// propagates through `&&` / `||` / `!` so a compound test such as
+/// `unstablePeriod == 0 && COMPATIBILITY() == METASTOCK` collapses whole.
+fn fold_compat_cond(expr: &Expr) -> CompatFold {
+    match expr {
+        Expr::BinOp(lhs, op @ (BinOp::Eq | BinOp::NotEq), rhs) => {
+            let matched = if is_compat_read(lhs) {
+                compat_variant_matches(rhs)
+            } else if is_compat_read(rhs) {
+                compat_variant_matches(lhs)
+            } else {
+                None
+            };
+            match matched {
+                Some(eq) => CompatFold::Known(if matches!(op, BinOp::Eq) { eq } else { !eq }),
+                None => CompatFold::unchanged(expr),
+            }
+        }
+        Expr::BinOp(lhs, op @ (BinOp::And | BinOp::Or), rhs) => {
+            let is_and = matches!(op, BinOp::And);
+            // Short-circuiting is preserved: the operands here are pure reads
+            // (the compat test has no side effects), so dropping one is safe.
+            let (l, r) = (fold_compat_cond(lhs), fold_compat_cond(rhs));
+            match (l, r) {
+                // `x && false` / `x || true` — the absorbing element wins.
+                (CompatFold::Known(k), _) | (_, CompatFold::Known(k)) if k != is_and => {
+                    CompatFold::Known(k)
+                }
+                (CompatFold::Known(_), CompatFold::Known(_)) => CompatFold::Known(is_and),
+                // `x && true` / `x || false` — the identity element drops out.
+                (CompatFold::Known(_), CompatFold::Open { expr, .. })
+                | (CompatFold::Open { expr, .. }, CompatFold::Known(_)) => {
+                    CompatFold::Open { expr, changed: true }
+                }
+                (
+                    CompatFold::Open { expr: le, changed: lc },
+                    CompatFold::Open { expr: re, changed: rc },
+                ) => CompatFold::Open {
+                    expr: Expr::BinOp(Box::new(le), op.clone(), Box::new(re)),
+                    changed: lc || rc,
+                },
+            }
+        }
+        Expr::Not(inner) => match fold_compat_cond(inner) {
+            CompatFold::Known(k) => CompatFold::Known(!k),
+            CompatFold::Open { expr, changed } => {
+                CompatFold::Open { expr: Expr::Not(Box::new(expr)), changed }
+            }
+        },
+        _ => CompatFold::unchanged(expr),
+    }
+}
 
 /// Per-render state for the Java backend, mirroring `RustRenderCtx`/`CRenderCtx`.
 /// Bundles the loose per-render state (precision flag, address-of variable sets,
@@ -377,10 +483,19 @@ pub fn generate(
         out.push_str(&gen_private(func, enums, registry, helpers)); // Private method (double)
         out.push_str(&gen_private_sp(func, enums, registry, helpers)); // Private method (float overload)
     }
+    // Internal cores keep the RetCode + MInteger shape: this text is spliced
+    // verbatim into BOTH the shipped Core and the JSON-RPC server's inline Core,
+    // and the server calls these directly — so the harness's retCode ints and
+    // output hashes are untouched by the public surface below.
     out.push_str(&gen_func(func, false, false, enums, registry, helpers)); // double-precision guarded
     out.push_str(&gen_func(func, false, true, enums, registry, helpers)); // double-precision logic (unguarded)
     out.push_str(&gen_func(func, true, false, enums, registry, helpers)); // single-precision guarded
     out.push_str(&gen_func(func, true, true, enums, registry, helpers)); // single-precision logic (unguarded)
+    // Public surface: OutRange-returning wrappers over the cores above.
+    out.push_str(&gen_public_wrapper(func, false, false, enums, registry));
+    out.push_str(&gen_public_wrapper(func, false, true, enums, registry));
+    out.push_str(&gen_public_wrapper(func, true, false, enums, registry));
+    out.push_str(&gen_public_wrapper(func, true, true, enums, registry));
     // Streaming API section (only for YAML-declared streamable functions).
     if func.streaming {
         out.push_str(&super::java_stream::generate(func, enums, registry, helpers));
@@ -502,8 +617,9 @@ fn gen_lookback(
         None => format!("{validation}      return 0;"),
     };
 
+    let docs = super::java_doc::lookback_docs(func, &name, enums);
     format!(
-        "   public int {name}Lookback({param_str})\n\
+        "{docs}   public int {name}Lookback({param_str})\n\
          \x20  {{\n\
          {body}\n\
          \x20  }}\n"
@@ -535,6 +651,117 @@ fn render_init_expr(expr: &Expr) -> String {
         }
         _ => panic!("Unsupported expr in private_param_init: {expr:?}"),
     }
+}
+
+/// Name of the package-private core behind a public wrapper.
+///
+/// The cores keep the C-shaped `RetCode` + `MInteger` signature (A3 lock 1): the
+/// same fragment text is spliced into the shipped `Core` and the JSON-RPC
+/// server's inline `Core`, and the server calls the cores, so the cross-language
+/// hash/retCode surface is unaffected by the public API above them.
+fn internal_core_name(base: &str, unguarded: bool) -> String {
+    if unguarded {
+        format!("{base}UnguardedInternal")
+    } else {
+        format!("{base}Internal")
+    }
+}
+
+/// Emit the public, `OutRange`-returning wrapper over one internal core.
+///
+/// Guarded wrappers translate the core's `RetCode` into the documented exception
+/// mapping; unguarded wrappers check nothing and never throw (the documented
+/// sharp edge, mirroring Rust's public unguarded tier). Both are thin: the
+/// numerics live entirely in the core.
+///
+/// **A short range is not an error.** A valid range shorter than the lookback
+/// returns `Success` with `outNBElement == 0`, which becomes an `OutRange` whose
+/// `count` is 0 — exactly C's contract, never an exception.
+fn gen_public_wrapper(
+    func: &FuncDef,
+    single_precision: bool,
+    unguarded: bool,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+) -> String {
+    let base_name = to_java_method_name(&func.name, func.camel_case.as_deref());
+    let core = internal_core_name(&base_name, unguarded);
+    let public_name = if unguarded {
+        format!("{base_name}Unguarded")
+    } else {
+        base_name.clone()
+    };
+
+    // Parameters: same as the core minus the two MInteger out-params.
+    let mut params: Vec<String> = vec!["int startIdx".to_string(), "int endIdx".to_string()];
+    let mut args: Vec<String> = vec!["startIdx".to_string(), "endIdx".to_string()];
+    for input in &func.inputs {
+        let java_type = match (&input.param_type, single_precision) {
+            (ParamType::Real, true) => "float",
+            (ParamType::Real, false) => "double",
+            _ => "int",
+        };
+        params.push(format!("{} {}[]", java_type, input.name));
+        args.push(input.name.clone());
+    }
+    for opt in &func.optional_inputs {
+        let java_type = match &opt.param_type {
+            ParamType::Real => "double",
+            ParamType::Integer => "int",
+            ParamType::Enum(ref name) => name.as_str(),
+            ParamType::Price(_) => unreachable!("Price expanded during parsing"),
+        };
+        params.push(format!("{} {}", java_type, opt.name));
+        args.push(opt.name.clone());
+    }
+    args.push("outBegIdx".to_string());
+    args.push("outNBElement".to_string());
+    for output in &func.outputs {
+        let java_type = match &output.param_type {
+            ParamType::Real => "double",
+            _ => "int",
+        };
+        params.push(format!("{} {}[]", java_type, output.name));
+        args.push(output.name.clone());
+    }
+
+    let mut out = String::new();
+    if unguarded {
+        out.push_str(&super::java_doc::unguarded_docs(func, &base_name, single_precision));
+    } else {
+        out.push_str(&super::java_doc::guarded_docs(
+            func, &base_name, single_precision, enums, registry,
+        ));
+    }
+    let sig_prefix = format!("   public OutRange {public_name}( ");
+    let indent = " ".repeat(sig_prefix.len());
+    out.push_str(&sig_prefix);
+    for (i, param) in params.iter().enumerate() {
+        if i > 0 {
+            out.push_str(&format!(",\n{indent}"));
+        }
+        out.push_str(param);
+    }
+    out.push_str(" )\n   {\n");
+    out.push_str("      MInteger outBegIdx = new MInteger();\n");
+    out.push_str("      MInteger outNBElement = new MInteger();\n");
+    if unguarded {
+        // Checks nothing by contract, so there is no failure to report and the
+        // core's RetCode is discarded.
+        let _ = write!(out, "      {core}(");
+        out.push_str(&args.join(", "));
+        out.push_str(");\n");
+    } else {
+        let _ = write!(out, "      RetCode retCode = {core}(");
+        out.push_str(&args.join(", "));
+        out.push_str(");\n");
+        out.push_str("      if( retCode != RetCode.Success ) {\n");
+        let _ = writeln!(out, "         throw failure(\"{}\", retCode);", func.name);
+        out.push_str("      }\n");
+    }
+    out.push_str("      return new OutRange(outBegIdx.value, outNBElement.value);\n");
+    out.push_str("   }\n");
+    out
 }
 
 /// Generate the Private method (double, extra params).
@@ -589,10 +816,9 @@ fn gen_func_inner(
     let name = if let Some(n) = name_override {
         n.to_string()
     } else if logic {
-        // Public unguarded variant — matches C's `TA_<NAME>_Unguarded` surface.
-        format!("{base_name}Unguarded")
+        internal_core_name(&base_name, true)
     } else {
-        base_name
+        internal_core_name(&base_name, false)
     };
 
     // Build parameter list
@@ -647,8 +873,9 @@ fn gen_func_inner(
         params.push(format!("{} {}[]", java_type, output.name));
     }
 
-    // Format signature
-    let sig_prefix = format!("   public RetCode {name}( ");
+    // Format signature. Package-private: these are the internal cores the public
+    // OutRange wrappers (and the JSON-RPC server) delegate to, not the API.
+    let sig_prefix = format!("   RetCode {name}( ");
     let indent = " ".repeat(sig_prefix.len());
     out.push_str(&sig_prefix);
     for (i, param) in params.iter().enumerate() {
@@ -1276,6 +1503,31 @@ impl StatementEmitter for JavaStmt<'_> {
         if contains_alloc_err_return(then_body) {
             return String::new();
         }
+        // Compatibility is pinned to Default in Java: fold the branch away and
+        // splice the surviving arm in place (see `fold_compat_cond`). The dropped
+        // arm's statements are the only thing removed — the survivor renders at
+        // this `if`'s own indent, since its block is dissolved.
+        match fold_compat_cond(condition) {
+            CompatFold::Known(taken) => {
+                let kept = if taken { then_body } else { else_body };
+                return kept.iter().map(|s| self.walk_stmt(s, indent)).collect();
+            }
+            CompatFold::Open { expr, changed: true } => {
+                // A compound condition that lost a compatibility operand (e.g.
+                // `unstablePeriod == 0 && COMPATIBILITY() == METASTOCK`) re-renders
+                // through the normal path with the survivor alone. The per-operand
+                // comments no longer line up with the shortened `&&`-chain, so they
+                // are dropped rather than mis-attached.
+                let rebuilt = Statement::If {
+                    condition: expr,
+                    then_body: then_body.to_vec(),
+                    else_body: else_body.to_vec(),
+                    cond_comments: Vec::new(),
+                };
+                return self.walk_stmt(&rebuilt, indent);
+            }
+            CompatFold::Open { changed: false, .. } => {}
+        }
         // Split `if(A && B)` into nested `if(A) { if(B)` when both sides
         // contain a candle helper call (ta_candlerange/ta_candleaverage).
         // This preserves short-circuit evaluation so the expensive ternary
@@ -1550,9 +1802,15 @@ struct JavaExpr<'a> {
 impl ExprEmitter for JavaExpr<'_> {
     fn var(&self, name: &str) -> String {
         let mapped = match name {
-            "COMPATIBILITY" => "this.compatibility".to_string(),
-            "METASTOCK" => "Compatibility.Metastock".to_string(),
-            "DEFAULT" => "Compatibility.Default".to_string(),
+            // Java has no compatibility field: every read is folded away by
+            // `fold_compat_cond` before rendering. Reaching here means a new
+            // construct escaped the fold — fail loudly rather than emit a
+            // reference to a field that does not exist.
+            "COMPATIBILITY" | "METASTOCK" | "DEFAULT" => panic!(
+                "java: compatibility reference `{name}` survived the render-time fold \
+                 (Java pins the mode to Default — extend fold_compat_cond to cover \
+                 this construct)"
+            ),
             "BAD_PARAM" => "RetCode.BadParam".to_string(),
             "SUCCESS" => "RetCode.Success".to_string(),
             "ALLOC_ERR" => "RetCode.AllocErr".to_string(),
@@ -1945,8 +2203,13 @@ fn render_func_call(
                 "this.unstablePeriod[0]".to_string()
             }
             SpecialBuiltin::Compatibility => {
-                // COMPATIBILITY() -> this.compatibility
-                "this.compatibility".to_string()
+                // See the `var` hook: Java pins the mode to Default and carries no
+                // compatibility field, so a surviving read is a generator bug.
+                panic!(
+                    "java: COMPATIBILITY() survived the render-time fold (Java pins \
+                     the mode to Default — extend fold_compat_cond to cover this \
+                     construct)"
+                )
             }
             pred @ (SpecialBuiltin::IsZero
                    | SpecialBuiltin::IsZeroScaled
@@ -2204,32 +2467,46 @@ mod tests {
         let registry = make_registry();
         let output = generate(&func, &enums, &registry, &HelperRegistry::empty());
 
-        // Should contain the unguarded variant
-        assert!(output.contains("smaUnguarded("), "Missing smaUnguarded function");
+        // Both internal cores are emitted, package-private (no `public`).
+        assert!(output.contains("   RetCode smaUnguardedInternal("), "Missing unguarded core");
+        assert!(output.contains("   RetCode smaInternal("), "Missing guarded core");
+        assert!(
+            !output.contains("public RetCode sma"),
+            "cores must be package-private — RetCode never appears on the public surface"
+        );
 
-        // Unguarded variant should NOT have validation
-        // Find the smaUnguarded section and verify no validation
-        let logic_pos = output.find("smaUnguarded( ").unwrap();
+        // The unguarded core skips validation; the guarded one performs it.
+        let logic_pos = output.find("RetCode smaUnguardedInternal( ").unwrap();
         let logic_section = &output[logic_pos..];
-        let next_fn_pos = logic_section
-            .find("   public RetCode")
-            .unwrap_or(logic_section.len());
+        let next_fn_pos = logic_section[1..]
+            .find("   RetCode ")
+            .map_or(logic_section.len(), |i| i + 1);
         let logic_body = &logic_section[..next_fn_pos];
         assert!(
             !logic_body.contains("OutOfRangeStartIndex"),
-            "Unguarded variant should not contain validation"
+            "Unguarded core should not contain validation"
         );
 
-        // The guarded variant should have validation
-        let guarded_pos = output.find("public RetCode sma( ").unwrap();
+        let guarded_pos = output.find("RetCode smaInternal( ").unwrap();
         let guarded_section = &output[guarded_pos..];
         let guarded_end = guarded_section
-            .find("public RetCode smaUnguarded(")
+            .find("RetCode smaUnguardedInternal(")
             .unwrap_or(guarded_section.len());
         let guarded_body = &guarded_section[..guarded_end];
         assert!(
             guarded_body.contains("OutOfRangeStartIndex"),
-            "Guarded variant should contain validation"
+            "Guarded core should contain validation"
+        );
+
+        // The public surface is OutRange-returning wrappers over those cores.
+        assert!(output.contains("   public OutRange sma( "), "Missing public sma wrapper");
+        assert!(
+            output.contains("   public OutRange smaUnguarded( "),
+            "Missing public smaUnguarded wrapper"
+        );
+        assert!(
+            output.contains("throw failure(\"SMA\", retCode);"),
+            "guarded wrapper must map RetCode onto the documented exception"
         );
     }
 }

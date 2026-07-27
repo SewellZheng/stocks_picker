@@ -11,6 +11,18 @@
  *  120806 AC   Creation (equal to MIN but outputs index)
  */
 
+   /**
+    * Number of leading input bars {@link Core#minIndex} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInTimePeriod Window length over which the minimum is located
+    *        (default 30; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int minIndexLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -21,13 +33,13 @@
       return optInTimePeriod - 1 ;
 
    }
-   public RetCode minIndex( int startIdx,
-                            int endIdx,
-                            double inReal[],
-                            int optInTimePeriod,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            int outInteger[] )
+   RetCode minIndexInternal( int startIdx,
+                             int endIdx,
+                             double inReal[],
+                             int optInTimePeriod,
+                             MInteger outBegIdx,
+                             MInteger outNBElement,
+                             int outInteger[] )
    {
       double lowest = 0;
       double tmp = 0;
@@ -102,13 +114,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode minIndexUnguarded( int startIdx,
-                                     int endIdx,
-                                     double inReal[],
-                                     int optInTimePeriod,
-                                     MInteger outBegIdx,
-                                     MInteger outNBElement,
-                                     int outInteger[] )
+   RetCode minIndexUnguardedInternal( int startIdx,
+                                      int endIdx,
+                                      double inReal[],
+                                      int optInTimePeriod,
+                                      MInteger outBegIdx,
+                                      MInteger outNBElement,
+                                      int outInteger[] )
    {
       double lowest = 0;
       double tmp = 0;
@@ -157,13 +169,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode minIndex( int startIdx,
-                            int endIdx,
-                            float inReal[],
-                            int optInTimePeriod,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            int outInteger[] )
+   RetCode minIndexInternal( int startIdx,
+                             int endIdx,
+                             float inReal[],
+                             int optInTimePeriod,
+                             MInteger outBegIdx,
+                             MInteger outNBElement,
+                             int outInteger[] )
    {
       double lowest = 0;
       double tmp = 0;
@@ -223,13 +235,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode minIndexUnguarded( int startIdx,
-                                     int endIdx,
-                                     float inReal[],
-                                     int optInTimePeriod,
-                                     MInteger outBegIdx,
-                                     MInteger outNBElement,
-                                     int outInteger[] )
+   RetCode minIndexUnguardedInternal( int startIdx,
+                                      int endIdx,
+                                      float inReal[],
+                                      int optInTimePeriod,
+                                      MInteger outBegIdx,
+                                      MInteger outNBElement,
+                                      int outInteger[] )
    {
       double lowest = 0;
       double tmp = 0;
@@ -278,6 +290,172 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
+   /**
+    * Returns the absolute index of the lowest value within a rolling window of
+    * the given period. Same scan as MIN but outputs the position of the minimum
+    * rather than its value.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * outInteger[t] = argmin_{t-period+1 <= i <= t} inReal[i]  (absolute index into inReal)
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>When several bars in a window share the lowest value, which bar's index is returned is not guaranteed to be a specific one of the tied bars.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#minIndexLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Series to scan for its minimum.
+    * @param optInTimePeriod Window length over which the minimum is located
+    *        (default 30; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param outInteger Absolute index in inReal of the lowest value in each
+    *        window. Must hold at least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#min
+    * @see Core#maxIndex
+    * @see Core#minMaxIndex
+    * @see Core#minMax
+    */
+   public OutRange minIndex( int startIdx,
+                             int endIdx,
+                             double inReal[],
+                             int optInTimePeriod,
+                             int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = minIndexInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("MININDEX", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Returns the absolute index of the lowest value within a rolling window of
+    * the given period. Same scan as MIN but outputs the position of the minimum
+    * rather than its value. — <b>unchecked</b> variant of
+    * {@link Core#minIndex}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange minIndexUnguarded( int startIdx,
+                                      int endIdx,
+                                      double inReal[],
+                                      int optInTimePeriod,
+                                      int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      minIndexUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Returns the absolute index of the lowest value within a rolling window of
+    * the given period. Same scan as MIN but outputs the position of the minimum
+    * rather than its value.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * outInteger[t] = argmin_{t-period+1 <= i <= t} inReal[i]  (absolute index into inReal)
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>When several bars in a window share the lowest value, which bar's index is returned is not guaranteed to be a specific one of the tied bars.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#minIndexLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Series to scan for its minimum.
+    * @param optInTimePeriod Window length over which the minimum is located
+    *        (default 30; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param outInteger Absolute index in inReal of the lowest value in each
+    *        window. Must hold at least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#min
+    * @see Core#maxIndex
+    * @see Core#minMaxIndex
+    * @see Core#minMax
+    */
+   public OutRange minIndex( int startIdx,
+                             int endIdx,
+                             float inReal[],
+                             int optInTimePeriod,
+                             int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = minIndexInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("MININDEX", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Returns the absolute index of the lowest value within a rolling window of
+    * the given period. Same scan as MIN but outputs the position of the minimum
+    * rather than its value. — <b>unchecked</b> variant of
+    * {@link Core#minIndex}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange minIndexUnguarded( int startIdx,
+                                      int endIdx,
+                                      float inReal[],
+                                      int optInTimePeriod,
+                                      int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      minIndexUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -306,8 +484,15 @@
       int xCap;
       double[] x_inReal;
       int cur_outInteger;
+      OutRange fillRange;
 
       MinIndexStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#minIndexOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       MinIndexStream( MinIndexStream other ) {
          this.core = other.core;
@@ -320,6 +505,7 @@
          this.xCap = other.xCap;
          this.x_inReal = other.x_inReal.clone();
          this.cur_outInteger = other.cur_outInteger;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -619,11 +805,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link MinIndexStream#fillRange()}.
     */
-   public MinIndexStream minIndexOpenAndFill( double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   public MinIndexStream minIndexOpenAndFill( double inReal[], int optInTimePeriod, int outInteger[] )
    {
       MinIndexStream sp = new MinIndexStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = minIndexOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

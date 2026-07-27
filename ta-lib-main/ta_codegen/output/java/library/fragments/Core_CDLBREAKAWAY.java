@@ -12,6 +12,15 @@
  *  011505 AC   Creation
  */
 
+   /**
+    * Number of leading input bars {@link Core#cdlBreakaway} consumes before it
+    * can produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int cdlBreakawayLookback( )
    {
       int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -20,15 +29,15 @@
       return BodyLong_avgPeriod + 4 ;
 
    }
-   public RetCode cdlBreakaway( int startIdx,
-                                int endIdx,
-                                double inOpen[],
-                                double inHigh[],
-                                double inLow[],
-                                double inClose[],
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                int outInteger[] )
+   RetCode cdlBreakawayInternal( int startIdx,
+                                 int endIdx,
+                                 double inOpen[],
+                                 double inHigh[],
+                                 double inLow[],
+                                 double inClose[],
+                                 MInteger outBegIdx,
+                                 MInteger outNBElement,
+                                 int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       int i = 0;
@@ -106,15 +115,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdlBreakawayUnguarded( int startIdx,
-                                         int endIdx,
-                                         double inOpen[],
-                                         double inHigh[],
-                                         double inLow[],
-                                         double inClose[],
-                                         MInteger outBegIdx,
-                                         MInteger outNBElement,
-                                         int outInteger[] )
+   RetCode cdlBreakawayUnguardedInternal( int startIdx,
+                                          int endIdx,
+                                          double inOpen[],
+                                          double inHigh[],
+                                          double inLow[],
+                                          double inClose[],
+                                          MInteger outBegIdx,
+                                          MInteger outNBElement,
+                                          int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       int i = 0;
@@ -156,15 +165,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdlBreakaway( int startIdx,
-                                int endIdx,
-                                float inOpen[],
-                                float inHigh[],
-                                float inLow[],
-                                float inClose[],
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                int outInteger[] )
+   RetCode cdlBreakawayInternal( int startIdx,
+                                 int endIdx,
+                                 float inOpen[],
+                                 float inHigh[],
+                                 float inLow[],
+                                 float inClose[],
+                                 MInteger outBegIdx,
+                                 MInteger outNBElement,
+                                 int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       int i = 0;
@@ -212,15 +221,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode cdlBreakawayUnguarded( int startIdx,
-                                         int endIdx,
-                                         float inOpen[],
-                                         float inHigh[],
-                                         float inLow[],
-                                         float inClose[],
-                                         MInteger outBegIdx,
-                                         MInteger outNBElement,
-                                         int outInteger[] )
+   RetCode cdlBreakawayUnguardedInternal( int startIdx,
+                                          int endIdx,
+                                          float inOpen[],
+                                          float inHigh[],
+                                          float inLow[],
+                                          float inClose[],
+                                          MInteger outBegIdx,
+                                          MInteger outNBElement,
+                                          int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       int i = 0;
@@ -261,6 +270,182 @@
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
       return RetCode.Success ;
+   }
+   /**
+    * A five-candle reversal pattern: a long first candle, a same-colored second
+    * candle that gaps away from it by its real body, two more candles extending
+    * the move, and an opposite-colored fifth candle that closes back inside the
+    * gap. Emits a bullish signal (bottom reversal) or bearish signal (top
+    * reversal). A hit signals a reversal: +100 bullish (bottom), -100 bearish
+    * (top).
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Does not verify the prior trend the pattern classically assumes (a breakaway matters most against a preceding move).</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cdlBreakawayLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inOpen Open price of each bar.
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param outInteger +100 when the fifth candle is white (bullish breakaway),
+    *        -100 when it is black (bearish breakaway), 0 otherwise. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cdlGapSideSideWhite
+    * @see Core#cdlRiseFall3Methods
+    * @see Core#cdl3LineStrike
+    */
+   public OutRange cdlBreakaway( int startIdx,
+                                 int endIdx,
+                                 double inOpen[],
+                                 double inHigh[],
+                                 double inLow[],
+                                 double inClose[],
+                                 int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cdlBreakawayInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("CDLBREAKAWAY", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A five-candle reversal pattern: a long first candle, a same-colored second
+    * candle that gaps away from it by its real body, two more candles extending
+    * the move, and an opposite-colored fifth candle that closes back inside the
+    * gap. Emits a bullish signal (bottom reversal) or bearish signal (top
+    * reversal). A hit signals a reversal: +100 bullish (bottom), -100 bearish
+    * (top). — <b>unchecked</b> variant of {@link Core#cdlBreakaway}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cdlBreakawayUnguarded( int startIdx,
+                                          int endIdx,
+                                          double inOpen[],
+                                          double inHigh[],
+                                          double inLow[],
+                                          double inClose[],
+                                          int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cdlBreakawayUnguardedInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A five-candle reversal pattern: a long first candle, a same-colored second
+    * candle that gaps away from it by its real body, two more candles extending
+    * the move, and an opposite-colored fifth candle that closes back inside the
+    * gap. Emits a bullish signal (bottom reversal) or bearish signal (top
+    * reversal). A hit signals a reversal: +100 bullish (bottom), -100 bearish
+    * (top).
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Does not verify the prior trend the pattern classically assumes (a breakaway matters most against a preceding move).</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#cdlBreakawayLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inOpen Open price of each bar.
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Close price of each bar.
+    * @param outInteger +100 when the fifth candle is white (bullish breakaway),
+    *        -100 when it is black (bearish breakaway), 0 otherwise. Must hold at least
+    *        {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#cdlGapSideSideWhite
+    * @see Core#cdlRiseFall3Methods
+    * @see Core#cdl3LineStrike
+    */
+   public OutRange cdlBreakaway( int startIdx,
+                                 int endIdx,
+                                 float inOpen[],
+                                 float inHigh[],
+                                 float inLow[],
+                                 float inClose[],
+                                 int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = cdlBreakawayInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.Success ) {
+         throw failure("CDLBREAKAWAY", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * A five-candle reversal pattern: a long first candle, a same-colored second
+    * candle that gaps away from it by its real body, two more candles extending
+    * the move, and an opposite-colored fifth candle that closes back inside the
+    * gap. Emits a bullish signal (bottom reversal) or bearish signal (top
+    * reversal). A hit signals a reversal: +100 bullish (bottom), -100 bearish
+    * (top). — <b>unchecked</b> variant of {@link Core#cdlBreakaway}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange cdlBreakawayUnguarded( int startIdx,
+                                          int endIdx,
+                                          float inOpen[],
+                                          float inHigh[],
+                                          float inLow[],
+                                          float inClose[],
+                                          int outInteger[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      cdlBreakawayUnguardedInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      return new OutRange(outBegIdx.value, outNBElement.value);
    }
 /**** Streaming API *****/
 
@@ -309,8 +494,15 @@
       int cs_BodyLong_avgPeriod;
       double cs_BodyLong_factor;
       int cur_outInteger;
+      OutRange fillRange;
 
       CdlBreakawayStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#cdlBreakawayOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       CdlBreakawayStream( CdlBreakawayStream other ) {
          this.core = other.core;
@@ -342,6 +534,7 @@
          this.cs_BodyLong_avgPeriod = other.cs_BodyLong_avgPeriod;
          this.cs_BodyLong_factor = other.cs_BodyLong_factor;
          this.cur_outInteger = other.cur_outInteger;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -730,11 +923,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link CdlBreakawayStream#fillRange()}.
     */
-   public CdlBreakawayStream cdlBreakawayOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   public CdlBreakawayStream cdlBreakawayOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
       CdlBreakawayStream sp = new CdlBreakawayStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = cdlBreakawayOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

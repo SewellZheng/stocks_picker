@@ -13,6 +13,17 @@
  *  072026 MF,CC  First version.
  */
 
+   /**
+    * Number of leading input bars {@link Core#vwma} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInTimePeriod Number of bars in the weighting window (default 30;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int vwmaLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -23,14 +34,14 @@
       return optInTimePeriod - 1 ;
 
    }
-   public RetCode vwma( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        double inVolume[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode vwmaInternal( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         double inVolume[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -118,14 +129,14 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode vwmaUnguarded( int startIdx,
-                                 int endIdx,
-                                 double inReal[],
-                                 double inVolume[],
-                                 int optInTimePeriod,
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 double outReal[] )
+   RetCode vwmaUnguardedInternal( int startIdx,
+                                  int endIdx,
+                                  double inReal[],
+                                  double inVolume[],
+                                  int optInTimePeriod,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  double outReal[] )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -176,14 +187,14 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode vwma( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        float inVolume[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode vwmaInternal( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         float inVolume[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -245,14 +256,14 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   public RetCode vwmaUnguarded( int startIdx,
-                                 int endIdx,
-                                 float inReal[],
-                                 float inVolume[],
-                                 int optInTimePeriod,
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 double outReal[] )
+   RetCode vwmaUnguardedInternal( int startIdx,
+                                  int endIdx,
+                                  float inReal[],
+                                  float inVolume[],
+                                  int optInTimePeriod,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  double outReal[] )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -303,6 +314,204 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
+   /**
+    * Volume Weighted Moving Average: the mean price over a trailing window of
+    * {@code optInTimePeriod} bars, each bar weighted by its own volume. Heavily
+    * traded bars pull the average toward their price; quiet bars barely move
+    * it. Read like any moving average — price above is strength, below is
+    * weakness. Against a plain [{@code SMA}](/functions/sma) of the same window
+    * it leads on high-volume moves and lags on low-volume drift, so the gap
+    * between the two lines measures how volume-confirmed a move is. It has no
+    * attributable inventor — charting-package folklore — and every published
+    * definition agrees, so there is no competing variant.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * VWMA = ( sum_{k=t-N+1..t} P[k] * V[k] ) / ( sum_{k=t-N+1..t} V[k] ), N = optInTimePeriod
+    * Equivalently, and bit-identically so in TA-Lib, SMA(P * V, N) / SMA(V, N) — the composition TradingView documents for `ta.vwma`. There is no seeding and no recursion, hence no unstable period.
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Volume is expected to be non-negative. Individual zero-volume bars are fine: a bar that did not trade simply carries no weight, and the average stays well defined as long as some bar in the window has volume. Only a window in which *every* volume is zero has no weights at all; the weighted mean is then undefined and that element is NaN, as it is in every other implementation. Series carrying no volume on any bar, such as cash-index feeds, are outside what a volume-weighted average can describe — use SMA or WMA there.</li>
+    * <li>A period of 1 reduces to {@code (P * V) / V}. That is the price arithmetically, but not a guaranteed IEEE round trip, so unlike SMA of period 1 it must not be relied upon as an exact copy of the input.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#vwmaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price series, close by convention.
+    * @param inVolume Volume of each bar.
+    * @param optInTimePeriod Number of bars in the weighting window (default 30;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal Volume weighted moving average of the input. Must hold at
+    *        least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#sma
+    * @see Core#wma
+    * @see Core#movingAverage
+    * @see Core#obv
+    */
+   public OutRange vwma( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         double inVolume[],
+                         int optInTimePeriod,
+                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = vwmaInternal(startIdx, endIdx, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("VWMA", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Volume Weighted Moving Average: the mean price over a trailing window of
+    * {@code optInTimePeriod} bars, each bar weighted by its own volume. Heavily
+    * traded bars pull the average toward their price; quiet bars barely move
+    * it. Read like any moving average — price above is strength, below is
+    * weakness. Against a plain [{@code SMA}](/functions/sma) of the same window
+    * it leads on high-volume moves and lags on low-volume drift, so the gap
+    * between the two lines measures how volume-confirmed a move is. It has no
+    * attributable inventor — charting-package folklore — and every published
+    * definition agrees, so there is no competing variant. — <b>unchecked</b>
+    * variant of {@link Core#vwma}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange vwmaUnguarded( int startIdx,
+                                  int endIdx,
+                                  double inReal[],
+                                  double inVolume[],
+                                  int optInTimePeriod,
+                                  double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      vwmaUnguardedInternal(startIdx, endIdx, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Volume Weighted Moving Average: the mean price over a trailing window of
+    * {@code optInTimePeriod} bars, each bar weighted by its own volume. Heavily
+    * traded bars pull the average toward their price; quiet bars barely move
+    * it. Read like any moving average — price above is strength, below is
+    * weakness. Against a plain [{@code SMA}](/functions/sma) of the same window
+    * it leads on high-volume moves and lags on low-volume drift, so the gap
+    * between the two lines measures how volume-confirmed a move is. It has no
+    * attributable inventor — charting-package folklore — and every published
+    * definition agrees, so there is no competing variant.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * VWMA = ( sum_{k=t-N+1..t} P[k] * V[k] ) / ( sum_{k=t-N+1..t} V[k] ), N = optInTimePeriod
+    * Equivalently, and bit-identically so in TA-Lib, SMA(P * V, N) / SMA(V, N) — the composition TradingView documents for `ta.vwma`. There is no seeding and no recursion, hence no unstable period.
+    * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Volume is expected to be non-negative. Individual zero-volume bars are fine: a bar that did not trade simply carries no weight, and the average stays well defined as long as some bar in the window has volume. Only a window in which *every* volume is zero has no weights at all; the weighted mean is then undefined and that element is NaN, as it is in every other implementation. Series carrying no volume on any bar, such as cash-index feeds, are outside what a volume-weighted average can describe — use SMA or WMA there.</li>
+    * <li>A period of 1 reduces to {@code (P * V) / V}. That is the price arithmetically, but not a guaranteed IEEE round trip, so unlike SMA of period 1 it must not be relied upon as an exact copy of the input.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#vwmaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Source price series, close by convention.
+    * @param inVolume Volume of each bar.
+    * @param optInTimePeriod Number of bars in the weighting window (default 30;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal Volume weighted moving average of the input. Must hold at
+    *        least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#sma
+    * @see Core#wma
+    * @see Core#movingAverage
+    * @see Core#obv
+    */
+   public OutRange vwma( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         float inVolume[],
+                         int optInTimePeriod,
+                         double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = vwmaInternal(startIdx, endIdx, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("VWMA", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Volume Weighted Moving Average: the mean price over a trailing window of
+    * {@code optInTimePeriod} bars, each bar weighted by its own volume. Heavily
+    * traded bars pull the average toward their price; quiet bars barely move
+    * it. Read like any moving average — price above is strength, below is
+    * weakness. Against a plain [{@code SMA}](/functions/sma) of the same window
+    * it leads on high-volume moves and lags on low-volume drift, so the gap
+    * between the two lines measures how volume-confirmed a move is. It has no
+    * attributable inventor — charting-package folklore — and every published
+    * definition agrees, so there is no competing variant. — <b>unchecked</b>
+    * variant of {@link Core#vwma}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange vwmaUnguarded( int startIdx,
+                                  int endIdx,
+                                  float inReal[],
+                                  float inVolume[],
+                                  int optInTimePeriod,
+                                  double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      vwmaUnguardedInternal(startIdx, endIdx, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -332,8 +541,15 @@
       double[] ring_trailingIdx_inReal;
       double[] ring_trailingIdx_inVolume;
       double cur_outReal;
+      OutRange fillRange;
 
       VwmaStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#vwmaOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       VwmaStream( VwmaStream other ) {
          this.core = other.core;
@@ -347,6 +563,7 @@
          this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
          this.ring_trailingIdx_inVolume = other.ring_trailingIdx_inVolume.clone();
          this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -675,11 +892,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link VwmaStream#fillRange()}.
     */
-   public VwmaStream vwmaOpenAndFill( double inReal[], double inVolume[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public VwmaStream vwmaOpenAndFill( double inReal[], double inVolume[], int optInTimePeriod, double outReal[] )
    {
       VwmaStream sp = new VwmaStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = vwmaOpenAndFillBody(sp, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }

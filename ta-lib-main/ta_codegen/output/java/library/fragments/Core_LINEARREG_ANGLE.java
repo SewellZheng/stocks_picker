@@ -19,6 +19,17 @@
  *                 (outReal==inReal) calls stay correct. See issue #130.
  */
 
+   /**
+    * Number of leading input bars {@link Core#linearRegAngle} consumes before
+    * it can produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInTimePeriod Number of points in the regression window (default
+    *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
    public int linearRegAngleLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -29,13 +40,13 @@
       return optInTimePeriod - 1 ;
 
    }
-   public RetCode linearRegAngle( int startIdx,
-                                  int endIdx,
-                                  double inReal[],
-                                  int optInTimePeriod,
-                                  MInteger outBegIdx,
-                                  MInteger outNBElement,
-                                  double outReal[] )
+   RetCode linearRegAngleInternal( int startIdx,
+                                   int endIdx,
+                                   double inReal[],
+                                   int optInTimePeriod,
+                                   MInteger outBegIdx,
+                                   MInteger outNBElement,
+                                   double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -132,13 +143,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode linearRegAngleUnguarded( int startIdx,
-                                           int endIdx,
-                                           double inReal[],
-                                           int optInTimePeriod,
-                                           MInteger outBegIdx,
-                                           MInteger outNBElement,
-                                           double outReal[] )
+   RetCode linearRegAngleUnguardedInternal( int startIdx,
+                                            int endIdx,
+                                            double inReal[],
+                                            int optInTimePeriod,
+                                            MInteger outBegIdx,
+                                            MInteger outNBElement,
+                                            double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -191,13 +202,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode linearRegAngle( int startIdx,
-                                  int endIdx,
-                                  float inReal[],
-                                  int optInTimePeriod,
-                                  MInteger outBegIdx,
-                                  MInteger outNBElement,
-                                  double outReal[] )
+   RetCode linearRegAngleInternal( int startIdx,
+                                   int endIdx,
+                                   float inReal[],
+                                   int optInTimePeriod,
+                                   MInteger outBegIdx,
+                                   MInteger outNBElement,
+                                   double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -261,13 +272,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   public RetCode linearRegAngleUnguarded( int startIdx,
-                                           int endIdx,
-                                           float inReal[],
-                                           int optInTimePeriod,
-                                           MInteger outBegIdx,
-                                           MInteger outNBElement,
-                                           double outReal[] )
+   RetCode linearRegAngleUnguardedInternal( int startIdx,
+                                            int endIdx,
+                                            float inReal[],
+                                            int optInTimePeriod,
+                                            MInteger outBegIdx,
+                                            MInteger outNBElement,
+                                            double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -320,6 +331,166 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
+   /**
+    * The angle, in degrees, of the least-squares best-fit line over the last N
+    * points. It is the LINEARREG_SLOPE value passed through atan and converted
+    * to degrees. Positive angle = rising fit line, negative = falling;
+    * magnitude reflects steepness.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * m = (N·SumXY − SumX·SumY) / (SumX² − N·SumXSqr), with SumX=N(N−1)/2, SumXSqr=N(N−1)(2N−1)/6; angle = atan(m)·(180/π)
+    * }</pre>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#linearRegAngleLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Input series to regress.
+    * @param optInTimePeriod Number of points in the regression window (default
+    *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal Regression line slope expressed as an angle in degrees.
+    *        Must hold at least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#linearReg
+    * @see Core#linearRegSlope
+    * @see Core#linearRegIntercept
+    * @see Core#tsf
+    */
+   public OutRange linearRegAngle( int startIdx,
+                                   int endIdx,
+                                   double inReal[],
+                                   int optInTimePeriod,
+                                   double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = linearRegAngleInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("LINEARREG_ANGLE", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * The angle, in degrees, of the least-squares best-fit line over the last N
+    * points. It is the LINEARREG_SLOPE value passed through atan and converted
+    * to degrees. Positive angle = rising fit line, negative = falling;
+    * magnitude reflects steepness. — <b>unchecked</b> variant of
+    * {@link Core#linearRegAngle}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange linearRegAngleUnguarded( int startIdx,
+                                            int endIdx,
+                                            double inReal[],
+                                            int optInTimePeriod,
+                                            double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      linearRegAngleUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * The angle, in degrees, of the least-squares best-fit line over the last N
+    * points. It is the LINEARREG_SLOPE value passed through atan and converted
+    * to degrees. Positive angle = rising fit line, negative = falling;
+    * magnitude reflects steepness.
+    * <p><b>Formula</b>
+    * <pre>{@code
+    * m = (N·SumXY − SumX·SumY) / (SumX² − N·SumXSqr), with SumX=N(N−1)/2, SumXSqr=N(N−1)(2N−1)/6; angle = atan(m)·(180/π)
+    * }</pre>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are; nothing
+    * outside that range is touched, and the library never pads with NaN. A
+    * valid range shorter than {@link Core#linearRegAngleLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inReal Input series to regress.
+    * @param optInTimePeriod Number of points in the regression window (default
+    *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outReal Regression line slope expressed as an angle in degrees.
+    *        Must hold at least {@code endIdx - startIdx + 1} values.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, or two outputs share one array.
+    * @throws NullPointerException if any input or output array is null.
+    *
+    * @see Core#linearReg
+    * @see Core#linearRegSlope
+    * @see Core#linearRegIntercept
+    * @see Core#tsf
+    */
+   public OutRange linearRegAngle( int startIdx,
+                                   int endIdx,
+                                   float inReal[],
+                                   int optInTimePeriod,
+                                   double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = linearRegAngleInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.Success ) {
+         throw failure("LINEARREG_ANGLE", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * The angle, in degrees, of the least-squares best-fit line over the last N
+    * points. It is the LINEARREG_SLOPE value passed through atan and converted
+    * to degrees. Positive angle = rising fit line, negative = falling;
+    * magnitude reflects steepness. — <b>unchecked</b> variant of
+    * {@link Core#linearRegAngle}.
+    * <p>Validates nothing and never throws. The caller guarantees: non-negative
+    * {@code startIdx}, {@code endIdx >= startIdx}, non-null arrays, output
+    * arrays distinct from each other, and every optional parameter already
+    * resolved and within its documented range — a sentinel such as
+    * {@code Integer.MIN_VALUE} is <b>not</b> substituted here.
+    * <p>Breaking any of those yields an empty {@link OutRange} or undefined
+    * output rather than a diagnostic. (C and Rust return a status code from
+    * this tier, so their callers can detect it; this one has nowhere to report
+    * it.) Use the guarded method unless the arguments are already known good.
+    * <p>This is the {@code float[]} overload; see the guarded method.
+    *
+    * @return The range written, exactly as the guarded method reports it.
+    */
+   public OutRange linearRegAngleUnguarded( int startIdx,
+                                            int endIdx,
+                                            float inReal[],
+                                            int optInTimePeriod,
+                                            double outReal[] )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      linearRegAngleUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
 /**** Streaming API *****/
 
    /**
@@ -349,8 +520,15 @@
       int ringCap_trailingIdx;
       double[] ring_trailingIdx_inReal;
       double cur_outReal;
+      OutRange fillRange;
 
       LinearRegAngleStream( Core core ) { this.core = core; }
+
+      /**
+       * The range filled by {@link Core#linearRegAngleOpenAndFill}, or {@code null}
+       * when this handle came from a plain {@code open} (which fills nothing).
+       */
+      public OutRange fillRange() { return fillRange; }
 
       LinearRegAngleStream( LinearRegAngleStream other ) {
          this.core = other.core;
@@ -364,6 +542,7 @@
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
          this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
       }
 
       /**
@@ -693,11 +872,16 @@
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
+    * <p>The range written is on the returned handle:
+    * {@link LinearRegAngleStream#fillRange()}.
     */
-   public LinearRegAngleStream linearRegAngleOpenAndFill( double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   public LinearRegAngleStream linearRegAngleOpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
       LinearRegAngleStream sp = new LinearRegAngleStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
       RetCode retCode = linearRegAngleOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
