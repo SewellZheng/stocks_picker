@@ -71,7 +71,7 @@ public class CoreBuilder {
 
    /** A builder seeded with TA-Lib's defaults. */
    public CoreBuilder() {
-      this.unstablePeriod = new int[FuncUnstId.All.ordinal()];
+      this.unstablePeriod = new int[FuncUnstId.COUNT];
       // CandleSetting is immutable, so the default instances are shared, not copied.
       this.candleSettings = Core.TA_CandleDefaultSettings.clone();
    }

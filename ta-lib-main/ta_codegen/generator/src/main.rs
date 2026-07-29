@@ -815,7 +815,10 @@ fn generate_servers(func_filter: Option<&str>, backend_filter: Option<&str>) {
     // The server FuncUnstId enums are emitted from enums.yaml below; the Rust
     // crate enum is a hand-maintained copy, so guard it here too (this command
     // can run without `generate`, e.g. `build.py servers`).
-    verify_hand_maintained_funcunstid(&enums, &root.join("ta_codegen/input"));
+    // The repo root, not the input dir: the callee appends the template's full
+    // repo-relative path, so an input-relative root made it read a path that
+    // never exists and return silently, leaving this call site inert (#144).
+    verify_hand_maintained_funcunstid(&enums, &root);
 
     for backend in &backends_to_run {
         match backends::get(backend) {
@@ -921,6 +924,19 @@ fn verify_hand_maintained_funcunstid(
         })
         .filter(|s| !s.is_empty())
         .collect();
+
+    // FUNC_UNST_COUNT sizes the crate's unstable-period array. The template is
+    // copied verbatim, so the literal cannot be interpolated -- check it here
+    // instead, or adding an indicator would leave the array one slot short.
+    let want_count = format!("pub const FUNC_UNST_COUNT: usize = {};", fu.variants.len());
+    if !src.contains(&want_count) {
+        eprintln!(
+            "Error: FUNC_UNST_COUNT in {} does not match enums.yaml.\n  expected: {}",
+            path.display(),
+            want_count
+        );
+        std::process::exit(1);
+    }
 
     if found != expected {
         eprintln!(

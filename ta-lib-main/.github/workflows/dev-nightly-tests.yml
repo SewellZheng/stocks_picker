@@ -17,10 +17,17 @@ on:
         type: boolean
         default: false
 
+# Least-privilege default for every job; 'test' overrides to write because it
+# commits the refreshed dist package back to dev.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     env:
       # Scheduled runs leave this '0'; a manual dispatch can force package.py
       # to rebuild and re-test everything despite matching dist digests.
@@ -316,6 +323,14 @@ jobs:
       - name: Run the generated crate's doctests
         shell: bash
         run: cargo test --doc -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
+
+      # The Core/CoreBuilder API tests live in templates/rust/types.rs and ship
+      # inside the crate, but no job ran them: clippy --all-targets only builds
+      # the test target, and --doc skips it. They are the only gate on the Rust
+      # public-API contract (issue #144).
+      - name: Run the generated crate's unit tests
+        shell: bash
+        run: cargo test --lib -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
 
   # Bit-exact regression gate vs the last release (v0.6.4): diff every function
   # at period>=2, fail on any real divergence. C-only, gated on 'test'.

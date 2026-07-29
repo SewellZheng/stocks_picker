@@ -145,33 +145,27 @@ fn price_input_to_rust_ref(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Map function name to its unstable period ID (integer value).
-/// Returns None for functions without unstable period.
-/// IDs must match the `TA_FuncUnstId` enum in `include/ta_defs.h`.
-fn func_unst_id(name: &str) -> Option<i32> {
-    match name {
-        "ADX" => Some(0),        // TA_FUNC_UNST_ADX
-        "ATR" => Some(2),        // TA_FUNC_UNST_ATR
-        "CMO" => Some(3),        // TA_FUNC_UNST_CMO
-        "DX" => Some(4),         // TA_FUNC_UNST_DX
-        "EMA" => Some(5),        // TA_FUNC_UNST_EMA
-        "HT_DCPERIOD" => Some(6), // TA_FUNC_UNST_HT_DCPERIOD
-        "HT_DCPHASE" => Some(7), // TA_FUNC_UNST_HT_DCPHASE
-        "HT_PHASOR" => Some(8),  // TA_FUNC_UNST_HT_PHASOR
-        "HT_SINE" => Some(9),    // TA_FUNC_UNST_HT_SINE
-        "HT_TRENDLINE" => Some(10), // TA_FUNC_UNST_HT_TRENDLINE
-        "HT_TRENDMODE" => Some(11), // TA_FUNC_UNST_HT_TRENDMODE
-        "KAMA" => Some(13),      // TA_FUNC_UNST_KAMA
-        "MAMA" => Some(14),      // TA_FUNC_UNST_MAMA
-        "MINUS_DI" => Some(16),  // TA_FUNC_UNST_MINUS_DI
-        "MINUS_DM" => Some(17),  // TA_FUNC_UNST_MINUS_DM
-        "NATR" => Some(18),      // TA_FUNC_UNST_NATR
-        "PLUS_DI" => Some(19),   // TA_FUNC_UNST_PLUS_DI
-        "PLUS_DM" => Some(20),   // TA_FUNC_UNST_PLUS_DM
-        "RSI" => Some(21),       // TA_FUNC_UNST_RSI
-        "T3" => Some(23),        // TA_FUNC_UNST_T3
-        _ => None,
-    }
+/// Map a function name to its unstable-period id, derived from `enums.yaml`.
+///
+/// A function owns the id whose enumerator is `TA_FUNC_UNST_<NAME>` — the whole
+/// naming convention of the enum. This used to be a hardcoded `match` carrying a
+/// second copy of the numbering, which is exactly how ta-lib-python's ids came to
+/// mis-target after the 0.6.0 renumbering; a duplicated table drifts silently
+/// because both the writer and the reader use the same wrong value.
+///
+/// Retired slots (`TA_FUNC_UNST_UNUSED_*`) match no function and yield `None`.
+fn func_unst_id(name: &str, enums: &HashMap<String, EnumDef>) -> Option<i32> {
+    let target = format!("TA_FUNC_UNST_{name}");
+    // Expect, not `?`: an absent enum would hand every function `None`, emitting a
+    // server with no unstable-period wiring at all and exiting 0. The C backend has
+    // no other use for `enums`, so nothing else would catch it.
+    enums
+        .get("FuncUnstId")
+        .expect("FuncUnstId enum missing from enums.yaml")
+        .variants
+        .iter()
+        .find(|v| v.c_name == target)
+        .map(|v| v.value)
 }
 
 /// Replace @@`CORE_XXX`@@ markers in the Java server template with actual
@@ -438,7 +432,8 @@ pub fn generate_c_private_header(funcs: &[FuncDef]) -> String {
 ///
 /// The generated file #includes the generated ta_*.c files and provides
 /// a `main()` loop that reads JSON-RPC from stdin.
-pub fn generate_c_server(funcs: &[FuncDef]) -> String {
+#[allow(clippy::implicit_hasher)]
+pub fn generate_c_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     let mut s = String::new();
 
     // Header
@@ -448,6 +443,7 @@ pub fn generate_c_server(funcs: &[FuncDef]) -> String {
     s.push_str(" */\n");
     s.push_str("#include <stdio.h>\n");
     s.push_str("#include <stdlib.h>\n");
+    s.push_str("#include <stdarg.h>\n");
     s.push_str("#include <string.h>\n");
     s.push_str("#include <math.h>\n");
     s.push_str("#include <time.h>\n");
@@ -497,10 +493,10 @@ pub fn generate_c_server(funcs: &[FuncDef]) -> String {
     // `#pragma STDC FP_CONTRACT OFF` must not alter indicator contraction.
     // Absent entirely under TA_REF_SERVE (frozen libs have no stream symbols).
     s.push_str("#ifndef TA_REF_SERVE\n#include \"fuzz_data.h\"\n#endif\n\n");
-    s.push_str(&generate_c_stream_verify(funcs));
+    s.push_str(&generate_c_stream_verify(funcs, enums));
 
     // Dispatch function
-    s.push_str(&generate_c_dispatch(funcs));
+    s.push_str(&generate_c_dispatch(funcs, enums));
 
     // Main loop
     s.push_str("int main(void) {\n");
@@ -524,6 +520,40 @@ fn generate_c_json_helpers() -> String {
     r#"/* ---- Minimal JSON helpers ---- */
 
 #define MAX_ARRAY_SIZE 200000
+
+/* Bounded append helpers.
+ *
+ * `pos += snprintf(buf + pos, buf_size - pos, ...)` lets `pos` run past
+ * `buf_size` as soon as one call truncates; the next call then passes a
+ * negative size that converts to a huge size_t and writes past the buffer
+ * (CodeQL cpp/overflowing-snprintf). These helpers saturate `pos` at
+ * `buf_size - 1` instead, so the buffer stays NUL-terminated and in bounds.
+ * All of them take and return an absolute write position. */
+static int json_appendf(char *buf, int buf_size, int pos, const char *fmt, ...) {
+    va_list ap;
+    int avail, n;
+    if( buf_size <= 0 ) return 0;
+    if( pos < 0 ) pos = 0;
+    if( pos >= buf_size - 1 ) return buf_size - 1;
+    avail = buf_size - pos;
+    va_start(ap, fmt);
+    n = vsnprintf(buf + pos, (size_t)avail, fmt, ap);
+    va_end(ap);
+    /* C11 7.21.6.12: only a non-negative return guarantees what was written,
+       so on an encoding error re-terminate rather than trust the buffer. */
+    if( n < 0 ) { buf[pos] = '\0'; return pos; }
+    if( n >= avail ) return buf_size - 1;
+    return pos + n;
+}
+
+static int json_appendc(char *buf, int buf_size, int pos, char c) {
+    if( buf_size <= 0 ) return 0;
+    if( pos < 0 ) pos = 0;
+    if( pos >= buf_size - 1 ) return buf_size - 1;
+    buf[pos++] = c;
+    buf[pos] = '\0';
+    return pos;
+}
 
 static int json_find_int(const char *json, const char *field) {
     char pattern[256];
@@ -601,30 +631,24 @@ static const char *json_find_string(const char *json, const char *field,
     return start;
 }
 
-static int json_write_double_array(char *buf, int buf_size,
+static int json_write_double_array(char *buf, int buf_size, int pos,
                                     const double *data, int count) {
-    int pos = 0;
-    buf[pos++] = '[';
+    pos = json_appendc(buf, buf_size, pos, '[');
     for( int i = 0; i < count; i++ ) {
-        if( i > 0 ) pos += snprintf(buf + pos, buf_size - pos, ",");
-        pos += snprintf(buf + pos, buf_size - pos, "%.15g", data[i]);
+        if( i > 0 ) pos = json_appendc(buf, buf_size, pos, ',');
+        pos = json_appendf(buf, buf_size, pos, "%.15g", data[i]);
     }
-    buf[pos++] = ']';
-    buf[pos] = '\0';
-    return pos;
+    return json_appendc(buf, buf_size, pos, ']');
 }
 
-static int json_write_int_array(char *buf, int buf_size,
+static int json_write_int_array(char *buf, int buf_size, int pos,
                                  const int *data, int count) {
-    int pos = 0;
-    buf[pos++] = '[';
+    pos = json_appendc(buf, buf_size, pos, '[');
     for( int i = 0; i < count; i++ ) {
-        if( i > 0 ) pos += snprintf(buf + pos, buf_size - pos, ",");
-        pos += snprintf(buf + pos, buf_size - pos, "%d", data[i]);
+        if( i > 0 ) pos = json_appendc(buf, buf_size, pos, ',');
+        pos = json_appendf(buf, buf_size, pos, "%d", data[i]);
     }
-    buf[pos++] = ']';
-    buf[pos] = '\0';
-    return pos;
+    return json_appendc(buf, buf_size, pos, ']');
 }
 
 static long get_nanotime(void) {
@@ -790,7 +814,7 @@ fn emit_sv_batch_fail_tail(s: &mut String, candle: bool) {
         s.push_str("            if( rd + 1 < rounds ) continue;\n");
         s.push_str("            TA_SetCompatibility((TA_Compatibility)savedCompat);\n");
         s.push_str("            TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );\n");
-        s.push_str("            pos += snprintf(resp + pos, resp_size - pos, \",\\\"rrc\\\":%d,\\\"legs\\\":%d,\\\"nb\\\":%d,\\\"openRejects\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);\n");
+        s.push_str("            pos = json_appendf(resp, resp_size, pos, \",\\\"rrc\\\":%d,\\\"legs\\\":%d,\\\"nb\\\":%d,\\\"openRejects\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);\n");
     } else {
         s.push_str("            TA_SetCompatibility((TA_Compatibility)savedCompat);\n");
         s.push_str("            snprintf(resp, resp_size, \"{\\\"retCode\\\":%d,\\\"legs\\\":0,\\\"nb\\\":%d,\\\"openRejects\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":1}\", (int)rc, svNb, openRejects, openRejects);\n");
@@ -910,7 +934,7 @@ fn emit_sv_dispatch_precheck(
 /// ma_lookback -> ema_lookback -> EMA). Composed/dispatch functions honor
 /// ambient K only through the callees' lookbacks, so the lookback closure
 /// covers exactly the sub-stream selection space.
-fn collect_pin_ids(func: &FuncDef, funcs: &[FuncDef]) -> Vec<i32> {
+fn collect_pin_ids(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> Vec<i32> {
     let mut pin_ids: Vec<i32> = Vec::new();
     let mut visited: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut queue: Vec<String> = vec![func.name.to_uppercase()];
@@ -918,7 +942,7 @@ fn collect_pin_ids(func: &FuncDef, funcs: &[FuncDef]) -> Vec<i32> {
         if !visited.insert(cur.clone()) {
             continue;
         }
-        if let Some(id) = func_unst_id(&cur) {
+        if let Some(id) = func_unst_id(&cur, enums) {
             if !pin_ids.contains(&id) {
                 pin_ids.push(id);
             }
@@ -1140,7 +1164,7 @@ fn sv_identity_guard_subst(
 }
 
 #[allow(clippy::too_many_lines)]
-fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
+fn generate_c_stream_verify(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     let mut s = String::new();
     s.push_str("/* ---- stream_verify: bitwise batch-vs-stream comparison ---- */\n");
     s.push_str("#ifndef TA_REF_SERVE\n");
@@ -1207,7 +1231,7 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
         // (DEMA/TEMA/TRIX/MACD call ema_lookback directly; STOCH/STOCHF
         // reach EMA/KAMA/T3 only through ma_lookback — a non-transitive
         // scan left their K-legs running vacuously at ambient K=0).
-        let pin_ids: Vec<i32> = collect_pin_ids(func, funcs);
+        let pin_ids: Vec<i32> = collect_pin_ids(func, funcs, enums);
 
 
         s.push_str(&format!(
@@ -1302,7 +1326,7 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
                 .collect()
         };
         if candle {
-            s.push_str("        pos = snprintf(resp, resp_size, \"{\\\"retCode\\\":0\");\n");
+            s.push_str("        pos = json_appendf(resp, resp_size, 0, \"{\\\"retCode\\\":0\");\n");
             s.push_str("        for( rd = 0; rd < rounds; rd++ ) {\n");
             s.push_str("        if( rd > 0 ) TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );\n");
             s.push_str("        if( rd > 0 ) sv_candle_avg(rd - 1);\n");
@@ -1462,7 +1486,7 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
         s.push_str("            if( !seen ) pref[npref++] = P;\n");
         s.push_str("        }\n");
         if !candle {
-            s.push_str("        pos = snprintf(resp, resp_size, \"{\\\"retCode\\\":0,\\\"beg\\\":%d,\\\"nb\\\":%d,\\\"legs\\\":%d\", svBeg, svNb, npref);\n");
+            s.push_str("        pos = json_appendf(resp, resp_size, 0, \"{\\\"retCode\\\":0,\\\"beg\\\":%d,\\\"nb\\\":%d,\\\"legs\\\":%d\", svBeg, svNb, npref);\n");
         }
 
         // Per-leg: open on prefix, update the rest, peek spot-asserts,
@@ -1522,14 +1546,14 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
         s.push_str("            }\n");
         s.push_str(&format!("            if( st ) TA_{name}_Close(st);\n"));
         if candle {
-            s.push_str("            pos += snprintf(resp + pos, resp_size - pos, \",\\\"p%d\\\":%d,\\\"match%d\\\":%d,\\\"peek%d\\\":%d\", lgi, P, lgi, ok, lgi, pkOk);\n");
-            s.push_str("            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, \",\\\"bar%d\\\":%d,\\\"out%d\\\":%d,\\\"batchv%d\\\":\\\"%a\\\",\\\"streamv%d\\\":\\\"%a\\\"\", lgi, badBar, lgi, badOut, lgi, bv, lgi, sv); }\n");
+            s.push_str("            pos = json_appendf(resp, resp_size, pos, \",\\\"p%d\\\":%d,\\\"match%d\\\":%d,\\\"peek%d\\\":%d\", lgi, P, lgi, ok, lgi, pkOk);\n");
+            s.push_str("            if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, \",\\\"bar%d\\\":%d,\\\"out%d\\\":%d,\\\"batchv%d\\\":\\\"%a\\\",\\\"streamv%d\\\":\\\"%a\\\"\", lgi, badBar, lgi, badOut, lgi, bv, lgi, sv); }\n");
             s.push_str("            if( !pkOk ) peekAll = 0;\n");
             s.push_str("            lgi++;\n");
             s.push_str("        }\n");
         } else {
-            s.push_str("            pos += snprintf(resp + pos, resp_size - pos, \",\\\"p%d\\\":%d,\\\"match%d\\\":%d,\\\"peek%d\\\":%d\", li, P, li, ok, li, pkOk);\n");
-            s.push_str("            if( !ok ) { allOk = 0; pos += snprintf(resp + pos, resp_size - pos, \",\\\"bar%d\\\":%d,\\\"out%d\\\":%d,\\\"batchv%d\\\":\\\"%a\\\",\\\"streamv%d\\\":\\\"%a\\\"\", li, badBar, li, badOut, li, bv, li, sv); }\n");
+            s.push_str("            pos = json_appendf(resp, resp_size, pos, \",\\\"p%d\\\":%d,\\\"match%d\\\":%d,\\\"peek%d\\\":%d\", li, P, li, ok, li, pkOk);\n");
+            s.push_str("            if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, \",\\\"bar%d\\\":%d,\\\"out%d\\\":%d,\\\"batchv%d\\\":\\\"%a\\\",\\\"streamv%d\\\":\\\"%a\\\"\", li, badBar, li, badOut, li, bv, li, sv); }\n");
             s.push_str("            if( !pkOk ) peekAll = 0;\n");
             s.push_str("        }\n");
         }
@@ -1582,9 +1606,9 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
         // even if the driver's fill check ever regresses.
         s.push_str("        if( fillChecked && !fillOk ) allOk = 0;\n");
         if candle {
-            s.push_str("        pos += snprintf(resp + pos, resp_size - pos, \",\\\"beg\\\":%d,\\\"nb\\\":%d,\\\"legs\\\":%d,\\\"fill_checked\\\":%d,\\\"fill_ok\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);\n");
+            s.push_str("        pos = json_appendf(resp, resp_size, pos, \",\\\"beg\\\":%d,\\\"nb\\\":%d,\\\"legs\\\":%d,\\\"fill_checked\\\":%d,\\\"fill_ok\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);\n");
         } else {
-            s.push_str("        pos += snprintf(resp + pos, resp_size - pos, \",\\\"fill_checked\\\":%d,\\\"fill_ok\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", fillChecked, fillOk, allOk, peekAll);\n");
+            s.push_str("        pos = json_appendf(resp, resp_size, pos, \",\\\"fill_checked\\\":%d,\\\"fill_ok\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", fillChecked, fillOk, allOk, peekAll);\n");
         }
         s.push_str("        return;\n");
         s.push_str("    }\n");
@@ -1604,7 +1628,7 @@ fn generate_c_stream_verify(funcs: &[FuncDef]) -> String {
 }
 
 #[allow(clippy::too_many_lines)]
-fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
+fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     let mut s = String::new();
 
     // Global buffers and preload helper now emitted by generate_c_global_buffers()
@@ -1702,7 +1726,7 @@ fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
         }
 
         // Apply unstable period if provided
-        if let Some(id) = func_unst_id(&func.name) {
+        if let Some(id) = func_unst_id(&func.name, enums) {
             s.push_str(&format!(
                 "        TA_SetUnstablePeriod({id}, json_find_int(json, \"unstablePeriod\"));\n"
             ));
@@ -1878,7 +1902,7 @@ fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
         s.push_str("        }\n");
 
         // Build response with correct key names and serialisers per output type.
-        s.push_str("        int pos = snprintf(resp, resp_size,\n");
+        s.push_str("        int pos = json_appendf(resp, resp_size, 0,\n");
         s.push_str("            \"{\\\"retCode\\\":%d,\\\"outBegIdx\\\":%d,\\\"outNBElement\\\":%d,\\\"timing_ns\\\":%ld\",\n");
         s.push_str("            (int)rc, outBegIdx, outNBElement, elapsed_ns);\n");
         {
@@ -1887,22 +1911,22 @@ fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
             for (k, out) in outputs.iter().enumerate() {
                 let key = output_json_key(outputs, k);
                 s.push_str(&format!(
-                    "        pos += snprintf(resp + pos, resp_size - pos, \",\\\"{key}\\\":\");\n"
+                    "        pos = json_appendf(resp, resp_size, pos, \",\\\"{key}\\\":\");\n"
                 ));
                 if out.param_type == ParamType::Integer {
                     s.push_str(&format!(
-                        "        pos += json_write_int_array(resp + pos, resp_size - pos, g_outIntBuf{int_idx}, outNBElement);\n"
+                        "        pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf{int_idx}, outNBElement);\n"
                     ));
                     int_idx += 1;
                 } else {
                     s.push_str(&format!(
-                        "        pos += json_write_double_array(resp + pos, resp_size - pos, g_outBuf{real_idx}, outNBElement);\n"
+                        "        pos = json_write_double_array(resp, resp_size, pos, g_outBuf{real_idx}, outNBElement);\n"
                     ));
                     real_idx += 1;
                 }
             }
         }
-        s.push_str("        pos += snprintf(resp + pos, resp_size - pos, \",\\\"timing_ns_unguarded\\\":%ld}\", elapsed_ns_ung);\n");
+        s.push_str("        pos = json_appendf(resp, resp_size, pos, \",\\\"timing_ns_unguarded\\\":%ld}\", elapsed_ns_ung);\n");
 
         s.push_str("    }\n");
     }
@@ -1959,15 +1983,15 @@ fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
 
     // list_functions method — returns {"functions":["TA_SMA","TA_RSI",...]}
     s.push_str("    else if ( methodLen == 14 && strncmp(method, \"list_functions\", 14) == 0 ) {\n");
-    s.push_str("        int pos = snprintf(resp, resp_size, \"{\\\"functions\\\":[\");\n");
+    s.push_str("        int pos = json_appendf(resp, resp_size, 0, \"{\\\"functions\\\":[\");\n");
     for (i, func) in funcs.iter().enumerate() {
         let comma = if i > 0 { "," } else { "" };
         s.push_str(&format!(
-            "        pos += snprintf(resp + pos, resp_size - pos, \"{}\\\"TA_{}\\\"\");\n",
+            "        pos = json_appendf(resp, resp_size, pos, \"{}\\\"TA_{}\\\"\");\n",
             comma, func.name
         ));
     }
-    s.push_str("        snprintf(resp + pos, resp_size - pos, \"]}\");\n");
+    s.push_str("        json_appendf(resp, resp_size, pos, \"]}\");\n");
     s.push_str("    }\n");
 
     // set_unstable_period method — {"method":"set_unstable_period","params":{"id":21,"period":10}}
@@ -2008,9 +2032,9 @@ fn generate_c_dispatch(funcs: &[FuncDef]) -> String {
         c_predicate_expr(SpecialBuiltin::IsZero, &["v".to_string()])
     ));
     s.push_str("        }\n");
-    s.push_str("        int _pp = snprintf(resp, resp_size, \"{\\\"outInteger\\\":\");\n");
-    s.push_str("        _pp += json_write_int_array(resp + _pp, resp_size - _pp, _pr, _pn);\n");
-    s.push_str("        snprintf(resp + _pp, resp_size - _pp, \"}\");\n");
+    s.push_str("        int _pp = json_appendf(resp, resp_size, 0, \"{\\\"outInteger\\\":\");\n");
+    s.push_str("        _pp = json_write_int_array(resp, resp_size, _pp, _pr, _pn);\n");
+    s.push_str("        json_appendf(resp, resp_size, _pp, \"}\");\n");
     s.push_str("    }\n");
 
     // abstract_call — generic function call via ta_abstract
@@ -2111,20 +2135,25 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
     // FuncUnstId and Compatibility enums (referenced by generated Core methods).
     // FuncUnstId is emitted from enums.yaml (source of truth), 6 names per line,
-    // plus the server-side `None` sentinel (distinct from the shipped enum's `All`).
+    // plus the `All` wildcard carrying C's pinned TA_FUNC_UNST_ALL value. The
+    // ordinal cannot express that value, so the constants declare theirs and
+    // COUNT sizes the table (#144).
     s.push_str("enum FuncUnstId {\n");
     {
         let names = func_unst_pascal_names(enums);
         let nchunks = names.chunks(6).count().max(1);
         for (idx, chunk) in names.chunks(6).enumerate() {
             if idx + 1 == nchunks {
-                // Last line carries the server-side `None` sentinel and the `;`.
-                s.push_str(&format!("    {}, None;\n", chunk.join(", ")));
+                // Last line carries the function ids; the wildcard follows.
+                s.push_str(&format!("    {},\n", chunk.join(", ")));
             } else {
                 s.push_str(&format!("    {},\n", chunk.join(", ")));
             }
         }
     }
+    s.push_str("    All;\n");
+    s.push_str(&format!("    static final int COUNT = {};\n", func_unst_pascal_names(enums).len()));
+    s.push_str("    int value() { return this == All ? 65535 : ordinal(); }\n");
     s.push_str("}\n\n");
 
     // No Compatibility enum: the Java backend constant-folds the Metastock arms
@@ -2165,7 +2194,9 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
     // Core class — method bodies are inlined by the caller via inline_java_core_methods()
     s.push_str("class Core {\n");
-    s.push_str("    int[] unstablePeriod = new int[FuncUnstId.values().length];\n");
+    // Sized by the id count, so the wildcard gets no slot -- matching the
+    // shipped CoreBuilder (#144).
+    s.push_str("    int[] unstablePeriod = new int[FuncUnstId.COUNT];\n");
     // candleSettings[] in CandleSettingType ordinal order. Defaults from
     // TA_RestoreCandleDefaultSettings in ta_global.c. RangeType: 0=RealBody, 1=HighLow, 2=Shadows.
     s.push_str("    CandleSetting[] candleSettings = {\n");
@@ -2374,8 +2405,8 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        else if (json.contains(\"\\\"set_unstable_period\\\"\")) {\n");
     s.push_str("            int id = jsonInt(json, \"id\");\n");
     s.push_str("            int period = jsonInt(json, \"period\");\n");
-    // id == length is the "set all" sentinel (matches C TA_SetUnstablePeriod).
-    s.push_str("            if (id == core.unstablePeriod.length) {\n");
+    // FuncUnstId.All is the "set all" sentinel (matches C TA_SetUnstablePeriod).
+    s.push_str("            if (id == FuncUnstId.All.value()) {\n");
     s.push_str("                for (int i = 0; i < core.unstablePeriod.length; i++) core.unstablePeriod[i] = period;\n");
     s.push_str("                return \"{\\\"status\\\":\\\"ok\\\"}\"; \n");
     s.push_str("            }\n");
@@ -2514,7 +2545,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         }
 
         // Apply unstable period if provided
-        if let Some(id) = func_unst_id(&func.name) {
+        if let Some(id) = func_unst_id(&func.name, enums) {
             s.push_str(&format!(
                 "        core.unstablePeriod[{id}] = jsonInt(json, \"unstablePeriod\");\n"
             ));
@@ -2718,7 +2749,8 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 /// library (`ta_codegen_funcs`), reads JSON-RPC requests from stdin, dispatches to
 /// the imported TA functions, and writes JSON responses to stdout.
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
-pub fn generate_dotnet_server(funcs: &[FuncDef]) -> String {
+#[allow(clippy::implicit_hasher)]
+pub fn generate_dotnet_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     let mut s = String::new();
 
     s.push_str("// Auto-generated JSON-RPC server for ta_codegen .NET output.\n");
@@ -2912,7 +2944,7 @@ pub fn generate_dotnet_server(funcs: &[FuncDef]) -> String {
         }
 
         // Apply unstable period if provided
-        if let Some(id) = func_unst_id(&func.name) {
+        if let Some(id) = func_unst_id(&func.name, enums) {
             s.push_str("                int unstablePeriod = p.TryGetProperty(\"unstablePeriod\", out var _upVal) ? _upVal.GetInt32() : 0;\n");
             s.push_str(&format!(
                 "                TA_SetUnstablePeriod({id}, unstablePeriod);\n"
@@ -3484,7 +3516,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         }
 
         // Apply unstable period if provided
-        if let Some(id) = func_unst_id(&func.name) {
+        if let Some(id) = func_unst_id(&func.name, enums) {
             s.push_str("            if let Some(period) = params[\"unstablePeriod\"].as_i64() {\n");
             s.push_str(&format!(
                 "                apply_unstable_period(core, {id}, period as i32);\n"
@@ -4186,7 +4218,7 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     // Pinned + configured core for this round. `mut` only when something below
     // actually reassigns it (no compatibility leg any more — the Rust crate
     // pins the mode to Default), otherwise rustc warns on every such function.
-    let pin_ids = collect_pin_ids(func, funcs);
+    let pin_ids = collect_pin_ids(func, funcs, enums);
     let cb_mut = if pin_ids.is_empty() && !candle { "" } else { "mut " };
     let _ = writeln!(s, "        let {cb_mut}cb = core.to_builder();");
     for id in pin_ids {
@@ -4577,7 +4609,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
 
     // Fresh, pinned, configured Core for this round (per-instance settings).
     s.push_str("            Core c2 = new Core();\n");
-    for id in collect_pin_ids(func, funcs) {
+    for id in collect_pin_ids(func, funcs, enums) {
         let _ = writeln!(s, "            c2.unstablePeriod[{id}] = svK;");
     }
     if candle {

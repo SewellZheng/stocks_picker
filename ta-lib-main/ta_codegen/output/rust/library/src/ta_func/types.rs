@@ -78,8 +78,16 @@ pub enum FuncUnstId {
     Unused22,
     T3,
     /// Wildcard: set the unstable period for all functions at once.
-    FuncUnstAll,
+    ///
+    /// Pinned rather than sitting one past the last function id, so that adding
+    /// an indicator can never move it. Mirrors C's `TA_FUNC_UNST_ALL`.
+    FuncUnstAll = 65535,
 }
+
+/// Number of [`FuncUnstId`] function ids — the size of the unstable-period
+/// table. Not an id, and not [`FuncUnstId::FuncUnstAll`]. Mirrors C's
+/// `TA_FUNC_UNST_COUNT`.
+pub const FUNC_UNST_COUNT: usize = 24;
 
 /// A single candlestick setting entry.
 #[derive(Debug, Clone, Copy)]
@@ -174,7 +182,7 @@ pub enum CandleSettingType {
 #[derive(Debug, Clone)]
 pub struct Core {
     /// Unstable period for each function identified by [`FuncUnstId`].
-    pub(crate) unstable_period: [i32; FuncUnstId::FuncUnstAll as usize],
+    pub(crate) unstable_period: [i32; FUNC_UNST_COUNT],
     /// Compatibility mode (default: `Compatibility::Default`).
     pub(crate) compatibility: Compatibility,
     /// Candlestick pattern settings.
@@ -187,7 +195,7 @@ impl Core {
     /// Equivalent to `Core::builder().build()`.
     pub fn new() -> Self {
         Self {
-            unstable_period: [0; FuncUnstId::FuncUnstAll as usize],
+            unstable_period: [0; FUNC_UNST_COUNT],
             compatibility: Compatibility::Default,
             candle_settings: CandleSettings::default_settings(),
         }
@@ -212,7 +220,17 @@ impl Core {
     }
 
     /// Get the unstable period for a specific function.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is [`FuncUnstId::FuncUnstAll`]. That variant is the
+    /// set-all wildcard accepted by [`CoreBuilder::unstable_period`]; it names
+    /// no single function, so there is no value to return.
     pub fn get_unstable_period(&self, id: FuncUnstId) -> i32 {
+        assert!(
+            (id as usize) < FUNC_UNST_COUNT,
+            "{id:?} is a wildcard, not a function with an unstable period"
+        );
         self.unstable_period[id as usize]
     }
 
@@ -265,7 +283,7 @@ impl Default for Core {
 /// ```
 #[derive(Debug, Clone)]
 pub struct CoreBuilder {
-    unstable_period: [i32; FuncUnstId::FuncUnstAll as usize],
+    unstable_period: [i32; FUNC_UNST_COUNT],
     compatibility: Compatibility,
     candle_settings: CandleSettings,
 }
@@ -274,7 +292,7 @@ impl CoreBuilder {
     /// Create a builder initialized with TA-Lib defaults.
     pub fn new() -> Self {
         Self {
-            unstable_period: [0; FuncUnstId::FuncUnstAll as usize],
+            unstable_period: [0; FUNC_UNST_COUNT],
             compatibility: Compatibility::Default,
             candle_settings: CandleSettings::default_settings(),
         }
@@ -286,7 +304,7 @@ impl CoreBuilder {
     /// function at once (mirroring the C `TA_SetUnstablePeriod` wildcard).
     #[must_use]
     pub fn unstable_period(mut self, id: FuncUnstId, period: i32) -> Self {
-        if id as usize == FuncUnstId::FuncUnstAll as usize {
+        if id == FuncUnstId::FuncUnstAll {
             for slot in self.unstable_period.iter_mut() {
                 *slot = period;
             }
@@ -297,8 +315,13 @@ impl CoreBuilder {
     }
 
     /// Override a single candlestick setting (mirrors the C
-    /// `TA_SetCandleSettings`). [`CandleSettingType::AllCandleSettings`] is not a
-    /// valid single-setting target and is ignored.
+    /// `TA_SetCandleSettings`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `setting_type` is [`CandleSettingType::AllCandleSettings`].
+    /// That variant is a wildcard, not a setting, so there is nothing to
+    /// override — C returns `TA_BAD_PARAM` and Java throws for the same call.
     #[must_use]
     pub fn candle_setting(mut self, setting_type: CandleSettingType, setting: CandleSetting) -> Self {
         match setting_type {
@@ -313,7 +336,9 @@ impl CoreBuilder {
             CandleSettingType::Near => self.candle_settings.near = setting,
             CandleSettingType::Far => self.candle_settings.far = setting,
             CandleSettingType::Equal => self.candle_settings.equal = setting,
-            CandleSettingType::AllCandleSettings => {}
+            CandleSettingType::AllCandleSettings => {
+                panic!("AllCandleSettings is a wildcard, not a single-setting target")
+            }
         }
         self
     }
@@ -386,6 +411,26 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "FuncUnstAll is a wildcard")]
+    fn get_unstable_period_rejects_the_wildcard() {
+        // The wildcard is one past the end of the backing array, so an unguarded
+        // read indexed out of bounds instead of reporting the misuse (#144).
+        Core::new().get_unstable_period(FuncUnstId::FuncUnstAll);
+    }
+
+    #[test]
+    fn get_unstable_period_accepts_the_last_real_function() {
+        // The other side of the guard's boundary: T3 is the last real variant,
+        // one below the wildcard, so a guard tightened by one rejects it here.
+        // Reads go through the getter on purpose -- indexing the array directly
+        // would exercise the field, not the check.
+        let core = Core::builder().unstable_period(FuncUnstId::FuncUnstAll, 4).build();
+        for id in [FuncUnstId::Adx, FuncUnstId::Ema, FuncUnstId::Rsi, FuncUnstId::T3] {
+            assert_eq!(core.get_unstable_period(id), 4);
+        }
+    }
+
+    #[test]
     fn builder_chains_and_last_write_wins() {
         let core = Core::builder()
             .unstable_period(FuncUnstId::FuncUnstAll, 7) // all -> 7
@@ -407,17 +452,23 @@ mod tests {
     }
 
     #[test]
-    fn candle_setting_all_sentinel_is_ignored() {
-        let base = Core::new();
+    #[should_panic(expected = "AllCandleSettings is a wildcard")]
+    fn candle_setting_rejects_the_wildcard() {
+        // Silently ignoring it left the caller believing all eleven settings had
+        // been overridden while none had; C returns TA_BAD_PARAM and Java throws
+        // for the same call (#144).
         let custom = CandleSetting { range_type: 2, avg_period: 99, factor: 9.0 };
-        let core = Core::builder()
-            .candle_setting(CandleSettingType::AllCandleSettings, custom)
-            .build();
-        assert_eq!(
-            core.candle_settings.body_long.avg_period,
-            base.candle_settings.body_long.avg_period
-        );
-        assert_eq!(core.candle_settings.equal.factor, base.candle_settings.equal.factor);
+        let _ = Core::builder().candle_setting(CandleSettingType::AllCandleSettings, custom);
+    }
+
+    #[test]
+    fn candle_setting_accepts_the_last_real_setting() {
+        // The other side of the guard's boundary: Equal is the variant declared
+        // immediately before the wildcard, so a guard widened by one rejects it.
+        let custom = CandleSetting { range_type: 2, avg_period: 99, factor: 9.0 };
+        let core = Core::builder().candle_setting(CandleSettingType::Equal, custom).build();
+        assert_eq!(core.candle_settings.equal.avg_period, 99);
+        assert_eq!(core.candle_settings.equal.factor, 9.0);
     }
 
     #[test]

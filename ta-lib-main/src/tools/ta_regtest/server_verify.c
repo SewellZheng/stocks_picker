@@ -84,7 +84,7 @@ static TA_FuncUnstId sv_func_unst_id(const char *name)
         if( strcmp(UNSTABLE_MAP[i].name, name) == 0 )
             return UNSTABLE_MAP[i].id;
     }
-    return TA_FUNC_UNST_NONE;
+    return TA_TEST_UNST_NONE;
 }
 
 /* ---- Minimal JSON helpers ----
@@ -114,7 +114,7 @@ static const PriceComponent PRICE_COMPONENTS[] = {
  * state syncs — a shared cache would let the first pipe consume the
  * "changed" delta and leave the other servers stale.
  */
-static unsigned int g_lastUnstPeriods[SV_MAX_PIPES][TA_FUNC_UNST_ALL];
+static unsigned int g_lastUnstPeriods[SV_MAX_PIPES][TA_FUNC_UNST_COUNT];
 static int          g_unstInitialized[SV_MAX_PIPES];
 
 /* ---- Init / shutdown ---- */
@@ -187,7 +187,7 @@ static ErrorNumber sync_unstable_periods(int pipeIdx)
     }
 
     /* Only sync IDs that have changed. */
-    for( int id = 0; id < (int)TA_FUNC_UNST_ALL; id++ )
+    for( int id = 0; id < TA_FUNC_UNST_COUNT; id++ )
     {
         unsigned int curPeriod = TA_GetUnstablePeriod((TA_FuncUnstId)id);
         if( curPeriod != g_lastUnstPeriods[pipeIdx][id] )
@@ -256,7 +256,7 @@ static int build_request(const char *funcName,
         return -1;
 
     int pos = 0;
-    pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos,
+    pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos,
                     "{\"method\":\"TA_%s\",\"params\":{\"startIdx\":%d,\"endIdx\":%d",
                     funcName, (int)startIdx, (int)endIdx);
 
@@ -296,8 +296,8 @@ static int build_request(const char *funcName,
             }
             realInputCount++;
 
-            pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos, ",\"%s\":", key);
-            pos += codegen_write_hexbits_array(g_reqBuf + pos, SV_BUF_SIZE - pos,
+            pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos, ",\"%s\":", key);
+            pos = codegen_write_hexbits_array(g_reqBuf, SV_BUF_SIZE, pos,
                                                inputs[inputIdx], nbBars);
             inputIdx++;
         }
@@ -309,9 +309,9 @@ static int build_request(const char *funcName,
                 {
                     if( !inputs || !inputs[inputIdx] )
                         return -1;
-                    pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos,
+                    pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos,
                                    ",\"%s\":", PRICE_COMPONENTS[c].jsonKey);
-                    pos += codegen_write_hexbits_array(g_reqBuf + pos, SV_BUF_SIZE - pos,
+                    pos = codegen_write_hexbits_array(g_reqBuf, SV_BUF_SIZE, pos,
                                                        inputs[inputIdx], nbBars);
                     inputIdx++;
                 }
@@ -322,8 +322,8 @@ static int build_request(const char *funcName,
             /* Rare: integer input arrays. Treat same as real for serialization. */
             if( !inputs || !inputs[inputIdx] )
                 return -1;
-            pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos, ",\"%s\":", info->paramName);
-            pos += codegen_write_hexbits_array(g_reqBuf + pos, SV_BUF_SIZE - pos,
+            pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos, ",\"%s\":", info->paramName);
+            pos = codegen_write_hexbits_array(g_reqBuf, SV_BUF_SIZE, pos,
                                                inputs[inputIdx], nbBars);
             inputIdx++;
         }
@@ -343,12 +343,12 @@ static int build_request(const char *funcName,
         if( optInfo->type == TA_OptInput_IntegerRange ||
             optInfo->type == TA_OptInput_IntegerList )
         {
-            pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos,
+            pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos,
                             ",\"%s\":%d", optInfo->paramName, (int)val);
         }
         else
         {
-            pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos,
+            pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos,
                             ",\"%s\":%.15g", optInfo->paramName, val);
         }
     }
@@ -359,16 +359,16 @@ static int build_request(const char *funcName,
     if( fi->flags & TA_FUNC_FLG_UNST_PER )
     {
         TA_FuncUnstId unstId = sv_func_unst_id(funcName);
-        int unstPeriod = (unstId != TA_FUNC_UNST_NONE)
+        int unstPeriod = (unstId != TA_TEST_UNST_NONE)
                          ? (int)TA_GetUnstablePeriod(unstId) : 0;
-        pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos,
+        pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos,
                         ",\"unstablePeriod\":%d", unstPeriod);
     }
 
     if( wantHash )
-        pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos, ",\"want_hash\":1");
+        pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos, ",\"want_hash\":1");
 
-    pos += snprintf(g_reqBuf + pos, SV_BUF_SIZE - pos, "}}");
+    pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos, "}}");
     return pos;
 }
 
