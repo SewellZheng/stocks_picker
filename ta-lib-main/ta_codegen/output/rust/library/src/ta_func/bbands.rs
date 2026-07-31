@@ -93,13 +93,23 @@ impl Core {
     /// * `optInMAType` — Moving-average type for the middle band (default 0 = SMA, values: 0=SMA,
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
-    /// to select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`,
+    /// and real parameters `-4e37`, to select their default value.
     #[inline]
     pub fn bbands_lookback(&self, mut optInTimePeriod: i32, mut optInNbDevUp: f64, mut optInNbDevDn: f64, mut optInMAType: i32) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 20;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
+            return usize::MAX;
+        }
+        if optInNbDevUp == REAL_DEFAULT {
+            optInNbDevUp = 2e0;
+        } else if (optInNbDevUp < REAL_MIN) || (optInNbDevUp > REAL_MAX) {
+            return usize::MAX;
+        }
+        if optInNbDevDn == REAL_DEFAULT {
+            optInNbDevDn = 2e0;
+        } else if (optInNbDevDn < REAL_MIN) || (optInNbDevDn > REAL_MAX) {
             return usize::MAX;
         }
         let mut maLookback: usize = 0_usize;
@@ -163,7 +173,8 @@ impl Core {
     /// * `outRealMiddleBand` — The moving average.
     /// * `outRealLowerBand` — Middle band minus nbDevDn standard deviations.
     ///
-    /// Integer parameters accept `i32::MIN` to select their default value.
+    /// Integer parameters accept `i32::MIN`, and real parameters `-4e37`, to select their default
+    /// value.
     ///
     /// # Errors
     ///
@@ -232,6 +243,16 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
+        if optInNbDevUp == REAL_DEFAULT {
+            optInNbDevUp = 2e0;
+        } else if (optInNbDevUp < REAL_MIN) || (optInNbDevUp > REAL_MAX) {
+            return RetCode::BadParam;
+        }
+        if optInNbDevDn == REAL_DEFAULT {
+            optInNbDevDn = 2e0;
+        } else if (optInNbDevDn < REAL_MIN) || (optInNbDevDn > REAL_MAX) {
+            return RetCode::BadParam;
+        }
         if outRealUpperBand.as_ptr() == outRealMiddleBand.as_ptr() || outRealUpperBand.as_ptr() == outRealLowerBand.as_ptr() || outRealMiddleBand.as_ptr() == outRealLowerBand.as_ptr() {
             return RetCode::BadParam;
         }
@@ -252,24 +273,14 @@ impl Core {
             // Identify TWO temporary buffers among the outputs so the calculation
             // needs no memory allocation; whenever possible make tempBuffer1 be the
             // middle band output, saving one copy operation.
-            if inReal.as_ptr() == outRealUpperBand.as_ptr() {
-                tempBuffer1 = outRealMiddleBand.to_vec();
-                tempBuffer2 = outRealLowerBand.to_vec();
-            } else if inReal.as_ptr() == outRealLowerBand.as_ptr() {
-                tempBuffer1 = outRealMiddleBand.to_vec();
-                tempBuffer2 = outRealUpperBand.to_vec();
-            } else if inReal.as_ptr() == outRealMiddleBand.as_ptr() {
-                tempBuffer1 = outRealLowerBand.to_vec();
-                tempBuffer2 = outRealUpperBand.to_vec();
-            } else {
-                tempBuffer1 = outRealMiddleBand.to_vec();
-                tempBuffer2 = outRealUpperBand.to_vec();
-            }
-            // Check that the caller is not doing tricky things.
-            // (like using the input buffer in two output!)
-            if tempBuffer1.as_ptr() == inReal.as_ptr() || tempBuffer2.as_ptr() == inReal.as_ptr() {
-                return RetCode::BadParam;
-            }
+            // Rust: C's pointer election here is a rename, so the calculation runs
+            // directly in the caller's slices:
+            //   C's `tempBuffer1` is `outRealMiddleBand`
+            //   C's `tempBuffer2` is `outRealUpperBand`
+            // This function therefore allocates nothing, exactly as the C does.
+            // The aliasing arms, the input-alias guard and the copy-back are all
+            // unreachable here: `&[T]` and `&mut [T]` parameters can never
+            // overlap, and neither can two `&mut [T]`. See issue #146.
             // One pass with two independent recurrences: the SMA running sum (maTotal,
             // mean -> tempBuffer1, bit-identical to TA_MA(SMA)) and the shifted-data
             // variance (-> tempBuffer2, bit-identical to TA_STDDEV/TA_VAR - see var.c).
@@ -326,7 +337,7 @@ impl Core {
                 varTotal2 += _tempReal;
                 meanValue1 = varTotal1 * _invPeriod;
                 variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
-                tempBuffer1[_outIdx] = maTotal / ((optInTimePeriod) as f64);
+                outRealMiddleBand[_outIdx] = maTotal / ((optInTimePeriod) as f64);
                 maTotal -= inReal[_trailingIdx];
                 _tempReal = inReal[_trailingIdx] - shift;
                 varTotal1 -= _tempReal;
@@ -360,9 +371,9 @@ impl Core {
                     varTotal2 -= _tempReal;
                 }
                 if !((variance) < 1e-14) {
-                    tempBuffer2[_outIdx] = (variance).sqrt();
+                    outRealUpperBand[_outIdx] = (variance).sqrt();
                 } else {
-                    tempBuffer2[_outIdx] = 0.0;
+                    outRealUpperBand[_outIdx] = 0.0;
                 }
                 _outIdx += 1;
                 _i += 1;
@@ -370,22 +381,12 @@ impl Core {
             }
             (*outNBElement) = _outIdx;
             (*outBegIdx) = startIdx;
-            // Copy the MA calculation into the middle band ouput, unless
-            // the calculation was done into it already!
-            if tempBuffer1.as_ptr() != outRealMiddleBand.as_ptr() {
-                {
-            let _n = ((*outNBElement) * 1) as usize;
-            let _di = (0) as usize;
-            let _si = (0) as usize;
-            outRealMiddleBand[_di.._di + _n].copy_from_slice(&tempBuffer1[_si.._si + _n]);
-        };
-            }
             // Now do a tight loop to calculate the upper/lower band at the same time.
             if optInNbDevUp == optInNbDevDn {
                 // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
                 i = 0;
                 while i < (((*outNBElement) as usize)) as usize {
-                    tempReal = tempBuffer2[i] * optInNbDevUp;
+                    tempReal = outRealUpperBand[i] * optInNbDevUp;
                     tempReal2 = outRealMiddleBand[i];
                     outRealUpperBand[i] = tempReal2 + tempReal;
                     outRealLowerBand[i] = tempReal2 - tempReal;
@@ -395,7 +396,7 @@ impl Core {
                 // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
                 i = 0;
                 while i < (((*outNBElement) as usize)) as usize {
-                    tempReal = tempBuffer2[i];
+                    tempReal = outRealUpperBand[i];
                     tempReal2 = outRealMiddleBand[i];
                     outRealUpperBand[i] = (tempReal as f64).mul_add(optInNbDevUp, tempReal2);
                     outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
@@ -503,22 +504,6 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx - _assertStart < outRealMiddleBand.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outRealLowerBand.len());
         if (optInMAType) as usize == 0 {
-            if inReal.as_ptr() == outRealUpperBand.as_ptr() {
-                tempBuffer1 = outRealMiddleBand.to_vec();
-                tempBuffer2 = outRealLowerBand.to_vec();
-            } else if inReal.as_ptr() == outRealLowerBand.as_ptr() {
-                tempBuffer1 = outRealMiddleBand.to_vec();
-                tempBuffer2 = outRealUpperBand.to_vec();
-            } else if inReal.as_ptr() == outRealMiddleBand.as_ptr() {
-                tempBuffer1 = outRealLowerBand.to_vec();
-                tempBuffer2 = outRealUpperBand.to_vec();
-            } else {
-                tempBuffer1 = outRealMiddleBand.to_vec();
-                tempBuffer2 = outRealUpperBand.to_vec();
-            }
-            if tempBuffer1.as_ptr() == inReal.as_ptr() || tempBuffer2.as_ptr() == inReal.as_ptr() {
-                return RetCode::BadParam;
-            }
             let mut maTotal: f64 = 0.0_f64;
             let mut shift: f64 = 0.0_f64;
             let mut varTotal1: f64 = 0.0_f64;
@@ -570,7 +555,7 @@ impl Core {
                 varTotal2 += _tempReal;
                 meanValue1 = varTotal1 * _invPeriod;
                 variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
-                tempBuffer1[_outIdx] = maTotal / ((optInTimePeriod) as f64);
+                outRealMiddleBand[_outIdx] = maTotal / ((optInTimePeriod) as f64);
                 maTotal -= inReal[_trailingIdx];
                 _tempReal = inReal[_trailingIdx] - shift;
                 varTotal1 -= _tempReal;
@@ -604,9 +589,9 @@ impl Core {
                     varTotal2 -= _tempReal;
                 }
                 if !((variance) < 1e-14) {
-                    tempBuffer2[_outIdx] = (variance).sqrt();
+                    outRealUpperBand[_outIdx] = (variance).sqrt();
                 } else {
-                    tempBuffer2[_outIdx] = 0.0;
+                    outRealUpperBand[_outIdx] = 0.0;
                 }
                 _outIdx += 1;
                 _i += 1;
@@ -614,19 +599,11 @@ impl Core {
             }
             (*outNBElement) = _outIdx;
             (*outBegIdx) = startIdx;
-            if tempBuffer1.as_ptr() != outRealMiddleBand.as_ptr() {
-                {
-            let _n = ((*outNBElement) * 1) as usize;
-            let _di = (0) as usize;
-            let _si = (0) as usize;
-            outRealMiddleBand[_di.._di + _n].copy_from_slice(&tempBuffer1[_si.._si + _n]);
-        };
-            }
             if optInNbDevUp == optInNbDevDn {
                 // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
                 i = 0;
                 while i < (((*outNBElement) as usize)) as usize {
-                    tempReal = tempBuffer2[i] * optInNbDevUp;
+                    tempReal = outRealUpperBand[i] * optInNbDevUp;
                     tempReal2 = outRealMiddleBand[i];
                     outRealUpperBand[i] = tempReal2 + tempReal;
                     outRealLowerBand[i] = tempReal2 - tempReal;
@@ -636,7 +613,7 @@ impl Core {
                 // for( i = 0; i < (((*outNBElement) as usize)) as usize; i += 1 )
                 i = 0;
                 while i < (((*outNBElement) as usize)) as usize {
-                    tempReal = tempBuffer2[i];
+                    tempReal = outRealUpperBand[i];
                     tempReal2 = outRealMiddleBand[i];
                     outRealUpperBand[i] = (tempReal as f64).mul_add(optInNbDevUp, tempReal2);
                     outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
@@ -763,6 +740,16 @@ impl Core {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 20;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if optInNbDevUp == REAL_DEFAULT {
+            optInNbDevUp = 2e0;
+        } else if (optInNbDevUp < REAL_MIN) || (optInNbDevUp > REAL_MAX) {
+            return Err(RetCode::BadParam);
+        }
+        if optInNbDevDn == REAL_DEFAULT {
+            optInNbDevDn = 2e0;
+        } else if (optInNbDevDn < REAL_MIN) || (optInNbDevDn > REAL_MAX) {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();
@@ -920,6 +907,16 @@ impl Core {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 20;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if optInNbDevUp == REAL_DEFAULT {
+            optInNbDevUp = 2e0;
+        } else if (optInNbDevUp < REAL_MIN) || (optInNbDevUp > REAL_MAX) {
+            return Err(RetCode::BadParam);
+        }
+        if optInNbDevDn == REAL_DEFAULT {
+            optInNbDevDn = 2e0;
+        } else if (optInNbDevDn < REAL_MIN) || (optInNbDevDn > REAL_MAX) {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();

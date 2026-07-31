@@ -82,10 +82,14 @@ TA_LIB_API int TA_BBANDS_Lookback( int optInTimePeriod, double optInNbDevUp, dou
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return -1;
-   if( optInNbDevUp == -4e37 )
+   if( optInNbDevUp == TA_REAL_DEFAULT )
       optInNbDevUp = 2;
-   if( optInNbDevDn == -4e37 )
+   else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX )
+      return -1;
+   if( optInNbDevDn == TA_REAL_DEFAULT )
       optInNbDevDn = 2;
+   else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX )
+      return -1;
    if( (int)optInMAType == (int)0x80000000 )
       optInMAType = 0;
    /* A band value needs BOTH the middle-band moving average and the standard
@@ -139,10 +143,14 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
-   if( optInNbDevUp == -4e37 )
+   if( optInNbDevUp == TA_REAL_DEFAULT )
       optInNbDevUp = 2;
-   if( optInNbDevDn == -4e37 )
+   else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX )
+      return TA_BAD_PARAM;
+   if( optInNbDevDn == TA_REAL_DEFAULT )
       optInNbDevDn = 2;
+   else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX )
+      return TA_BAD_PARAM;
    if( (int)optInMAType == (int)0x80000000 )
       optInMAType = 0;
    if( !outRealUpperBand )
@@ -660,10 +668,14 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
-   if( optInNbDevUp == -4e37 )
+   if( optInNbDevUp == TA_REAL_DEFAULT )
       optInNbDevUp = 2;
-   if( optInNbDevDn == -4e37 )
+   else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX )
+      return TA_BAD_PARAM;
+   if( optInNbDevDn == TA_REAL_DEFAULT )
       optInNbDevDn = 2;
+   else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX )
+      return TA_BAD_PARAM;
    if( (int)optInMAType == (int)0x80000000 )
       optInMAType = 0;
    if( !outRealUpperBand )
@@ -1184,10 +1196,14 @@ TA_RetCode TA_BBANDS_OpenInternal( struct TA_BBANDS_Stream **stream, const doubl
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
-   if( optInNbDevUp == -4e37 )
+   if( optInNbDevUp == TA_REAL_DEFAULT )
       optInNbDevUp = 2;
-   if( optInNbDevDn == -4e37 )
+   else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX )
+      return TA_BAD_PARAM;
+   if( optInNbDevDn == TA_REAL_DEFAULT )
       optInNbDevDn = 2;
+   else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX )
+      return TA_BAD_PARAM;
    if( (int)optInMAType == (int)0x80000000 )
       optInMAType = 0;
 
@@ -1379,10 +1395,14 @@ TA_LIB_API TA_RetCode TA_BBANDS_OpenAndFill( TA_BBANDS_Stream **stream, const do
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
-   if( optInNbDevUp == -4e37 )
+   if( optInNbDevUp == TA_REAL_DEFAULT )
       optInNbDevUp = 2;
-   if( optInNbDevDn == -4e37 )
+   else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX )
+      return TA_BAD_PARAM;
+   if( optInNbDevDn == TA_REAL_DEFAULT )
       optInNbDevDn = 2;
+   else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX )
+      return TA_BAD_PARAM;
    if( (int)optInMAType == (int)0x80000000 )
       optInMAType = 0;
 

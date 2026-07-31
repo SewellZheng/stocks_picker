@@ -38,7 +38,11 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utilities.common import check_prerequisites, PREREQS_BUILD_SERVERS
+from utilities.common import (
+    check_prerequisites, PREREQS_BUILD_SERVERS,
+    PREREQS_CMAKE, PREREQS_CARGO, PREREQS_GCC, PREREQS_JAVAC, PREREQS_JAVA,
+    PREREQS_DOTNET,
+)
 import serve_version
 
 OUR_FLAGS = {
@@ -62,6 +66,35 @@ def get_filter(args, prefix):
         if a.startswith(prefix + "="):
             return a.split("=", 1)[1]
     return None
+
+
+# Tools each --language= backend needs, on top of the base set below. Unknown
+# tokens (ta_bench also accepts "cref") contribute nothing, so a typo can only
+# widen the check, never shrink it below the base.
+LANG_PREREQS = {
+    "c":      [PREREQS_GCC],
+    "rust":   [],                            # cargo is already in the base set
+    "java":   [PREREQS_JAVAC, PREREQS_JAVA],
+    "dotnet": [PREREQS_DOTNET],
+}
+
+
+def prereqs_for(lang_filter):
+    """Prerequisites this run actually needs (issue #150).
+
+    Without --language every backend is generated and built, so the full set
+    applies. With one, only that backend's toolchain is required — a JDK/.NET-less
+    machine could not reach `--codegen-only --language=c,rust` at all before.
+    cmake and cargo stay unconditional: the generator itself is the Rust binary
+    driving generate/generate-servers/build, so even --language=c runs cargo."""
+    if not lang_filter:
+        return PREREQS_BUILD_SERVERS
+    prereqs = [PREREQS_CMAKE, PREREQS_CARGO]
+    for lang in lang_filter.split(","):
+        for tool in LANG_PREREQS.get(lang.strip().lower(), []):
+            if tool not in prereqs:
+                prereqs.append(tool)
+    return prereqs
 
 
 # Reference-as-server: the reference C library is frozen at this immutable tag
@@ -134,7 +167,8 @@ def _compile_ta_ref_serve(serve_src, lib_a, include_dirs, bin_dir, post_funcs=()
     tmp_ref = os.path.join(bin_dir, "_ta_ref_serve.c")
     with open(tmp_ref, "w") as f:
         f.write(src_text)
-    cmd = ["cc", "-O3", "-flto", "-DNDEBUG", "-DTA_REF_SERVE", "-Wno-everything"]
+    cmd = ["cc", "-O3", "-flto", "-DNDEBUG", "-DTA_REF_SERVE", "-Wno-everything",
+           serve_version.FP_CONTRACT_FLAG]
     cmd += [f"-I{d}" for d in include_dirs]
     cmd += ["-o", os.path.join(bin_dir, "ta_ref_serve"), tmp_ref, lib_a, "-lm"]
     rc = subprocess.run(cmd).returncode
@@ -178,16 +212,9 @@ def ensure_reference_serve(root, bin_dir):
         # frozen library. TA_*_Unguarded/TA_S_*_Unguarded calls are compiled
         # out via TA_REF_SERVE (the frozen lib has no unguarded symbols).
         serve_src, _lib_ignored, includes = _ta_ref_serve_paths(root, os.path.join(root, "cmake-build"))
-        lib_a = os.path.join(ref_build, "libta-lib.a")
-        # Build the frozen reference static lib once (the tag is immutable).
-        if not os.path.exists(lib_a):
-            print("  Building frozen reference libta-lib.a (one time)...")
-            os.makedirs(ref_build, exist_ok=True)
-            if not os.path.exists(os.path.join(ref_build, "CMakeCache.txt")):
-                subprocess.run(["cmake", ref_root, "-DCMAKE_BUILD_TYPE=Release"],
-                               check=True, cwd=ref_build)
-            subprocess.run(["cmake", "--build", ".", "--target", "ta-lib-static",
-                            "-j", str(os.cpu_count() or 4)], check=True, cwd=ref_build)
+        # Build the frozen reference static lib (the tag is immutable, but the
+        # FP-contraction setting must match this tree's — see build_frozen_lib).
+        lib_a = serve_version.build_frozen_lib(ref_root, ref_build, "ta_ref_serve")
         if not os.path.exists(serve_src):
             print(f"  ta_ref_serve: FAILED — {serve_src} missing in worktree")
             return
@@ -227,8 +254,6 @@ def main():
         print(__doc__.strip())
         sys.exit(0)
 
-    check_prerequisites(PREREQS_BUILD_SERVERS)
-
     argv = sys.argv[1:]
     test_only      = "--test-only" in argv
     direct_only    = "--direct-bench-only" in argv
@@ -253,6 +278,9 @@ def main():
     passthrough = [normalize_flag(a) for a in argv if a not in OUR_FLAGS]
     func_filter = get_filter(passthrough, "--function")
     lang_filter = get_filter(passthrough, "--language")
+
+    # Must follow --language parsing: the prerequisite set depends on it.
+    check_prerequisites(prereqs_for(lang_filter))
 
     root = find_repo_root()
     build_dir = os.path.join(root, "cmake-build")

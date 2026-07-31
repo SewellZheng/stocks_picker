@@ -58,6 +58,12 @@ enum CandleSettingType {
 }
 
 class Core {
+    static final double TA_REAL_DEFAULT = -4e37;
+    static final double TA_REAL_MIN = -3e37;
+    static final double TA_REAL_MAX = 3e37;
+    static final int TA_INTEGER_DEFAULT = Integer.MIN_VALUE;
+    static final int TA_INTEGER_MIN = Integer.MIN_VALUE + 1;
+    static final int TA_INTEGER_MAX = Integer.MAX_VALUE;
     int[] unstablePeriod = new int[FuncUnstId.COUNT];
     CandleSetting[] candleSettings = {
         new CandleSetting(RangeType.RealBody, 10, 1.0),   // BodyLong
@@ -12944,11 +12950,15 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return -1;
           }
-          if( optInNbDevUp == -4e37 ) {
+          if( optInNbDevUp == TA_REAL_DEFAULT ) {
              optInNbDevUp = 2e0;
+          } else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX ) {
+             return -1;
           }
-          if( optInNbDevDn == -4e37 ) {
+          if( optInNbDevDn == TA_REAL_DEFAULT ) {
              optInNbDevDn = 2e0;
+          } else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX ) {
+             return -1;
           }
           int maLookback;
           int stddevLookback;
@@ -13001,11 +13011,15 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDevUp == -4e37 ) {
+          if( optInNbDevUp == TA_REAL_DEFAULT ) {
              optInNbDevUp = 2e0;
+          } else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
-          if( optInNbDevDn == -4e37 ) {
+          if( optInNbDevDn == TA_REAL_DEFAULT ) {
              optInNbDevDn = 2e0;
+          } else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
              return RetCode.BadParam ;
@@ -13424,11 +13438,15 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDevUp == -4e37 ) {
+          if( optInNbDevUp == TA_REAL_DEFAULT ) {
              optInNbDevUp = 2e0;
+          } else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
-          if( optInNbDevDn == -4e37 ) {
+          if( optInNbDevDn == TA_REAL_DEFAULT ) {
              optInNbDevDn = 2e0;
+          } else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
              return RetCode.BadParam ;
@@ -14167,11 +14185,15 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDevUp == -4e37 ) {
+          if( optInNbDevUp == TA_REAL_DEFAULT ) {
              optInNbDevUp = 2e0;
+          } else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
-          if( optInNbDevDn == -4e37 ) {
+          if( optInNbDevDn == TA_REAL_DEFAULT ) {
              optInNbDevDn = 2e0;
+          } else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           double[] sc_outRealUpperBand = new double[historyLen];
           double[] sc_outRealMiddleBand = new double[historyLen];
@@ -14270,11 +14292,15 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDevUp == -4e37 ) {
+          if( optInNbDevUp == TA_REAL_DEFAULT ) {
              optInNbDevUp = 2e0;
+          } else if( optInNbDevUp < TA_REAL_MIN || optInNbDevUp > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
-          if( optInNbDevDn == -4e37 ) {
+          if( optInNbDevDn == TA_REAL_DEFAULT ) {
              optInNbDevDn = 2e0;
+          } else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           if( (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
              return RetCode.BadParam;
@@ -25230,9 +25256,9 @@ class Core {
         */
        public int cdlAbandonedBabyLookback( double optInPenetration )
        {
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return -1;
           }
           int BodyDoji_rangeType = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].rangeType.ordinal();
@@ -25282,9 +25308,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* Identify the minimum number of price bar needed
@@ -25483,9 +25509,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           lookbackTotal = cdlAbandonedBabyLookback(optInPenetration);
@@ -26054,9 +26080,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           int BodyDoji_rangeType = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].rangeType.ordinal();
@@ -26247,9 +26273,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
@@ -33513,9 +33539,9 @@ class Core {
         */
        public int cdlDarkCloudCoverLookback( double optInPenetration )
        {
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return -1;
           }
           int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -33549,9 +33575,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* Identify the minimum number of price bar needed
@@ -33692,9 +33718,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           lookbackTotal = cdlDarkCloudCoverLookback(optInPenetration);
@@ -34119,9 +34145,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -34242,9 +34268,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
@@ -37959,9 +37985,9 @@ class Core {
         */
        public int cdlEveningDojiStarLookback( double optInPenetration )
        {
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return -1;
           }
           int BodyDoji_rangeType = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].rangeType.ordinal();
@@ -38011,9 +38037,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* Identify the minimum number of price bar needed
@@ -38213,9 +38239,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           lookbackTotal = cdlEveningDojiStarLookback(optInPenetration);
@@ -38781,9 +38807,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           int BodyDoji_rangeType = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].rangeType.ordinal();
@@ -38975,9 +39001,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
@@ -39240,9 +39266,9 @@ class Core {
         */
        public int cdlEveningStarLookback( double optInPenetration )
        {
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return -1;
           }
           int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -39285,9 +39311,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* Identify the minimum number of price bar needed
@@ -39467,9 +39493,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           lookbackTotal = cdlEveningStarLookback(optInPenetration);
@@ -39981,9 +40007,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -40153,9 +40179,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
@@ -62140,9 +62166,9 @@ class Core {
         */
        public int cdlMatHoldLookback( double optInPenetration )
        {
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return -1;
           }
           int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -62184,9 +62210,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* Identify the minimum number of price bar needed
@@ -62383,9 +62409,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           lookbackTotal = cdlMatHoldLookback(optInPenetration);
@@ -62957,9 +62983,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -63178,9 +63204,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 5e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
@@ -63473,9 +63499,9 @@ class Core {
         */
        public int cdlMorningDojiStarLookback( double optInPenetration )
        {
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return -1;
           }
           int BodyDoji_rangeType = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].rangeType.ordinal();
@@ -63525,9 +63551,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* Identify the minimum number of price bar needed
@@ -63727,9 +63753,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           lookbackTotal = cdlMorningDojiStarLookback(optInPenetration);
@@ -64303,9 +64329,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           int BodyDoji_rangeType = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].rangeType.ordinal();
@@ -64497,9 +64523,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
@@ -64762,9 +64788,9 @@ class Core {
         */
        public int cdlMorningStarLookback( double optInPenetration )
        {
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return -1;
           }
           int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -64807,9 +64833,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* Identify the minimum number of price bar needed
@@ -64989,9 +65015,9 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           lookbackTotal = cdlMorningStarLookback(optInPenetration);
@@ -65509,9 +65535,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -65681,9 +65707,9 @@ class Core {
           if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
              return RetCode.BadParam;
           }
-          if( optInPenetration == -4e37 ) {
+          if( optInPenetration == TA_REAL_DEFAULT ) {
              optInPenetration = 3e-1;
-          } else if( optInPenetration < 0e0 || optInPenetration > 1.7976931348623157e308 ) {
+          } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
@@ -125948,12 +125974,12 @@ class Core {
         */
        public int mamaLookback( double optInFastLimit, double optInSlowLimit )
        {
-          if( optInFastLimit == -4e37 ) {
+          if( optInFastLimit == TA_REAL_DEFAULT ) {
              optInFastLimit = 5e-1;
           } else if( optInFastLimit < 1e-2 || optInFastLimit > 9.9e-1 ) {
              return -1;
           }
-          if( optInSlowLimit == -4e37 ) {
+          if( optInSlowLimit == TA_REAL_DEFAULT ) {
              optInSlowLimit = 5e-2;
           } else if( optInSlowLimit < 1e-2 || optInSlowLimit > 9.9e-1 ) {
              return -1;
@@ -126057,12 +126083,12 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInFastLimit == -4e37 ) {
+          if( optInFastLimit == TA_REAL_DEFAULT ) {
              optInFastLimit = 5e-1;
           } else if( optInFastLimit < 1e-2 || optInFastLimit > 9.9e-1 ) {
              return RetCode.BadParam;
           }
-          if( optInSlowLimit == -4e37 ) {
+          if( optInSlowLimit == TA_REAL_DEFAULT ) {
              optInSlowLimit = 5e-2;
           } else if( optInSlowLimit < 1e-2 || optInSlowLimit > 9.9e-1 ) {
              return RetCode.BadParam;
@@ -126767,12 +126793,12 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInFastLimit == -4e37 ) {
+          if( optInFastLimit == TA_REAL_DEFAULT ) {
              optInFastLimit = 5e-1;
           } else if( optInFastLimit < 1e-2 || optInFastLimit > 9.9e-1 ) {
              return RetCode.BadParam;
           }
-          if( optInSlowLimit == -4e37 ) {
+          if( optInSlowLimit == TA_REAL_DEFAULT ) {
              optInSlowLimit = 5e-2;
           } else if( optInSlowLimit < 1e-2 || optInSlowLimit > 9.9e-1 ) {
              return RetCode.BadParam;
@@ -127995,12 +128021,12 @@ class Core {
           if( historyLen < 1 ) {
              return RetCode.BadParam;
           }
-          if( optInFastLimit == -4e37 ) {
+          if( optInFastLimit == TA_REAL_DEFAULT ) {
              optInFastLimit = 5e-1;
           } else if( optInFastLimit < 1e-2 || optInFastLimit > 9.9e-1 ) {
              return RetCode.BadParam;
           }
-          if( optInSlowLimit == -4e37 ) {
+          if( optInSlowLimit == TA_REAL_DEFAULT ) {
              optInSlowLimit = 5e-2;
           } else if( optInSlowLimit < 1e-2 || optInSlowLimit > 9.9e-1 ) {
              return RetCode.BadParam;
@@ -128449,12 +128475,12 @@ class Core {
           if( historyLen < 1 ) {
              return RetCode.BadParam;
           }
-          if( optInFastLimit == -4e37 ) {
+          if( optInFastLimit == TA_REAL_DEFAULT ) {
              optInFastLimit = 5e-1;
           } else if( optInFastLimit < 1e-2 || optInFastLimit > 9.9e-1 ) {
              return RetCode.BadParam;
           }
-          if( optInSlowLimit == -4e37 ) {
+          if( optInSlowLimit == TA_REAL_DEFAULT ) {
              optInSlowLimit = 5e-2;
           } else if( optInSlowLimit < 1e-2 || optInSlowLimit > 9.9e-1 ) {
              return RetCode.BadParam;
@@ -157141,14 +157167,14 @@ class Core {
         */
        public int sarLookback( double optInAcceleration, double optInMaximum )
        {
-          if( optInAcceleration == -4e37 ) {
+          if( optInAcceleration == TA_REAL_DEFAULT ) {
              optInAcceleration = 2e-2;
-          } else if( optInAcceleration < 0e0 || optInAcceleration > 1.7976931348623157e308 ) {
+          } else if( optInAcceleration < 0e0 || optInAcceleration > TA_REAL_MAX ) {
              return -1;
           }
-          if( optInMaximum == -4e37 ) {
+          if( optInMaximum == TA_REAL_DEFAULT ) {
              optInMaximum = 2e-1;
-          } else if( optInMaximum < 0e0 || optInMaximum > 1.7976931348623157e308 ) {
+          } else if( optInMaximum < 0e0 || optInMaximum > TA_REAL_MAX ) {
              return -1;
           }
           /* SAR always sacrify one price bar to establish the
@@ -157186,14 +157212,14 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInAcceleration == -4e37 ) {
+          if( optInAcceleration == TA_REAL_DEFAULT ) {
              optInAcceleration = 2e-2;
-          } else if( optInAcceleration < 0e0 || optInAcceleration > 1.7976931348623157e308 ) {
+          } else if( optInAcceleration < 0e0 || optInAcceleration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInMaximum == -4e37 ) {
+          if( optInMaximum == TA_REAL_DEFAULT ) {
              optInMaximum = 2e-1;
-          } else if( optInMaximum < 0e0 || optInMaximum > 1.7976931348623157e308 ) {
+          } else if( optInMaximum < 0e0 || optInMaximum > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* > 0 indicates long. == 0 indicates short */
@@ -157585,14 +157611,14 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInAcceleration == -4e37 ) {
+          if( optInAcceleration == TA_REAL_DEFAULT ) {
              optInAcceleration = 2e-2;
-          } else if( optInAcceleration < 0e0 || optInAcceleration > 1.7976931348623157e308 ) {
+          } else if( optInAcceleration < 0e0 || optInAcceleration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInMaximum == -4e37 ) {
+          if( optInMaximum == TA_REAL_DEFAULT ) {
              optInMaximum = 2e-1;
-          } else if( optInMaximum < 0e0 || optInMaximum > 1.7976931348623157e308 ) {
+          } else if( optInMaximum < 0e0 || optInMaximum > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( startIdx < 1 ) {
@@ -158270,14 +158296,14 @@ class Core {
           if( historyLen < 1 || inLow.length != inHigh.length ) {
              return RetCode.BadParam;
           }
-          if( optInAcceleration == -4e37 ) {
+          if( optInAcceleration == TA_REAL_DEFAULT ) {
              optInAcceleration = 2e-2;
-          } else if( optInAcceleration < 0e0 || optInAcceleration > 1.7976931348623157e308 ) {
+          } else if( optInAcceleration < 0e0 || optInAcceleration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInMaximum == -4e37 ) {
+          if( optInMaximum == TA_REAL_DEFAULT ) {
              optInMaximum = 2e-1;
-          } else if( optInMaximum < 0e0 || optInMaximum > 1.7976931348623157e308 ) {
+          } else if( optInMaximum < 0e0 || optInMaximum > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* > 0 indicates long. == 0 indicates short */
@@ -158527,14 +158553,14 @@ class Core {
           if( historyLen < 1 || inLow.length != inHigh.length ) {
              return RetCode.BadParam;
           }
-          if( optInAcceleration == -4e37 ) {
+          if( optInAcceleration == TA_REAL_DEFAULT ) {
              optInAcceleration = 2e-2;
-          } else if( optInAcceleration < 0e0 || optInAcceleration > 1.7976931348623157e308 ) {
+          } else if( optInAcceleration < 0e0 || optInAcceleration > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInMaximum == -4e37 ) {
+          if( optInMaximum == TA_REAL_DEFAULT ) {
              optInMaximum = 2e-1;
-          } else if( optInMaximum < 0e0 || optInMaximum > 1.7976931348623157e308 ) {
+          } else if( optInMaximum < 0e0 || optInMaximum > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
@@ -158870,42 +158896,44 @@ class Core {
         */
        public int sarExtLookback( double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort )
        {
-          if( optInStartValue == -4e37 ) {
+          if( optInStartValue == TA_REAL_DEFAULT ) {
              optInStartValue = 0e0;
+          } else if( optInStartValue < TA_REAL_MIN || optInStartValue > TA_REAL_MAX ) {
+             return -1;
           }
-          if( optInOffsetOnReverse == -4e37 ) {
+          if( optInOffsetOnReverse == TA_REAL_DEFAULT ) {
              optInOffsetOnReverse = 0e0;
-          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > 1.7976931348623157e308 ) {
+          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > TA_REAL_MAX ) {
              return -1;
           }
-          if( optInAccelerationInitLong == -4e37 ) {
+          if( optInAccelerationInitLong == TA_REAL_DEFAULT ) {
              optInAccelerationInitLong = 2e-2;
-          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > TA_REAL_MAX ) {
              return -1;
           }
-          if( optInAccelerationLong == -4e37 ) {
+          if( optInAccelerationLong == TA_REAL_DEFAULT ) {
              optInAccelerationLong = 2e-2;
-          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > TA_REAL_MAX ) {
              return -1;
           }
-          if( optInAccelerationMaxLong == -4e37 ) {
+          if( optInAccelerationMaxLong == TA_REAL_DEFAULT ) {
              optInAccelerationMaxLong = 2e-1;
-          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > TA_REAL_MAX ) {
              return -1;
           }
-          if( optInAccelerationInitShort == -4e37 ) {
+          if( optInAccelerationInitShort == TA_REAL_DEFAULT ) {
              optInAccelerationInitShort = 2e-2;
-          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > TA_REAL_MAX ) {
              return -1;
           }
-          if( optInAccelerationShort == -4e37 ) {
+          if( optInAccelerationShort == TA_REAL_DEFAULT ) {
              optInAccelerationShort = 2e-2;
-          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > TA_REAL_MAX ) {
              return -1;
           }
-          if( optInAccelerationMaxShort == -4e37 ) {
+          if( optInAccelerationMaxShort == TA_REAL_DEFAULT ) {
              optInAccelerationMaxShort = 2e-1;
-          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > TA_REAL_MAX ) {
              return -1;
           }
           /* SAR always sacrifices one price bar to establish the
@@ -158950,42 +158978,44 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInStartValue == -4e37 ) {
+          if( optInStartValue == TA_REAL_DEFAULT ) {
              optInStartValue = 0e0;
+          } else if( optInStartValue < TA_REAL_MIN || optInStartValue > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
-          if( optInOffsetOnReverse == -4e37 ) {
+          if( optInOffsetOnReverse == TA_REAL_DEFAULT ) {
              optInOffsetOnReverse = 0e0;
-          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > 1.7976931348623157e308 ) {
+          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationInitLong == -4e37 ) {
+          if( optInAccelerationInitLong == TA_REAL_DEFAULT ) {
              optInAccelerationInitLong = 2e-2;
-          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationLong == -4e37 ) {
+          if( optInAccelerationLong == TA_REAL_DEFAULT ) {
              optInAccelerationLong = 2e-2;
-          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationMaxLong == -4e37 ) {
+          if( optInAccelerationMaxLong == TA_REAL_DEFAULT ) {
              optInAccelerationMaxLong = 2e-1;
-          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationInitShort == -4e37 ) {
+          if( optInAccelerationInitShort == TA_REAL_DEFAULT ) {
              optInAccelerationInitShort = 2e-2;
-          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationShort == -4e37 ) {
+          if( optInAccelerationShort == TA_REAL_DEFAULT ) {
              optInAccelerationShort = 2e-2;
-          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationMaxShort == -4e37 ) {
+          if( optInAccelerationMaxShort == TA_REAL_DEFAULT ) {
              optInAccelerationMaxShort = 2e-1;
-          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* > 0 indicates long. == 0 indicates short */
@@ -159479,42 +159509,44 @@ class Core {
           if( (endIdx < 0) || (endIdx < startIdx)) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          if( optInStartValue == -4e37 ) {
+          if( optInStartValue == TA_REAL_DEFAULT ) {
              optInStartValue = 0e0;
+          } else if( optInStartValue < TA_REAL_MIN || optInStartValue > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
-          if( optInOffsetOnReverse == -4e37 ) {
+          if( optInOffsetOnReverse == TA_REAL_DEFAULT ) {
              optInOffsetOnReverse = 0e0;
-          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > 1.7976931348623157e308 ) {
+          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationInitLong == -4e37 ) {
+          if( optInAccelerationInitLong == TA_REAL_DEFAULT ) {
              optInAccelerationInitLong = 2e-2;
-          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationLong == -4e37 ) {
+          if( optInAccelerationLong == TA_REAL_DEFAULT ) {
              optInAccelerationLong = 2e-2;
-          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationMaxLong == -4e37 ) {
+          if( optInAccelerationMaxLong == TA_REAL_DEFAULT ) {
              optInAccelerationMaxLong = 2e-1;
-          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationInitShort == -4e37 ) {
+          if( optInAccelerationInitShort == TA_REAL_DEFAULT ) {
              optInAccelerationInitShort = 2e-2;
-          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationShort == -4e37 ) {
+          if( optInAccelerationShort == TA_REAL_DEFAULT ) {
              optInAccelerationShort = 2e-2;
-          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationMaxShort == -4e37 ) {
+          if( optInAccelerationMaxShort == TA_REAL_DEFAULT ) {
              optInAccelerationMaxShort = 2e-1;
-          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( startIdx < 1 ) {
@@ -160328,42 +160360,44 @@ class Core {
           if( historyLen < 1 || inLow.length != inHigh.length ) {
              return RetCode.BadParam;
           }
-          if( optInStartValue == -4e37 ) {
+          if( optInStartValue == TA_REAL_DEFAULT ) {
              optInStartValue = 0e0;
+          } else if( optInStartValue < TA_REAL_MIN || optInStartValue > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
-          if( optInOffsetOnReverse == -4e37 ) {
+          if( optInOffsetOnReverse == TA_REAL_DEFAULT ) {
              optInOffsetOnReverse = 0e0;
-          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > 1.7976931348623157e308 ) {
+          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationInitLong == -4e37 ) {
+          if( optInAccelerationInitLong == TA_REAL_DEFAULT ) {
              optInAccelerationInitLong = 2e-2;
-          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationLong == -4e37 ) {
+          if( optInAccelerationLong == TA_REAL_DEFAULT ) {
              optInAccelerationLong = 2e-2;
-          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationMaxLong == -4e37 ) {
+          if( optInAccelerationMaxLong == TA_REAL_DEFAULT ) {
              optInAccelerationMaxLong = 2e-1;
-          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationInitShort == -4e37 ) {
+          if( optInAccelerationInitShort == TA_REAL_DEFAULT ) {
              optInAccelerationInitShort = 2e-2;
-          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationShort == -4e37 ) {
+          if( optInAccelerationShort == TA_REAL_DEFAULT ) {
              optInAccelerationShort = 2e-2;
-          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationMaxShort == -4e37 ) {
+          if( optInAccelerationMaxShort == TA_REAL_DEFAULT ) {
              optInAccelerationMaxShort = 2e-1;
-          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           /* > 0 indicates long. == 0 indicates short */
@@ -160678,42 +160712,44 @@ class Core {
           if( historyLen < 1 || inLow.length != inHigh.length ) {
              return RetCode.BadParam;
           }
-          if( optInStartValue == -4e37 ) {
+          if( optInStartValue == TA_REAL_DEFAULT ) {
              optInStartValue = 0e0;
+          } else if( optInStartValue < TA_REAL_MIN || optInStartValue > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
-          if( optInOffsetOnReverse == -4e37 ) {
+          if( optInOffsetOnReverse == TA_REAL_DEFAULT ) {
              optInOffsetOnReverse = 0e0;
-          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > 1.7976931348623157e308 ) {
+          } else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationInitLong == -4e37 ) {
+          if( optInAccelerationInitLong == TA_REAL_DEFAULT ) {
              optInAccelerationInitLong = 2e-2;
-          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationLong == -4e37 ) {
+          if( optInAccelerationLong == TA_REAL_DEFAULT ) {
              optInAccelerationLong = 2e-2;
-          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationLong < 0e0 || optInAccelerationLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationMaxLong == -4e37 ) {
+          if( optInAccelerationMaxLong == TA_REAL_DEFAULT ) {
              optInAccelerationMaxLong = 2e-1;
-          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationInitShort == -4e37 ) {
+          if( optInAccelerationInitShort == TA_REAL_DEFAULT ) {
              optInAccelerationInitShort = 2e-2;
-          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationShort == -4e37 ) {
+          if( optInAccelerationShort == TA_REAL_DEFAULT ) {
              optInAccelerationShort = 2e-2;
-          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationShort < 0e0 || optInAccelerationShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
-          if( optInAccelerationMaxShort == -4e37 ) {
+          if( optInAccelerationMaxShort == TA_REAL_DEFAULT ) {
              optInAccelerationMaxShort = 2e-1;
-          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > 1.7976931348623157e308 ) {
+          } else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > TA_REAL_MAX ) {
              return RetCode.BadParam;
           }
           if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
@@ -163105,8 +163141,10 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return -1;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return -1;
           }
           /* Lookback is driven by the variance. */
           return varianceLookback(optInTimePeriod, optInNbDev) ;
@@ -163135,8 +163173,10 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           /* Calculate the variance. */
           retCode = varianceUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, outReal);
@@ -163229,8 +163269,10 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           retCode = varianceUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, outReal);
           if( retCode != RetCode.Success ) {
@@ -163582,8 +163624,10 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           double[] sc_outReal = new double[historyLen];
           /* Calculate the variance. */
@@ -163644,8 +163688,10 @@ class Core {
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           if( (Object)outReal == (Object)inReal ) {
              return RetCode.BadParam;
@@ -169273,7 +169319,7 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return -1;
           }
-          if( optInVFactor == -4e37 ) {
+          if( optInVFactor == TA_REAL_DEFAULT ) {
              optInVFactor = 7e-1;
           } else if( optInVFactor < 0e0 || optInVFactor > 1e0 ) {
              return -1;
@@ -169318,7 +169364,7 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInVFactor == -4e37 ) {
+          if( optInVFactor == TA_REAL_DEFAULT ) {
              optInVFactor = 7e-1;
           } else if( optInVFactor < 0e0 || optInVFactor > 1e0 ) {
              return RetCode.BadParam;
@@ -169612,7 +169658,7 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInVFactor == -4e37 ) {
+          if( optInVFactor == TA_REAL_DEFAULT ) {
              optInVFactor = 7e-1;
           } else if( optInVFactor < 0e0 || optInVFactor > 1e0 ) {
              return RetCode.BadParam;
@@ -170160,7 +170206,7 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInVFactor == -4e37 ) {
+          if( optInVFactor == TA_REAL_DEFAULT ) {
              optInVFactor = 7e-1;
           } else if( optInVFactor < 0e0 || optInVFactor > 1e0 ) {
              return RetCode.BadParam;
@@ -170353,7 +170399,7 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInVFactor == -4e37 ) {
+          if( optInVFactor == TA_REAL_DEFAULT ) {
              optInVFactor = 7e-1;
           } else if( optInVFactor < 0e0 || optInVFactor > 1e0 ) {
              return RetCode.BadParam;
@@ -179897,8 +179943,10 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return -1;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return -1;
           }
           return optInTimePeriod - 1 ;
 
@@ -179937,8 +179985,10 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           /* Identify the minimum number of price bar needed to calculate
            * at least one output.
@@ -180162,8 +180212,10 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           nbInitialElementNeeded = optInTimePeriod - 1;
           if( startIdx < nbInitialElementNeeded ) {
@@ -180691,8 +180743,10 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           /* Identify the minimum number of price bar needed to calculate
            * at least one output.
@@ -180846,8 +180900,10 @@ class Core {
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
              return RetCode.BadParam;
           }
-          if( optInNbDev == -4e37 ) {
+          if( optInNbDev == TA_REAL_DEFAULT ) {
              optInNbDev = 1e0;
+          } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+             return RetCode.BadParam;
           }
           if( (Object)outReal == (Object)inReal ) {
              return RetCode.BadParam;

@@ -66,8 +66,10 @@ TA_LIB_API int TA_VAR_Lookback( int optInTimePeriod, double optInNbDev )
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return -1;
-   if( optInNbDev == -4e37 )
+   if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
+   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
+      return -1;
    return optInTimePeriod - 1;
 }
 
@@ -106,8 +108,10 @@ TA_LIB_API TA_RetCode TA_VAR( int    startIdx,
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
-   if( optInNbDev == -4e37 )
+   if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
+   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
+      return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
@@ -351,8 +355,10 @@ TA_RetCode TA_S_VAR( int    startIdx,
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
-   if( optInNbDev == -4e37 )
+   if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
+   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
+      return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
@@ -650,8 +656,10 @@ TA_RetCode TA_VAR_OpenInternal( struct TA_VAR_Stream **stream, const double inRe
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
-   if( optInNbDev == -4e37 )
+   if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
+   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
+      return TA_BAD_PARAM;
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -837,8 +845,10 @@ TA_LIB_API TA_RetCode TA_VAR_OpenAndFill( TA_VAR_Stream **stream, const double i
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
-   if( optInNbDev == -4e37 )
+   if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
+   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
+      return TA_BAD_PARAM;
 
    endIdx = historyLen - 1;
    startIdx = 0;

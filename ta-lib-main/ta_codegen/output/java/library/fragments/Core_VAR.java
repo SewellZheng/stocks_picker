@@ -36,8 +36,10 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return -1;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return -1;
       }
       return optInTimePeriod - 1 ;
 
@@ -76,8 +78,10 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return RetCode.BadParam;
       }
       /* Identify the minimum number of price bar needed to calculate
        * at least one output.
@@ -301,8 +305,10 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return RetCode.BadParam;
       }
       nbInitialElementNeeded = optInTimePeriod - 1;
       if( startIdx < nbInitialElementNeeded ) {
@@ -830,8 +836,10 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return RetCode.BadParam;
       }
       /* Identify the minimum number of price bar needed to calculate
        * at least one output.
@@ -985,8 +993,10 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return RetCode.BadParam;
       }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;

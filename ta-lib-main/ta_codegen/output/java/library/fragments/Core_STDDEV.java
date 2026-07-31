@@ -35,8 +35,10 @@
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return -1;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return -1;
       }
       /* Lookback is driven by the variance. */
       return varianceLookback(optInTimePeriod, optInNbDev) ;
@@ -65,8 +67,10 @@
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return RetCode.BadParam;
       }
       /* Calculate the variance. */
       retCode = varianceUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, outReal);
@@ -159,8 +163,10 @@
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return RetCode.BadParam;
       }
       retCode = varianceUnguardedInternal(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
@@ -512,8 +518,10 @@
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return RetCode.BadParam;
       }
       double[] sc_outReal = new double[historyLen];
       /* Calculate the variance. */
@@ -574,8 +582,10 @@
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == -4e37 ) {
+      if( optInNbDev == TA_REAL_DEFAULT ) {
          optInNbDev = 1e0;
+      } else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX ) {
+         return RetCode.BadParam;
       }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
