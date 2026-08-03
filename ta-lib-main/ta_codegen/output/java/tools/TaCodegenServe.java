@@ -133556,9 +133556,20 @@ class Core {
            * output to be the same buffer.
            *
            * The highest/lowest of the window is cached with its
-           * index; a rescan of the window is needed only when the
-           * cached extremum drops out of the window (amortized O(1)
-           * per bar instead of O(period)).
+           * index; the window is rescanned only when the cached
+           * extremum drops out of the window. That is O(1) per bar
+           * while the extremum sits away from the trailing edge, but
+           * it is not amortized O(1): an extremum on the oldest
+           * in-window bar drops out on the very next bar, so the
+           * rescan repeats and the cost stays O(period) per bar for
+           * as long as that persists.
+           *
+           * Tracking both extrema keeps that state going through a
+           * trend: while the high is refreshed by each new bar, the
+           * low stays pinned at the oldest bar for the whole leg
+           * (and the reverse on the way down). A flat stretch pins
+           * both. Random-walk input is the favourable case, where
+           * rescans are rare. See issue #147.
            */
           outIdx = 0;
           today = startIdx;
@@ -134205,9 +134216,20 @@ class Core {
            * output to be the same buffer.
            *
            * The highest/lowest of the window is cached with its
-           * index; a rescan of the window is needed only when the
-           * cached extremum drops out of the window (amortized O(1)
-           * per bar instead of O(period)).
+           * index; the window is rescanned only when the cached
+           * extremum drops out of the window. That is O(1) per bar
+           * while the extremum sits away from the trailing edge, but
+           * it is not amortized O(1): an extremum on the oldest
+           * in-window bar drops out on the very next bar, so the
+           * rescan repeats and the cost stays O(period) per bar for
+           * as long as that persists.
+           *
+           * Tracking both extrema keeps that state going through a
+           * trend: while the high is refreshed by each new bar, the
+           * low stays pinned at the oldest bar for the whole leg
+           * (and the reverse on the way down). A flat stretch pins
+           * both. Random-walk input is the favourable case, where
+           * rescans are rare. See issue #147.
            */
           outIdx = 0;
           today = startIdx;
@@ -134338,9 +134360,20 @@ class Core {
            * output to be the same buffer.
            *
            * The highest/lowest of the window is cached with its
-           * index; a rescan of the window is needed only when the
-           * cached extremum drops out of the window (amortized O(1)
-           * per bar instead of O(period)).
+           * index; the window is rescanned only when the cached
+           * extremum drops out of the window. That is O(1) per bar
+           * while the extremum sits away from the trailing edge, but
+           * it is not amortized O(1): an extremum on the oldest
+           * in-window bar drops out on the very next bar, so the
+           * rescan repeats and the cost stays O(period) per bar for
+           * as long as that persists.
+           *
+           * Tracking both extrema keeps that state going through a
+           * trend: while the high is refreshed by each new bar, the
+           * low stays pinned at the oldest bar for the whole leg
+           * (and the reverse on the way down). A flat stretch pins
+           * both. Random-walk input is the favourable case, where
+           * rescans are rare. See issue #147.
            */
           outIdx = 0;
           today = startIdx;
@@ -134582,9 +134615,19 @@ class Core {
            *   (~period 19-20 with gcc/clang -O3 on x86-64).
            *
            * - Larger periods: cache the highest high/lowest low with its
-           *   index; a rescan of the window is needed only when the cached
-           *   extremum drops out of the window (amortized O(1) per bar
-           *   instead of O(period)).
+           *   index; the window is rescanned only when the cached extremum
+           *   drops out of the window. That is O(1) per bar while the
+           *   extremum sits away from the trailing edge, but it is not
+           *   amortized O(1): an extremum on the oldest in-window bar drops
+           *   out on the very next bar, so the rescan repeats and the cost
+           *   stays O(period) per bar for as long as that persists.
+           *
+           *   Tracking both extrema keeps that state going through a trend:
+           *   while the highest high is refreshed by each new bar, the
+           *   lowest low stays pinned at the oldest bar for the whole leg
+           *   (and the reverse on the way down). A flat stretch pins both.
+           *   Random-walk input is the favourable case, where rescans are
+           *   rare. See issue #147.
            */
           outIdx = 0;
           today = startIdx;
@@ -135328,9 +135371,19 @@ class Core {
            *   (~period 19-20 with gcc/clang -O3 on x86-64).
            *
            * - Larger periods: cache the highest high/lowest low with its
-           *   index; a rescan of the window is needed only when the cached
-           *   extremum drops out of the window (amortized O(1) per bar
-           *   instead of O(period)).
+           *   index; the window is rescanned only when the cached extremum
+           *   drops out of the window. That is O(1) per bar while the
+           *   extremum sits away from the trailing edge, but it is not
+           *   amortized O(1): an extremum on the oldest in-window bar drops
+           *   out on the very next bar, so the rescan repeats and the cost
+           *   stays O(period) per bar for as long as that persists.
+           *
+           *   Tracking both extrema keeps that state going through a trend:
+           *   while the highest high is refreshed by each new bar, the
+           *   lowest low stays pinned at the oldest bar for the whole leg
+           *   (and the reverse on the way down). A flat stretch pins both.
+           *   Random-walk input is the favourable case, where rescans are
+           *   rare. See issue #147.
            */
           outIdx = 0;
           today = startIdx;
@@ -135469,9 +135522,19 @@ class Core {
            *   (~period 19-20 with gcc/clang -O3 on x86-64).
            *
            * - Larger periods: cache the highest high/lowest low with its
-           *   index; a rescan of the window is needed only when the cached
-           *   extremum drops out of the window (amortized O(1) per bar
-           *   instead of O(period)).
+           *   index; the window is rescanned only when the cached extremum
+           *   drops out of the window. That is O(1) per bar while the
+           *   extremum sits away from the trailing edge, but it is not
+           *   amortized O(1): an extremum on the oldest in-window bar drops
+           *   out on the very next bar, so the rescan repeats and the cost
+           *   stays O(period) per bar for as long as that persists.
+           *
+           *   Tracking both extrema keeps that state going through a trend:
+           *   while the highest high is refreshed by each new bar, the
+           *   lowest low stays pinned at the oldest bar for the whole leg
+           *   (and the reverse on the way down). A flat stretch pins both.
+           *   Random-walk input is the favourable case, where rescans are
+           *   rare. See issue #147.
            */
           outIdx = 0;
           today = startIdx;
@@ -177697,6 +177760,7 @@ class Core {
      *  -------------------------------------------------------------------
      *  DM       Drew McCormack (http://www.trade-strategist.com)
      *  MF       Mario Fortier
+     *  DX       Dex Hunter (https://github.com/dexhunter)
      *
      * Change history:
      *
@@ -177704,6 +177768,7 @@ class Core {
      *  -------------------------------------------------------------------
      *  281206 DM   Initial Implementation
      *  010606 MF   Abstract local arrays. Detect divide by zero.
+     *  073126 DX   Evaluate each bar's terms once via a CIRCBUF ring (PR #154).
      */
 
        /**
@@ -177779,12 +177844,15 @@ class Core {
           int j = 0;
           int today = 0;
           int outIdx = 0;
-          int trailingIdx1 = 0;
-          int trailingIdx2 = 0;
-          int trailingIdx3 = 0;
+          int trailingPos1 = 0;
+          int trailingPos2 = 0;
           int[] usedFlag = new int[3];
           int[] periods = new int[3];
           int[] sortedPeriods = new int[3];
+          double[] term_closeMinusTrueLow;
+          double[] term_trueRange;
+          int term_Idx = 0;
+          int maxIdx_term = (32)-1;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -177806,6 +177874,14 @@ class Core {
           } else if( optInTimePeriod3 < 1 || optInTimePeriod3 > 100000 ) {
              return RetCode.BadParam;
           }
+          /* The two per-bar terms the three moving sums are built from. Both are a
+           * pure function of the bar, so each bar is evaluated once on entry and read
+           * back when it leaves each of the three windows.
+           */
+          /* One entry per bar of the longest window. Stays on the stack for every
+           * period up to 32, which covers the 7/14/28 default.
+           */
+          /* Id, Type, Static Size */
           outBegIdx.value = 0;
           outNBElement.value = 0;
           /* Ensure that the time periods are ordered from shortest to longest.
@@ -177841,47 +177917,22 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.Success ;
           }
-          /* Prime running totals used in moving averages */
+          if( optInTimePeriod3 < 1 ) return RetCode.AllocErr;
+          term_closeMinusTrueLow = new double[optInTimePeriod3];
+          term_trueRange = new double[optInTimePeriod3];
+          maxIdx_term = (optInTimePeriod3)-1;
+          term_Idx = 0;
+          /* Prime running totals used in moving averages.
+           *
+           * One pass over the longest warm-up window replaces three overlapping
+           * passes. A bar inside the shorter windows is added to those totals as it
+           * is reached, so every total still accumulates exactly the same bars in
+           * exactly the same ascending order as three separate loops did.
+           */
           a1Total = 0;
           b1Total = 0;
-          for( i = startIdx - optInTimePeriod1 + 1; i < startIdx; i += 1 ) {
-             tempLT = inLow[i];
-             tempHT = inHigh[i];
-             tempCY = inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a1Total += closeMinusTrueLow;
-             b1Total += trueRange;
-          }
           a2Total = 0;
           b2Total = 0;
-          for( i = startIdx - optInTimePeriod2 + 1; i < startIdx; i += 1 ) {
-             tempLT = inLow[i];
-             tempHT = inHigh[i];
-             tempCY = inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total += closeMinusTrueLow;
-             b2Total += trueRange;
-          }
           a3Total = 0;
           b3Total = 0;
           for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
@@ -177899,15 +177950,36 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             if( i >= startIdx - optInTimePeriod1 + 1 ) {
+                a1Total += closeMinusTrueLow;
+                b1Total += trueRange;
+             }
+             if( i >= startIdx - optInTimePeriod2 + 1 ) {
+                a2Total += closeMinusTrueLow;
+                b2Total += trueRange;
+             }
              a3Total += closeMinusTrueLow;
              b3Total += trueRange;
           }
           /* Calculate oscillator */
           today = startIdx;
           outIdx = 0;
-          trailingIdx1 = today - optInTimePeriod1 + 1;
-          trailingIdx2 = today - optInTimePeriod2 + 1;
-          trailingIdx3 = today - optInTimePeriod3 + 1;
+          /* The warm-up wrote optInTimePeriod3-1 bars, so term_Idx is the slot for
+           * `today` and, once advanced past it, the slot of the bar leaving the
+           * longest window. The two shorter windows trail it by a fixed offset.
+           */
+          trailingPos1 = term_Idx + optInTimePeriod3 - optInTimePeriod1 + 1;
+          if( trailingPos1 >= optInTimePeriod3 ) {
+             trailingPos1 -= optInTimePeriod3;
+          }
+          trailingPos2 = term_Idx + optInTimePeriod3 - optInTimePeriod2 + 1;
+          if( trailingPos2 >= optInTimePeriod3 ) {
+             trailingPos2 -= optInTimePeriod3;
+          }
           while( today <= endIdx ) {
              /* Add on today's terms */
              tempLT = inLow[today];
@@ -177924,6 +177996,8 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
              a1Total += closeMinusTrueLow;
              a2Total += closeMinusTrueLow;
              a3Total += closeMinusTrueLow;
@@ -177941,55 +178015,25 @@ class Core {
              if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
                 output += a3Total / b3Total;
              }
-             /* Remove the trailing terms to prepare for next day */
-             tempLT = inLow[trailingIdx1];
-             tempHT = inHigh[trailingIdx1];
-             tempCY = inClose[trailingIdx1 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx1] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             /* Remove the trailing terms to prepare for next day. Each was evaluated
+              * once, when its bar entered the ring.
+              */
+             a1Total -= term_closeMinusTrueLow[trailingPos1];
+             b1Total -= term_trueRange[trailingPos1];
+             trailingPos1 += 1;
+             if( trailingPos1 >= optInTimePeriod3 ) {
+                trailingPos1 = 0;
              }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             a2Total -= term_closeMinusTrueLow[trailingPos2];
+             b2Total -= term_trueRange[trailingPos2];
+             trailingPos2 += 1;
+             if( trailingPos2 >= optInTimePeriod3 ) {
+                trailingPos2 = 0;
              }
-             a1Total -= closeMinusTrueLow;
-             b1Total -= trueRange;
-             tempLT = inLow[trailingIdx2];
-             tempHT = inHigh[trailingIdx2];
-             tempCY = inClose[trailingIdx2 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx2] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total -= closeMinusTrueLow;
-             b2Total -= trueRange;
-             tempLT = inLow[trailingIdx3];
-             tempHT = inHigh[trailingIdx3];
-             tempCY = inClose[trailingIdx3 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx3] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a3Total -= closeMinusTrueLow;
-             b3Total -= trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             a3Total -= term_closeMinusTrueLow[term_Idx];
+             b3Total -= term_trueRange[term_Idx];
              /* Last operation is to write the output. Must
               * be done after the trailing index have all been
               * taken care of because the caller is allowed
@@ -178000,9 +178044,6 @@ class Core {
              /* Increment indexes */
              outIdx += 1;
              today += 1;
-             trailingIdx1 += 1;
-             trailingIdx2 += 1;
-             trailingIdx3 += 1;
           }
           /* All done. Indicate the output limits and return. */
           outNBElement.value = outIdx;
@@ -178042,12 +178083,15 @@ class Core {
           int j = 0;
           int today = 0;
           int outIdx = 0;
-          int trailingIdx1 = 0;
-          int trailingIdx2 = 0;
-          int trailingIdx3 = 0;
+          int trailingPos1 = 0;
+          int trailingPos2 = 0;
           int[] usedFlag = new int[3];
           int[] periods = new int[3];
           int[] sortedPeriods = new int[3];
+          double[] term_closeMinusTrueLow;
+          double[] term_trueRange;
+          int term_Idx = 0;
+          int maxIdx_term = (32)-1;
           outBegIdx.value = 0;
           outNBElement.value = 0;
           periods[0] = optInTimePeriod1;
@@ -178078,46 +178122,15 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.Success ;
           }
+          if( optInTimePeriod3 < 1 ) return RetCode.AllocErr;
+          term_closeMinusTrueLow = new double[optInTimePeriod3];
+          term_trueRange = new double[optInTimePeriod3];
+          maxIdx_term = (optInTimePeriod3)-1;
+          term_Idx = 0;
           a1Total = 0;
           b1Total = 0;
-          for( i = startIdx - optInTimePeriod1 + 1; i < startIdx; i += 1 ) {
-             tempLT = inLow[i];
-             tempHT = inHigh[i];
-             tempCY = inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a1Total += closeMinusTrueLow;
-             b1Total += trueRange;
-          }
           a2Total = 0;
           b2Total = 0;
-          for( i = startIdx - optInTimePeriod2 + 1; i < startIdx; i += 1 ) {
-             tempLT = inLow[i];
-             tempHT = inHigh[i];
-             tempCY = inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total += closeMinusTrueLow;
-             b2Total += trueRange;
-          }
           a3Total = 0;
           b3Total = 0;
           for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
@@ -178135,14 +178148,31 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             if( i >= startIdx - optInTimePeriod1 + 1 ) {
+                a1Total += closeMinusTrueLow;
+                b1Total += trueRange;
+             }
+             if( i >= startIdx - optInTimePeriod2 + 1 ) {
+                a2Total += closeMinusTrueLow;
+                b2Total += trueRange;
+             }
              a3Total += closeMinusTrueLow;
              b3Total += trueRange;
           }
           today = startIdx;
           outIdx = 0;
-          trailingIdx1 = today - optInTimePeriod1 + 1;
-          trailingIdx2 = today - optInTimePeriod2 + 1;
-          trailingIdx3 = today - optInTimePeriod3 + 1;
+          trailingPos1 = term_Idx + optInTimePeriod3 - optInTimePeriod1 + 1;
+          if( trailingPos1 >= optInTimePeriod3 ) {
+             trailingPos1 -= optInTimePeriod3;
+          }
+          trailingPos2 = term_Idx + optInTimePeriod3 - optInTimePeriod2 + 1;
+          if( trailingPos2 >= optInTimePeriod3 ) {
+             trailingPos2 -= optInTimePeriod3;
+          }
           while( today <= endIdx ) {
              tempLT = inLow[today];
              tempHT = inHigh[today];
@@ -178158,6 +178188,8 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
              a1Total += closeMinusTrueLow;
              a2Total += closeMinusTrueLow;
              a3Total += closeMinusTrueLow;
@@ -178174,60 +178206,25 @@ class Core {
              if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
                 output += a3Total / b3Total;
              }
-             tempLT = inLow[trailingIdx1];
-             tempHT = inHigh[trailingIdx1];
-             tempCY = inClose[trailingIdx1 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx1] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             a1Total -= term_closeMinusTrueLow[trailingPos1];
+             b1Total -= term_trueRange[trailingPos1];
+             trailingPos1 += 1;
+             if( trailingPos1 >= optInTimePeriod3 ) {
+                trailingPos1 = 0;
              }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             a2Total -= term_closeMinusTrueLow[trailingPos2];
+             b2Total -= term_trueRange[trailingPos2];
+             trailingPos2 += 1;
+             if( trailingPos2 >= optInTimePeriod3 ) {
+                trailingPos2 = 0;
              }
-             a1Total -= closeMinusTrueLow;
-             b1Total -= trueRange;
-             tempLT = inLow[trailingIdx2];
-             tempHT = inHigh[trailingIdx2];
-             tempCY = inClose[trailingIdx2 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx2] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total -= closeMinusTrueLow;
-             b2Total -= trueRange;
-             tempLT = inLow[trailingIdx3];
-             tempHT = inHigh[trailingIdx3];
-             tempCY = inClose[trailingIdx3 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx3] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a3Total -= closeMinusTrueLow;
-             b3Total -= trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             a3Total -= term_closeMinusTrueLow[term_Idx];
+             b3Total -= term_trueRange[term_Idx];
              outReal[outIdx] = 100.0 * (output / 7.0);
              outIdx += 1;
              today += 1;
-             trailingIdx1 += 1;
-             trailingIdx2 += 1;
-             trailingIdx3 += 1;
           }
           outNBElement.value = outIdx;
           outBegIdx.value = startIdx;
@@ -178266,12 +178263,15 @@ class Core {
           int j = 0;
           int today = 0;
           int outIdx = 0;
-          int trailingIdx1 = 0;
-          int trailingIdx2 = 0;
-          int trailingIdx3 = 0;
+          int trailingPos1 = 0;
+          int trailingPos2 = 0;
           int[] usedFlag = new int[3];
           int[] periods = new int[3];
           int[] sortedPeriods = new int[3];
+          double[] term_closeMinusTrueLow;
+          double[] term_trueRange;
+          int term_Idx = 0;
+          int maxIdx_term = (32)-1;
           if( startIdx < 0 ) {
              return RetCode.OutOfRangeStartIndex ;
           }
@@ -178323,46 +178323,15 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.Success ;
           }
+          if( optInTimePeriod3 < 1 ) return RetCode.AllocErr;
+          term_closeMinusTrueLow = new double[optInTimePeriod3];
+          term_trueRange = new double[optInTimePeriod3];
+          maxIdx_term = (optInTimePeriod3)-1;
+          term_Idx = 0;
           a1Total = 0;
           b1Total = 0;
-          for( i = startIdx - optInTimePeriod1 + 1; i < startIdx; i += 1 ) {
-             tempLT = (double)inLow[i];
-             tempHT = (double)inHigh[i];
-             tempCY = (double)inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a1Total += closeMinusTrueLow;
-             b1Total += trueRange;
-          }
           a2Total = 0;
           b2Total = 0;
-          for( i = startIdx - optInTimePeriod2 + 1; i < startIdx; i += 1 ) {
-             tempLT = (double)inLow[i];
-             tempHT = (double)inHigh[i];
-             tempCY = (double)inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total += closeMinusTrueLow;
-             b2Total += trueRange;
-          }
           a3Total = 0;
           b3Total = 0;
           for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
@@ -178380,14 +178349,31 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             if( i >= startIdx - optInTimePeriod1 + 1 ) {
+                a1Total += closeMinusTrueLow;
+                b1Total += trueRange;
+             }
+             if( i >= startIdx - optInTimePeriod2 + 1 ) {
+                a2Total += closeMinusTrueLow;
+                b2Total += trueRange;
+             }
              a3Total += closeMinusTrueLow;
              b3Total += trueRange;
           }
           today = startIdx;
           outIdx = 0;
-          trailingIdx1 = today - optInTimePeriod1 + 1;
-          trailingIdx2 = today - optInTimePeriod2 + 1;
-          trailingIdx3 = today - optInTimePeriod3 + 1;
+          trailingPos1 = term_Idx + optInTimePeriod3 - optInTimePeriod1 + 1;
+          if( trailingPos1 >= optInTimePeriod3 ) {
+             trailingPos1 -= optInTimePeriod3;
+          }
+          trailingPos2 = term_Idx + optInTimePeriod3 - optInTimePeriod2 + 1;
+          if( trailingPos2 >= optInTimePeriod3 ) {
+             trailingPos2 -= optInTimePeriod3;
+          }
           while( today <= endIdx ) {
              tempLT = (double)inLow[today];
              tempHT = (double)inHigh[today];
@@ -178403,6 +178389,8 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
              a1Total += closeMinusTrueLow;
              a2Total += closeMinusTrueLow;
              a3Total += closeMinusTrueLow;
@@ -178419,60 +178407,25 @@ class Core {
              if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
                 output += a3Total / b3Total;
              }
-             tempLT = (double)inLow[trailingIdx1];
-             tempHT = (double)inHigh[trailingIdx1];
-             tempCY = (double)inClose[trailingIdx1 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[trailingIdx1] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             a1Total -= term_closeMinusTrueLow[trailingPos1];
+             b1Total -= term_trueRange[trailingPos1];
+             trailingPos1 += 1;
+             if( trailingPos1 >= optInTimePeriod3 ) {
+                trailingPos1 = 0;
              }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             a2Total -= term_closeMinusTrueLow[trailingPos2];
+             b2Total -= term_trueRange[trailingPos2];
+             trailingPos2 += 1;
+             if( trailingPos2 >= optInTimePeriod3 ) {
+                trailingPos2 = 0;
              }
-             a1Total -= closeMinusTrueLow;
-             b1Total -= trueRange;
-             tempLT = (double)inLow[trailingIdx2];
-             tempHT = (double)inHigh[trailingIdx2];
-             tempCY = (double)inClose[trailingIdx2 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[trailingIdx2] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total -= closeMinusTrueLow;
-             b2Total -= trueRange;
-             tempLT = (double)inLow[trailingIdx3];
-             tempHT = (double)inHigh[trailingIdx3];
-             tempCY = (double)inClose[trailingIdx3 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[trailingIdx3] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a3Total -= closeMinusTrueLow;
-             b3Total -= trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             a3Total -= term_closeMinusTrueLow[term_Idx];
+             b3Total -= term_trueRange[term_Idx];
              outReal[outIdx] = 100.0 * (output / 7.0);
              outIdx += 1;
              today += 1;
-             trailingIdx1 += 1;
-             trailingIdx2 += 1;
-             trailingIdx3 += 1;
           }
           outNBElement.value = outIdx;
           outBegIdx.value = startIdx;
@@ -178511,12 +178464,15 @@ class Core {
           int j = 0;
           int today = 0;
           int outIdx = 0;
-          int trailingIdx1 = 0;
-          int trailingIdx2 = 0;
-          int trailingIdx3 = 0;
+          int trailingPos1 = 0;
+          int trailingPos2 = 0;
           int[] usedFlag = new int[3];
           int[] periods = new int[3];
           int[] sortedPeriods = new int[3];
+          double[] term_closeMinusTrueLow;
+          double[] term_trueRange;
+          int term_Idx = 0;
+          int maxIdx_term = (32)-1;
           outBegIdx.value = 0;
           outNBElement.value = 0;
           periods[0] = optInTimePeriod1;
@@ -178547,46 +178503,15 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.Success ;
           }
+          if( optInTimePeriod3 < 1 ) return RetCode.AllocErr;
+          term_closeMinusTrueLow = new double[optInTimePeriod3];
+          term_trueRange = new double[optInTimePeriod3];
+          maxIdx_term = (optInTimePeriod3)-1;
+          term_Idx = 0;
           a1Total = 0;
           b1Total = 0;
-          for( i = startIdx - optInTimePeriod1 + 1; i < startIdx; i += 1 ) {
-             tempLT = (double)inLow[i];
-             tempHT = (double)inHigh[i];
-             tempCY = (double)inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a1Total += closeMinusTrueLow;
-             b1Total += trueRange;
-          }
           a2Total = 0;
           b2Total = 0;
-          for( i = startIdx - optInTimePeriod2 + 1; i < startIdx; i += 1 ) {
-             tempLT = (double)inLow[i];
-             tempHT = (double)inHigh[i];
-             tempCY = (double)inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total += closeMinusTrueLow;
-             b2Total += trueRange;
-          }
           a3Total = 0;
           b3Total = 0;
           for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
@@ -178604,14 +178529,31 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             if( i >= startIdx - optInTimePeriod1 + 1 ) {
+                a1Total += closeMinusTrueLow;
+                b1Total += trueRange;
+             }
+             if( i >= startIdx - optInTimePeriod2 + 1 ) {
+                a2Total += closeMinusTrueLow;
+                b2Total += trueRange;
+             }
              a3Total += closeMinusTrueLow;
              b3Total += trueRange;
           }
           today = startIdx;
           outIdx = 0;
-          trailingIdx1 = today - optInTimePeriod1 + 1;
-          trailingIdx2 = today - optInTimePeriod2 + 1;
-          trailingIdx3 = today - optInTimePeriod3 + 1;
+          trailingPos1 = term_Idx + optInTimePeriod3 - optInTimePeriod1 + 1;
+          if( trailingPos1 >= optInTimePeriod3 ) {
+             trailingPos1 -= optInTimePeriod3;
+          }
+          trailingPos2 = term_Idx + optInTimePeriod3 - optInTimePeriod2 + 1;
+          if( trailingPos2 >= optInTimePeriod3 ) {
+             trailingPos2 -= optInTimePeriod3;
+          }
           while( today <= endIdx ) {
              tempLT = (double)inLow[today];
              tempHT = (double)inHigh[today];
@@ -178627,6 +178569,8 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
              a1Total += closeMinusTrueLow;
              a2Total += closeMinusTrueLow;
              a3Total += closeMinusTrueLow;
@@ -178643,60 +178587,25 @@ class Core {
              if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
                 output += a3Total / b3Total;
              }
-             tempLT = (double)inLow[trailingIdx1];
-             tempHT = (double)inHigh[trailingIdx1];
-             tempCY = (double)inClose[trailingIdx1 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[trailingIdx1] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             a1Total -= term_closeMinusTrueLow[trailingPos1];
+             b1Total -= term_trueRange[trailingPos1];
+             trailingPos1 += 1;
+             if( trailingPos1 >= optInTimePeriod3 ) {
+                trailingPos1 = 0;
              }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             a2Total -= term_closeMinusTrueLow[trailingPos2];
+             b2Total -= term_trueRange[trailingPos2];
+             trailingPos2 += 1;
+             if( trailingPos2 >= optInTimePeriod3 ) {
+                trailingPos2 = 0;
              }
-             a1Total -= closeMinusTrueLow;
-             b1Total -= trueRange;
-             tempLT = (double)inLow[trailingIdx2];
-             tempHT = (double)inHigh[trailingIdx2];
-             tempCY = (double)inClose[trailingIdx2 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[trailingIdx2] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total -= closeMinusTrueLow;
-             b2Total -= trueRange;
-             tempLT = (double)inLow[trailingIdx3];
-             tempHT = (double)inHigh[trailingIdx3];
-             tempCY = (double)inClose[trailingIdx3 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = (double)inClose[trailingIdx3] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a3Total -= closeMinusTrueLow;
-             b3Total -= trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             a3Total -= term_closeMinusTrueLow[term_Idx];
+             b3Total -= term_trueRange[term_Idx];
              outReal[outIdx] = 100.0 * (output / 7.0);
              outIdx += 1;
              today += 1;
-             trailingIdx1 += 1;
-             trailingIdx2 += 1;
-             trailingIdx3 += 1;
           }
           outNBElement.value = outIdx;
           outBegIdx.value = startIdx;
@@ -178933,25 +178842,14 @@ class Core {
           double b2Total;
           double b3Total;
           double output;
+          int trailingPos1;
+          int trailingPos2;
+          int term_Idx;
+          int maxIdx_term;
           double lag1_inClose;
-          int ringPos_trailingIdx1;
-          int ringCap_trailingIdx1;
-          int ringLag_trailingIdx1;
-          double[] ring_trailingIdx1_inHigh;
-          double[] ring_trailingIdx1_inLow;
-          double[] ring_trailingIdx1_inClose;
-          int ringPos_trailingIdx2;
-          int ringCap_trailingIdx2;
-          int ringLag_trailingIdx2;
-          double[] ring_trailingIdx2_inHigh;
-          double[] ring_trailingIdx2_inLow;
-          double[] ring_trailingIdx2_inClose;
-          int ringPos_trailingIdx3;
-          int ringCap_trailingIdx3;
-          int ringLag_trailingIdx3;
-          double[] ring_trailingIdx3_inHigh;
-          double[] ring_trailingIdx3_inLow;
-          double[] ring_trailingIdx3_inClose;
+          int cbSize_term;
+          double[] cb_term_closeMinusTrueLow;
+          double[] cb_term_trueRange;
           double cur_outReal;
           OutRange fillRange;
 
@@ -178975,25 +178873,14 @@ class Core {
              this.b2Total = other.b2Total;
              this.b3Total = other.b3Total;
              this.output = other.output;
+             this.trailingPos1 = other.trailingPos1;
+             this.trailingPos2 = other.trailingPos2;
+             this.term_Idx = other.term_Idx;
+             this.maxIdx_term = other.maxIdx_term;
              this.lag1_inClose = other.lag1_inClose;
-             this.ringPos_trailingIdx1 = other.ringPos_trailingIdx1;
-             this.ringCap_trailingIdx1 = other.ringCap_trailingIdx1;
-             this.ringLag_trailingIdx1 = other.ringLag_trailingIdx1;
-             this.ring_trailingIdx1_inHigh = other.ring_trailingIdx1_inHigh.clone();
-             this.ring_trailingIdx1_inLow = other.ring_trailingIdx1_inLow.clone();
-             this.ring_trailingIdx1_inClose = other.ring_trailingIdx1_inClose.clone();
-             this.ringPos_trailingIdx2 = other.ringPos_trailingIdx2;
-             this.ringCap_trailingIdx2 = other.ringCap_trailingIdx2;
-             this.ringLag_trailingIdx2 = other.ringLag_trailingIdx2;
-             this.ring_trailingIdx2_inHigh = other.ring_trailingIdx2_inHigh.clone();
-             this.ring_trailingIdx2_inLow = other.ring_trailingIdx2_inLow.clone();
-             this.ring_trailingIdx2_inClose = other.ring_trailingIdx2_inClose.clone();
-             this.ringPos_trailingIdx3 = other.ringPos_trailingIdx3;
-             this.ringCap_trailingIdx3 = other.ringCap_trailingIdx3;
-             this.ringLag_trailingIdx3 = other.ringLag_trailingIdx3;
-             this.ring_trailingIdx3_inHigh = other.ring_trailingIdx3_inHigh.clone();
-             this.ring_trailingIdx3_inLow = other.ring_trailingIdx3_inLow.clone();
-             this.ring_trailingIdx3_inClose = other.ring_trailingIdx3_inClose.clone();
+             this.cbSize_term = other.cbSize_term;
+             this.cb_term_closeMinusTrueLow = other.cb_term_closeMinusTrueLow.clone();
+             this.cb_term_trueRange = other.cb_term_trueRange.clone();
              this.cur_outReal = other.cur_outReal;
              this.fillRange = other.fillRange;
           }
@@ -179046,15 +178933,6 @@ class Core {
           double tempHT = 0.0;
           double tempLT = 0.0;
           double tempCY = 0.0;
-          sp.ring_trailingIdx1_inHigh[sp.ringPos_trailingIdx1] = inHigh;
-          sp.ring_trailingIdx1_inLow[sp.ringPos_trailingIdx1] = inLow;
-          sp.ring_trailingIdx1_inClose[sp.ringPos_trailingIdx1] = inClose;
-          sp.ring_trailingIdx2_inHigh[sp.ringPos_trailingIdx2] = inHigh;
-          sp.ring_trailingIdx2_inLow[sp.ringPos_trailingIdx2] = inLow;
-          sp.ring_trailingIdx2_inClose[sp.ringPos_trailingIdx2] = inClose;
-          sp.ring_trailingIdx3_inHigh[sp.ringPos_trailingIdx3] = inHigh;
-          sp.ring_trailingIdx3_inLow[sp.ringPos_trailingIdx3] = inLow;
-          sp.ring_trailingIdx3_inClose[sp.ringPos_trailingIdx3] = inClose;
           /* Add on today's terms */
           tempLT = inLow;
           tempHT = inHigh;
@@ -179070,6 +178948,8 @@ class Core {
           if( tempDouble > trueRange ) {
              trueRange = tempDouble;
           }
+          sp.cb_term_closeMinusTrueLow[sp.term_Idx] = closeMinusTrueLow;
+          sp.cb_term_trueRange[sp.term_Idx] = trueRange;
           sp.a1Total += closeMinusTrueLow;
           sp.a2Total += closeMinusTrueLow;
           sp.a3Total += closeMinusTrueLow;
@@ -179087,55 +178967,27 @@ class Core {
           if( !((-0.00000000000001 < sp.b3Total) && (sp.b3Total < 0.00000000000001)) ) {
              sp.output += sp.a3Total / sp.b3Total;
           }
-          /* Remove the trailing terms to prepare for next day */
-          tempLT = sp.ring_trailingIdx1_inLow[(sp.ringPos_trailingIdx1 + sp.ringCap_trailingIdx1 - sp.ringLag_trailingIdx1) % sp.ringCap_trailingIdx1];
-          tempHT = sp.ring_trailingIdx1_inHigh[(sp.ringPos_trailingIdx1 + sp.ringCap_trailingIdx1 - sp.ringLag_trailingIdx1) % sp.ringCap_trailingIdx1];
-          tempCY = sp.ring_trailingIdx1_inClose[(sp.ringPos_trailingIdx1 + sp.ringCap_trailingIdx1 - sp.ringLag_trailingIdx1 - 1) % sp.ringCap_trailingIdx1];
-          trueLow = Math.min(tempLT, tempCY);
-          closeMinusTrueLow = sp.ring_trailingIdx1_inClose[(sp.ringPos_trailingIdx1 + sp.ringCap_trailingIdx1 - sp.ringLag_trailingIdx1) % sp.ringCap_trailingIdx1] - trueLow;
-          trueRange = tempHT - tempLT;
-          tempDouble = Math.abs(tempCY - tempHT);
-          if( tempDouble > trueRange ) {
-             trueRange = tempDouble;
+          /* Remove the trailing terms to prepare for next day. Each was evaluated
+           * once, when its bar entered the ring.
+           */
+          sp.a1Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos1];
+          sp.b1Total -= sp.cb_term_trueRange[sp.trailingPos1];
+          sp.trailingPos1 += 1;
+          if( sp.trailingPos1 >= sp.optInTimePeriod3 ) {
+             sp.trailingPos1 = 0;
           }
-          tempDouble = Math.abs(tempCY - tempLT);
-          if( tempDouble > trueRange ) {
-             trueRange = tempDouble;
+          sp.a2Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos2];
+          sp.b2Total -= sp.cb_term_trueRange[sp.trailingPos2];
+          sp.trailingPos2 += 1;
+          if( sp.trailingPos2 >= sp.optInTimePeriod3 ) {
+             sp.trailingPos2 = 0;
           }
-          sp.a1Total -= closeMinusTrueLow;
-          sp.b1Total -= trueRange;
-          tempLT = sp.ring_trailingIdx2_inLow[(sp.ringPos_trailingIdx2 + sp.ringCap_trailingIdx2 - sp.ringLag_trailingIdx2) % sp.ringCap_trailingIdx2];
-          tempHT = sp.ring_trailingIdx2_inHigh[(sp.ringPos_trailingIdx2 + sp.ringCap_trailingIdx2 - sp.ringLag_trailingIdx2) % sp.ringCap_trailingIdx2];
-          tempCY = sp.ring_trailingIdx2_inClose[(sp.ringPos_trailingIdx2 + sp.ringCap_trailingIdx2 - sp.ringLag_trailingIdx2 - 1) % sp.ringCap_trailingIdx2];
-          trueLow = Math.min(tempLT, tempCY);
-          closeMinusTrueLow = sp.ring_trailingIdx2_inClose[(sp.ringPos_trailingIdx2 + sp.ringCap_trailingIdx2 - sp.ringLag_trailingIdx2) % sp.ringCap_trailingIdx2] - trueLow;
-          trueRange = tempHT - tempLT;
-          tempDouble = Math.abs(tempCY - tempHT);
-          if( tempDouble > trueRange ) {
-             trueRange = tempDouble;
+          sp.term_Idx = sp.term_Idx + 1;
+          if( sp.term_Idx > sp.maxIdx_term ) {
+             sp.term_Idx = 0;
           }
-          tempDouble = Math.abs(tempCY - tempLT);
-          if( tempDouble > trueRange ) {
-             trueRange = tempDouble;
-          }
-          sp.a2Total -= closeMinusTrueLow;
-          sp.b2Total -= trueRange;
-          tempLT = sp.ring_trailingIdx3_inLow[(sp.ringPos_trailingIdx3 + sp.ringCap_trailingIdx3 - sp.ringLag_trailingIdx3) % sp.ringCap_trailingIdx3];
-          tempHT = sp.ring_trailingIdx3_inHigh[(sp.ringPos_trailingIdx3 + sp.ringCap_trailingIdx3 - sp.ringLag_trailingIdx3) % sp.ringCap_trailingIdx3];
-          tempCY = sp.ring_trailingIdx3_inClose[(sp.ringPos_trailingIdx3 + sp.ringCap_trailingIdx3 - sp.ringLag_trailingIdx3 - 1) % sp.ringCap_trailingIdx3];
-          trueLow = Math.min(tempLT, tempCY);
-          closeMinusTrueLow = sp.ring_trailingIdx3_inClose[(sp.ringPos_trailingIdx3 + sp.ringCap_trailingIdx3 - sp.ringLag_trailingIdx3) % sp.ringCap_trailingIdx3] - trueLow;
-          trueRange = tempHT - tempLT;
-          tempDouble = Math.abs(tempCY - tempHT);
-          if( tempDouble > trueRange ) {
-             trueRange = tempDouble;
-          }
-          tempDouble = Math.abs(tempCY - tempLT);
-          if( tempDouble > trueRange ) {
-             trueRange = tempDouble;
-          }
-          sp.a3Total -= closeMinusTrueLow;
-          sp.b3Total -= trueRange;
+          sp.a3Total -= sp.cb_term_closeMinusTrueLow[sp.term_Idx];
+          sp.b3Total -= sp.cb_term_trueRange[sp.term_Idx];
           /* Last operation is to write the output. Must
            * be done after the trailing index have all been
            * taken care of because the caller is allowed
@@ -179145,27 +178997,6 @@ class Core {
           sp.cur_outReal = 100.0 * (sp.output / 7.0);
           /* Increment indexes */
           sp.lag1_inClose = inClose;
-          sp.ring_trailingIdx1_inHigh[sp.ringPos_trailingIdx1] = inHigh;
-          sp.ring_trailingIdx1_inLow[sp.ringPos_trailingIdx1] = inLow;
-          sp.ring_trailingIdx1_inClose[sp.ringPos_trailingIdx1] = inClose;
-          sp.ringPos_trailingIdx1 = sp.ringPos_trailingIdx1 + 1;
-          if( sp.ringPos_trailingIdx1 >= sp.ringCap_trailingIdx1 ) {
-             sp.ringPos_trailingIdx1 = 0;
-          }
-          sp.ring_trailingIdx2_inHigh[sp.ringPos_trailingIdx2] = inHigh;
-          sp.ring_trailingIdx2_inLow[sp.ringPos_trailingIdx2] = inLow;
-          sp.ring_trailingIdx2_inClose[sp.ringPos_trailingIdx2] = inClose;
-          sp.ringPos_trailingIdx2 = sp.ringPos_trailingIdx2 + 1;
-          if( sp.ringPos_trailingIdx2 >= sp.ringCap_trailingIdx2 ) {
-             sp.ringPos_trailingIdx2 = 0;
-          }
-          sp.ring_trailingIdx3_inHigh[sp.ringPos_trailingIdx3] = inHigh;
-          sp.ring_trailingIdx3_inLow[sp.ringPos_trailingIdx3] = inLow;
-          sp.ring_trailingIdx3_inClose[sp.ringPos_trailingIdx3] = inClose;
-          sp.ringPos_trailingIdx3 = sp.ringPos_trailingIdx3 + 1;
-          if( sp.ringPos_trailingIdx3 >= sp.ringCap_trailingIdx3 ) {
-             sp.ringPos_trailingIdx3 = 0;
-          }
        }
        private RetCode ultOscOpenBody( UltOscStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3 )
        {
@@ -179190,12 +179021,15 @@ class Core {
           int j = 0;
           int today = 0;
           int outIdx = 0;
-          int trailingIdx1 = 0;
-          int trailingIdx2 = 0;
-          int trailingIdx3 = 0;
+          int trailingPos1 = 0;
+          int trailingPos2 = 0;
           int[] usedFlag = new int[3];
           int[] periods = new int[3];
           int[] sortedPeriods = new int[3];
+          double[] term_closeMinusTrueLow;
+          double[] term_trueRange;
+          int term_Idx = 0;
+          int maxIdx_term = (32)-1;
           MInteger outBegIdx = new MInteger();
           MInteger outNBElement = new MInteger();
           double lastValue_outReal = 0.0;
@@ -179219,6 +179053,14 @@ class Core {
           } else if( optInTimePeriod3 < 1 || optInTimePeriod3 > 100000 ) {
              return RetCode.BadParam;
           }
+          /* The two per-bar terms the three moving sums are built from. Both are a
+           * pure function of the bar, so each bar is evaluated once on entry and read
+           * back when it leaves each of the three windows.
+           */
+          /* One entry per bar of the longest window. Stays on the stack for every
+           * period up to 32, which covers the 7/14/28 default.
+           */
+          /* Id, Type, Static Size */
           outBegIdx.value = 0;
           outNBElement.value = 0;
           /* Ensure that the time periods are ordered from shortest to longest.
@@ -179254,47 +179096,22 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          /* Prime running totals used in moving averages */
+          if( optInTimePeriod3 < 1 ) return RetCode.AllocErr;
+          term_closeMinusTrueLow = new double[optInTimePeriod3];
+          term_trueRange = new double[optInTimePeriod3];
+          maxIdx_term = (optInTimePeriod3)-1;
+          term_Idx = 0;
+          /* Prime running totals used in moving averages.
+           *
+           * One pass over the longest warm-up window replaces three overlapping
+           * passes. A bar inside the shorter windows is added to those totals as it
+           * is reached, so every total still accumulates exactly the same bars in
+           * exactly the same ascending order as three separate loops did.
+           */
           a1Total = 0;
           b1Total = 0;
-          for( i = startIdx - optInTimePeriod1 + 1; i < startIdx; i += 1 ) {
-             tempLT = inLow[i];
-             tempHT = inHigh[i];
-             tempCY = inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a1Total += closeMinusTrueLow;
-             b1Total += trueRange;
-          }
           a2Total = 0;
           b2Total = 0;
-          for( i = startIdx - optInTimePeriod2 + 1; i < startIdx; i += 1 ) {
-             tempLT = inLow[i];
-             tempHT = inHigh[i];
-             tempCY = inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total += closeMinusTrueLow;
-             b2Total += trueRange;
-          }
           a3Total = 0;
           b3Total = 0;
           for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
@@ -179312,15 +179129,36 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             if( i >= startIdx - optInTimePeriod1 + 1 ) {
+                a1Total += closeMinusTrueLow;
+                b1Total += trueRange;
+             }
+             if( i >= startIdx - optInTimePeriod2 + 1 ) {
+                a2Total += closeMinusTrueLow;
+                b2Total += trueRange;
+             }
              a3Total += closeMinusTrueLow;
              b3Total += trueRange;
           }
           /* Calculate oscillator */
           today = startIdx;
           outIdx = 0;
-          trailingIdx1 = today - optInTimePeriod1 + 1;
-          trailingIdx2 = today - optInTimePeriod2 + 1;
-          trailingIdx3 = today - optInTimePeriod3 + 1;
+          /* The warm-up wrote optInTimePeriod3-1 bars, so term_Idx is the slot for
+           * `today` and, once advanced past it, the slot of the bar leaving the
+           * longest window. The two shorter windows trail it by a fixed offset.
+           */
+          trailingPos1 = term_Idx + optInTimePeriod3 - optInTimePeriod1 + 1;
+          if( trailingPos1 >= optInTimePeriod3 ) {
+             trailingPos1 -= optInTimePeriod3;
+          }
+          trailingPos2 = term_Idx + optInTimePeriod3 - optInTimePeriod2 + 1;
+          if( trailingPos2 >= optInTimePeriod3 ) {
+             trailingPos2 -= optInTimePeriod3;
+          }
           while( today <= endIdx ) {
              /* Add on today's terms */
              tempLT = inLow[today];
@@ -179337,6 +179175,8 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
              a1Total += closeMinusTrueLow;
              a2Total += closeMinusTrueLow;
              a3Total += closeMinusTrueLow;
@@ -179354,55 +179194,25 @@ class Core {
              if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
                 output += a3Total / b3Total;
              }
-             /* Remove the trailing terms to prepare for next day */
-             tempLT = inLow[trailingIdx1];
-             tempHT = inHigh[trailingIdx1];
-             tempCY = inClose[trailingIdx1 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx1] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             /* Remove the trailing terms to prepare for next day. Each was evaluated
+              * once, when its bar entered the ring.
+              */
+             a1Total -= term_closeMinusTrueLow[trailingPos1];
+             b1Total -= term_trueRange[trailingPos1];
+             trailingPos1 += 1;
+             if( trailingPos1 >= optInTimePeriod3 ) {
+                trailingPos1 = 0;
              }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             a2Total -= term_closeMinusTrueLow[trailingPos2];
+             b2Total -= term_trueRange[trailingPos2];
+             trailingPos2 += 1;
+             if( trailingPos2 >= optInTimePeriod3 ) {
+                trailingPos2 = 0;
              }
-             a1Total -= closeMinusTrueLow;
-             b1Total -= trueRange;
-             tempLT = inLow[trailingIdx2];
-             tempHT = inHigh[trailingIdx2];
-             tempCY = inClose[trailingIdx2 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx2] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total -= closeMinusTrueLow;
-             b2Total -= trueRange;
-             tempLT = inLow[trailingIdx3];
-             tempHT = inHigh[trailingIdx3];
-             tempCY = inClose[trailingIdx3 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx3] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a3Total -= closeMinusTrueLow;
-             b3Total -= trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             a3Total -= term_closeMinusTrueLow[term_Idx];
+             b3Total -= term_trueRange[term_Idx];
              /* Last operation is to write the output. Must
               * be done after the trailing index have all been
               * taken care of because the caller is allowed
@@ -179413,67 +179223,14 @@ class Core {
              /* Increment indexes */
              outIdx += 1;
              today += 1;
-             trailingIdx1 += 1;
-             trailingIdx2 += 1;
-             trailingIdx3 += 1;
           }
           /* All done. Indicate the output limits and return. */
           outNBElement.value = outIdx;
           outBegIdx.value = startIdx;
           /* Capture the live batch state into the handle. */
-          int capLag_trailingIdx1 = today - trailingIdx1;
-          int cap_trailingIdx1 = capLag_trailingIdx1 + 2;
-          if( capLag_trailingIdx1 < 0 || cap_trailingIdx1 > historyLen ) {
+          int capCb_term = maxIdx_term + 1;
+          if( capCb_term > historyLen + 1 ) {
              return RetCode.InternalError;
-          }
-          int allocN_trailingIdx1 = (cap_trailingIdx1 > 0)? cap_trailingIdx1 : 1;
-          double[] capRing_trailingIdx1_inHigh = new double[allocN_trailingIdx1];
-          for( int fillJ = historyLen - cap_trailingIdx1; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx1_inHigh[fillJ % cap_trailingIdx1] = inHigh[fillJ];
-          }
-          double[] capRing_trailingIdx1_inLow = new double[allocN_trailingIdx1];
-          for( int fillJ = historyLen - cap_trailingIdx1; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx1_inLow[fillJ % cap_trailingIdx1] = inLow[fillJ];
-          }
-          double[] capRing_trailingIdx1_inClose = new double[allocN_trailingIdx1];
-          for( int fillJ = historyLen - cap_trailingIdx1; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx1_inClose[fillJ % cap_trailingIdx1] = inClose[fillJ];
-          }
-          int capLag_trailingIdx2 = today - trailingIdx2;
-          int cap_trailingIdx2 = capLag_trailingIdx2 + 2;
-          if( capLag_trailingIdx2 < 0 || cap_trailingIdx2 > historyLen ) {
-             return RetCode.InternalError;
-          }
-          int allocN_trailingIdx2 = (cap_trailingIdx2 > 0)? cap_trailingIdx2 : 1;
-          double[] capRing_trailingIdx2_inHigh = new double[allocN_trailingIdx2];
-          for( int fillJ = historyLen - cap_trailingIdx2; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx2_inHigh[fillJ % cap_trailingIdx2] = inHigh[fillJ];
-          }
-          double[] capRing_trailingIdx2_inLow = new double[allocN_trailingIdx2];
-          for( int fillJ = historyLen - cap_trailingIdx2; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx2_inLow[fillJ % cap_trailingIdx2] = inLow[fillJ];
-          }
-          double[] capRing_trailingIdx2_inClose = new double[allocN_trailingIdx2];
-          for( int fillJ = historyLen - cap_trailingIdx2; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx2_inClose[fillJ % cap_trailingIdx2] = inClose[fillJ];
-          }
-          int capLag_trailingIdx3 = today - trailingIdx3;
-          int cap_trailingIdx3 = capLag_trailingIdx3 + 2;
-          if( capLag_trailingIdx3 < 0 || cap_trailingIdx3 > historyLen ) {
-             return RetCode.InternalError;
-          }
-          int allocN_trailingIdx3 = (cap_trailingIdx3 > 0)? cap_trailingIdx3 : 1;
-          double[] capRing_trailingIdx3_inHigh = new double[allocN_trailingIdx3];
-          for( int fillJ = historyLen - cap_trailingIdx3; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx3_inHigh[fillJ % cap_trailingIdx3] = inHigh[fillJ];
-          }
-          double[] capRing_trailingIdx3_inLow = new double[allocN_trailingIdx3];
-          for( int fillJ = historyLen - cap_trailingIdx3; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx3_inLow[fillJ % cap_trailingIdx3] = inLow[fillJ];
-          }
-          double[] capRing_trailingIdx3_inClose = new double[allocN_trailingIdx3];
-          for( int fillJ = historyLen - cap_trailingIdx3; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx3_inClose[fillJ % cap_trailingIdx3] = inClose[fillJ];
           }
           sp.optInTimePeriod1 = optInTimePeriod1;
           sp.optInTimePeriod2 = optInTimePeriod2;
@@ -179485,25 +179242,14 @@ class Core {
           sp.b2Total = b2Total;
           sp.b3Total = b3Total;
           sp.output = output;
+          sp.trailingPos1 = trailingPos1;
+          sp.trailingPos2 = trailingPos2;
+          sp.term_Idx = term_Idx;
+          sp.maxIdx_term = maxIdx_term;
           sp.lag1_inClose = inClose[historyLen - 1];
-          sp.ringPos_trailingIdx1 = historyLen % cap_trailingIdx1;
-          sp.ringCap_trailingIdx1 = cap_trailingIdx1;
-          sp.ringLag_trailingIdx1 = capLag_trailingIdx1;
-          sp.ring_trailingIdx1_inHigh = capRing_trailingIdx1_inHigh;
-          sp.ring_trailingIdx1_inLow = capRing_trailingIdx1_inLow;
-          sp.ring_trailingIdx1_inClose = capRing_trailingIdx1_inClose;
-          sp.ringPos_trailingIdx2 = historyLen % cap_trailingIdx2;
-          sp.ringCap_trailingIdx2 = cap_trailingIdx2;
-          sp.ringLag_trailingIdx2 = capLag_trailingIdx2;
-          sp.ring_trailingIdx2_inHigh = capRing_trailingIdx2_inHigh;
-          sp.ring_trailingIdx2_inLow = capRing_trailingIdx2_inLow;
-          sp.ring_trailingIdx2_inClose = capRing_trailingIdx2_inClose;
-          sp.ringPos_trailingIdx3 = historyLen % cap_trailingIdx3;
-          sp.ringCap_trailingIdx3 = cap_trailingIdx3;
-          sp.ringLag_trailingIdx3 = capLag_trailingIdx3;
-          sp.ring_trailingIdx3_inHigh = capRing_trailingIdx3_inHigh;
-          sp.ring_trailingIdx3_inLow = capRing_trailingIdx3_inLow;
-          sp.ring_trailingIdx3_inClose = capRing_trailingIdx3_inClose;
+          sp.cbSize_term = capCb_term;
+          sp.cb_term_closeMinusTrueLow = term_closeMinusTrueLow;
+          sp.cb_term_trueRange = term_trueRange;
           sp.cur_outReal = lastValue_outReal;
           return RetCode.Success;
        }
@@ -179530,12 +179276,15 @@ class Core {
           int j = 0;
           int today = 0;
           int outIdx = 0;
-          int trailingIdx1 = 0;
-          int trailingIdx2 = 0;
-          int trailingIdx3 = 0;
+          int trailingPos1 = 0;
+          int trailingPos2 = 0;
           int[] usedFlag = new int[3];
           int[] periods = new int[3];
           int[] sortedPeriods = new int[3];
+          double[] term_closeMinusTrueLow;
+          double[] term_trueRange;
+          int term_Idx = 0;
+          int maxIdx_term = (32)-1;
           int historyLen = inHigh.length;
           int endIdx = historyLen - 1;
           int startIdx = 0;
@@ -179560,6 +179309,14 @@ class Core {
           if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
              return RetCode.BadParam;
           }
+          /* The two per-bar terms the three moving sums are built from. Both are a
+           * pure function of the bar, so each bar is evaluated once on entry and read
+           * back when it leaves each of the three windows.
+           */
+          /* One entry per bar of the longest window. Stays on the stack for every
+           * period up to 32, which covers the 7/14/28 default.
+           */
+          /* Id, Type, Static Size */
           outBegIdx.value = 0;
           outNBElement.value = 0;
           /* Ensure that the time periods are ordered from shortest to longest.
@@ -179595,47 +179352,22 @@ class Core {
           if( startIdx > endIdx ) {
              return RetCode.OutOfRangeEndIndex ;
           }
-          /* Prime running totals used in moving averages */
+          if( optInTimePeriod3 < 1 ) return RetCode.AllocErr;
+          term_closeMinusTrueLow = new double[optInTimePeriod3];
+          term_trueRange = new double[optInTimePeriod3];
+          maxIdx_term = (optInTimePeriod3)-1;
+          term_Idx = 0;
+          /* Prime running totals used in moving averages.
+           *
+           * One pass over the longest warm-up window replaces three overlapping
+           * passes. A bar inside the shorter windows is added to those totals as it
+           * is reached, so every total still accumulates exactly the same bars in
+           * exactly the same ascending order as three separate loops did.
+           */
           a1Total = 0;
           b1Total = 0;
-          for( i = startIdx - optInTimePeriod1 + 1; i < startIdx; i += 1 ) {
-             tempLT = inLow[i];
-             tempHT = inHigh[i];
-             tempCY = inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a1Total += closeMinusTrueLow;
-             b1Total += trueRange;
-          }
           a2Total = 0;
           b2Total = 0;
-          for( i = startIdx - optInTimePeriod2 + 1; i < startIdx; i += 1 ) {
-             tempLT = inLow[i];
-             tempHT = inHigh[i];
-             tempCY = inClose[i - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[i] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total += closeMinusTrueLow;
-             b2Total += trueRange;
-          }
           a3Total = 0;
           b3Total = 0;
           for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
@@ -179653,15 +179385,36 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             if( i >= startIdx - optInTimePeriod1 + 1 ) {
+                a1Total += closeMinusTrueLow;
+                b1Total += trueRange;
+             }
+             if( i >= startIdx - optInTimePeriod2 + 1 ) {
+                a2Total += closeMinusTrueLow;
+                b2Total += trueRange;
+             }
              a3Total += closeMinusTrueLow;
              b3Total += trueRange;
           }
           /* Calculate oscillator */
           today = startIdx;
           outIdx = 0;
-          trailingIdx1 = today - optInTimePeriod1 + 1;
-          trailingIdx2 = today - optInTimePeriod2 + 1;
-          trailingIdx3 = today - optInTimePeriod3 + 1;
+          /* The warm-up wrote optInTimePeriod3-1 bars, so term_Idx is the slot for
+           * `today` and, once advanced past it, the slot of the bar leaving the
+           * longest window. The two shorter windows trail it by a fixed offset.
+           */
+          trailingPos1 = term_Idx + optInTimePeriod3 - optInTimePeriod1 + 1;
+          if( trailingPos1 >= optInTimePeriod3 ) {
+             trailingPos1 -= optInTimePeriod3;
+          }
+          trailingPos2 = term_Idx + optInTimePeriod3 - optInTimePeriod2 + 1;
+          if( trailingPos2 >= optInTimePeriod3 ) {
+             trailingPos2 -= optInTimePeriod3;
+          }
           while( today <= endIdx ) {
              /* Add on today's terms */
              tempLT = inLow[today];
@@ -179678,6 +179431,8 @@ class Core {
              if( tempDouble > trueRange ) {
                 trueRange = tempDouble;
              }
+             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
+             term_trueRange[term_Idx] = trueRange;
              a1Total += closeMinusTrueLow;
              a2Total += closeMinusTrueLow;
              a3Total += closeMinusTrueLow;
@@ -179695,55 +179450,25 @@ class Core {
              if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
                 output += a3Total / b3Total;
              }
-             /* Remove the trailing terms to prepare for next day */
-             tempLT = inLow[trailingIdx1];
-             tempHT = inHigh[trailingIdx1];
-             tempCY = inClose[trailingIdx1 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx1] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             /* Remove the trailing terms to prepare for next day. Each was evaluated
+              * once, when its bar entered the ring.
+              */
+             a1Total -= term_closeMinusTrueLow[trailingPos1];
+             b1Total -= term_trueRange[trailingPos1];
+             trailingPos1 += 1;
+             if( trailingPos1 >= optInTimePeriod3 ) {
+                trailingPos1 = 0;
              }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
+             a2Total -= term_closeMinusTrueLow[trailingPos2];
+             b2Total -= term_trueRange[trailingPos2];
+             trailingPos2 += 1;
+             if( trailingPos2 >= optInTimePeriod3 ) {
+                trailingPos2 = 0;
              }
-             a1Total -= closeMinusTrueLow;
-             b1Total -= trueRange;
-             tempLT = inLow[trailingIdx2];
-             tempHT = inHigh[trailingIdx2];
-             tempCY = inClose[trailingIdx2 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx2] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a2Total -= closeMinusTrueLow;
-             b2Total -= trueRange;
-             tempLT = inLow[trailingIdx3];
-             tempHT = inHigh[trailingIdx3];
-             tempCY = inClose[trailingIdx3 - 1];
-             trueLow = Math.min(tempLT, tempCY);
-             closeMinusTrueLow = inClose[trailingIdx3] - trueLow;
-             trueRange = tempHT - tempLT;
-             tempDouble = Math.abs(tempCY - tempHT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             tempDouble = Math.abs(tempCY - tempLT);
-             if( tempDouble > trueRange ) {
-                trueRange = tempDouble;
-             }
-             a3Total -= closeMinusTrueLow;
-             b3Total -= trueRange;
+             term_Idx++;
+             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+             a3Total -= term_closeMinusTrueLow[term_Idx];
+             b3Total -= term_trueRange[term_Idx];
              /* Last operation is to write the output. Must
               * be done after the trailing index have all been
               * taken care of because the caller is allowed
@@ -179754,67 +179479,14 @@ class Core {
              /* Increment indexes */
              outIdx += 1;
              today += 1;
-             trailingIdx1 += 1;
-             trailingIdx2 += 1;
-             trailingIdx3 += 1;
           }
           /* All done. Indicate the output limits and return. */
           outNBElement.value = outIdx;
           outBegIdx.value = startIdx;
           /* Capture the live batch state into the handle. */
-          int capLag_trailingIdx1 = today - trailingIdx1;
-          int cap_trailingIdx1 = capLag_trailingIdx1 + 2;
-          if( capLag_trailingIdx1 < 0 || cap_trailingIdx1 > historyLen ) {
+          int capCb_term = maxIdx_term + 1;
+          if( capCb_term > historyLen + 1 ) {
              return RetCode.InternalError;
-          }
-          int allocN_trailingIdx1 = (cap_trailingIdx1 > 0)? cap_trailingIdx1 : 1;
-          double[] capRing_trailingIdx1_inHigh = new double[allocN_trailingIdx1];
-          for( int fillJ = historyLen - cap_trailingIdx1; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx1_inHigh[fillJ % cap_trailingIdx1] = inHigh[fillJ];
-          }
-          double[] capRing_trailingIdx1_inLow = new double[allocN_trailingIdx1];
-          for( int fillJ = historyLen - cap_trailingIdx1; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx1_inLow[fillJ % cap_trailingIdx1] = inLow[fillJ];
-          }
-          double[] capRing_trailingIdx1_inClose = new double[allocN_trailingIdx1];
-          for( int fillJ = historyLen - cap_trailingIdx1; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx1_inClose[fillJ % cap_trailingIdx1] = inClose[fillJ];
-          }
-          int capLag_trailingIdx2 = today - trailingIdx2;
-          int cap_trailingIdx2 = capLag_trailingIdx2 + 2;
-          if( capLag_trailingIdx2 < 0 || cap_trailingIdx2 > historyLen ) {
-             return RetCode.InternalError;
-          }
-          int allocN_trailingIdx2 = (cap_trailingIdx2 > 0)? cap_trailingIdx2 : 1;
-          double[] capRing_trailingIdx2_inHigh = new double[allocN_trailingIdx2];
-          for( int fillJ = historyLen - cap_trailingIdx2; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx2_inHigh[fillJ % cap_trailingIdx2] = inHigh[fillJ];
-          }
-          double[] capRing_trailingIdx2_inLow = new double[allocN_trailingIdx2];
-          for( int fillJ = historyLen - cap_trailingIdx2; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx2_inLow[fillJ % cap_trailingIdx2] = inLow[fillJ];
-          }
-          double[] capRing_trailingIdx2_inClose = new double[allocN_trailingIdx2];
-          for( int fillJ = historyLen - cap_trailingIdx2; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx2_inClose[fillJ % cap_trailingIdx2] = inClose[fillJ];
-          }
-          int capLag_trailingIdx3 = today - trailingIdx3;
-          int cap_trailingIdx3 = capLag_trailingIdx3 + 2;
-          if( capLag_trailingIdx3 < 0 || cap_trailingIdx3 > historyLen ) {
-             return RetCode.InternalError;
-          }
-          int allocN_trailingIdx3 = (cap_trailingIdx3 > 0)? cap_trailingIdx3 : 1;
-          double[] capRing_trailingIdx3_inHigh = new double[allocN_trailingIdx3];
-          for( int fillJ = historyLen - cap_trailingIdx3; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx3_inHigh[fillJ % cap_trailingIdx3] = inHigh[fillJ];
-          }
-          double[] capRing_trailingIdx3_inLow = new double[allocN_trailingIdx3];
-          for( int fillJ = historyLen - cap_trailingIdx3; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx3_inLow[fillJ % cap_trailingIdx3] = inLow[fillJ];
-          }
-          double[] capRing_trailingIdx3_inClose = new double[allocN_trailingIdx3];
-          for( int fillJ = historyLen - cap_trailingIdx3; fillJ < historyLen; fillJ++ ) {
-             capRing_trailingIdx3_inClose[fillJ % cap_trailingIdx3] = inClose[fillJ];
           }
           sp.optInTimePeriod1 = optInTimePeriod1;
           sp.optInTimePeriod2 = optInTimePeriod2;
@@ -179826,25 +179498,14 @@ class Core {
           sp.b2Total = b2Total;
           sp.b3Total = b3Total;
           sp.output = output;
+          sp.trailingPos1 = trailingPos1;
+          sp.trailingPos2 = trailingPos2;
+          sp.term_Idx = term_Idx;
+          sp.maxIdx_term = maxIdx_term;
           sp.lag1_inClose = inClose[historyLen - 1];
-          sp.ringPos_trailingIdx1 = historyLen % cap_trailingIdx1;
-          sp.ringCap_trailingIdx1 = cap_trailingIdx1;
-          sp.ringLag_trailingIdx1 = capLag_trailingIdx1;
-          sp.ring_trailingIdx1_inHigh = capRing_trailingIdx1_inHigh;
-          sp.ring_trailingIdx1_inLow = capRing_trailingIdx1_inLow;
-          sp.ring_trailingIdx1_inClose = capRing_trailingIdx1_inClose;
-          sp.ringPos_trailingIdx2 = historyLen % cap_trailingIdx2;
-          sp.ringCap_trailingIdx2 = cap_trailingIdx2;
-          sp.ringLag_trailingIdx2 = capLag_trailingIdx2;
-          sp.ring_trailingIdx2_inHigh = capRing_trailingIdx2_inHigh;
-          sp.ring_trailingIdx2_inLow = capRing_trailingIdx2_inLow;
-          sp.ring_trailingIdx2_inClose = capRing_trailingIdx2_inClose;
-          sp.ringPos_trailingIdx3 = historyLen % cap_trailingIdx3;
-          sp.ringCap_trailingIdx3 = cap_trailingIdx3;
-          sp.ringLag_trailingIdx3 = capLag_trailingIdx3;
-          sp.ring_trailingIdx3_inHigh = capRing_trailingIdx3_inHigh;
-          sp.ring_trailingIdx3_inLow = capRing_trailingIdx3_inLow;
-          sp.ring_trailingIdx3_inClose = capRing_trailingIdx3_inClose;
+          sp.cbSize_term = capCb_term;
+          sp.cb_term_closeMinusTrueLow = term_closeMinusTrueLow;
+          sp.cb_term_trueRange = term_trueRange;
           sp.cur_outReal = outReal[outNBElement.value - 1];
           return RetCode.Success;
        }
@@ -186076,8 +185737,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.accbandsInternal(
             startIdx, endIdx,
             inHigh,
@@ -186097,8 +185759,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.accbandsUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -186138,8 +185801,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.acosInternal(
             startIdx, endIdx,
             inReal,
@@ -186154,8 +185818,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.acosUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -186202,8 +185867,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.adInternal(
             startIdx, endIdx,
             inHigh,
@@ -186221,8 +185887,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.adUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -186264,8 +185931,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.addInternal(
             startIdx, endIdx,
             inReal0,
@@ -186281,8 +185949,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.addUnguardedInternal(
             startIdx, endIdx,
             inReal0,
@@ -186332,8 +186001,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.adOscInternal(
             startIdx, endIdx,
             inHigh,
@@ -186353,8 +186023,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.adOscUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -186404,8 +186075,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.adxInternal(
             startIdx, endIdx,
             inHigh,
@@ -186423,8 +186095,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.adxUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -186471,8 +186144,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.adxrInternal(
             startIdx, endIdx,
             inHigh,
@@ -186490,8 +186164,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.adxrUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -186532,8 +186207,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.apoInternal(
             startIdx, endIdx,
             inReal,
@@ -186551,8 +186227,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.apoUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -186596,8 +186273,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.aroonInternal(
             startIdx, endIdx,
             inHigh,
@@ -186615,8 +186293,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.aroonUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -186659,8 +186338,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.aroonOscInternal(
             startIdx, endIdx,
             inHigh,
@@ -186677,8 +186357,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.aroonOscUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -186715,8 +186396,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.asinInternal(
             startIdx, endIdx,
             inReal,
@@ -186731,8 +186413,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.asinUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -186767,8 +186450,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.atanInternal(
             startIdx, endIdx,
             inReal,
@@ -186783,8 +186467,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.atanUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -186829,8 +186514,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.atrInternal(
             startIdx, endIdx,
             inHigh,
@@ -186848,8 +186534,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.atrUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -186888,8 +186575,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.avgDevInternal(
             startIdx, endIdx,
             inReal,
@@ -186905,8 +186593,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.avgDevUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -186954,8 +186643,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.avgPriceInternal(
             startIdx, endIdx,
             inOpen,
@@ -186973,8 +186663,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.avgPriceUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187018,8 +186709,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.bbandsInternal(
             startIdx, endIdx,
             inReal,
@@ -187040,8 +186732,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.bbandsUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -187087,8 +186780,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.betaInternal(
             startIdx, endIdx,
             inReal0,
@@ -187105,8 +186799,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.betaUnguardedInternal(
             startIdx, endIdx,
             inReal0,
@@ -187155,8 +186850,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.bopInternal(
             startIdx, endIdx,
             inOpen,
@@ -187174,8 +186870,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.bopUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187222,8 +186919,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cciInternal(
             startIdx, endIdx,
             inHigh,
@@ -187241,8 +186939,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cciUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -187292,8 +186991,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdl2CrowsInternal(
             startIdx, endIdx,
             inOpen,
@@ -187311,8 +187011,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdl2CrowsUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187362,8 +187063,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdl3BlackCrowsInternal(
             startIdx, endIdx,
             inOpen,
@@ -187381,8 +187083,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdl3BlackCrowsUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187432,8 +187135,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdl3InsideInternal(
             startIdx, endIdx,
             inOpen,
@@ -187451,8 +187155,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdl3InsideUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187502,8 +187207,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdl3LineStrikeInternal(
             startIdx, endIdx,
             inOpen,
@@ -187521,8 +187227,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdl3LineStrikeUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187572,8 +187279,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdl3OutsideInternal(
             startIdx, endIdx,
             inOpen,
@@ -187591,8 +187299,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdl3OutsideUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187642,8 +187351,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdl3StarsInSouthInternal(
             startIdx, endIdx,
             inOpen,
@@ -187661,8 +187371,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdl3StarsInSouthUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187712,8 +187423,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdl3WhiteSoldiersInternal(
             startIdx, endIdx,
             inOpen,
@@ -187731,8 +187443,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdl3WhiteSoldiersUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187783,8 +187496,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlAbandonedBabyInternal(
             startIdx, endIdx,
             inOpen,
@@ -187803,8 +187517,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlAbandonedBabyUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187855,8 +187570,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlAdvanceBlockInternal(
             startIdx, endIdx,
             inOpen,
@@ -187874,8 +187590,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlAdvanceBlockUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187925,8 +187642,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlBeltHoldInternal(
             startIdx, endIdx,
             inOpen,
@@ -187944,8 +187662,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlBeltHoldUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -187995,8 +187714,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlBreakawayInternal(
             startIdx, endIdx,
             inOpen,
@@ -188014,8 +187734,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlBreakawayUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188065,8 +187786,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlClosingMarubozuInternal(
             startIdx, endIdx,
             inOpen,
@@ -188084,8 +187806,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlClosingMarubozuUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188135,8 +187858,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlConcealBabysWallInternal(
             startIdx, endIdx,
             inOpen,
@@ -188154,8 +187878,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlConcealBabysWallUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188205,8 +187930,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlCounterAttackInternal(
             startIdx, endIdx,
             inOpen,
@@ -188224,8 +187950,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlCounterAttackUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188276,8 +188003,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlDarkCloudCoverInternal(
             startIdx, endIdx,
             inOpen,
@@ -188296,8 +188024,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlDarkCloudCoverUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188348,8 +188077,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlDojiInternal(
             startIdx, endIdx,
             inOpen,
@@ -188367,8 +188097,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlDojiUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188418,8 +188149,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlDojiStarInternal(
             startIdx, endIdx,
             inOpen,
@@ -188437,8 +188169,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlDojiStarUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188488,8 +188221,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlDragonflyDojiInternal(
             startIdx, endIdx,
             inOpen,
@@ -188507,8 +188241,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlDragonflyDojiUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188558,8 +188293,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlEngulfingInternal(
             startIdx, endIdx,
             inOpen,
@@ -188577,8 +188313,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlEngulfingUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188629,8 +188366,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlEveningDojiStarInternal(
             startIdx, endIdx,
             inOpen,
@@ -188649,8 +188387,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlEveningDojiStarUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188702,8 +188441,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlEveningStarInternal(
             startIdx, endIdx,
             inOpen,
@@ -188722,8 +188462,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlEveningStarUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188774,8 +188515,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlGapSideSideWhiteInternal(
             startIdx, endIdx,
             inOpen,
@@ -188793,8 +188535,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlGapSideSideWhiteUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188844,8 +188587,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlGravestoneDojiInternal(
             startIdx, endIdx,
             inOpen,
@@ -188863,8 +188607,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlGravestoneDojiUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188914,8 +188659,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlHammerInternal(
             startIdx, endIdx,
             inOpen,
@@ -188933,8 +188679,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlHammerUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -188984,8 +188731,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlHangingManInternal(
             startIdx, endIdx,
             inOpen,
@@ -189003,8 +188751,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlHangingManUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189054,8 +188803,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlHaramiInternal(
             startIdx, endIdx,
             inOpen,
@@ -189073,8 +188823,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlHaramiUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189124,8 +188875,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlHaramiCrossInternal(
             startIdx, endIdx,
             inOpen,
@@ -189143,8 +188895,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlHaramiCrossUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189194,8 +188947,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlHignWaveInternal(
             startIdx, endIdx,
             inOpen,
@@ -189213,8 +188967,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlHignWaveUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189264,8 +189019,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlHikkakeInternal(
             startIdx, endIdx,
             inOpen,
@@ -189283,8 +189039,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlHikkakeUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189334,8 +189091,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlHikkakeModInternal(
             startIdx, endIdx,
             inOpen,
@@ -189353,8 +189111,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlHikkakeModUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189404,8 +189163,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlHomingPigeonInternal(
             startIdx, endIdx,
             inOpen,
@@ -189423,8 +189183,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlHomingPigeonUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189474,8 +189235,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlIdentical3CrowsInternal(
             startIdx, endIdx,
             inOpen,
@@ -189493,8 +189255,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlIdentical3CrowsUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189544,8 +189307,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlInNeckInternal(
             startIdx, endIdx,
             inOpen,
@@ -189563,8 +189327,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlInNeckUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189614,8 +189379,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlInvertedHammerInternal(
             startIdx, endIdx,
             inOpen,
@@ -189633,8 +189399,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlInvertedHammerUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189684,8 +189451,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlKickingInternal(
             startIdx, endIdx,
             inOpen,
@@ -189703,8 +189471,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlKickingUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189754,8 +189523,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlKickingByLengthInternal(
             startIdx, endIdx,
             inOpen,
@@ -189773,8 +189543,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlKickingByLengthUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189824,8 +189595,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlLadderBottomInternal(
             startIdx, endIdx,
             inOpen,
@@ -189843,8 +189615,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlLadderBottomUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189894,8 +189667,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlLongLeggedDojiInternal(
             startIdx, endIdx,
             inOpen,
@@ -189913,8 +189687,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlLongLeggedDojiUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -189964,8 +189739,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlLongLineInternal(
             startIdx, endIdx,
             inOpen,
@@ -189983,8 +189759,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlLongLineUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190034,8 +189811,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlMarubozuInternal(
             startIdx, endIdx,
             inOpen,
@@ -190053,8 +189831,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlMarubozuUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190104,8 +189883,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlMatchingLowInternal(
             startIdx, endIdx,
             inOpen,
@@ -190123,8 +189903,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlMatchingLowUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190175,8 +189956,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlMatHoldInternal(
             startIdx, endIdx,
             inOpen,
@@ -190195,8 +189977,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlMatHoldUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190248,8 +190031,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlMorningDojiStarInternal(
             startIdx, endIdx,
             inOpen,
@@ -190268,8 +190052,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlMorningDojiStarUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190321,8 +190106,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlMorningStarInternal(
             startIdx, endIdx,
             inOpen,
@@ -190341,8 +190127,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlMorningStarUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190393,8 +190180,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlOnNeckInternal(
             startIdx, endIdx,
             inOpen,
@@ -190412,8 +190200,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlOnNeckUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190463,8 +190252,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlPiercingInternal(
             startIdx, endIdx,
             inOpen,
@@ -190482,8 +190272,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlPiercingUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190533,8 +190324,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlRickshawManInternal(
             startIdx, endIdx,
             inOpen,
@@ -190552,8 +190344,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlRickshawManUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190603,8 +190396,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlRiseFall3MethodsInternal(
             startIdx, endIdx,
             inOpen,
@@ -190622,8 +190416,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlRiseFall3MethodsUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190673,8 +190468,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlSeperatingLinesInternal(
             startIdx, endIdx,
             inOpen,
@@ -190692,8 +190488,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlSeperatingLinesUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190743,8 +190540,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlShootingStarInternal(
             startIdx, endIdx,
             inOpen,
@@ -190762,8 +190560,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlShootingStarUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190813,8 +190612,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlShortLineInternal(
             startIdx, endIdx,
             inOpen,
@@ -190832,8 +190632,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlShortLineUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190883,8 +190684,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlSpinningTopInternal(
             startIdx, endIdx,
             inOpen,
@@ -190902,8 +190704,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlSpinningTopUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -190953,8 +190756,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlStalledPatternInternal(
             startIdx, endIdx,
             inOpen,
@@ -190972,8 +190776,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlStalledPatternUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -191023,8 +190828,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlStickSandwichInternal(
             startIdx, endIdx,
             inOpen,
@@ -191042,8 +190848,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlStickSandwichUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -191093,8 +190900,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlTakuriInternal(
             startIdx, endIdx,
             inOpen,
@@ -191112,8 +190920,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlTakuriUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -191163,8 +190972,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlTasukiGapInternal(
             startIdx, endIdx,
             inOpen,
@@ -191182,8 +190992,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlTasukiGapUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -191233,8 +191044,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlThrustingInternal(
             startIdx, endIdx,
             inOpen,
@@ -191252,8 +191064,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlThrustingUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -191303,8 +191116,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlTristarInternal(
             startIdx, endIdx,
             inOpen,
@@ -191322,8 +191136,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlTristarUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -191373,8 +191188,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlUnique3RiverInternal(
             startIdx, endIdx,
             inOpen,
@@ -191392,8 +191208,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlUnique3RiverUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -191443,8 +191260,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlUpsideGap2CrowsInternal(
             startIdx, endIdx,
             inOpen,
@@ -191462,8 +191280,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlUpsideGap2CrowsUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -191513,8 +191332,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cdlXSideGap3MethodsInternal(
             startIdx, endIdx,
             inOpen,
@@ -191532,8 +191352,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cdlXSideGap3MethodsUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -191571,8 +191392,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.ceilInternal(
             startIdx, endIdx,
             inReal,
@@ -191587,8 +191409,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.ceilUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -191636,8 +191459,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cmfInternal(
             startIdx, endIdx,
             inHigh,
@@ -191656,8 +191480,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cmfUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -191698,8 +191523,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cmoInternal(
             startIdx, endIdx,
             inReal,
@@ -191715,8 +191541,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cmoUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -191753,8 +191580,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cmouInternal(
             startIdx, endIdx,
             inReal,
@@ -191770,8 +191598,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cmouUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -191812,8 +191641,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.correlInternal(
             startIdx, endIdx,
             inReal0,
@@ -191830,8 +191660,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.correlUnguardedInternal(
             startIdx, endIdx,
             inReal0,
@@ -191868,8 +191699,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.cosInternal(
             startIdx, endIdx,
             inReal,
@@ -191884,8 +191716,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.cosUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -191920,8 +191753,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.coshInternal(
             startIdx, endIdx,
             inReal,
@@ -191936,8 +191770,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.coshUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -191973,8 +191808,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.demaInternal(
             startIdx, endIdx,
             inReal,
@@ -191990,8 +191826,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.demaUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192031,8 +191868,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.divInternal(
             startIdx, endIdx,
             inReal0,
@@ -192048,8 +191886,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.divUnguardedInternal(
             startIdx, endIdx,
             inReal0,
@@ -192095,8 +191934,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.dxInternal(
             startIdx, endIdx,
             inHigh,
@@ -192114,8 +191954,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.dxUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -192155,8 +191996,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.emaInternal(
             startIdx, endIdx,
             inReal,
@@ -192172,8 +192014,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.emaUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192209,8 +192052,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.expInternal(
             startIdx, endIdx,
             inReal,
@@ -192225,8 +192069,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.expUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192261,8 +192106,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.floorInternal(
             startIdx, endIdx,
             inReal,
@@ -192277,8 +192123,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.floorUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192314,8 +192161,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.hmaInternal(
             startIdx, endIdx,
             inReal,
@@ -192331,8 +192179,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.hmaUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192369,8 +192218,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.htDcPeriodInternal(
             startIdx, endIdx,
             inReal,
@@ -192385,8 +192235,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.htDcPeriodUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192422,8 +192273,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.htDcPhaseInternal(
             startIdx, endIdx,
             inReal,
@@ -192438,8 +192290,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.htDcPhaseUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192476,8 +192329,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.htPhasorInternal(
             startIdx, endIdx,
             inReal,
@@ -192493,8 +192347,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.htPhasorUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192532,8 +192387,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.htSineInternal(
             startIdx, endIdx,
             inReal,
@@ -192549,8 +192405,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.htSineUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192587,8 +192444,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.htTrendlineInternal(
             startIdx, endIdx,
             inReal,
@@ -192603,8 +192461,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.htTrendlineUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192640,8 +192499,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.htTrendModeInternal(
             startIdx, endIdx,
             inReal,
@@ -192656,8 +192516,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.htTrendModeUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192697,8 +192558,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.imiInternal(
             startIdx, endIdx,
             inOpen,
@@ -192715,8 +192577,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.imiUnguardedInternal(
             startIdx, endIdx,
             inOpen,
@@ -192755,8 +192618,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.kamaInternal(
             startIdx, endIdx,
             inReal,
@@ -192772,8 +192636,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.kamaUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192810,8 +192675,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.linearRegInternal(
             startIdx, endIdx,
             inReal,
@@ -192827,8 +192693,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.linearRegUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192865,8 +192732,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.linearRegAngleInternal(
             startIdx, endIdx,
             inReal,
@@ -192882,8 +192750,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.linearRegAngleUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192920,8 +192789,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.linearRegInterceptInternal(
             startIdx, endIdx,
             inReal,
@@ -192937,8 +192807,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.linearRegInterceptUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -192975,8 +192846,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.linearRegSlopeInternal(
             startIdx, endIdx,
             inReal,
@@ -192992,8 +192864,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.linearRegSlopeUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193029,8 +192902,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.lnInternal(
             startIdx, endIdx,
             inReal,
@@ -193045,8 +192919,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.lnUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193081,8 +192956,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.log10Internal(
             startIdx, endIdx,
             inReal,
@@ -193097,8 +192973,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.log10UnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193135,8 +193012,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.movingAverageInternal(
             startIdx, endIdx,
             inReal,
@@ -193153,8 +193031,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.movingAverageUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193196,8 +193075,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.macdInternal(
             startIdx, endIdx,
             inReal,
@@ -193217,8 +193097,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.macdUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193266,8 +193147,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.macdExtInternal(
             startIdx, endIdx,
             inReal,
@@ -193290,8 +193172,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.macdExtUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193337,8 +193220,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.macdFixInternal(
             startIdx, endIdx,
             inReal,
@@ -193356,8 +193240,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.macdFixUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193399,8 +193284,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.mamaInternal(
             startIdx, endIdx,
             inReal,
@@ -193418,8 +193304,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.mamaUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193464,8 +193351,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.movingAverageVariablePeriodInternal(
             startIdx, endIdx,
             inReal0,
@@ -193484,8 +193372,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.movingAverageVariablePeriodUnguardedInternal(
             startIdx, endIdx,
             inReal0,
@@ -193525,8 +193414,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.maxInternal(
             startIdx, endIdx,
             inReal,
@@ -193542,8 +193432,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.maxUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193580,8 +193471,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.maxIndexInternal(
             startIdx, endIdx,
             inReal,
@@ -193597,8 +193489,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.maxIndexUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193638,8 +193531,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.medPriceInternal(
             startIdx, endIdx,
             inHigh,
@@ -193655,8 +193549,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.medPriceUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -193705,8 +193600,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.mfiInternal(
             startIdx, endIdx,
             inHigh,
@@ -193725,8 +193621,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.mfiUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -193766,8 +193663,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.midPointInternal(
             startIdx, endIdx,
             inReal,
@@ -193783,8 +193681,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.midPointUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193825,8 +193724,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.midPriceInternal(
             startIdx, endIdx,
             inHigh,
@@ -193843,8 +193743,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.midPriceUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -193882,8 +193783,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.minInternal(
             startIdx, endIdx,
             inReal,
@@ -193899,8 +193801,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.minUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193937,8 +193840,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.minIndexInternal(
             startIdx, endIdx,
             inReal,
@@ -193954,8 +193858,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.minIndexUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -193993,8 +193898,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.minMaxInternal(
             startIdx, endIdx,
             inReal,
@@ -194011,8 +193917,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.minMaxUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -194051,8 +193958,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.minMaxIndexInternal(
             startIdx, endIdx,
             inReal,
@@ -194069,8 +193977,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.minMaxIndexUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -194117,8 +194026,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.minusDIInternal(
             startIdx, endIdx,
             inHigh,
@@ -194136,8 +194046,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.minusDIUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -194181,8 +194092,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.minusDMInternal(
             startIdx, endIdx,
             inHigh,
@@ -194199,8 +194111,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.minusDMUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -194238,8 +194151,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.momInternal(
             startIdx, endIdx,
             inReal,
@@ -194255,8 +194169,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.momUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -194296,8 +194211,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.multInternal(
             startIdx, endIdx,
             inReal0,
@@ -194313,8 +194229,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.multUnguardedInternal(
             startIdx, endIdx,
             inReal0,
@@ -194360,8 +194277,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.natrInternal(
             startIdx, endIdx,
             inHigh,
@@ -194379,8 +194297,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.natrUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -194422,8 +194341,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.nviInternal(
             startIdx, endIdx,
             inClose,
@@ -194439,8 +194359,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.nviUnguardedInternal(
             startIdx, endIdx,
             inClose,
@@ -194480,8 +194401,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.obvInternal(
             startIdx, endIdx,
             inReal,
@@ -194497,8 +194419,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.obvUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -194544,8 +194467,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.plusDIInternal(
             startIdx, endIdx,
             inHigh,
@@ -194563,8 +194487,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.plusDIUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -194608,8 +194533,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.plusDMInternal(
             startIdx, endIdx,
             inHigh,
@@ -194626,8 +194552,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.plusDMUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -194667,8 +194594,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.ppoInternal(
             startIdx, endIdx,
             inReal,
@@ -194686,8 +194614,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.ppoUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -194729,8 +194658,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.pviInternal(
             startIdx, endIdx,
             inClose,
@@ -194746,8 +194676,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.pviUnguardedInternal(
             startIdx, endIdx,
             inClose,
@@ -194786,8 +194717,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.pvoInternal(
             startIdx, endIdx,
             inVolume,
@@ -194805,8 +194737,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.pvoUnguardedInternal(
             startIdx, endIdx,
             inVolume,
@@ -194845,8 +194778,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.rocInternal(
             startIdx, endIdx,
             inReal,
@@ -194862,8 +194796,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.rocUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -194900,8 +194835,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.rocPInternal(
             startIdx, endIdx,
             inReal,
@@ -194917,8 +194853,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.rocPUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -194955,8 +194892,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.rocRInternal(
             startIdx, endIdx,
             inReal,
@@ -194972,8 +194910,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.rocRUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195010,8 +194949,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.rocR100Internal(
             startIdx, endIdx,
             inReal,
@@ -195027,8 +194967,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.rocR100UnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195066,8 +195007,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.rsiInternal(
             startIdx, endIdx,
             inReal,
@@ -195083,8 +195025,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.rsiUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195126,8 +195069,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.sarInternal(
             startIdx, endIdx,
             inHigh,
@@ -195145,8 +195089,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.sarUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -195196,8 +195141,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.sarExtInternal(
             startIdx, endIdx,
             inHigh,
@@ -195221,8 +195167,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.sarExtUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -195266,8 +195213,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.sinInternal(
             startIdx, endIdx,
             inReal,
@@ -195282,8 +195230,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.sinUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195318,8 +195267,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.sinhInternal(
             startIdx, endIdx,
             inReal,
@@ -195334,8 +195284,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.sinhUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195371,8 +195322,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.smaInternal(
             startIdx, endIdx,
             inReal,
@@ -195388,8 +195340,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.smaUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195425,8 +195378,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.sqrtInternal(
             startIdx, endIdx,
             inReal,
@@ -195441,8 +195395,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.sqrtUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195479,8 +195434,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.stdDevInternal(
             startIdx, endIdx,
             inReal,
@@ -195497,8 +195453,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.stdDevUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195549,8 +195506,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.stochInternal(
             startIdx, endIdx,
             inHigh,
@@ -195573,8 +195531,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.stochUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -195629,8 +195588,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.stochFInternal(
             startIdx, endIdx,
             inHigh,
@@ -195651,8 +195611,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.stochFUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -195698,8 +195659,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.stochRsiInternal(
             startIdx, endIdx,
             inReal,
@@ -195719,8 +195681,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.stochRsiUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195764,8 +195727,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.subInternal(
             startIdx, endIdx,
             inReal0,
@@ -195781,8 +195745,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.subUnguardedInternal(
             startIdx, endIdx,
             inReal0,
@@ -195819,8 +195784,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.sumInternal(
             startIdx, endIdx,
             inReal,
@@ -195836,8 +195802,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.sumUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195876,8 +195843,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.t3Internal(
             startIdx, endIdx,
             inReal,
@@ -195894,8 +195862,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.t3UnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195932,8 +195901,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.tanInternal(
             startIdx, endIdx,
             inReal,
@@ -195948,8 +195918,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.tanUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -195984,8 +195955,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.tanhInternal(
             startIdx, endIdx,
             inReal,
@@ -196000,8 +195972,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.tanhUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -196037,8 +196010,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.temaInternal(
             startIdx, endIdx,
             inReal,
@@ -196054,8 +196028,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.temaUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -196099,8 +196074,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.trueRangeInternal(
             startIdx, endIdx,
             inHigh,
@@ -196117,8 +196093,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.trueRangeUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -196156,8 +196133,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.trimaInternal(
             startIdx, endIdx,
             inReal,
@@ -196173,8 +196151,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.trimaUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -196211,8 +196190,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.trixInternal(
             startIdx, endIdx,
             inReal,
@@ -196228,8 +196208,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.trixUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -196266,8 +196247,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.tsfInternal(
             startIdx, endIdx,
             inReal,
@@ -196283,8 +196265,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.tsfUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -196328,8 +196311,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.typPriceInternal(
             startIdx, endIdx,
             inHigh,
@@ -196346,8 +196330,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.typPriceUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -196395,8 +196380,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.ultOscInternal(
             startIdx, endIdx,
             inHigh,
@@ -196416,8 +196402,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.ultOscUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -196459,8 +196446,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.varianceInternal(
             startIdx, endIdx,
             inReal,
@@ -196477,8 +196465,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.varianceUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -196520,8 +196509,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.vwmaInternal(
             startIdx, endIdx,
             inReal,
@@ -196538,8 +196528,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.vwmaUnguardedInternal(
             startIdx, endIdx,
             inReal,
@@ -196584,8 +196575,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.wclPriceInternal(
             startIdx, endIdx,
             inHigh,
@@ -196602,8 +196594,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.wclPriceUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -196649,8 +196642,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.willRInternal(
             startIdx, endIdx,
             inHigh,
@@ -196668,8 +196662,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.willRUnguardedInternal(
             startIdx, endIdx,
             inHigh,
@@ -196708,8 +196703,9 @@ public class TaCodegenServe {
         MInteger outBegIdx = new MInteger();
         MInteger outNBElement = new MInteger();
         RetCode rc = RetCode.Success;
-        long startNs = System.nanoTime();
-        for (int _bi = 0; _bi < bench_iters; _bi++) {
+        long startNs = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+        if (_bi == 1) startNs = System.nanoTime();
         rc = core.wmaInternal(
             startIdx, endIdx,
             inReal,
@@ -196725,8 +196721,9 @@ public class TaCodegenServe {
             _h = svHashFin(_h);
             return "{\"retCode\":" + rc.toInt() + ",\"outBegIdx\":" + outBegIdx.value + ",\"outNBElement\":" + outNBElement.value + ",\"out_hash\":\"" + String.format("%016x", _h) + "\"}";
         }
-        long startNsUng = System.nanoTime();
-        for (int _biu = 0; _biu < bench_iters; _biu++) {
+        long startNsUng = 0;
+        for (int _biu = 0; _biu <= bench_iters; _biu++) {
+        if (_biu == 1) startNsUng = System.nanoTime();
         rc = core.wmaUnguardedInternal(
             startIdx, endIdx,
             inReal,

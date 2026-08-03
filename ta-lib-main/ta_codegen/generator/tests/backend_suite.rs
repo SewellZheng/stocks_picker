@@ -2863,6 +2863,52 @@ fn rust_vardecl_retcode_type_renders_retcode() {
 }
 
 #[test]
+fn rust_compound_assign_casts_i32_param_into_inferred_usize_var() {
+    // `trailingPos1` is usize only via subscript inference (ctx.index_vars) —
+    // its name matches no index heuristic — and the RHS is an i32 optIn param.
+    // Regression for the `usize -= i32` mismatch in PR #154's ULTOSC ring wraps.
+    let mut ctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    ctx.is_lookback = false;
+    ctx.index_vars.insert("trailingPos1".to_string());
+    let stmt = ir::Statement::Assign {
+        target: ir::Expr::Var("trailingPos1".to_string()),
+        value: ir::Expr::BinOp(
+            Box::new(ir::Expr::Var("trailingPos1".to_string())),
+            ir::BinOp::Sub,
+            Box::new(ir::Expr::Var("optInTimePeriod3".to_string())),
+        ),
+        compound: true,
+    };
+    let rendered = render_rust_stmt_with_ctx(&stmt, &ctx);
+    assert!(
+        rendered.contains("trailingPos1 -= (optInTimePeriod3) as usize"),
+        "compound assign into a subscript-inferred usize var must cast the i32 RHS: {rendered}"
+    );
+
+    // Ctx construction removes sentinels from index_vars, so in production a
+    // sentinel (i32-rendered) reaches this gate only through the name
+    // heuristic. Pin that arm: a heuristic-matched sentinel must stay uncast.
+    let mut sctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    sctx.is_lookback = false;
+    sctx.sentinel_vars.insert("highestIdx".to_string());
+    let sstmt = ir::Statement::Assign {
+        target: ir::Expr::Var("highestIdx".to_string()),
+        value: ir::Expr::BinOp(
+            Box::new(ir::Expr::Var("highestIdx".to_string())),
+            ir::BinOp::Sub,
+            Box::new(ir::Expr::Var("optInTimePeriod3".to_string())),
+        ),
+        compound: true,
+    };
+    let rendered = render_rust_stmt_with_ctx(&sstmt, &sctx);
+    assert!(
+        rendered.contains("highestIdx -= optInTimePeriod3")
+            && !rendered.contains("as usize"),
+        "compound assign into a heuristic-named sentinel (i32) var must stay uncast: {rendered}"
+    );
+}
+
+#[test]
 fn rust_vardecl_with_init_expr() {
     let stmt = ir::Statement::VarDecl {
         var_type: ir::VarType::Real,
@@ -7165,4 +7211,182 @@ TA_RetCode bbands( int startIdx, int endIdx,
          back to the copy; renaming it would leave that read pointing at a Vec \
          nothing ever assigns: {rust}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// C# enums (M1). These assert on EMITTED CONTENT, not merely that the emitter
+// ran: a test that only checks "generate() did not panic" is the shape that has
+// passed vacuously in this repo before.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn csharp_matype_emits_every_yaml_variant_with_its_value() {
+    let enums = load_enums();
+    let src = backends::csharp_enums::render_matype(&enums);
+    let ma = enums.get("MAType").expect("MAType in enums.yaml");
+
+    for v in &ma.variants {
+        let decl = format!("    {} = {},", v.pascal_name, v.value);
+        assert!(
+            src.contains(&decl),
+            "MAType.cs is missing `{decl}` -- a variant silently dropped from the \
+             emitted enum reorders the optInMAType ABI:\n{src}"
+        );
+    }
+    // Count the members, so an EXTRA emitted variant fails too. Match the
+    // member shape specifically -- the BSD header has comma-terminated prose.
+    let emitted = src
+        .lines()
+        .filter(|l| l.starts_with("    ") && l.contains(" = ") && l.trim_end().ends_with(','))
+        .count();
+    assert_eq!(
+        emitted,
+        ma.variants.len(),
+        "MAType.cs emitted {emitted} members for {} YAML variants",
+        ma.variants.len()
+    );
+}
+
+#[test]
+fn csharp_funcunstid_pins_the_all_sentinel_and_the_count() {
+    let enums = load_enums();
+    let src = backends::csharp_enums::render_funcunstid(&enums);
+    let fu = enums.get("FuncUnstId").expect("FuncUnstId in enums.yaml");
+
+    // The ABI pin. C pins TA_FUNC_UNST_ALL at 65535; a renumber here silently
+    // repoints every caller's set_unstable_period and nothing else catches it.
+    assert!(
+        src.contains("All = 65535,"),
+        "FuncUnstId.cs must pin `All = 65535`:\n{src}"
+    );
+    assert!(
+        src.contains(&format!("public const int Count = {};", fu.variants.len())),
+        "FuncUnstIds.Count must equal the {} function ids (and must NOT be an \
+         enum member -- that would make it an id):\n{src}",
+        fu.variants.len()
+    );
+    for v in &fu.variants {
+        let decl = format!("    {} = {},", v.pascal_name, v.value);
+        assert!(
+            src.contains(&decl),
+            "FuncUnstId.cs is missing `{decl}`:\n{src}"
+        );
+    }
+    // Count must not silently include the All sentinel.
+    assert!(
+        !src.contains(&format!("public const int Count = {};", fu.variants.len() + 1)),
+        "Count must exclude the All sentinel"
+    );
+}
+
+#[test]
+fn csharp_resolve_call_agrees_with_pascal_method_naming() {
+    // If Registry::csharp_base and the emitter's method naming disagree, every
+    // cross-indicator call targets a method that does not exist -- and that will
+    // not surface until the backend emits bodies, as a wall of CS0103.
+    let registry = make_registry();
+
+    // Pinned literals first. The structural checks below are self-consistent
+    // whatever csharp_base returns -- deriving it from the dir-name yields
+    // `Willr` and still satisfies every one of them. Only these catch that.
+    for (dir, want) in [
+        ("willr", "WillRUnguarded"),
+        ("stochf", "StochFUnguarded"),
+        ("ma", "MovingAverageUnguarded"),
+    ] {
+        assert_eq!(
+            registry.resolve_call(dir, ta_codegen_lib::registry::Lang::CSharp),
+            want,
+            "{dir}: C# base must be the PascalCase of the YAML camel_case, not of \
+             the directory name"
+        );
+    }
+
+    for name in discover_indicators() {
+        let bare = registry.resolve_call(&name, ta_codegen_lib::registry::Lang::CSharp);
+        let lookback = registry.resolve_call(&format!("{name}_lookback"), ta_codegen_lib::registry::Lang::CSharp);
+        assert!(
+            bare.ends_with("Unguarded"),
+            "{name}: bare cross-indicator call must resolve to the Unguarded \
+             variant, got {bare}"
+        );
+        let base = bare.trim_end_matches("Unguarded");
+        assert_eq!(
+            lookback,
+            format!("{base}Lookback"),
+            "{name}: lookback and unguarded names disagree on the PascalCase base"
+        );
+        assert!(
+            base.chars().next().is_some_and(char::is_uppercase),
+            "{name}: C# base name must be PascalCase, got {base}"
+        );
+    }
+}
+
+/// Issue #156: the runtime FMA dispatch trio (public dispatcher +
+/// `#[target_feature(enable = "fma")]` clone + `#[inline(always)]` `_impl`)
+/// must be emitted for exactly the functions whose rendered body fuses — the
+/// same 26-function inventory `fma_suite.rs` pins — and never elsewhere.
+/// Guards both directions: the dispatch silently going dark, and accidental
+/// dispatch of unfused functions.
+#[test]
+fn rust_fma_dispatch_fires_for_exactly_the_fusing_functions() {
+    const FUSING: &[&str] = &[
+        "adosc", "bbands", "cdlabandonedbaby", "cdlmorningdojistar", "cdlmorningstar",
+        "cdlpiercing", "cdlthrusting", "dema", "ht_dcperiod", "ht_dcphase", "ht_phasor",
+        "ht_sine", "ht_trendline", "ht_trendmode", "kama", "linearreg", "macd", "macdfix",
+        "mama", "sar", "sarext", "t3", "tema", "trix", "tsf", "wclprice",
+    ];
+    let registry = make_registry();
+    let helpers = make_helpers();
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let mut dispatched: Vec<String> = Vec::new();
+    let mut checked = 0usize;
+    for entry in std::fs::read_dir(&base).expect("input dir") {
+        let entry = entry.expect("dir entry");
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let dir = entry.path();
+        if !dir.join(format!("{name}.c")).is_file() || !dir.join(format!("{name}.yaml")).is_file() {
+            continue;
+        }
+        let (func, enums) = load_indicator(&name);
+        let out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+        checked += 1;
+        if out.contains("ta_lib_dispatch::dispatch_fma!") {
+            // Every dispatcher must come with exactly one clone: the
+            // dispatch-call count and target_feature-attribute count match.
+            let calls = out.matches("ta_lib_dispatch::dispatch_fma!").count();
+            let clones = out.matches("#[target_feature(enable = \"fma\")]").count();
+            assert_eq!(calls, clones, "{name}: dispatcher/clone count mismatch");
+            // BOTH batch variants must carry their clone — a one-variant
+            // partial no-op keeps calls==clones balanced, so pin each by
+            // name. (A future private-delegating fused function would trip
+            // this on purpose: a human must decide where dispatch goes.)
+            assert!(
+                out.contains(&format!("fn {name}_fma(")),
+                "{name}: guarded variant lost its FMA clone"
+            );
+            assert!(
+                out.contains(&format!("fn {name}_unguarded_fma(")),
+                "{name}: unguarded variant lost its FMA clone"
+            );
+            // The fused sites live on in the renamed portable impl.
+            assert!(
+                out.contains("_impl(") && out.contains(".mul_add("),
+                "{name}: dispatch emitted but trio structure incomplete"
+            );
+            dispatched.push(name);
+        } else {
+            assert!(
+                !out.contains(".mul_add("),
+                "{name}: fused body without a dispatch trio"
+            );
+        }
+    }
+    dispatched.sort();
+    assert_eq!(dispatched, FUSING, "FMA dispatch inventory drifted");
+    assert!(checked >= 150, "expected ~168 functions, checked {checked}");
 }

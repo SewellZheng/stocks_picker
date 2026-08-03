@@ -6,6 +6,11 @@
  *
  * Usage:
  *   ./ta_bench [--points=N] [--iters=N] [--language=c,rust] [--function=RSI,SMA]
+ *              [--shape=NAME] [--seed=N] [--regime-period=N] [--trend-strength=F]
+ *              [--list-shapes] [--verify-corpus]
+ *
+ * --shape picks the input class from the corpus in bench_corpus.h; the default
+ * reproduces the series this tool has always used. --list-shapes prints them.
  */
 
 #include <stdio.h>
@@ -39,6 +44,7 @@ static char *win_strcasestr(const char *haystack, const char *needle)
 
 #include "ta_libc.h"
 #include "codegen_pipe.h"
+#include "bench_corpus.h"
 
 /* ---- Configuration ---- */
 
@@ -71,12 +77,12 @@ static long long get_nanotime(void) {
 #endif
 }
 
-/* ---- Test data ---- */
+/* ---- Test data (corpus shapes live in bench_corpus.h) ---- */
 
 static TA_Real *g_open, *g_high, *g_low, *g_close, *g_volume, *g_oi;
 static int g_nPoints;
 
-static void generate_price_data(int n) {
+static void generate_price_data(int n, const BenchCorpusCfg *corpus) {
     g_nPoints = n;
     g_open   = calloc(n, sizeof(TA_Real));
     g_high   = calloc(n, sizeof(TA_Real));
@@ -84,19 +90,7 @@ static void generate_price_data(int n) {
     g_close  = calloc(n, sizeof(TA_Real));
     g_volume = calloc(n, sizeof(TA_Real));
     g_oi     = calloc(n, sizeof(TA_Real));
-    unsigned int seed = 42;
-    double price = 100.0;
-    for( int i = 0; i < n; i++ ) {
-        seed = seed * 1103515245 + 12345;
-        double r = ((double)(seed >> 16) / 32768.0) - 1.0;
-        double o = price, c = price + r * 2.0;
-        double h = fmax(o, c) + fabs(r) * 0.5;
-        double l = fmin(o, c) - fabs(r) * 0.5;
-        if( l < 1.0 ) l = 1.0;
-        g_open[i] = o; g_high[i] = h; g_low[i] = l; g_close[i] = c;
-        g_volume[i] = 1000000.0 + r * 500000.0;
-        price = c; if( price < 1.0 ) price = 1.0;
-    }
+    bench_corpus_gen(corpus, n, g_open, g_high, g_low, g_close, g_volume, g_oi, NULL);
 }
 
 /* ---- JSON helpers ---- */
@@ -137,14 +131,14 @@ static const char *const argv_cref[]   = {"./ta_ref_serve", NULL};
 static const char *const argv_c[]      = {"./ta_codegen_serve_c", NULL};
 static const char *const argv_rust[]   = {"./ta_codegen_serve_rust", NULL};
 static const char *const argv_java[]   = {"java", "-cp", "ta_codegen_java", "TaCodegenServe", NULL};
-static const char *const argv_dotnet[] = {"dotnet", "ta_codegen_dotnet/TaCodegenServe.dll", NULL};
+static const char *const argv_csharp[] = {"dotnet", "ta_codegen_csharp/TaCodegenServe.dll", NULL};
 
 static BenchLanguage LANGUAGES[] = {
     {"cref",     "C-ref",    argv_cref,     {0}, 0, 0},
     {"c",        "C",        argv_c,        {0}, 0, 0},
     {"rust",     "Rust",     argv_rust,     {0}, 0, 0},
     {"java",     "Java",     argv_java,     {0}, 0, 0},
-    {"dotnet",   ".NET",     argv_dotnet,   {0}, 0, 0},
+    {"csharp",   "C#",       argv_csharp,   {0}, 0, 0},
 };
 #define NUM_LANGUAGES (sizeof(LANGUAGES)/sizeof(LANGUAGES[0]))
 
@@ -176,7 +170,10 @@ static int g_period_override = 0;
 static int build_bench_request(char *buf, int sz, const TA_FuncInfo *fi,
                                 int startIdx, int endIdx, int iters) {
     int pos = codegen_appendf(buf, sz, 0,
-        "{\"method\":\"TA_%s\",\"params\":{\"startIdx\":%d,\"endIdx\":%d,\"use_preloaded\":1,\"iters\":%d",
+        /* no_output: only timing_ns is read here, and serialising the output
+           arrays costs far more than the call being timed. */
+        "{\"method\":\"TA_%s\",\"params\":{\"startIdx\":%d,\"endIdx\":%d,"
+        "\"use_preloaded\":1,\"no_output\":1,\"iters\":%d",
         fi->name, startIdx, endIdx, iters);
 
     /* Add optional params with default values */
@@ -203,14 +200,14 @@ static int build_bench_request(char *buf, int sz, const TA_FuncInfo *fi,
 /* Run SMA on the C-ref server as a thermal probe.
  * Returns the timing in ns, or 0 on error. */
 static long long g_canary_baseline = 0;
-static const char *CANARY_REQ =
-    "{\"method\":\"TA_SMA\",\"params\":{\"startIdx\":0,\"endIdx\":99999,"
-    "\"use_preloaded\":1,\"iters\":50,\"optInTimePeriod\":30}}";
+/* endIdx is filled from the run's --points: the literal 99999 silently probed a
+ * different workload than the one being measured (and read past a smaller run). */
+static char g_canary_req[256];
 
 static long long run_canary(char *respBuf, int respSz) {
     /* Find the C-ref server (index 0) */
     if( !LANGUAGES[0].active ) return 0;
-    if( codegen_pipe_call(&LANGUAGES[0].cp, CANARY_REQ, respBuf, respSz) != TA_TEST_PASS )
+    if( codegen_pipe_call(&LANGUAGES[0].cp, g_canary_req, respBuf, respSz) != TA_TEST_PASS )
         return 0;
     int len;
     const char *t = json_find_field(respBuf, "timing_ns", &len);
@@ -227,6 +224,11 @@ static void thermal_wait(char *respBuf, int respSz) {
     }
 }
 
+/* Spread of the cref arm across BENCH_PASSES, accumulated over all rows. The
+ * ratio columns below are only as meaningful as this is small. */
+static double g_spread_sum = 0.0, g_spread_worst = 0.0;
+static int    g_spread_n = 0;
+
 /* ---- Per-indicator benchmark callback ---- */
 
 typedef struct {
@@ -238,9 +240,21 @@ typedef struct {
     int count;
 } BenchContext;
 
+/* Exact-token match, not substring: "csharp" contains "c", so a substring test
+ * would silently run the C row for --language=csharp. */
 static int lang_matches(const char *filter, const char *name) {
+    char filterCopy[1024];
+    char *token;
     if( !filter ) return 1;
-    return strstr(filter, name) != NULL;
+    strncpy(filterCopy, filter, sizeof(filterCopy) - 1);
+    filterCopy[sizeof(filterCopy) - 1] = '\0';
+    token = strtok(filterCopy, ",");
+    while( token != NULL )
+    {
+        if( strcmp(name, token) == 0 ) return 1;
+        token = strtok(NULL, ",");
+    }
+    return 0;
 }
 
 static int func_matches(const char *filter, const char *name) {
@@ -269,6 +283,7 @@ static void bench_one_function(const TA_FuncInfo *fi, void *opaque) {
      * from running all 161 indicators back-to-back in one binary. */
     long long ref_ns = 0;
     long long timings[16] = {0};
+    long long t_max[16] = {0};
     long long timings_ung[16] = {0};
     int has_timing[16] = {0};
     int has_timing_ung[16] = {0};
@@ -290,6 +305,9 @@ static void bench_one_function(const TA_FuncInfo *fi, void *opaque) {
                 if( ns > 0 ) {
                     if( !has_timing[li] || ns < timings[li] )
                         timings[li] = ns;
+                    /* Widest and narrowest too: min alone cannot say whether
+                       the box was quiet enough for the row to mean anything. */
+                    if( !has_timing[li] || ns > t_max[li] ) t_max[li] = ns;
                     has_timing[li] = 1;
                 }
             }
@@ -304,9 +322,19 @@ static void bench_one_function(const TA_FuncInfo *fi, void *opaque) {
     }
 
     /* Extract ref timing for ratio coloring */
+    double ref_spread = -1.0;
     for( unsigned int li = 0; li < NUM_LANGUAGES; li++ ) {
-        if( has_timing[li] && strcmp(LANGUAGES[li].name, "cref") == 0 )
+        if( has_timing[li] && strcmp(LANGUAGES[li].name, "cref") == 0 ) {
             ref_ns = timings[li];
+            if( ref_ns > 0 )
+                ref_spread = (double)(t_max[li] - timings[li]) / (double)ref_ns;
+        }
+    }
+    /* Track the worst row so the footer can say whether the run was quiet. */
+    if( ref_spread >= 0.0 ) {
+        g_spread_sum += ref_spread;
+        g_spread_n++;
+        if( ref_spread > g_spread_worst ) g_spread_worst = ref_spread;
     }
 
     /* Print row */
@@ -349,6 +377,15 @@ int main(int argc, char *argv[]) {
     int n_iters  = DEFAULT_ITERS;
     const char *lang_filter = NULL;
     const char *func_filter = NULL;
+    const char *shape_name = NULL;
+    int verify_corpus = 0;
+    /* 0 disables the gate; 25% matches ta_bench_direct. */
+    double max_spread = 0.25;
+    BenchCorpusCfg corpus;
+    int seed = BENCH_CORPUS_SEED;
+    double trend_strength = BENCH_CORPUS_TREND;
+    int regime_period = 0;   /* 0 = derive (see below) */
+    int shape;
 
     for( int i = 1; i < argc; i++ ) {
         if( strncmp(argv[i], "--points=", 9) == 0 )       n_points = atoi(argv[i]+9);
@@ -356,13 +393,57 @@ int main(int argc, char *argv[]) {
         else if( strncmp(argv[i], "--language=", 11) == 0 ) lang_filter = argv[i]+11;
         else if( strncmp(argv[i], "--function=", 11) == 0 ) func_filter = argv[i]+11;
         else if( strncmp(argv[i], "--period=", 9) == 0 )    g_period_override = atoi(argv[i]+9);
+        else if( strncmp(argv[i], "--shape=", 8) == 0 )     shape_name = argv[i]+8;
+        else if( strncmp(argv[i], "--seed=", 7) == 0 )      seed = atoi(argv[i]+7);
+        else if( strncmp(argv[i], "--regime-period=", 16) == 0 ) regime_period = atoi(argv[i]+16);
+        else if( strncmp(argv[i], "--trend-strength=", 17) == 0 ) trend_strength = atof(argv[i]+17);
+        else if( strcmp(argv[i], "--list-shapes") == 0 )  { bench_shape_list(); return 0; }
+        else if( strcmp(argv[i], "--verify-corpus") == 0 ) verify_corpus = 1;
+        else if( strncmp(argv[i], "--max-spread=", 13) == 0 ) max_spread = atof(argv[i]+13)/100.0;
+        else {
+            /* Reject rather than ignore: a mistyped --shape= would otherwise
+             * silently benchmark the default class and report it as the one
+             * asked for. */
+            fprintf(stderr, "ta_bench: unknown option '%s'\n", argv[i]);
+            return 2;
+        }
     }
     if( n_points > MAX_POINTS ) n_points = MAX_POINTS;
 
-    TA_Initialize();
-    generate_price_data(n_points);
+    shape = bench_shape_id(shape_name);
+    if( shape < 0 ) {
+        printf("ta_bench: unknown --shape=%s\n\n", shape_name);
+        bench_shape_list();
+        return 1;
+    }
+    /* The regime length of the trend/chop shapes is relative to the rolling
+     * window under test, so when --period pins the window use that; otherwise
+     * fall back to the corpus default. */
+    if( regime_period <= 0 )
+        regime_period = (g_period_override > 0) ? g_period_override : BENCH_CORPUS_PERIOD;
 
-    printf("ta_bench: %d points, %d iters (server-side)\n\n", n_points, n_iters);
+    bench_corpus_defaults(&corpus);
+    corpus.shape         = shape;
+    corpus.seed          = seed;
+    corpus.refPeriod     = regime_period;
+    corpus.trendStrength = trend_strength;
+
+    /* At the n actually benchmarked — the walk family's floor artefacts only
+     * appear around n=12000, so a small fixed n cannot see them. */
+    if( verify_corpus )
+        return bench_corpus_selfcheck(n_points, &corpus) ? 1 : 0;
+
+    TA_Initialize();
+    generate_price_data(n_points, &corpus);
+
+    snprintf(g_canary_req, sizeof(g_canary_req),
+             "{\"method\":\"TA_SMA\",\"params\":{\"startIdx\":0,\"endIdx\":%d,"
+             "\"use_preloaded\":1,\"no_output\":1,\"iters\":50,"
+             "\"optInTimePeriod\":30}}", n_points - 1);
+
+    printf("ta_bench: %d points, %d iters, shape=%s seed=%d regime-period=%d"
+           " trend-strength=%.2f (server-side)\n\n",
+           n_points, n_iters, bench_shape_name(shape), seed, regime_period, trend_strength);
 
     /* Start servers + load data */
     char *reqBuf  = malloc(JSON_BUF_SIZE);
@@ -432,8 +513,28 @@ int main(int argc, char *argv[]) {
     };
     TA_ForEachFunc(bench_one_function, &ctx);
 
-    printf("\n%d indicators benchmarked (%d points, %d iters)\n", ctx.count, n_points, n_iters);
+    printf("\n%d indicators benchmarked (%d points, %d iters, shape=%s)\n",
+           ctx.count, n_points, n_iters, bench_shape_name(shape));
     printf("(red >10%% slower, green >10%% faster than C-ref)\n");
+
+    /* Say how quiet the box was. Without this the ratios above look equally
+       authoritative whether the spread was 2% or 200%. */
+    int too_noisy = 0;
+    if( g_spread_n > 0 ) {
+        double mean = g_spread_sum / (double)g_spread_n;
+        printf("C-ref spread over %d passes: mean %.0f%%, worst %.0f%% (%d rows).\n",
+               BENCH_PASSES, mean * 100.0, g_spread_worst * 100.0, g_spread_n);
+        if( max_spread > 0.0 && mean > max_spread ) {
+            fprintf(stderr,
+                    "ta_bench: mean C-ref spread %.0f%% exceeds --max-spread=%.0f%% — "
+                    "treat the ratios above as unresolved.\n",
+                    mean * 100.0, max_spread * 100.0);
+            too_noisy = 1;
+        }
+    } else if( !LANGUAGES[0].active ) {
+        printf("No C-ref column: the ratio colours above are uncalibrated "
+               "(add cref to --language).\n");
+    }
 
     /* Cleanup */
     for( unsigned int li = 0; li < NUM_LANGUAGES; li++ )
@@ -442,5 +543,5 @@ int main(int argc, char *argv[]) {
     free(reqBuf); free(respBuf);
     free(g_open); free(g_high); free(g_low); free(g_close); free(g_volume); free(g_oi);
     TA_Shutdown();
-    return 0;
+    return too_noisy ? 1 : 0;
 }

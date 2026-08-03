@@ -43,8 +43,9 @@ pub struct FuncDef {
 }
 
 /// IR-derived streamability tier (internal — never authored by hand; the
-/// `stream-census` subcommand reports it). Stage 1 ships T1/T2; later stages
-/// extend this enum (T3 rings, T4a/T4b extrema, TC composed).
+/// `stream-census` subcommand reports it). All four ship. Extrema are a single
+/// `T4`: the design doc's T4a/T4b split was scoped but never built, since both
+/// halves ended up transcribing the same automaton.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamTier {
     /// Pure per-bar map — no cross-bar state.
@@ -53,8 +54,10 @@ pub enum StreamTier {
     T2,
     /// Fixed trailing window — ring buffer(s) of O(period).
     T3,
-    /// Window extrema — cached-index automaton over a ring (amortized O(1),
-    /// worst-case O(period) per bar, exactly like batch).
+    /// Window extrema — cached-index automaton over a ring, transcribed
+    /// verbatim from batch, so the cost profile is batch's: O(1) per bar while
+    /// the cached extremum sits away from the trailing edge, O(period) per bar
+    /// while it sits on it. Not amortized O(1) — see issue #147.
     T4,
 }
 
@@ -314,7 +317,7 @@ pub struct EnumDef {
 pub struct EnumVariant {
     /// C constant name, e.g. `TA_MAType_SMA`
     pub c_name: String,
-    /// `PascalCase` name used in Java/.NET, e.g. `Sma`
+    /// `PascalCase` name used in Java/C#, e.g. `Sma`
     pub pascal_name: String,
     /// `UPPER_CASE` short name used in source labels, e.g. `SMA`
     pub short_name: String,
@@ -345,7 +348,7 @@ pub enum CircBufLayout {
 
 /// A circular FIFO buffer operation (the `CIRCBUF_*` macros from `ta_memory.h`).
 /// Lowered per-backend: C stack-first hybrid (static array + heap fallback),
-/// Rust `Vec`, Java `new[]`, .NET no-op (P/Invoke has no body).
+/// Rust `Vec`, Java `new[]`, C# `new[]`.
 #[derive(Debug, Clone)]
 pub enum CircBuf {
     /// `CIRCBUF_PROLOG(Id,Type,N)` / `_PROLOG_CLASS`. Declares storage, `<id>_Idx`, `maxIdx_<id>`.
@@ -385,7 +388,7 @@ pub enum Statement {
     /// the input C source and carried through so the C backend can re-emit the
     /// macro (`ta_utility.h` expands it to a GCC/Clang unroll pragma, and to
     /// nothing on every other compiler). Advisory only: no backend may let it
-    /// change what is computed, and Rust/Java/.NET drop it entirely.
+    /// change what is computed, and Rust/Java/C# drop it entirely.
     UnrollHint {
         count: u32,
     },

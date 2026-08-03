@@ -120,7 +120,7 @@ fn main() {
             eprintln!(
                 "  --backend=NAME[,NAME,...]    Only generate specified backends (default: all)"
             );
-            eprintln!("                               Backends: c, rust, java, dotnet");
+            eprintln!("                               Backends: c, rust, java, csharp");
             eprintln!();
             eprintln!("Options for 'extract':");
             eprintln!(
@@ -663,7 +663,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     }
 
     // Take over gen_code's Java role: generate the shipped Java library files into
-    // java/src/io/github/talib/ (the Rust/.NET bindings have no canonical home
+    // java/src/io/github/talib/ (the Rust/C# bindings have no canonical home
     // and stay under ta_codegen/output/, but Java — like C — is a shipped product).
     if backends_to_run.contains(&"java") {
         let java_pkg = root.join("ta_codegen/output/java/library/src/io/github/talib");
@@ -695,6 +695,18 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
                  generate without --func)"
             );
         }
+    }
+
+    // Shipped C# library enums. Everything generated lives under library/src/
+    // (per-indicator Core_*.cs files land there via the backend's out_subdir);
+    // the hand-written scaffolding stays in library/. Unlike Java there is no
+    // `func_filter.is_none()` guard to inherit — C# uses partial classes, one
+    // file per indicator, so a --func subset is correct rather than destructive.
+    if backends_to_run.contains(&"csharp") {
+        let csharp_src = root.join("ta_codegen/output/csharp/library/src");
+        std::fs::create_dir_all(&csharp_src).unwrap();
+        backends::csharp_enums::generate(&enums, &csharp_src.join("FuncUnstId.cs"));
+        backends::csharp_enums::generate_matype(&enums, &csharp_src.join("MAType.cs"));
     }
 }
 
@@ -823,7 +835,15 @@ fn generate_servers(func_filter: Option<&str>, backend_filter: Option<&str>) {
     for backend in &backends_to_run {
         match backends::get(backend) {
             Some(b) => b.generate_server(&funcs, &enums, &out_base),
-            None => eprintln!("Unknown backend: {}", backend),
+            // Hard error: a typo'd --backend must not read as "generated nothing, fine".
+            None => {
+                eprintln!(
+                    "Error: unknown backend '{}' (valid: {}).",
+                    backend,
+                    backends::all_names().join(", ")
+                );
+                std::process::exit(1);
+            }
         }
     }
 
@@ -963,9 +983,6 @@ fn build_servers(backend_filter: Option<&str>) {
     let out_base = root.join("ta_codegen/output");
     let bin_dir = root.join("bin");
 
-    // Remove stale shared-lib marker so it rebuilds fresh each invocation.
-    let _ = std::fs::remove_file(bin_dir.join(".shared_lib_built"));
-
     // Track server-build failures so we can exit non-zero. Without this a
     // failed compile would still exit 0, and ta_regtest would silently reuse
     // the previously-built (stale) server binary — a real break reads as green.
@@ -988,6 +1005,9 @@ fn build_servers(backend_filter: Option<&str>) {
                 let ta_abstract_serve_dir = root.join("ta_codegen/generator/templates/c");
                 // fuzz_data.h (shared seed-generator/hasher) for stream_verify.
                 let ta_regtest_dir = src_dir.join("tools/ta_regtest");
+                // bench_corpus.h (shared benchmark input corpus) for the two
+                // generated benchmark binaries below.
+                let ta_bench_dir = src_dir.join("tools/ta_bench");
                 let src = c_dir.join("ta_codegen_serve.c");
                 let dst = bin_dir.join("ta_codegen_serve_c");
                 match std::process::Command::new("gcc")
@@ -1030,6 +1050,7 @@ fn build_servers(backend_filter: Option<&str>) {
                             bench_dst.to_str().unwrap(),
                             bench_src.to_str().unwrap(),
                             &format!("-I{}", bench_inc_c.to_str().unwrap()),
+                            &format!("-I{}", ta_bench_dir.to_str().unwrap()),
                             &format!("-I{}", include_dir.to_str().unwrap()),
                             &format!("-I{}", src_dir.to_str().unwrap()),
                             &format!("-I{}", ta_func_dir.to_str().unwrap()),
@@ -1061,6 +1082,7 @@ fn build_servers(backend_filter: Option<&str>) {
                             sbench_dst.to_str().unwrap(),
                             sbench_src.to_str().unwrap(),
                             &format!("-I{}", bench_inc_c.to_str().unwrap()),
+                            &format!("-I{}", ta_bench_dir.to_str().unwrap()),
                             &format!("-I{}", include_dir.to_str().unwrap()),
                             &format!("-I{}", src_dir.to_str().unwrap()),
                             &format!("-I{}", ta_func_dir.to_str().unwrap()),
@@ -1113,55 +1135,28 @@ fn build_servers(backend_filter: Option<&str>) {
                     failures += 1;
                 }
             }
-            "dotnet" => {
-                // Build shared library from generated C files (needed by .NET P/Invoke)
-                if !build_shared_lib(&out_base, &bin_dir) {
-                    failures += 1;
-                }
+            "csharp" => {
+                print!("  Building C# server... ");
+                let csharp_dir = out_base.join("csharp/tools");
+                let csharp_out = bin_dir.join("ta_codegen_csharp");
+                std::fs::create_dir_all(&csharp_out).ok();
 
-                print!("  Building .NET server... ");
-                let dotnet_dir = out_base.join("dotnet/tools");
-                let dotnet_out = bin_dir.join("ta_codegen_dotnet");
-                std::fs::create_dir_all(&dotnet_out).ok();
-
-                // Create a minimal .csproj if not present
-                let csproj_path = dotnet_dir.join("TaCodegenServe.csproj");
-                if !csproj_path.exists() {
-                    let csproj = r#"<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-</Project>"#;
-                    std::fs::write(&csproj_path, csproj).unwrap();
-                }
-
+                // The server csproj (generated by generate-servers) compiles the
+                // shipped library sources directly, so one publish builds the
+                // managed indicators + the server. No native shared library:
+                // the P/Invoke harness was retired with the managed backend.
                 match std::process::Command::new("dotnet")
                     .args([
                         "publish",
                         "-c",
                         "Release",
                         "-o",
-                        dotnet_out.to_str().unwrap(),
-                        dotnet_dir.to_str().unwrap(),
+                        csharp_out.to_str().unwrap(),
+                        csharp_dir.to_str().unwrap(),
                     ])
                     .status()
                 {
-                    Ok(s) if s.success() => {
-                        // Copy shared lib into dotnet output dir for P/Invoke discovery
-                        let lib_name = if cfg!(target_os = "macos") {
-                            "libta_codegen_funcs.dylib"
-                        } else {
-                            "libta_codegen_funcs.so"
-                        };
-                        let lib_src = bin_dir.join(lib_name);
-                        let lib_dst = dotnet_out.join(lib_name);
-                        if lib_src.exists() {
-                            std::fs::copy(&lib_src, &lib_dst).ok();
-                        }
-                        println!("OK");
-                    }
+                    Ok(s) if s.success() => println!("OK"),
                     Ok(s) => {
                         failures += 1;
                         println!("FAILED (exit {})", s.code().unwrap_or(-1));
@@ -1170,6 +1165,14 @@ fn build_servers(backend_filter: Option<&str>) {
                         failures += 1;
                         println!("FAILED (dotnet not found: {})", e);
                     }
+                }
+                // The shipped library itself (the artifact users get) — the
+                // server build above proves nothing about its csproj or its
+                // doc-comment gate (CS1591 via TreatWarningsAsErrors), so build
+                // it too, like Java's library step — and it is what runs the
+                // hand-written C# suites.
+                if !build_csharp_library(&root) {
+                    failures += 1;
                 }
             }
             "rust" => {
@@ -1200,7 +1203,10 @@ fn build_servers(backend_filter: Option<&str>) {
                     }
                 }
             }
+            // Counted as a failure: an unrecognised backend built nothing, and
+            // exiting 0 here lets ta_regtest reuse a stale binary and read green.
             _ => {
+                failures += 1;
                 eprintln!("  Unknown backend: {}", backend);
             }
         }
@@ -1398,117 +1404,143 @@ fn collect_java_sources(
     }
 }
 
-/// Build a shared library from the generated C files.
-/// This is used by both the Python (ctypes) and .NET (P/Invoke) servers.
-/// The shared lib exports all TA_* functions and is placed in bin/.
-/// Returns `true` on success so the caller can count a failure (the .NET server
-/// needs this native lib; a silent failure here used to still exit 0).
-fn build_shared_lib(out_base: &Path, bin_dir: &Path) -> bool {
-    let marker = bin_dir.join(".shared_lib_built");
-    if marker.exists() {
-        return true; // Already built this run
+/// Compile the **shipped** C# library (`ta_codegen/output/csharp/library/`).
+///
+/// The JSON-RPC server compiles the same `.cs` sources into its own assembly,
+/// so this step exists for what the server build cannot prove: the shipped
+/// csproj itself and its doc-comment gate — `GenerateDocumentationFile` +
+/// `TreatWarningsAsErrors` makes CS1591 an error, the C# analog of the Java
+/// `-Xdoclint` step. Then runs the hand-written suites. Returns `true` on
+/// success.
+fn build_csharp_library(root: &Path) -> bool {
+    let lib_dir = root.join("ta_codegen/output/csharp/library");
+    if !lib_dir.exists() {
+        println!("  Building C# library... SKIPPED (no {})", lib_dir.display());
+        return true;
     }
-
-    print!("  Building shared library... ");
-    // out_base is `<root>/ta_codegen/output`, so the repo root is two levels up.
-    let root = out_base.parent().unwrap().parent().unwrap();
-    // The generated C library lives in src/ (option B); only the unity wrapper is
-    // a codegen artifact under output/c.
-    let c_lib_dir = root.join("src/ta_func");
-    let lib_name = if cfg!(target_os = "macos") {
-        "libta_codegen_funcs.dylib"
-    } else {
-        "libta_codegen_funcs.so"
-    };
-    let dst = bin_dir.join(lib_name);
-
-    let shared_flag = if cfg!(target_os = "macos") {
-        "-dynamiclib"
-    } else {
-        "-shared"
-    };
-
-    // Generate a unified source file that includes all individual C files.
-    // This handles forward declarations (e.g., MA calls SMA/EMA/WMA). Library
-    // sources come from src/ via -I; ta_utility.c is the hand-written helper.
-    let mut unity_src = String::new();
-    unity_src.push_str("/* Unity build for shared library */\n");
-    unity_src.push_str("#include \"ta_func_unguarded.h\"\n");
-    unity_src.push_str("#include \"ta_func_private.h\"\n");
-    unity_src.push_str("#include \"ta_common/ta_global.c\"\n");
-    unity_src.push_str("#include \"ta_func/ta_utility.c\"\n");
-    unity_src.push_str("#include \"ta_common/ta_version.c\"\n");
-    unity_src.push_str("#include \"ta_common/ta_retcode.c\"\n\n");
-
-    let mut c_names: Vec<String> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&c_lib_dir) {
-        let mut sorted: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-        sorted.sort_by_key(|e| e.file_name());
-        for entry in sorted {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with("ta_")
-                && name.ends_with(".c")
-                // ta_utility.c is the hand-written helper, included explicitly above.
-                && name != "ta_utility.c"
-            {
-                c_names.push(name);
-            }
+    print!("  Building C# library... ");
+    match std::process::Command::new("dotnet")
+        .args(["build", "-c", "Release", "--nologo", "-v", "quiet"])
+        .current_dir(&lib_dir)
+        .status()
+    {
+        Ok(s) if s.success() => println!("OK"),
+        Ok(s) => {
+            println!("FAILED (exit {})", s.code().unwrap_or(-1));
+            return false;
+        }
+        Err(e) => {
+            println!("FAILED (dotnet not found: {})", e);
+            return false;
         }
     }
+    run_csharp_tests(&lib_dir)
+}
 
-    if c_names.is_empty() {
-        println!("FAILED (no C source files found)");
+/// Run the hand-written C# suites, once per target framework.
+///
+/// The TFM list is read from the test csproj rather than hardcoded, and the
+/// loop runs every entry. Today that is just `net10.0`, so the loop looks like
+/// overhead — it is not. The library briefly declared `net8.0;net10.0` while
+/// every gate exercised net10.0 alone, which is precisely the failure this
+/// shape prevents: a TFM that is claimed but never run is a promise nobody
+/// checked. Add a TFM to both csprojs and it is executed here automatically.
+///
+/// A missing RUNTIME for a declared TFM is reported as SKIPPED rather than
+/// failing the build: `dotnet build` only needs the reference assemblies, which
+/// restore from NuGet, so a box can compile a TFM it cannot launch. It is
+/// printed loudly so the gap is visible in the log instead of reading as
+/// coverage — the same rule the compatibility skips in server_verify follow.
+fn run_csharp_tests(lib_dir: &Path) -> bool {
+    let test_dir = lib_dir.join("test");
+    if !test_dir.exists() {
+        println!("  Running C# tests... SKIPPED (no {})", test_dir.display());
+        return true;
+    }
+
+    // Parsed from the test csproj so this cannot drift from what is built.
+    let tfms = csharp_test_tfms(&test_dir);
+    if tfms.is_empty() {
+        println!("  Running C# tests... FAILED (no TargetFrameworks in the test csproj)");
         return false;
     }
 
-    // Sort alphabetically, but move MA to end (it calls SMA/EMA/WMA)
-    c_names.sort();
-    if let Some(pos) = c_names.iter().position(|n| n == "ta_MA.c") {
-        let ma = c_names.remove(pos);
-        c_names.push(ma);
-    }
-    for name in &c_names {
-        unity_src.push_str(&format!("#include \"{}\"\n", name));
-    }
-
-    let unity_path = out_base.join("c/tools").join("ta_codegen_funcs.c");
-    std::fs::write(&unity_path, &unity_src).unwrap();
-
-    let include_dir = root.join("include");
-    let src_dir = root.join("src");
-    let ta_common_dir = src_dir.join("ta_common");
-
-    let args = vec![
-        shared_flag.to_string(),
-        "-fPIC".to_string(),
-        "-o".to_string(),
-        dst.to_str().unwrap().to_string(),
-        unity_path.to_str().unwrap().to_string(),
-        format!("-I{}", include_dir.to_str().unwrap()),
-        format!("-I{}", src_dir.to_str().unwrap()),
-        format!("-I{}", c_lib_dir.to_str().unwrap()),
-        format!("-I{}", ta_common_dir.to_str().unwrap()),
-    ];
-
-    match std::process::Command::new("gcc")
-        .args(&args)
-        .args(COMMON_GCC_FLAGS)
+    print!("  Building C# tests... ");
+    match std::process::Command::new("dotnet")
+        .args(["build", "-c", "Release", "--nologo", "-v", "quiet"])
+        .current_dir(&test_dir)
         .status()
     {
-        Ok(s) if s.success() => {
-            println!("OK");
-            std::fs::write(&marker, "").ok();
-            true
-        }
+        Ok(s) if s.success() => println!("OK"),
         Ok(s) => {
             println!("FAILED (exit {})", s.code().unwrap_or(-1));
-            false
+            return false;
         }
         Err(e) => {
-            println!("FAILED (gcc not found: {})", e);
-            false
+            println!("FAILED (dotnet not found: {})", e);
+            return false;
         }
     }
+
+    for tfm in &tfms {
+        print!("  Running C# tests ({tfm})... ");
+        let out = std::process::Command::new("dotnet")
+            .args(["run", "-c", "Release", "--no-build", "-f", tfm])
+            .current_dir(&test_dir)
+            .output();
+        match out {
+            Ok(o) if o.status.success() => {
+                print!("{}", String::from_utf8_lossy(&o.stdout));
+            }
+            Ok(o) => {
+                let combined = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                );
+                // "You must install or update .NET" — the TFM compiles but its
+                // runtime is absent. Not a test failure; a coverage gap.
+                if combined.contains("You must install or update .NET")
+                    || combined.contains("not found and no additional frameworks")
+                {
+                    println!("SKIPPED (no {tfm} runtime installed — this TFM went UNTESTED)");
+                } else {
+                    println!("FAILED (exit {})", o.status.code().unwrap_or(-1));
+                    print!("{combined}");
+                    return false;
+                }
+            }
+            Err(e) => {
+                println!("FAILED (dotnet not found: {e})");
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// The `<TargetFrameworks>` (or singular `<TargetFramework>`) of the C# test
+/// project, in declaration order.
+fn csharp_test_tfms(test_dir: &Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(test_dir.join("TALib.Test.csproj")) else {
+        return Vec::new();
+    };
+    for (open, close) in [
+        ("<TargetFrameworks>", "</TargetFrameworks>"),
+        ("<TargetFramework>", "</TargetFramework>"),
+    ] {
+        if let Some(start) = text.find(open) {
+            let rest = &text[start + open.len()..];
+            if let Some(end) = rest.find(close) {
+                return rest[..end]
+                    .split(';')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            }
+        }
+    }
+    Vec::new()
 }
 
 fn extract(func_filter: Option<&str>) {
@@ -1763,13 +1795,65 @@ fn generate_rust_crate_scaffolding(out_base: &Path, funcs: &[ir::FuncDef], templ
     std::fs::create_dir_all(&bin_dir).unwrap();
 
     // --- workspace Cargo.toml (virtual manifest — profiles apply at the root) ---
-    let workspace_toml = "[workspace]\nmembers = [\"library\", \"tools\"]\nresolver = \"2\"\n\n\
+    let workspace_toml = "[workspace]\nmembers = [\"dispatch\", \"library\", \"tools\"]\nresolver = \"2\"\n\n\
         [profile.release]\nlto = \"thin\"\ncodegen-units = 1\n";
     std::fs::write(rust_dir.join("Cargo.toml"), workspace_toml).unwrap();
 
-    // --- library/Cargo.toml (the published `ta-lib` crate — no bin, no deps) ---
+    // --- dispatch/ (issue #156): the runtime FMA-dispatch macro crate ---
+    // The one `unsafe` in the Rust workspace lives here, next to the CPU-feature
+    // check that justifies it, so the library crate keeps #![forbid(unsafe_code)]
+    // (unsafe expanded from an external macro is exempt from the caller's lint).
+    // The vendoring unit is therefore this workspace directory, not library/ alone.
+    let dispatch_dir = rust_dir.join("dispatch");
+    let dispatch_src = dispatch_dir.join("src");
+    std::fs::create_dir_all(&dispatch_src).unwrap();
+    let dispatch_toml = "[package]\nname = \"ta-lib-dispatch\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.86\"\n\
+        description = \"Runtime CPU-feature dispatch macro for the ta-lib crate (internal support crate).\"\n\
+        license = \"BSD-3-Clause\"\nrepository = \"https://github.com/TA-Lib/ta-lib\"\n\n\
+        [lib]\nname = \"ta_lib_dispatch\"\npath = \"src/lib.rs\"\n";
+    std::fs::write(dispatch_dir.join("Cargo.toml"), dispatch_toml).unwrap();
+    let dispatch_lib = r#"//! Runtime CPU-feature dispatch for the `ta-lib` crate (issue #156).
+//!
+//! Support crate: it exists so the library crate can stay `#![forbid(unsafe_code)]`
+//! while selecting hardware-FMA clones at runtime — the single `unsafe` in the
+//! ta-lib workspace lives here, adjacent to the CPU-feature check that justifies
+//! it. This is the Rust analogue of the C library's
+//! `__attribute__((target_clones("default","fma")))` ifunc dispatch.
+//! Internal contract; no semver promises outside the ta-lib workspace.
+
+/// Dispatch one indicator call to its hardware-FMA clone when the CPU supports
+/// FMA, else to the portable implementation.
+///
+/// Both paths compute IEEE-754 correctly-rounded fused multiply-adds (`vfmadd`
+/// vs libm `fma()`), so which one runs can change speed, never bits.
+///
+/// # Contract (enforced by ta_codegen, not checkable by a macro)
+///
+/// `$fma` must name a method whose only `#[target_feature]` requirement is
+/// `fma`; the generator emits the clone and this dispatch call as a pair.
+#[macro_export]
+macro_rules! dispatch_fma {
+    ($core:expr, $fma:ident, $plain:ident, ( $($arg:expr),* $(,)? )) => {
+        if std::arch::is_x86_feature_detected!("fma") {
+            // SAFETY: $fma's only target_feature requirement is "fma", proven
+            // present on this CPU by the guard above.
+            unsafe { $core.$fma($($arg),*) }
+        } else {
+            $core.$plain($($arg),*)
+        }
+    };
+}
+"#;
+    std::fs::write(dispatch_src.join("lib.rs"), dispatch_lib).unwrap();
+    println!("  Scaffolding -> {}", dispatch_dir.join("Cargo.toml").display());
+
+    // --- library/Cargo.toml (the published `ta-lib` crate — no bin; one
+    //     internal dep: the dispatch macro crate, exact-pinned) ---
+    // rust-version: safe #[target_feature] (the FMA dispatch clones)
+    // stabilized in 1.86 — declare the floor so pre-1.86 toolchains get a
+    // clear MSRV message instead of an opaque E0658.
     let lib_toml_head = format!(
-        "[package]\nname = \"ta-lib\"\nversion = \"{crate_version}\"\nedition = \"2021\""
+        "[package]\nname = \"ta-lib\"\nversion = \"{crate_version}\"\nedition = \"2021\"\nrust-version = \"1.86\""
     );
     let lib_toml_tail = r#"
 description = "Technical analysis library: 161 indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, Stochastic, candlestick patterns) — the official Rust port of TA-Lib, verified against the C reference."
@@ -1784,6 +1868,13 @@ categories = ["finance", "mathematics", "algorithms"]
 [lib]
 name = "ta_lib"
 path = "src/lib.rs"
+
+[dependencies]
+# Exact pin (companion-crate pattern, like serde_derive): the macro is an
+# internal contract, so a published ta-lib must never float onto a newer
+# dispatch release. Publish order when releasing to crates.io: dispatch
+# first, then ta-lib (cargo strips `path` and resolves by version).
+ta-lib-dispatch = { path = "../dispatch", version = "=0.1.0" }
 "#;
     let lib_cargo_path = lib_dir.join("Cargo.toml");
     std::fs::write(&lib_cargo_path, format!("{lib_toml_head}{lib_toml_tail}")).unwrap();
@@ -1876,7 +1967,11 @@ path = "src/lib.rs"
 //! Every indicator also has an `*_unguarded` variant that skips parameter
 //! validation for internal cross-indicator calls — prefer the checked methods.
 //! The crate is `#![forbid(unsafe_code)]`: misuse of an `*_unguarded` variant
-//! panics, it never triggers undefined behavior.
+//! panics, it never triggers undefined behavior. On x86-64, the batch entry
+//! points of indicators built on fused multiply-adds are compiled twice and the
+//! hardware-FMA clone is selected at runtime (the same dispatch the C library
+//! performs via `target_clones`); both paths are correctly rounded, so results
+//! are bit-identical either way. The streaming tier stays single-path.
 //!
 //! The full function reference, grouped by category, is at
 //! [ta-lib.org/functions](https://ta-lib.org/functions/).
@@ -2062,7 +2157,7 @@ fn clean_generated_files(out_base: &Path, backend: &str) {
     let Some(backend) = backends::get(backend) else {
         return;
     };
-    // Server-only backends (e.g. .NET) emit no per-indicator files to clean.
+    // Server-only backends emit no per-indicator files to clean.
     if !backend.emits_lib_files() {
         return;
     }
@@ -2105,7 +2200,7 @@ fn generate_backend(
         eprintln!("Unknown backend: {}", backend);
         return;
     };
-    // Server-only backends (e.g. .NET P/Invoke) emit no per-indicator library files.
+    // Server-only backends emit no per-indicator library files.
     if !backend.emits_lib_files() {
         return;
     }

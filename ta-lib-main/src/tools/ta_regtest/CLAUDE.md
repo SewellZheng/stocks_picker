@@ -76,7 +76,7 @@ ta_regtest
         ├── ta_codegen_serve_c
         ├── ta_codegen_serve_rust   (Rust)
         ├── TaCodegenServe.class    (Java)
-        └── TaCodegenServe          (.NET)
+        └── TaCodegenServe          (C#)
 ```
 
 ### Current State
@@ -227,6 +227,19 @@ in the shared body.
 The gate prints its coverage (functions, vectors, and how many compared actual
 output) and asserts it non-zero, so it cannot pass by silently doing nothing.
 
+## Transport
+
+`codegen_pipe_call` reads responses in 256KB chunks into a per-pipe buffer that
+persists across calls (a read can overrun the newline into the next response).
+It used to read one byte per `read()`; at ~2MB responses that was ~800k blocking
+syscalls per benchmarked function. The buffer is heap-allocated because these
+structs are `main()` locals, including a `CodegenPipe[SV_MAX_PIPES]` — inline it
+would not fit Windows' 1MB default stack.
+
+The paired server-side saving is the `no_output` request flag (see the root
+CLAUDE.md): callers that only want `timing_ns` suppress the output arrays. Every
+correctness path omits it and still gets the values.
+
 ## Buffer Sizes
 
 - `JSON_BUF_SIZE` = 64KB in current code
@@ -314,8 +327,8 @@ Scope rules (deliberate):
 
 An opt-in mode (`ta_regtest --xlang-hash`) that proves each **generated language
 server** computes **bit-identical** outputs to the **shipped in-process C
-library**, with **zero tolerance** (the sole carve-out is Java's transcendental
-calls — see below). It is the strong form of the cross-language `--codegen`
+library**, with **zero tolerance** (the sole carve-out is the transcendental
+calls of Java and C# — see below). It is the strong form of the cross-language `--codegen`
 check, which can only compare at `1e-6` (`CODEGEN_EPSILON`) because its
 inputs/outputs cross the JSON-RPC boundary as lossy `%.15g`. `--xlang-hash`
 routes around that boundary two ways — full-precision inputs (a seed both sides
@@ -325,7 +338,7 @@ hard failure.
 
 Build + run everything with `scripts/build.py xlang-hash`. Both CI nightlies
 (dev + main) run it as a gate (`xlang-hash` job). Needs cmake + gcc + cargo, plus
-the **JDK** for the Java server — **not** the .NET SDK (.NET P/Invokes C == C).
+the **JDK** for the Java server and the **.NET SDK** for the managed C# server.
 
 Architecture (see `fuzz_data.h`, the Rust port in
 `ta_codegen/generator/templates/rust/fuzz.rs`, and `xlang_hash` in
@@ -334,8 +347,18 @@ Architecture (see `fuzz_data.h`, the Rust port in
   `ta_regtest`, so there is no JSON-RPC boundary on the C side — it is called
   directly (`TA_CallFunc`) and its raw output hashed (`fuzz_hash_local`), exactly
   as `--fuzz-064` treats the current library. Each language server crosses the
-  boundary and is diffed against it: **Rust** and **Java** today; **.NET**
-  P/Invokes the C library (== C by construction) and is not a distinct check.
+  boundary and is diffed against it: **Rust**, **Java** and the managed **C#**.
+  C# rides the Java-style hex transport (no `fuzz_gen` port) and takes the same
+  tolerance lane. It was briefly configured as fully bitwise on the strength of
+  a green local run; dev-nightly **30776189041** then produced 25 `TA_LN`
+  mismatches on `ubuntu-latest` x86-64 from a commit that was bitwise-clean on
+  `ubuntu-24.04-arm` and on a glibc-2.39 + .NET-10.0.10 dev box. **.NET does not
+  guarantee `Math.*` reaches the platform libm.** Not a special-value problem —
+  C and C# agree bit-for-bit on `0.0`/`-0.0`/negatives including the NaN payload,
+  so it is a normal-value 1 ULP difference. `Math.FusedMultiplyAdd` is still
+  correctly rounded, so the FMA contract is untouched; only transcendentals
+  moved. Because the constant-shape skip is gated on the tolerance lane, C# now
+  inherits it for HT_DCPHASE/HT_SINE as well.
 - **Two transports (per-server `usesSeed` flag).**
   - **Seed (Rust).** A request with `"gen_present":1` + `(gen_shape,gen_seed,gen_n)`
     makes the server generate the OHLCV inputs from its own bit-exact `fuzz_gen`
@@ -348,15 +371,21 @@ Architecture (see `fuzz_data.h`, the Rust port in
     `out_hash`. No server-side change was needed — this reuses the #115 machinery.
   - Both take the digest of the **guarded** call — like-for-like with the golden's
     `TA_CallFunc` — before the unguarded timing loop runs.
-- **Java transcendental tolerance.** Java's fdlibm differs from the C libm by ~1
-  ULP on `atan/sin/cos/exp/log/...`, so a call that reaches one cannot be
-  bit-compared. Those calls (decided **per call** — the ~20-name set OR a `*MAType`
+- **Transcendental tolerance (Java and C#).** Java's fdlibm differs from the C
+  libm by ~1 ULP on `atan/sin/cos/exp/log/...`; .NET's `Math.*` is not
+  guaranteed to reach the platform libm and empirically does not on some hosts.
+  A call that reaches a transcendental therefore cannot be bit-compared against
+  either. Those calls (decided **per call** — the ~20-name set OR a `*MAType`
   == `TA_MAType_MAMA`, via the shared `codegen_call_is_transcendental`) drop the
-  `want_hash` and are element-compared at `CODEGEN_JAVA_TRANSCENDENTAL_TOL` (1e-9)
+  `want_hash` and are element-compared at `CODEGEN_TRANSCENDENTAL_TOL` (1e-9)
   by the shared `codegen_compare_tol` — the identical carve-out `server_verify`
   uses. Every non-transcendental Java call, and every Rust call, stays bitwise.
-  The summary reports how many Java calls took the tolerance path (the rest are
-  bitwise), so the bitwise coverage is visibly non-vacuous.
+  The summary reports how many calls took the tolerance path per server (the
+  rest are bitwise), so the bitwise coverage is visibly non-vacuous.
+  `codegen_lang_needs_transcendental_tol` is the single definition of which
+  languages need it — `--xlang-hash` copies it into `XlangServer.tolTranscendental`
+  and `server_verify` reads it directly, because when the two carried the rule
+  as separate literals they drifted apart.
 - **Input-port self-check.** Before the output gate, a `fuzz_in_hash` RPC on each
   **seed** server hashes its generated OHLCV inputs; the driver compares against
   its own in-process generation, so a `fuzz_gen`-port bug surfaces as an INPUT
@@ -371,21 +400,22 @@ Scope rules (deliberate):
 - **No 0.6.4, no waivers; one tolerance + one ill-conditioning skip.** This is
   current-vs-current across languages, so — unlike `--fuzz-064` — there are none
   of the `#98`/`#107`/FMA-transition carve-outs. Every case is bitwise except
-  Java's transcendental calls (1e-9, above). A non-tolerated mismatch is a real
-  fusion-site / codegen divergence to fix.
+  the transcendental calls of Java and C# (1e-9, above). A non-tolerated
+  mismatch is a real fusion-site / codegen divergence to fix.
 - **The one ill-conditioning skip: HT_DCPHASE / HT_SINE on the constant shape,
-  Java only.** These two derive their output from `atan2` of the Hilbert
+  for the tolerance-lane servers (Java and C#).** These two derive their output from `atan2` of the Hilbert
   transform's in-phase/quadrature components. On `FUZZ_CONSTANT` (flat O=H=L=C,
   zero variance) those components are floating-point noise (~0), so the phase is
   `atan2(≈0,≈0)` — chaotically sensitive to the last bit of every transcendental
   step. C and Rust share the system libm and stay **bit-identical** there (Rust:
   0 mismatches on every shape); Java's fdlibm differs by ~1 ULP and this
-  ill-conditioning amplifies it to whole *degrees* (~2.9° on HT_DCPHASE). It is
+  ill-conditioning amplifies it to whole *degrees* (~2.9° on HT_DCPHASE); C#
+  inherits the skip because the gate keys on the tolerance lane. It is
   not a codegen bug — all 8 non-degenerate shapes agree within 1e-9, and `atan2`
   of a null signal is mathematically undefined — so no fixed tolerance can
-  separate it from fdlibm noise. `xlang_java_illcond` skips exactly these two
-  functions on exactly the constant shape for the Java leg; the count is reported
-  in the summary. Rust still gates HT_DCPHASE/HT_SINE bitwise on the constant
+  separate it from fdlibm noise. `xlang_illcond` skips exactly these two
+  functions on exactly the constant shape, for the tolerance-lane servers; the
+  count is reported in the summary. Rust still gates HT_DCPHASE/HT_SINE bitwise on the constant
   shape, so the C computation itself stays covered there.
 - **period == 1 is in scope** (no 0.6.4 to trip on it), though the shared
   `fuzz_build_vectors` currently floors periods at 2; period-1 parity is also
@@ -423,23 +453,24 @@ expected", so the old `SV_EPSILON` was deleted.
   **per-function** handler (`TA_<name>`, not `abstract_call`) returns
   `out_hash` — a full-precision FNV-1a of the raw GUARDED output bytes — which the
   shared `codegen_hash_compare` diffs against the C golden's `codegen_output_hash`.
-  Java/.NET gained this hasher; the C per-function handler is `#ifndef
+  Java/C# gained this hasher; the C per-function handler is `#ifndef
   TA_REF_SERVE`-guarded (its `fuzz_hash_*` live in `fuzz_data.h`, absent from the
   frozen `ta_ref_serve`, which `server_verify` never drives).
-- **Tolerance rule.** Zero tolerance (bitwise) for **C ⇄ Rust** and **C ⇄ .NET**
-  (Rust uses the system libm; .NET P/Invokes the C lib — this also guards against
-  C-server / .NET-lib build-flag drift vs the in-process library, cf. the
-  `-ffp-contract=off` server fix). **Java** is bitwise for pure-arith + IEEE ops
-  (incl. SQRT/CEIL/FLOOR) but gets a narrow `CODEGEN_JAVA_TRANSCENDENTAL_TOL`
+- **Tolerance rule.** Zero tolerance (bitwise) for **C ⇄ Rust** (Rust reaches
+  the same system libm as the golden). **Java and C#** are bitwise for
+  pure-arith + IEEE ops
+  (incl. SQRT/CEIL/FLOOR) but get a narrow `CODEGEN_TRANSCENDENTAL_TOL`
   (1e-9, measured drift ~1e-13..1e-11) on the transcendental-using functions only
   — Java's fdlibm ≠ the C libm by ~1 ULP. The transcendental set is decided **per
   call**, not just by name: the MA-dispatch functions (MA/MAVP/BBANDS/MACDEXT/
   APO/PPO/STOCH*) route to MAMA (which uses `atan`) when a `*MAType` parameter
   selects `TA_MAType_MAMA` (7), so that call is transcendental for Java even
   though the function name is not (integer outputs like HT_TRENDMODE still match
-  exactly). Every other language stays bitwise even on the transcendentals. The
+  exactly). Rust stays bitwise even on the transcendentals. The
   tolerance constant, the per-call `codegen_call_is_transcendental` test, the
   `codegen_write_hexbits_array` input transport, and the `codegen_compare_tol`
   element-compare all live in `test_codegen.c` (declared in `test_codegen.h`) —
-  **shared verbatim with the `--xlang-hash` Java leg** (#113), the same operation
-  on a seed instead of the hard-coded arrays.
+  **shared verbatim with the `--xlang-hash` tolerance legs** (#113), the same
+  operation on a seed instead of the hard-coded arrays. Which languages need the
+  tolerance is `codegen_lang_needs_transcendental_tol` — one definition read by
+  both gates.

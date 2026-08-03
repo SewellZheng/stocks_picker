@@ -22,6 +22,11 @@ Filters (applied to generate AND test):
 Perftest options:
   --points=5000              Data points (default 5000)
   --iters=20                 Iterations (default 20)
+  --shape=trend-chop-1p      Benchmark input class (default randwalk;
+                             ta_bench --list-shapes prints them)
+  --seed=42                  Corpus seed (default 42)
+  --regime-period=30         Reference window for the trend/chop regime length
+  --trend-strength=0.5       Trend-leg drift, in per-bar standard deviations
 
 Examples:
   scripts/regtest.py                                             # full pipeline
@@ -30,6 +35,8 @@ Examples:
                                                                  # regen SMA indicator + test
   scripts/regtest.py --no-regtest --language=c --function=STOCH  # build + perftest only
   scripts/regtest.py --test-only --no-regtest --function=STOCH   # just perftest, no build
+  scripts/regtest.py --test-only --no-regtest --function=WILLR --shape=trend-chop-1p
+                                                                 # perftest on trending input
 """
 
 import os
@@ -39,9 +46,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utilities.common import (
-    check_prerequisites, PREREQS_BUILD_SERVERS,
-    PREREQS_CMAKE, PREREQS_CARGO, PREREQS_GCC, PREREQS_JAVAC, PREREQS_JAVA,
-    PREREQS_DOTNET,
+    check_prerequisites, prereqs_for_languages, backends_for_languages,
 )
 import serve_version
 
@@ -68,33 +73,9 @@ def get_filter(args, prefix):
     return None
 
 
-# Tools each --language= backend needs, on top of the base set below. Unknown
-# tokens (ta_bench also accepts "cref") contribute nothing, so a typo can only
-# widen the check, never shrink it below the base.
-LANG_PREREQS = {
-    "c":      [PREREQS_GCC],
-    "rust":   [],                            # cargo is already in the base set
-    "java":   [PREREQS_JAVAC, PREREQS_JAVA],
-    "dotnet": [PREREQS_DOTNET],
-}
-
-
-def prereqs_for(lang_filter):
-    """Prerequisites this run actually needs (issue #150).
-
-    Without --language every backend is generated and built, so the full set
-    applies. With one, only that backend's toolchain is required — a JDK/.NET-less
-    machine could not reach `--codegen-only --language=c,rust` at all before.
-    cmake and cargo stay unconditional: the generator itself is the Rust binary
-    driving generate/generate-servers/build, so even --language=c runs cargo."""
-    if not lang_filter:
-        return PREREQS_BUILD_SERVERS
-    prereqs = [PREREQS_CMAKE, PREREQS_CARGO]
-    for lang in lang_filter.split(","):
-        for tool in LANG_PREREQS.get(lang.strip().lower(), []):
-            if tool not in prereqs:
-                prereqs.append(tool)
-    return prereqs
+# LANG_PREREQS / prereqs_for_languages moved to utilities/common.py so that
+# scripts/build.py enforces the same rule — a machine that can reach
+# `--language=c,rust` here must be able to reach it there too (issue #150).
 
 
 # Reference-as-server: the reference C library is frozen at this immutable tag
@@ -276,11 +257,40 @@ def main():
                 return "--function=" + a.split("=", 1)[1]
         return a
     passthrough = [normalize_flag(a) for a in argv if a not in OUR_FLAGS]
+
+    # Reject unknown argv up front. The downstream steps filter `passthrough`
+    # by allowlist before handing it to ta_regtest / ta_bench / ta_bench_direct,
+    # because those binaries reject argv they do not recognise. Filtering alone
+    # would turn a typo into a SILENT default -- `--shpae=constant` would exit 0
+    # having benchmarked randwalk -- which is exactly the failure mode the
+    # binaries were made strict to prevent. So validate here, once, loudly.
+    KNOWN_PASSTHROUGH = (
+        "--function=", "--language=", "--points=", "--iters=", "--period=",
+        "--shape=", "--seed=", "--regime-period=", "--trend-strength=",
+        "--codegen", "--codegen=", "--codegen-only",
+        "--fuzz-064", "--xlang-hash", "--no-guarded", "--no-unguarded",
+    )
+    unknown = [a for a in passthrough
+               if a != "-p" and not a.startswith(KNOWN_PASSTHROUGH)]
+    if unknown:
+        print("regtest.py: unknown option(s): " + " ".join(unknown))
+        print(__doc__)
+        sys.exit(2)
+
     func_filter = get_filter(passthrough, "--function")
     lang_filter = get_filter(passthrough, "--language")
 
     # Must follow --language parsing: the prerequisite set depends on it.
-    check_prerequisites(prereqs_for(lang_filter))
+    # The ta_codegen `--backend=` value for this run. Derived from --language,
+    # but only real backend names survive: ta_bench also accepts "cref" (a frozen
+    # prebuilt binary that is never generated or built here), and forwarding that
+    # verbatim made the generator hard-error on an otherwise valid invocation.
+    backend_filter = backends_for_languages(lang_filter)
+    # Derived from the RESOLVED backend list, not the raw filter, so the tools we
+    # demand always match the backends we go on to build. `--language=cref` names
+    # no backend, so it resolves to None = "build everything" — and then the full
+    # toolchain is required rather than a short list followed by a Java compile.
+    check_prerequisites(prereqs_for_languages(backend_filter))
 
     root = find_repo_root()
     build_dir = os.path.join(root, "cmake-build")
@@ -291,8 +301,18 @@ def main():
     # 1. cmake
     if not no_build:
         os.makedirs(build_dir, exist_ok=True)
-        if not os.path.exists(os.path.join(build_dir, "CMakeCache.txt")):
-            subprocess.run(["cmake", root, "-DCMAKE_BUILD_TYPE=Release"],
+        # BUILD_BENCHMARKS is OFF by default (developer-only), and steps 6/7 run
+        # the benches. Reconfigure when it is missing OR cached OFF — an existing
+        # cmake-build/ from a plain `cmake ..` would otherwise have no ta_bench
+        # target and fail the build below.
+        cache = os.path.join(build_dir, "CMakeCache.txt")
+        needs_cmake = not os.path.exists(cache)
+        if not needs_cmake:
+            with open(cache, encoding="utf-8", errors="replace") as fh:
+                needs_cmake = "BUILD_BENCHMARKS:BOOL=ON" not in fh.read()
+        if needs_cmake:
+            subprocess.run(["cmake", root, "-DCMAKE_BUILD_TYPE=Release",
+                            "-DBUILD_BENCHMARKS=ON"],
                            check=True, cwd=build_dir)
         print("=== Building ta_regtest + ta_bench ===")
         subprocess.run(["cmake", "--build", ".", "--target",
@@ -318,8 +338,8 @@ def main():
     if not no_gen_ind:
         print("\n=== Regenerating indicator files ===")
         cmd = ["cargo", "run", "--release", "--", "generate"]
-        if lang_filter:
-            cmd.append(f"--backend={lang_filter}")
+        if backend_filter:
+            cmd.append(f"--backend={backend_filter}")
         if func_filter:
             cmd.append(f"--function={func_filter}")
         subprocess.run(cmd, check=True, cwd=codegen_dir)
@@ -328,8 +348,8 @@ def main():
     if not no_gen_srv:
         print("\n=== Regenerating server files ===")
         cmd = ["cargo", "run", "--release", "--", "generate-servers"]
-        if lang_filter:
-            cmd.append(f"--backend={lang_filter}")
+        if backend_filter:
+            cmd.append(f"--backend={backend_filter}")
         subprocess.run(cmd, check=True, cwd=codegen_dir)
 
     # 3b. generate bench binary source
@@ -343,8 +363,8 @@ def main():
     if did_generate:
         print("\n=== Compiling servers ===")
         cmd = ["cargo", "run", "--release", "--", "build"]
-        if lang_filter:
-            cmd.append(f"--backend={lang_filter}")
+        if backend_filter:
+            cmd.append(f"--backend={backend_filter}")
         subprocess.run(cmd, check=True, cwd=codegen_dir)
 
         # Debug-profile Rust server: rebuild just the Rust server bin without
@@ -385,7 +405,17 @@ def main():
         print("\n" + "=" * 60)
         print("REGTEST — cross-language codegen verification")
         print("=" * 60)
-        codegen_args = list(passthrough)
+        # Allowlist, not passthrough: ta_regtest exits with BAD_USER_PARAM on any
+        # argv it does not know (ta_regtest.c, the trailing else of the option
+        # chain). Forwarding the perftest/bench-only flags — --points=, --iters=
+        # and the corpus selectors — aborted step 5b before the bench in step 6/7
+        # ever ran. An allowlist keeps a future bench flag from breaking it again.
+        REGTEST_FLAGS = ("--function=", "--language=", "--codegen", "--codegen=",
+                         "--codegen-only", "--fuzz-064", "--xlang-hash",
+                         "--no-guarded", "--no-unguarded", "-p")
+        codegen_args = [a for a in passthrough
+                        if a == "-p" or a.startswith(tuple(
+                            f for f in REGTEST_FLAGS if f != "-p"))]
         if not any(a.startswith("--codegen") for a in codegen_args):
             codegen_args = ["--codegen-only"] + codegen_args
         rc = subprocess.run(
@@ -401,8 +431,14 @@ def main():
         print("\n" + "=" * 60)
         print("PERFTEST — performance (large dataset, averaged)")
         print("=" * 60, flush=True)
+        # Allowlist for the same reason as step 5b: ta_bench now rejects unknown
+        # argv instead of ignoring it, so regtest-only flags (--codegen-only,
+        # --xlang-hash, ...) must not reach it.
+        BENCH_FLAGS = ("--points=", "--iters=", "--language=", "--function=",
+                       "--period=", "--shape=", "--seed=", "--regime-period=",
+                       "--trend-strength=")
         # Always include cref for comparison, even when --language= filters
-        bench_args = list(passthrough)
+        bench_args = [a for a in passthrough if a.startswith(BENCH_FLAGS)]
         if lang_filter and "cref" not in lang_filter:
             for i, a in enumerate(bench_args):
                 if a.startswith("--language="):
@@ -415,7 +451,7 @@ def main():
         if bench_rc != 0 and rc == 0:
             rc = bench_rc
 
-    # 7. direct bench (zero-overhead, no server)
+    # 7. direct bench (in-process libta-lib.a vs the single-TU ta_bench_cg)
     # Runs unless --no-test; independent of --no-perftest
     if (not no_test or direct_only) and "--no-direct-bench" not in argv:
         bench_direct = os.path.join(bin_dir, "ta_bench_direct")
@@ -430,12 +466,16 @@ def main():
             print("  Run without --direct-bench-only to build them first.")
         else:
             print("\n" + "=" * 60)
-            print("DIRECT BENCH — zero-overhead (direct function calls)")
+            print("DIRECT BENCH — libta-lib.a vs ta_bench_cg (different builds)")
             print("=" * 60, flush=True)
             direct_args = [a for a in passthrough
                            if a.startswith("--function=")
                            or a.startswith("--iters=")
-                           or a.startswith("--points=")]
+                           or a.startswith("--points=")
+                           or a.startswith("--shape=")
+                           or a.startswith("--seed=")
+                           or a.startswith("--regime-period=")
+                           or a.startswith("--trend-strength=")]
             direct_rc = subprocess.run(
                 [bench_direct] + direct_args, cwd=bin_dir,
             ).returncode

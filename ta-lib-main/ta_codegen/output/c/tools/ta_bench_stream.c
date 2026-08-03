@@ -11,6 +11,8 @@
 #include <mach/mach_time.h>
 #endif
 
+#include "bench_corpus.h"
+
 #include "ta_func_unguarded.h"
 #include "ta_func/ta_func_private.h"
 
@@ -242,6 +244,12 @@ static long long get_nanotime(void) {
 static double *g_open, *g_high, *g_low, *g_close, *g_volume, *g_oi, *g_periods;
 static int g_nPoints;
 
+/* Corpus selection (--shape / --seed / --regime-period / --trend-strength).
+ * The defaults reproduce the seed-42 walk this binary generated inline before
+ * bench_corpus.h existed. */
+static BenchCorpusCfg g_corpus = { BENCH_RANDWALK, BENCH_CORPUS_SEED,
+                                   BENCH_CORPUS_PERIOD, BENCH_CORPUS_TREND };
+
 static void generate_price_data(int n) {
     g_nPoints = n;
     g_open   = calloc(n, sizeof(double));
@@ -251,26 +259,8 @@ static void generate_price_data(int n) {
     g_volume = calloc(n, sizeof(double));
     g_oi     = calloc(n, sizeof(double));
     g_periods = calloc(n, sizeof(double));
-    unsigned int seed = 42;
-    double price = 100.0;
-    int period = 16;
-    for( int i = 0; i < n; i++ ) {
-        seed = seed * 1103515245 + 12345;
-        double r = ((double)(seed >> 16) / 32768.0) - 1.0;
-        double o = price, c = price + r * 2.0;
-        double h = fmax(o, c) + fabs(r) * 0.5;
-        double l = fmin(o, c) - fabs(r) * 0.5;
-        if( l < 1.0 ) l = 1.0;
-        g_open[i] = o; g_high[i] = h; g_low[i] = l; g_close[i] = c;
-        g_volume[i] = 1000000.0 + r * 500000.0;
-        price = c; if( price < 1.0 ) price = 1.0;
-        /* Wandering period series in MAVP's default [2..30] range: exercises
-         * the multi-period grouping, not just the single-period fast path. */
-        period += (int)((seed >> 8) % 7) - 3;
-        if( period < 2 ) period = 2;
-        if( period > 30 ) period = 30;
-        g_periods[i] = (double)period;
-    }
+    bench_corpus_gen(&g_corpus, n,
+                     g_open, g_high, g_low, g_close, g_volume, g_oi, g_periods);
 }
 
 #define MAX_POINTS 200000
@@ -297,8 +287,47 @@ static volatile int g_sink = 0;
 
 #define BENCH_MASK 4095
 
+static double g_min_ratio = 0.0;   /* 0 = report only, no gate */
+static double g_worst_ratio = -1.0;
+static char   g_worst_name[64] = "";
+static int    g_rows = 0, g_slow = 0, g_below = 0, g_reject = 0;
+
+static void bench_stream_row(const char *name, double b, double u, double p,
+                             int lb, size_t hb)
+{
+    if( u <= 0.0 ) {   /* Open rejected the default params */
+        printf("%s %.3f -1 -1 %d 0 -1\n", name, b, lb);
+        g_reject++;
+        return;
+    }
+    double r = b / u;
+    printf("%s %.3f %.3f %.3f %d %zu %.3f\n", name, b, u, p, lb, hb, r);
+    g_rows++;
+    if( r < 1.0 ) g_slow++;
+    if( g_min_ratio > 0.0 && r < g_min_ratio ) g_below++;
+    if( g_worst_ratio < 0.0 || r < g_worst_ratio ) {
+        g_worst_ratio = r;
+        snprintf(g_worst_name, sizeof(g_worst_name), "%s", name);
+    }
+}
+
+/* Returns the process exit code: non-zero only when --min-ratio is set and
+   something came in under it, so this can gate a nightly. */
+static int bench_stream_summary(void)
+{
+    printf("# %d timed, %d rejected; %d slower than batch@last; worst %s %.2fx\n",
+           g_rows, g_reject, g_slow,
+           g_worst_name[0] ? g_worst_name : "-", g_worst_ratio);
+    if( g_min_ratio > 0.0 ) {
+        printf("# --min-ratio=%.2f: %d below -> %s\n",
+               g_min_ratio, g_below, g_below ? "FAIL" : "PASS");
+        return g_below ? 1 : 0;
+    }
+    return 0;
+}
+
 static void bench_stream_all(const char *filter, int iters) {
-    printf("# func batch_last_ns update_ns peek_ns lookback handle_bytes\n");
+    printf("# func batch_last_ns update_ns peek_ns lookback handle_bytes speedup\n");
     fflush(stdout);
     if( func_matches(filter, "ACCBANDS") ) {
         long long best_b = 0, best_u = -1, best_p = -1;
@@ -368,11 +397,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ACCBANDS_Close(st);
-            printf("ACCBANDS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ACCBANDS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ACCBANDS_Close(st); }
-            printf("ACCBANDS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ACCBANDS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -432,11 +461,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ACOS_Close(st);
-            printf("ACOS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ACOS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ACOS_Close(st); }
-            printf("ACOS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ACOS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -499,11 +528,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_AD_Close(st);
-            printf("AD %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("AD", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_AD_Close(st); }
-            printf("AD %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("AD", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -564,11 +593,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ADD_Close(st);
-            printf("ADD %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ADD", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ADD_Close(st); }
-            printf("ADD %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ADD", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -631,11 +660,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ADOSC_Close(st);
-            printf("ADOSC %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ADOSC", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ADOSC_Close(st); }
-            printf("ADOSC %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ADOSC", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -697,11 +726,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ADX_Close(st);
-            printf("ADX %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ADX", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ADX_Close(st); }
-            printf("ADX %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ADX", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -763,11 +792,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ADXR_Close(st);
-            printf("ADXR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ADXR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ADXR_Close(st); }
-            printf("ADXR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ADXR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -827,11 +856,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_APO_Close(st);
-            printf("APO %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("APO", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_APO_Close(st); }
-            printf("APO %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("APO", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -897,11 +926,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_AROON_Close(st);
-            printf("AROON %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("AROON", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_AROON_Close(st); }
-            printf("AROON %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("AROON", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -962,11 +991,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_AROONOSC_Close(st);
-            printf("AROONOSC %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("AROONOSC", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_AROONOSC_Close(st); }
-            printf("AROONOSC %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("AROONOSC", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1026,11 +1055,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ASIN_Close(st);
-            printf("ASIN %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ASIN", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ASIN_Close(st); }
-            printf("ASIN %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ASIN", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1090,11 +1119,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ATAN_Close(st);
-            printf("ATAN %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ATAN", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ATAN_Close(st); }
-            printf("ATAN %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ATAN", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1156,11 +1185,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ATR_Close(st);
-            printf("ATR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ATR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ATR_Close(st); }
-            printf("ATR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ATR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1220,11 +1249,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_AVGDEV_Close(st);
-            printf("AVGDEV %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("AVGDEV", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_AVGDEV_Close(st); }
-            printf("AVGDEV %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("AVGDEV", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1287,11 +1316,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_AVGPRICE_Close(st);
-            printf("AVGPRICE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("AVGPRICE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_AVGPRICE_Close(st); }
-            printf("AVGPRICE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("AVGPRICE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1361,11 +1390,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_BBANDS_Close(st);
-            printf("BBANDS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("BBANDS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_BBANDS_Close(st); }
-            printf("BBANDS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("BBANDS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1426,11 +1455,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_BETA_Close(st);
-            printf("BETA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("BETA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_BETA_Close(st); }
-            printf("BETA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("BETA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1493,11 +1522,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_BOP_Close(st);
-            printf("BOP %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("BOP", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_BOP_Close(st); }
-            printf("BOP %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("BOP", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1559,11 +1588,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CCI_Close(st);
-            printf("CCI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CCI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CCI_Close(st); }
-            printf("CCI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CCI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1626,11 +1655,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDL2CROWS_Close(st);
-            printf("CDL2CROWS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDL2CROWS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDL2CROWS_Close(st); }
-            printf("CDL2CROWS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDL2CROWS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1693,11 +1722,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDL3BLACKCROWS_Close(st);
-            printf("CDL3BLACKCROWS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDL3BLACKCROWS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDL3BLACKCROWS_Close(st); }
-            printf("CDL3BLACKCROWS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDL3BLACKCROWS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1760,11 +1789,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDL3INSIDE_Close(st);
-            printf("CDL3INSIDE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDL3INSIDE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDL3INSIDE_Close(st); }
-            printf("CDL3INSIDE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDL3INSIDE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1827,11 +1856,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDL3LINESTRIKE_Close(st);
-            printf("CDL3LINESTRIKE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDL3LINESTRIKE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDL3LINESTRIKE_Close(st); }
-            printf("CDL3LINESTRIKE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDL3LINESTRIKE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1894,11 +1923,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDL3OUTSIDE_Close(st);
-            printf("CDL3OUTSIDE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDL3OUTSIDE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDL3OUTSIDE_Close(st); }
-            printf("CDL3OUTSIDE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDL3OUTSIDE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -1961,11 +1990,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDL3STARSINSOUTH_Close(st);
-            printf("CDL3STARSINSOUTH %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDL3STARSINSOUTH", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDL3STARSINSOUTH_Close(st); }
-            printf("CDL3STARSINSOUTH %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDL3STARSINSOUTH", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2028,11 +2057,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDL3WHITESOLDIERS_Close(st);
-            printf("CDL3WHITESOLDIERS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDL3WHITESOLDIERS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDL3WHITESOLDIERS_Close(st); }
-            printf("CDL3WHITESOLDIERS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDL3WHITESOLDIERS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2095,11 +2124,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLABANDONEDBABY_Close(st);
-            printf("CDLABANDONEDBABY %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLABANDONEDBABY", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLABANDONEDBABY_Close(st); }
-            printf("CDLABANDONEDBABY %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLABANDONEDBABY", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2162,11 +2191,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLADVANCEBLOCK_Close(st);
-            printf("CDLADVANCEBLOCK %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLADVANCEBLOCK", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLADVANCEBLOCK_Close(st); }
-            printf("CDLADVANCEBLOCK %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLADVANCEBLOCK", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2229,11 +2258,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLBELTHOLD_Close(st);
-            printf("CDLBELTHOLD %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLBELTHOLD", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLBELTHOLD_Close(st); }
-            printf("CDLBELTHOLD %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLBELTHOLD", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2296,11 +2325,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLBREAKAWAY_Close(st);
-            printf("CDLBREAKAWAY %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLBREAKAWAY", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLBREAKAWAY_Close(st); }
-            printf("CDLBREAKAWAY %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLBREAKAWAY", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2363,11 +2392,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLCLOSINGMARUBOZU_Close(st);
-            printf("CDLCLOSINGMARUBOZU %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLCLOSINGMARUBOZU", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLCLOSINGMARUBOZU_Close(st); }
-            printf("CDLCLOSINGMARUBOZU %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLCLOSINGMARUBOZU", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2430,11 +2459,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLCONCEALBABYSWALL_Close(st);
-            printf("CDLCONCEALBABYSWALL %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLCONCEALBABYSWALL", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLCONCEALBABYSWALL_Close(st); }
-            printf("CDLCONCEALBABYSWALL %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLCONCEALBABYSWALL", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2497,11 +2526,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLCOUNTERATTACK_Close(st);
-            printf("CDLCOUNTERATTACK %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLCOUNTERATTACK", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLCOUNTERATTACK_Close(st); }
-            printf("CDLCOUNTERATTACK %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLCOUNTERATTACK", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2564,11 +2593,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLDARKCLOUDCOVER_Close(st);
-            printf("CDLDARKCLOUDCOVER %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLDARKCLOUDCOVER", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLDARKCLOUDCOVER_Close(st); }
-            printf("CDLDARKCLOUDCOVER %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLDARKCLOUDCOVER", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2631,11 +2660,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLDOJI_Close(st);
-            printf("CDLDOJI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLDOJI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLDOJI_Close(st); }
-            printf("CDLDOJI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLDOJI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2698,11 +2727,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLDOJISTAR_Close(st);
-            printf("CDLDOJISTAR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLDOJISTAR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLDOJISTAR_Close(st); }
-            printf("CDLDOJISTAR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLDOJISTAR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2765,11 +2794,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLDRAGONFLYDOJI_Close(st);
-            printf("CDLDRAGONFLYDOJI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLDRAGONFLYDOJI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLDRAGONFLYDOJI_Close(st); }
-            printf("CDLDRAGONFLYDOJI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLDRAGONFLYDOJI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2832,11 +2861,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLENGULFING_Close(st);
-            printf("CDLENGULFING %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLENGULFING", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLENGULFING_Close(st); }
-            printf("CDLENGULFING %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLENGULFING", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2899,11 +2928,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLEVENINGDOJISTAR_Close(st);
-            printf("CDLEVENINGDOJISTAR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLEVENINGDOJISTAR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLEVENINGDOJISTAR_Close(st); }
-            printf("CDLEVENINGDOJISTAR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLEVENINGDOJISTAR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -2966,11 +2995,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLEVENINGSTAR_Close(st);
-            printf("CDLEVENINGSTAR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLEVENINGSTAR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLEVENINGSTAR_Close(st); }
-            printf("CDLEVENINGSTAR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLEVENINGSTAR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3033,11 +3062,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLGAPSIDESIDEWHITE_Close(st);
-            printf("CDLGAPSIDESIDEWHITE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLGAPSIDESIDEWHITE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLGAPSIDESIDEWHITE_Close(st); }
-            printf("CDLGAPSIDESIDEWHITE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLGAPSIDESIDEWHITE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3100,11 +3129,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLGRAVESTONEDOJI_Close(st);
-            printf("CDLGRAVESTONEDOJI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLGRAVESTONEDOJI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLGRAVESTONEDOJI_Close(st); }
-            printf("CDLGRAVESTONEDOJI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLGRAVESTONEDOJI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3167,11 +3196,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLHAMMER_Close(st);
-            printf("CDLHAMMER %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLHAMMER", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLHAMMER_Close(st); }
-            printf("CDLHAMMER %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLHAMMER", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3234,11 +3263,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLHANGINGMAN_Close(st);
-            printf("CDLHANGINGMAN %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLHANGINGMAN", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLHANGINGMAN_Close(st); }
-            printf("CDLHANGINGMAN %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLHANGINGMAN", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3301,11 +3330,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLHARAMI_Close(st);
-            printf("CDLHARAMI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLHARAMI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLHARAMI_Close(st); }
-            printf("CDLHARAMI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLHARAMI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3368,11 +3397,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLHARAMICROSS_Close(st);
-            printf("CDLHARAMICROSS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLHARAMICROSS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLHARAMICROSS_Close(st); }
-            printf("CDLHARAMICROSS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLHARAMICROSS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3435,11 +3464,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLHIGHWAVE_Close(st);
-            printf("CDLHIGHWAVE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLHIGHWAVE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLHIGHWAVE_Close(st); }
-            printf("CDLHIGHWAVE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLHIGHWAVE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3502,11 +3531,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLHIKKAKE_Close(st);
-            printf("CDLHIKKAKE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLHIKKAKE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLHIKKAKE_Close(st); }
-            printf("CDLHIKKAKE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLHIKKAKE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3569,11 +3598,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLHIKKAKEMOD_Close(st);
-            printf("CDLHIKKAKEMOD %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLHIKKAKEMOD", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLHIKKAKEMOD_Close(st); }
-            printf("CDLHIKKAKEMOD %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLHIKKAKEMOD", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3636,11 +3665,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLHOMINGPIGEON_Close(st);
-            printf("CDLHOMINGPIGEON %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLHOMINGPIGEON", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLHOMINGPIGEON_Close(st); }
-            printf("CDLHOMINGPIGEON %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLHOMINGPIGEON", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3703,11 +3732,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLIDENTICAL3CROWS_Close(st);
-            printf("CDLIDENTICAL3CROWS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLIDENTICAL3CROWS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLIDENTICAL3CROWS_Close(st); }
-            printf("CDLIDENTICAL3CROWS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLIDENTICAL3CROWS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3770,11 +3799,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLINNECK_Close(st);
-            printf("CDLINNECK %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLINNECK", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLINNECK_Close(st); }
-            printf("CDLINNECK %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLINNECK", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3837,11 +3866,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLINVERTEDHAMMER_Close(st);
-            printf("CDLINVERTEDHAMMER %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLINVERTEDHAMMER", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLINVERTEDHAMMER_Close(st); }
-            printf("CDLINVERTEDHAMMER %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLINVERTEDHAMMER", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3904,11 +3933,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLKICKING_Close(st);
-            printf("CDLKICKING %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLKICKING", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLKICKING_Close(st); }
-            printf("CDLKICKING %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLKICKING", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -3971,11 +4000,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLKICKINGBYLENGTH_Close(st);
-            printf("CDLKICKINGBYLENGTH %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLKICKINGBYLENGTH", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLKICKINGBYLENGTH_Close(st); }
-            printf("CDLKICKINGBYLENGTH %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLKICKINGBYLENGTH", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4038,11 +4067,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLLADDERBOTTOM_Close(st);
-            printf("CDLLADDERBOTTOM %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLLADDERBOTTOM", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLLADDERBOTTOM_Close(st); }
-            printf("CDLLADDERBOTTOM %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLLADDERBOTTOM", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4105,11 +4134,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLLONGLEGGEDDOJI_Close(st);
-            printf("CDLLONGLEGGEDDOJI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLLONGLEGGEDDOJI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLLONGLEGGEDDOJI_Close(st); }
-            printf("CDLLONGLEGGEDDOJI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLLONGLEGGEDDOJI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4172,11 +4201,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLLONGLINE_Close(st);
-            printf("CDLLONGLINE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLLONGLINE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLLONGLINE_Close(st); }
-            printf("CDLLONGLINE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLLONGLINE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4239,11 +4268,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLMARUBOZU_Close(st);
-            printf("CDLMARUBOZU %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLMARUBOZU", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLMARUBOZU_Close(st); }
-            printf("CDLMARUBOZU %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLMARUBOZU", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4306,11 +4335,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLMATCHINGLOW_Close(st);
-            printf("CDLMATCHINGLOW %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLMATCHINGLOW", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLMATCHINGLOW_Close(st); }
-            printf("CDLMATCHINGLOW %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLMATCHINGLOW", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4373,11 +4402,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLMATHOLD_Close(st);
-            printf("CDLMATHOLD %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLMATHOLD", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLMATHOLD_Close(st); }
-            printf("CDLMATHOLD %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLMATHOLD", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4440,11 +4469,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLMORNINGDOJISTAR_Close(st);
-            printf("CDLMORNINGDOJISTAR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLMORNINGDOJISTAR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLMORNINGDOJISTAR_Close(st); }
-            printf("CDLMORNINGDOJISTAR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLMORNINGDOJISTAR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4507,11 +4536,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLMORNINGSTAR_Close(st);
-            printf("CDLMORNINGSTAR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLMORNINGSTAR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLMORNINGSTAR_Close(st); }
-            printf("CDLMORNINGSTAR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLMORNINGSTAR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4574,11 +4603,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLONNECK_Close(st);
-            printf("CDLONNECK %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLONNECK", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLONNECK_Close(st); }
-            printf("CDLONNECK %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLONNECK", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4641,11 +4670,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLPIERCING_Close(st);
-            printf("CDLPIERCING %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLPIERCING", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLPIERCING_Close(st); }
-            printf("CDLPIERCING %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLPIERCING", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4708,11 +4737,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLRICKSHAWMAN_Close(st);
-            printf("CDLRICKSHAWMAN %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLRICKSHAWMAN", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLRICKSHAWMAN_Close(st); }
-            printf("CDLRICKSHAWMAN %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLRICKSHAWMAN", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4775,11 +4804,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLRISEFALL3METHODS_Close(st);
-            printf("CDLRISEFALL3METHODS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLRISEFALL3METHODS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLRISEFALL3METHODS_Close(st); }
-            printf("CDLRISEFALL3METHODS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLRISEFALL3METHODS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4842,11 +4871,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLSEPARATINGLINES_Close(st);
-            printf("CDLSEPARATINGLINES %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLSEPARATINGLINES", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLSEPARATINGLINES_Close(st); }
-            printf("CDLSEPARATINGLINES %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLSEPARATINGLINES", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4909,11 +4938,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLSHOOTINGSTAR_Close(st);
-            printf("CDLSHOOTINGSTAR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLSHOOTINGSTAR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLSHOOTINGSTAR_Close(st); }
-            printf("CDLSHOOTINGSTAR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLSHOOTINGSTAR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -4976,11 +5005,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLSHORTLINE_Close(st);
-            printf("CDLSHORTLINE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLSHORTLINE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLSHORTLINE_Close(st); }
-            printf("CDLSHORTLINE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLSHORTLINE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5043,11 +5072,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLSPINNINGTOP_Close(st);
-            printf("CDLSPINNINGTOP %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLSPINNINGTOP", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLSPINNINGTOP_Close(st); }
-            printf("CDLSPINNINGTOP %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLSPINNINGTOP", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5110,11 +5139,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLSTALLEDPATTERN_Close(st);
-            printf("CDLSTALLEDPATTERN %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLSTALLEDPATTERN", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLSTALLEDPATTERN_Close(st); }
-            printf("CDLSTALLEDPATTERN %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLSTALLEDPATTERN", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5177,11 +5206,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLSTICKSANDWICH_Close(st);
-            printf("CDLSTICKSANDWICH %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLSTICKSANDWICH", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLSTICKSANDWICH_Close(st); }
-            printf("CDLSTICKSANDWICH %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLSTICKSANDWICH", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5244,11 +5273,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLTAKURI_Close(st);
-            printf("CDLTAKURI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLTAKURI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLTAKURI_Close(st); }
-            printf("CDLTAKURI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLTAKURI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5311,11 +5340,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLTASUKIGAP_Close(st);
-            printf("CDLTASUKIGAP %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLTASUKIGAP", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLTASUKIGAP_Close(st); }
-            printf("CDLTASUKIGAP %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLTASUKIGAP", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5378,11 +5407,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLTHRUSTING_Close(st);
-            printf("CDLTHRUSTING %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLTHRUSTING", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLTHRUSTING_Close(st); }
-            printf("CDLTHRUSTING %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLTHRUSTING", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5445,11 +5474,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLTRISTAR_Close(st);
-            printf("CDLTRISTAR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLTRISTAR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLTRISTAR_Close(st); }
-            printf("CDLTRISTAR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLTRISTAR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5512,11 +5541,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLUNIQUE3RIVER_Close(st);
-            printf("CDLUNIQUE3RIVER %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLUNIQUE3RIVER", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLUNIQUE3RIVER_Close(st); }
-            printf("CDLUNIQUE3RIVER %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLUNIQUE3RIVER", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5579,11 +5608,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLUPSIDEGAP2CROWS_Close(st);
-            printf("CDLUPSIDEGAP2CROWS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLUPSIDEGAP2CROWS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLUPSIDEGAP2CROWS_Close(st); }
-            printf("CDLUPSIDEGAP2CROWS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLUPSIDEGAP2CROWS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5646,11 +5675,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CDLXSIDEGAP3METHODS_Close(st);
-            printf("CDLXSIDEGAP3METHODS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CDLXSIDEGAP3METHODS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CDLXSIDEGAP3METHODS_Close(st); }
-            printf("CDLXSIDEGAP3METHODS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CDLXSIDEGAP3METHODS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5710,11 +5739,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CEIL_Close(st);
-            printf("CEIL %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CEIL", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CEIL_Close(st); }
-            printf("CEIL %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CEIL", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5777,11 +5806,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CMF_Close(st);
-            printf("CMF %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CMF", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CMF_Close(st); }
-            printf("CMF %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CMF", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5841,11 +5870,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CMO_Close(st);
-            printf("CMO %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CMO", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CMO_Close(st); }
-            printf("CMO %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CMO", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5905,11 +5934,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CMOU_Close(st);
-            printf("CMOU %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CMOU", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CMOU_Close(st); }
-            printf("CMOU %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CMOU", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -5970,11 +5999,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_CORREL_Close(st);
-            printf("CORREL %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("CORREL", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_CORREL_Close(st); }
-            printf("CORREL %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("CORREL", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6034,11 +6063,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_COS_Close(st);
-            printf("COS %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("COS", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_COS_Close(st); }
-            printf("COS %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("COS", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6098,11 +6127,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_COSH_Close(st);
-            printf("COSH %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("COSH", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_COSH_Close(st); }
-            printf("COSH %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("COSH", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6162,11 +6191,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_DEMA_Close(st);
-            printf("DEMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("DEMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_DEMA_Close(st); }
-            printf("DEMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("DEMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6227,11 +6256,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_DIV_Close(st);
-            printf("DIV %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("DIV", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_DIV_Close(st); }
-            printf("DIV %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("DIV", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6293,11 +6322,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_DX_Close(st);
-            printf("DX %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("DX", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_DX_Close(st); }
-            printf("DX %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("DX", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6357,11 +6386,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_EMA_Close(st);
-            printf("EMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("EMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_EMA_Close(st); }
-            printf("EMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("EMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6421,11 +6450,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_EXP_Close(st);
-            printf("EXP %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("EXP", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_EXP_Close(st); }
-            printf("EXP %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("EXP", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6485,11 +6514,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_FLOOR_Close(st);
-            printf("FLOOR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("FLOOR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_FLOOR_Close(st); }
-            printf("FLOOR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("FLOOR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6549,11 +6578,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_HMA_Close(st);
-            printf("HMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("HMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_HMA_Close(st); }
-            printf("HMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("HMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6613,11 +6642,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_HT_DCPERIOD_Close(st);
-            printf("HT_DCPERIOD %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("HT_DCPERIOD", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_HT_DCPERIOD_Close(st); }
-            printf("HT_DCPERIOD %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("HT_DCPERIOD", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6677,11 +6706,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_HT_DCPHASE_Close(st);
-            printf("HT_DCPHASE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("HT_DCPHASE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_HT_DCPHASE_Close(st); }
-            printf("HT_DCPHASE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("HT_DCPHASE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6746,11 +6775,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_HT_PHASOR_Close(st);
-            printf("HT_PHASOR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("HT_PHASOR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_HT_PHASOR_Close(st); }
-            printf("HT_PHASOR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("HT_PHASOR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6815,11 +6844,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_HT_SINE_Close(st);
-            printf("HT_SINE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("HT_SINE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_HT_SINE_Close(st); }
-            printf("HT_SINE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("HT_SINE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6879,11 +6908,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_HT_TRENDLINE_Close(st);
-            printf("HT_TRENDLINE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("HT_TRENDLINE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_HT_TRENDLINE_Close(st); }
-            printf("HT_TRENDLINE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("HT_TRENDLINE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -6943,11 +6972,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_HT_TRENDMODE_Close(st);
-            printf("HT_TRENDMODE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("HT_TRENDMODE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_HT_TRENDMODE_Close(st); }
-            printf("HT_TRENDMODE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("HT_TRENDMODE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7008,11 +7037,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_IMI_Close(st);
-            printf("IMI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("IMI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_IMI_Close(st); }
-            printf("IMI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("IMI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7072,11 +7101,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_KAMA_Close(st);
-            printf("KAMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("KAMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_KAMA_Close(st); }
-            printf("KAMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("KAMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7136,11 +7165,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_LINEARREG_Close(st);
-            printf("LINEARREG %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("LINEARREG", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_LINEARREG_Close(st); }
-            printf("LINEARREG %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("LINEARREG", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7200,11 +7229,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_LINEARREG_ANGLE_Close(st);
-            printf("LINEARREG_ANGLE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("LINEARREG_ANGLE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_LINEARREG_ANGLE_Close(st); }
-            printf("LINEARREG_ANGLE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("LINEARREG_ANGLE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7264,11 +7293,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_LINEARREG_INTERCEPT_Close(st);
-            printf("LINEARREG_INTERCEPT %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("LINEARREG_INTERCEPT", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_LINEARREG_INTERCEPT_Close(st); }
-            printf("LINEARREG_INTERCEPT %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("LINEARREG_INTERCEPT", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7328,11 +7357,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_LINEARREG_SLOPE_Close(st);
-            printf("LINEARREG_SLOPE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("LINEARREG_SLOPE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_LINEARREG_SLOPE_Close(st); }
-            printf("LINEARREG_SLOPE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("LINEARREG_SLOPE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7392,11 +7421,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_LN_Close(st);
-            printf("LN %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("LN", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_LN_Close(st); }
-            printf("LN %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("LN", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7456,11 +7485,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_LOG10_Close(st);
-            printf("LOG10 %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("LOG10", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_LOG10_Close(st); }
-            printf("LOG10 %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("LOG10", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7520,11 +7549,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MA_Close(st);
-            printf("MA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MA_Close(st); }
-            printf("MA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7594,11 +7623,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MACD_Close(st);
-            printf("MACD %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MACD", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MACD_Close(st); }
-            printf("MACD %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MACD", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7668,11 +7697,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MACDEXT_Close(st);
-            printf("MACDEXT %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MACDEXT", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MACDEXT_Close(st); }
-            printf("MACDEXT %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MACDEXT", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7742,11 +7771,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MACDFIX_Close(st);
-            printf("MACDFIX %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MACDFIX", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MACDFIX_Close(st); }
-            printf("MACDFIX %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MACDFIX", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7811,11 +7840,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MAMA_Close(st);
-            printf("MAMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MAMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MAMA_Close(st); }
-            printf("MAMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MAMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7876,11 +7905,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MAVP_Close(st);
-            printf("MAVP %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MAVP", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MAVP_Close(st); }
-            printf("MAVP %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MAVP", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -7940,11 +7969,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MAX_Close(st);
-            printf("MAX %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MAX", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MAX_Close(st); }
-            printf("MAX %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MAX", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8004,11 +8033,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MAXINDEX_Close(st);
-            printf("MAXINDEX %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MAXINDEX", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MAXINDEX_Close(st); }
-            printf("MAXINDEX %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MAXINDEX", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8069,11 +8098,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MEDPRICE_Close(st);
-            printf("MEDPRICE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MEDPRICE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MEDPRICE_Close(st); }
-            printf("MEDPRICE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MEDPRICE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8136,11 +8165,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MFI_Close(st);
-            printf("MFI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MFI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MFI_Close(st); }
-            printf("MFI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MFI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8200,11 +8229,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MIDPOINT_Close(st);
-            printf("MIDPOINT %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MIDPOINT", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MIDPOINT_Close(st); }
-            printf("MIDPOINT %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MIDPOINT", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8265,11 +8294,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MIDPRICE_Close(st);
-            printf("MIDPRICE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MIDPRICE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MIDPRICE_Close(st); }
-            printf("MIDPRICE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MIDPRICE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8329,11 +8358,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MIN_Close(st);
-            printf("MIN %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MIN", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MIN_Close(st); }
-            printf("MIN %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MIN", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8393,11 +8422,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MININDEX_Close(st);
-            printf("MININDEX %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MININDEX", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MININDEX_Close(st); }
-            printf("MININDEX %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MININDEX", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8462,11 +8491,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MINMAX_Close(st);
-            printf("MINMAX %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MINMAX", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MINMAX_Close(st); }
-            printf("MINMAX %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MINMAX", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8531,11 +8560,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MINMAXINDEX_Close(st);
-            printf("MINMAXINDEX %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MINMAXINDEX", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MINMAXINDEX_Close(st); }
-            printf("MINMAXINDEX %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MINMAXINDEX", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8597,11 +8626,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MINUS_DI_Close(st);
-            printf("MINUS_DI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MINUS_DI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MINUS_DI_Close(st); }
-            printf("MINUS_DI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MINUS_DI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8662,11 +8691,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MINUS_DM_Close(st);
-            printf("MINUS_DM %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MINUS_DM", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MINUS_DM_Close(st); }
-            printf("MINUS_DM %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MINUS_DM", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8726,11 +8755,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MOM_Close(st);
-            printf("MOM %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MOM", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MOM_Close(st); }
-            printf("MOM %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MOM", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8791,11 +8820,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_MULT_Close(st);
-            printf("MULT %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("MULT", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_MULT_Close(st); }
-            printf("MULT %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("MULT", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8857,11 +8886,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_NATR_Close(st);
-            printf("NATR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("NATR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_NATR_Close(st); }
-            printf("NATR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("NATR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8922,11 +8951,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_NVI_Close(st);
-            printf("NVI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("NVI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_NVI_Close(st); }
-            printf("NVI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("NVI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -8987,11 +9016,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_OBV_Close(st);
-            printf("OBV %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("OBV", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_OBV_Close(st); }
-            printf("OBV %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("OBV", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9053,11 +9082,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_PLUS_DI_Close(st);
-            printf("PLUS_DI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("PLUS_DI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_PLUS_DI_Close(st); }
-            printf("PLUS_DI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("PLUS_DI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9118,11 +9147,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_PLUS_DM_Close(st);
-            printf("PLUS_DM %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("PLUS_DM", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_PLUS_DM_Close(st); }
-            printf("PLUS_DM %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("PLUS_DM", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9182,11 +9211,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_PPO_Close(st);
-            printf("PPO %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("PPO", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_PPO_Close(st); }
-            printf("PPO %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("PPO", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9247,11 +9276,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_PVI_Close(st);
-            printf("PVI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("PVI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_PVI_Close(st); }
-            printf("PVI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("PVI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9311,11 +9340,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_PVO_Close(st);
-            printf("PVO %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("PVO", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_PVO_Close(st); }
-            printf("PVO %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("PVO", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9375,11 +9404,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ROC_Close(st);
-            printf("ROC %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ROC", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ROC_Close(st); }
-            printf("ROC %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ROC", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9439,11 +9468,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ROCP_Close(st);
-            printf("ROCP %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ROCP", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ROCP_Close(st); }
-            printf("ROCP %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ROCP", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9503,11 +9532,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ROCR_Close(st);
-            printf("ROCR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ROCR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ROCR_Close(st); }
-            printf("ROCR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ROCR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9567,11 +9596,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ROCR100_Close(st);
-            printf("ROCR100 %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ROCR100", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ROCR100_Close(st); }
-            printf("ROCR100 %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ROCR100", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9631,11 +9660,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_RSI_Close(st);
-            printf("RSI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("RSI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_RSI_Close(st); }
-            printf("RSI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("RSI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9696,11 +9725,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_SAR_Close(st);
-            printf("SAR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("SAR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_SAR_Close(st); }
-            printf("SAR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("SAR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9761,11 +9790,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_SAREXT_Close(st);
-            printf("SAREXT %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("SAREXT", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_SAREXT_Close(st); }
-            printf("SAREXT %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("SAREXT", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9825,11 +9854,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_SIN_Close(st);
-            printf("SIN %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("SIN", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_SIN_Close(st); }
-            printf("SIN %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("SIN", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9889,11 +9918,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_SINH_Close(st);
-            printf("SINH %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("SINH", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_SINH_Close(st); }
-            printf("SINH %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("SINH", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -9953,11 +9982,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_SMA_Close(st);
-            printf("SMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("SMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_SMA_Close(st); }
-            printf("SMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("SMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10017,11 +10046,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_SQRT_Close(st);
-            printf("SQRT %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("SQRT", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_SQRT_Close(st); }
-            printf("SQRT %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("SQRT", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10081,11 +10110,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_STDDEV_Close(st);
-            printf("STDDEV %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("STDDEV", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_STDDEV_Close(st); }
-            printf("STDDEV %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("STDDEV", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10152,11 +10181,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_STOCH_Close(st);
-            printf("STOCH %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("STOCH", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_STOCH_Close(st); }
-            printf("STOCH %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("STOCH", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10223,11 +10252,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_STOCHF_Close(st);
-            printf("STOCHF %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("STOCHF", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_STOCHF_Close(st); }
-            printf("STOCHF %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("STOCHF", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10292,11 +10321,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_STOCHRSI_Close(st);
-            printf("STOCHRSI %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("STOCHRSI", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_STOCHRSI_Close(st); }
-            printf("STOCHRSI %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("STOCHRSI", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10357,11 +10386,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_SUB_Close(st);
-            printf("SUB %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("SUB", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_SUB_Close(st); }
-            printf("SUB %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("SUB", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10421,11 +10450,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_SUM_Close(st);
-            printf("SUM %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("SUM", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_SUM_Close(st); }
-            printf("SUM %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("SUM", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10485,11 +10514,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_T3_Close(st);
-            printf("T3 %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("T3", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_T3_Close(st); }
-            printf("T3 %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("T3", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10549,11 +10578,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_TAN_Close(st);
-            printf("TAN %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("TAN", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_TAN_Close(st); }
-            printf("TAN %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("TAN", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10613,11 +10642,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_TANH_Close(st);
-            printf("TANH %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("TANH", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_TANH_Close(st); }
-            printf("TANH %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("TANH", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10677,11 +10706,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_TEMA_Close(st);
-            printf("TEMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("TEMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_TEMA_Close(st); }
-            printf("TEMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("TEMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10743,11 +10772,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_TRANGE_Close(st);
-            printf("TRANGE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("TRANGE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_TRANGE_Close(st); }
-            printf("TRANGE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("TRANGE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10807,11 +10836,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_TRIMA_Close(st);
-            printf("TRIMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("TRIMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_TRIMA_Close(st); }
-            printf("TRIMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("TRIMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10871,11 +10900,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_TRIX_Close(st);
-            printf("TRIX %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("TRIX", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_TRIX_Close(st); }
-            printf("TRIX %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("TRIX", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -10935,11 +10964,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_TSF_Close(st);
-            printf("TSF %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("TSF", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_TSF_Close(st); }
-            printf("TSF %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("TSF", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -11001,11 +11030,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_TYPPRICE_Close(st);
-            printf("TYPPRICE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("TYPPRICE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_TYPPRICE_Close(st); }
-            printf("TYPPRICE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("TYPPRICE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -11067,11 +11096,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_ULTOSC_Close(st);
-            printf("ULTOSC %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("ULTOSC", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_ULTOSC_Close(st); }
-            printf("ULTOSC %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("ULTOSC", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -11131,11 +11160,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_VAR_Close(st);
-            printf("VAR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("VAR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_VAR_Close(st); }
-            printf("VAR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("VAR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -11196,11 +11225,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_VWMA_Close(st);
-            printf("VWMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("VWMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_VWMA_Close(st); }
-            printf("VWMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("VWMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -11262,11 +11291,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_WCLPRICE_Close(st);
-            printf("WCLPRICE %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("WCLPRICE", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_WCLPRICE_Close(st); }
-            printf("WCLPRICE %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("WCLPRICE", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -11328,11 +11357,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_WILLR_Close(st);
-            printf("WILLR %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("WILLR", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_WILLR_Close(st); }
-            printf("WILLR %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("WILLR", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -11392,11 +11421,11 @@ static void bench_stream_all(const char *filter, int iters) {
             }
             g_sink += (int)acc + nb;
             TA_WMA_Close(st);
-            printf("WMA %.3f %.3f %.3f %d %zu\n", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+            bench_stream_row("WMA", best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
         } else {
             g_sink += (int)acc + nb;
             if( st ) { g_ta_track = 0; TA_WMA_Close(st); }
-            printf("WMA %.3f -1 -1 %d 0\n", best_b/(double)iters, lb);
+            bench_stream_row("WMA", best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -11407,15 +11436,43 @@ int main(int argc, char *argv[]) {
     TA_Initialize();
     int n_points = 100000;
     int n_iters = 500;
+    int verify_corpus = 0;
     const char *func_filter = NULL;
     for( int i = 1; i < argc; i++ ) {
         if( strncmp(argv[i], "--points=", 9) == 0 )    n_points = atoi(argv[i]+9);
         else if( strncmp(argv[i], "--iters=", 8) == 0 ) n_iters = atoi(argv[i]+8);
         else if( strncmp(argv[i], "--function=", 11) == 0 ) func_filter = argv[i]+11;
+        /* Gate: exit non-zero if any function streams slower than this multiple
+           of its batch@last cost. Stream-bench only, hence not in CORPUS_ARGS. */
+        else if( strncmp(argv[i], "--min-ratio=", 12) == 0 ) g_min_ratio = atof(argv[i]+12);
+        else if( strncmp(argv[i], "--shape=", 8) == 0 ) {
+            g_corpus.shape = bench_shape_id(argv[i]+8);
+            if( g_corpus.shape < 0 ) {
+                printf("unknown --shape=%s\n\n", argv[i]+8);
+                bench_shape_list();
+                return 1;
+            }
+        }
+        else if( strncmp(argv[i], "--seed=", 7) == 0 )   g_corpus.seed = atoi(argv[i]+7);
+        else if( strncmp(argv[i], "--regime-period=", 16) == 0 ) g_corpus.refPeriod = atoi(argv[i]+16);
+        else if( strncmp(argv[i], "--trend-strength=", 17) == 0 ) g_corpus.trendStrength = atof(argv[i]+17);
+        else if( strcmp(argv[i], "--list-shapes") == 0 ) { bench_shape_list(); return 0; }
+        else if( strcmp(argv[i], "--verify-corpus") == 0 ) verify_corpus = 1;
+        else {
+            /* Reject rather than ignore. ta_bench_direct forwards the corpus
+             * flags to this binary unconditionally, so a silently-dropped flag
+             * makes it time two DIFFERENT input classes and print the ratio as
+             * if they matched — a wrong answer with no diagnostic. */
+            fprintf(stderr, "%s: unknown option '%s'\n", argv[0], argv[i]);
+            return 2;
+        }
     }
     if( n_points > MAX_POINTS ) n_points = MAX_POINTS;
     if( n_points < BENCH_MASK + 1 ) n_points = BENCH_MASK + 1; /* the bar feed indexes it & BENCH_MASK */
     if( n_iters < 1 ) n_iters = 1;
+    /* After the loop, so the check runs at the n actually benchmarked
+       regardless of where --points sits in argv. */
+    if( verify_corpus ) return bench_corpus_selfcheck(n_points, &g_corpus) ? 1 : 0;
     generate_price_data(n_points);
     /* Growing history for batch@last: one buffer sized to hold the whole run
        (n_iters appended bars + lookback headroom) so it never recycles within a pass. */
@@ -11438,7 +11495,8 @@ int main(int argc, char *argv[]) {
         g_rt_periods[i]=g_periods[j];
     }
     bench_stream_all(func_filter, n_iters);
+    int rc = bench_stream_summary();
     free(g_rt_open); free(g_rt_high); free(g_rt_low); free(g_rt_close); free(g_rt_volume); free(g_rt_oi); free(g_rt_periods);
     free(g_open); free(g_high); free(g_low); free(g_close); free(g_volume); free(g_oi); free(g_periods);
-    return 0;
+    return rc;
 }
