@@ -185,15 +185,17 @@ pub fn lookback_docs(func: &FuncDef, snake: &str, enums: &HashMap<String, EnumDe
 /// the function actually takes. Gated per kind because the two sentinels differ and
 /// several functions take only one kind: SAR and MAMA have no integer optional
 /// parameter at all, so an unconditional `i32::MIN` sentence documents an API they
-/// do not have. Returns `None` for a function whose optional parameters are all
-/// enums (no sentinel substitution is emitted for those).
+/// do not have. `enum:` params count as integer here — the Rust surface types them
+/// `i32` and substitutes the same `i32::MIN` (issue #162). Every function that has
+/// one also has a period today, so this changes no output; keeping the predicate
+/// honest is what stops that being load-bearing.
 fn default_sentinel_sentence(func: &FuncDef) -> Option<&'static str> {
     let takes = |want: fn(&ParamType) -> bool| {
         func.optional_inputs
             .iter()
             .any(|o| want(&o.param_type) && o.default.is_some())
     };
-    let has_int = takes(|t| matches!(t, ParamType::Integer));
+    let has_int = takes(|t| matches!(t, ParamType::Integer | ParamType::Enum(_)));
     let has_real = takes(|t| matches!(t, ParamType::Real));
     match (has_int, has_real) {
         (true, true) => Some(
@@ -206,35 +208,27 @@ fn default_sentinel_sentence(func: &FuncDef) -> Option<&'static str> {
     }
 }
 
-/// Rustdoc block for the `_unguarded` / `_private` variants.
-pub fn unguarded_docs(func: &FuncDef, snake: &str, is_private: bool) -> String {
+/// Rustdoc block for the `_private` variant.
+pub fn private_docs(func: &FuncDef, snake: &str) -> String {
     let mut d = DocWriter::new("    ");
-
-    if is_private {
-        let params: Vec<String> = func
-            .private_extra_params
-            .iter()
-            .map(|(name, _)| format!("`{name}`"))
-            .collect();
-        d.paragraph(&format!(
-            "Internal variant of [`Core::{snake}_unguarded`] taking the precomputed \
-             parameter{} {}. Same contract as [`Core::{snake}_unguarded`].",
-            if params.len() == 1 { "" } else { "s" },
-            params.join(", ")
-        ));
-    } else {
-        d.paragraph(&format!(
-            "Unguarded variant of [`Core::{snake}`], used for internal cross-indicator calls."
-        ));
-        d.blank();
-        d.paragraph(&format!(
-            "Skips parameter validation; indexing stays safe. Every argument must satisfy \
-             the constraints documented on [`Core::{snake}`]; an out-of-range parameter, an \
-             input slice not covering `startIdx..=endIdx`, or an undersized output slice \
-             panics (never undefined behavior). Prefer [`Core::{snake}`]."
-        ));
-    }
-
+    let params: Vec<String> = func
+        .private_extra_params
+        .iter()
+        .map(|(name, _)| format!("`{name}`"))
+        .collect();
+    d.paragraph(&format!(
+        "Internal variant of [`Core::{snake}`] taking the precomputed parameter{} {}. \
+         Skips the validation prologue: its only callers are the guarded bodies, which \
+         have already validated.",
+        if params.len() == 1 { "" } else { "s" },
+        params.join(", ")
+    ));
+    d.blank();
+    d.paragraph(&format!(
+        "Unlike [`Core::{snake}`] the bounds assertions here are unconditional: an \
+         `endIdx` beyond the input slice panics even when the lookback clamp means \
+         no element would be read."
+    ));
     d.finish()
 }
 

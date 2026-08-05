@@ -12,7 +12,7 @@ use crate::parser::enums::lookup_variant;
 use crate::registry::{Lang, Registry};
 use super::common::{contains_alloc_err_return, expr_directly_contains_candle_call, find_sizeof_type};
 use super::builtins::{MathFn, SpecialBuiltin, StdlibFn};
-use super::expr_walk::{binop_prec, expr_prec, wrap_child, wrap_inlined, ExprEmitter};
+use super::expr_walk::{binop_prec, expr_prec, is_int_bitwise, wrap_child, wrap_inlined, ExprEmitter};
 use super::fma::{self, FmaVarSets};
 use super::stmt_walk::StatementEmitter;
 
@@ -263,6 +263,7 @@ fn scan_expr_for_address_of(expr: &Expr, vars: &mut HashSet<String>) {
             scan_expr_for_address_of(r, vars);
         }
         Expr::Not(inner)
+        | Expr::BitwiseNot(inner)
         | Expr::Cast(_, inner)
         | Expr::PostIncrement(inner)
         | Expr::PostDecrement(inner)
@@ -395,15 +396,11 @@ pub fn generate(
     // verbatim into BOTH the shipped Core and the JSON-RPC server's inline Core,
     // and the server calls these directly — so the harness's retCode ints and
     // output hashes are untouched by the public surface below.
-    out.push_str(&gen_func(func, false, false, enums, registry, helpers)); // double-precision guarded
-    out.push_str(&gen_func(func, false, true, enums, registry, helpers)); // double-precision logic (unguarded)
-    out.push_str(&gen_func(func, true, false, enums, registry, helpers)); // single-precision guarded
-    out.push_str(&gen_func(func, true, true, enums, registry, helpers)); // single-precision logic (unguarded)
+    out.push_str(&gen_func(func, false, enums, registry, helpers)); // double-precision guarded
+    out.push_str(&gen_func(func, true, enums, registry, helpers)); // single-precision guarded
     // Public surface: OutRange-returning wrappers over the cores above.
-    out.push_str(&gen_public_wrapper(func, false, false, enums, registry));
-    out.push_str(&gen_public_wrapper(func, false, true, enums, registry));
-    out.push_str(&gen_public_wrapper(func, true, false, enums, registry));
-    out.push_str(&gen_public_wrapper(func, true, true, enums, registry));
+    out.push_str(&gen_public_wrapper(func, false, enums, registry));
+    out.push_str(&gen_public_wrapper(func, true, enums, registry));
     // Streaming API section (only for YAML-declared streamable functions).
     if func.streaming {
         out.push_str(&super::java_stream::generate(func, enums, registry, helpers));
@@ -432,14 +429,14 @@ pub(crate) fn java_type_str(var_type: &VarType) -> &'static str {
 /// functions fail with `RetCode.BadParam`, lookback functions fail with `-1`
 /// (the classic lookback bad-param contract).
 ///
-/// Enum params (e.g. MAType) get no range check, and here the type system
-/// genuinely is the reason: a Java enum reference cannot hold an arbitrary int,
-/// so there is no out-of-range value to reject. That is NOT the same as saying
-/// they need no handling — the `TA_INTEGER_DEFAULT` sentinel substitution C
-/// emits (`if( (int)optInMAType == (int)0x80000000 ) optInMAType = 0;`) has no
-/// Java counterpart either, so "use the documented default" is simply
-/// inexpressible for an enum param. Backend-wide gap, tracked in
-/// ta_codegen/generator/CLAUDE.md under "Known Code Quality Issues".
+/// Enum params (e.g. MAType) are the one place Java needs neither half of this
+/// prologue, and the type system genuinely is the reason: a Java enum reference
+/// cannot hold an arbitrary int, so there is no out-of-range value to reject and
+/// no `TA_INTEGER_DEFAULT` to substitute. `Integer.MIN_VALUE` is not a `MAType`
+/// and cannot be made into one, so "use the documented default" is discharged by
+/// the signature rather than by a check. C, Rust and C# all surface that
+/// parameter as an integer instead, so all three must substitute — see
+/// `backends::csharp::emit_opt_param_validation` (issue #162).
 // Integer optional-param defaults/ranges are `f64` in the IR; the integer-valued
 // casts to `i32` for literal emission are exact, not truncating.
 #[allow(clippy::cast_possible_truncation)]
@@ -575,20 +572,14 @@ fn render_init_expr(expr: &Expr) -> String {
 /// same fragment text is spliced into the shipped `Core` and the JSON-RPC
 /// server's inline `Core`, and the server calls the cores, so the cross-language
 /// hash/retCode surface is unaffected by the public API above them.
-fn internal_core_name(base: &str, unguarded: bool) -> String {
-    if unguarded {
-        format!("{base}UnguardedInternal")
-    } else {
-        format!("{base}Internal")
-    }
+fn internal_core_name(base: &str) -> String {
+    format!("{base}Internal")
 }
 
 /// Emit the public, `OutRange`-returning wrapper over one internal core.
 ///
-/// Guarded wrappers translate the core's `RetCode` into the documented exception
-/// mapping; unguarded wrappers check nothing and never throw (the documented
-/// sharp edge, mirroring Rust's public unguarded tier). Both are thin: the
-/// numerics live entirely in the core.
+/// The wrapper translates the core's `RetCode` into the documented exception
+/// mapping. It is thin: the numerics live entirely in the core.
 ///
 /// **A short range is not an error.** A valid range shorter than the lookback
 /// returns `Success` with `outNBElement == 0`, which becomes an `OutRange` whose
@@ -596,17 +587,12 @@ fn internal_core_name(base: &str, unguarded: bool) -> String {
 fn gen_public_wrapper(
     func: &FuncDef,
     single_precision: bool,
-    unguarded: bool,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
 ) -> String {
     let base_name = to_java_method_name(&func.name, func.camel_case.as_deref());
-    let core = internal_core_name(&base_name, unguarded);
-    let public_name = if unguarded {
-        format!("{base_name}Unguarded")
-    } else {
-        base_name.clone()
-    };
+    let core = internal_core_name(&base_name);
+    let public_name = base_name.clone();
 
     // Parameters: same as the core minus the two MInteger out-params.
     let mut params: Vec<String> = vec!["int startIdx".to_string(), "int endIdx".to_string()];
@@ -642,13 +628,9 @@ fn gen_public_wrapper(
     }
 
     let mut out = String::new();
-    if unguarded {
-        out.push_str(&super::java_doc::unguarded_docs(func, &base_name, single_precision));
-    } else {
-        out.push_str(&super::java_doc::guarded_docs(
-            func, &base_name, single_precision, enums, registry,
-        ));
-    }
+    out.push_str(&super::java_doc::guarded_docs(
+        func, &base_name, single_precision, enums, registry,
+    ));
     let sig_prefix = format!("   public OutRange {public_name}( ");
     let indent = " ".repeat(sig_prefix.len());
     out.push_str(&sig_prefix);
@@ -661,13 +643,7 @@ fn gen_public_wrapper(
     out.push_str(" )\n   {\n");
     out.push_str("      MInteger outBegIdx = new MInteger();\n");
     out.push_str("      MInteger outNBElement = new MInteger();\n");
-    if unguarded {
-        // Checks nothing by contract, so there is no failure to report and the
-        // core's RetCode is discarded.
-        let _ = write!(out, "      {core}(");
-        out.push_str(&args.join(", "));
-        out.push_str(");\n");
-    } else {
+    {
         let _ = write!(out, "      RetCode retCode = {core}(");
         out.push_str(&args.join(", "));
         out.push_str(");\n");
@@ -689,7 +665,7 @@ fn gen_private(
 ) -> String {
     let base_name = to_java_method_name(&func.name, func.camel_case.as_deref());
     let name_override = format!("{base_name}Private");
-    gen_func_inner(func, false, true, Some(&name_override), enums, registry, helpers)
+    gen_func_inner(func, false, Some(&name_override), enums, registry, helpers)
 }
 
 /// Generate the Private method float overload (for Java method overloading).
@@ -703,25 +679,26 @@ fn gen_private_sp(
 ) -> String {
     let base_name = to_java_method_name(&func.name, func.camel_case.as_deref());
     let name_override = format!("{base_name}Private");
-    gen_func_inner(func, true, true, Some(&name_override), enums, registry, helpers)
+    gen_func_inner(func, true, Some(&name_override), enums, registry, helpers)
 }
 
 fn gen_func(
     func: &FuncDef,
     single_precision: bool,
-    logic: bool,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    gen_func_inner(func, single_precision, logic, None, enums, registry, helpers)
+    gen_func_inner(func, single_precision, None, enums, registry, helpers)
 }
 
+/// `name_override` distinguishes the two things this emits: `Some(..)` is the
+/// `Private` variant (no validation prologue, extra private params), `None` is the
+/// guarded internal core.
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 fn gen_func_inner(
     func: &FuncDef,
     single_precision: bool,
-    logic: bool,
     name_override: Option<&str>,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
@@ -731,10 +708,8 @@ fn gen_func_inner(
     let base_name = to_java_method_name(&func.name, func.camel_case.as_deref());
     let name = if let Some(n) = name_override {
         n.to_string()
-    } else if logic {
-        internal_core_name(&base_name, true)
     } else {
-        internal_core_name(&base_name, false)
+        internal_core_name(&base_name)
     };
 
     // Build parameter list
@@ -814,18 +789,14 @@ fn gen_func_inner(
     let body = if name_override.is_some() || (single_precision && func.has_explicit_private) {
         // Private variant, or S_ variant inlining the private body
         &func.private_body
-    } else if func.has_explicit_private {
-        &func.body
-    } else if logic {
-        &func.private_body
     } else {
         &func.body
     };
 
     // Carry source comments only in the double-precision implementation (guarded
-    // `xxx` and, for explicit-private functions, `xxxPrivate`). Strip them from
-    // every single-precision copy and the double logic/unguarded duplicate.
-    let keep_comments = !single_precision && (name_override.is_some() || !logic);
+    // `xxx` and, for explicit-private functions, `xxxPrivate`). Strip them from the
+    // single-precision copy.
+    let keep_comments = !single_precision;
     let body_stripped;
     let body: &[Statement] = if keep_comments {
         body
@@ -908,12 +879,14 @@ fn gen_func_inner(
         }
     }
 
-    // For S_ variants with _private: emit private_param_init as local VarDecls
-    // Both guarded and logic S_ variants need this (both use private_body).
-    if single_precision && func.has_explicit_private && name_override.is_none() {
-        for (param_name, init_expr) in &func.private_param_init {
-            let init_java = render_init_expr(init_expr);
-            out.push_str(&format!("      double {param_name} = {init_java};\n"));
+    // For S_ variants with _private: the extra params (e.g. EMA's k factor) the
+    // inlined private body needs. DECLARED here, ASSIGNED after the validation
+    // prologue — the initialiser reads an optional parameter, and the prologue is
+    // what substitutes a sentinel for the declared default.
+    let sp_private_init = single_precision && func.has_explicit_private && name_override.is_none();
+    if sp_private_init {
+        for (param_name, _) in &func.private_param_init {
+            out.push_str(&format!("      double {param_name} = 0.0;\n"));
         }
     }
 
@@ -923,8 +896,9 @@ fn gen_func_inner(
         out.push_str(&emit_java_unpacking(&candle_used, 6));
     }
 
-    // Validation (omitted for Logic/unguarded variant)
-    if !logic {
+    // Validation prologue. Omitted for the `Private` variant, whose callers are the
+    // guarded cores that have already validated.
+    if name_override.is_none() {
         out.push_str("      if( startIdx < 0 ) {\n");
         out.push_str("         return RetCode.OutOfRangeStartIndex ;\n");
         out.push_str("      }\n");
@@ -951,11 +925,19 @@ fn gen_func_inner(
         }
     }
 
+    // Any sentinel is substituted by now — derive the private extra params.
+    if sp_private_init {
+        for (param_name, init_expr) in &func.private_param_init {
+            let init_java = render_init_expr(init_expr);
+            out.push_str(&format!("      {param_name} = {init_java};\n"));
+        }
+    }
+
     let inline_counter = Cell::new(0);
     // FMA fusion sites for this body — same detector Rust/C use, so the three
     // backends fuse identical sites. The index-param seeds never affect a fusion
-    // decision (never float operands), so the unguarded seed set is used uniformly.
-    let fma_sets = fma::build_fma_var_sets(body, &func.outputs, &fma::UNGUARDED_INDEX_SEEDS);
+    // decision (never float operands), so one seed set is used uniformly.
+    let fma_sets = fma::build_fma_var_sets(body, &func.outputs, &fma::INDEX_PARAM_SEEDS);
     let ctx = JavaRenderCtx {
         single_precision,
         address_of_vars: &address_of_vars,
@@ -1308,6 +1290,11 @@ impl StatementEmitter for JavaStmt<'_> {
                             BinOp::Sub => "-=",
                             BinOp::Mul => "*=",
                             BinOp::Div => "/=",
+                            BinOp::BitwiseAnd => "&=",
+                            BinOp::BitwiseOr => "|=",
+                            BinOp::BitwiseXor => "^=",
+                            BinOp::Shl => "<<=",
+                            BinOp::Shr => ">>=",
                             BinOp::Mod
                             | BinOp::LessEq
                             | BinOp::Less
@@ -1316,10 +1303,7 @@ impl StatementEmitter for JavaStmt<'_> {
                             | BinOp::Eq
                             | BinOp::NotEq
                             | BinOp::And
-                            | BinOp::Or
-                            | BinOp::BitwiseOr
-                            | BinOp::Shr
-                            | BinOp::Shl => "",
+                            | BinOp::Or => "",
                         };
                         if !op_str.is_empty() {
                             let target_str = render_assign_target(target, self.ctx, self.registry, self.helpers);
@@ -1684,6 +1668,7 @@ fn render_assign_target(
         | Expr::BinOp(_, _, _)
         | Expr::Cast(_, _)
         | Expr::Not(_)
+        | Expr::BitwiseNot(_)
         | Expr::FuncCall(_, _)
         | Expr::PointerDeref(_)
         | Expr::AddressOf(_)
@@ -1814,14 +1799,27 @@ impl ExprEmitter for JavaExpr<'_> {
             BinOp::And => "&&",
             BinOp::Or => "||",
             BinOp::BitwiseOr => "|",
+            BinOp::BitwiseXor => "^",
+            BinOp::BitwiseAnd => "&",
             BinOp::Shr => ">>",
             BinOp::Shl => "<<",
         };
         // Minimal parenthesization: only wrap an operand that binds looser than
         // this operator (Java shares C's operator precedence).
         let pp = binop_prec(op);
-        let l = wrap_child(self.walk(left), left, pp, false);
-        let r = wrap_child(self.walk(right), right, pp, true);
+        // Integer-bitwise operand of a logical operator carries C truthiness:
+        // it needs an explicit != 0 here.
+        let logical = matches!(op, BinOp::And | BinOp::Or);
+        let l = if logical && is_int_bitwise(left) {
+            format!("({}) != 0", self.walk(left))
+        } else {
+            wrap_child(self.walk(left), left, pp, false)
+        };
+        let r = if logical && is_int_bitwise(right) {
+            format!("({}) != 0", self.walk(right))
+        } else {
+            wrap_child(self.walk(right), right, pp, true)
+        };
         format!("{l} {op_str} {r}")
     }
 
@@ -1850,11 +1848,25 @@ impl ExprEmitter for JavaExpr<'_> {
     }
 
     fn not(&self, inner: &Expr) -> String {
+        // C's logical `!` over an integer-bitwise value: `!` needs a boolean
+        // operand here, so spell out the comparison.
+        if is_int_bitwise(inner) {
+            return format!("(({}) == 0)", self.walk(inner));
+        }
         let s = self.walk(inner);
         if expr_prec(inner) < 12 {
             format!("!({s})")
         } else {
             format!("!{s}")
+        }
+    }
+
+    fn bitwise_not(&self, inner: &Expr) -> String {
+        let s = self.walk(inner);
+        if expr_prec(inner) < 12 {
+            format!("~({s})")
+        } else {
+            format!("~{s}")
         }
     }
 
@@ -1911,16 +1923,22 @@ impl ExprEmitter for JavaExpr<'_> {
         // Collapse `cond ? 1 : 0` / `cond ? 0 : 1` to a bare boolean expression.
         // is_boolean_expr consults the same bool_ternary_collapse rule so it
         // agrees the collapsed result is boolean-typed.
-        match bool_ternary_collapse(then_expr, else_expr) {
-            Some(BoolTernaryCollapse::Cond) => return self.walk(cond),
-            Some(BoolTernaryCollapse::Negated) => return format!("!({})", self.walk(cond)),
-            None => {}
+        // A bitwise condition is integer-typed: collapsing would substitute the
+        // mask value for C's 0/1, and `!` cannot apply. Wrap with != 0 instead.
+        if !is_int_bitwise(cond) {
+            match bool_ternary_collapse(then_expr, else_expr) {
+                Some(BoolTernaryCollapse::Cond) => return self.walk(cond),
+                Some(BoolTernaryCollapse::Negated) => return format!("!({})", self.walk(cond)),
+                None => {}
+            }
         }
         // Default: render as Java ternary
         let c = self.walk(cond);
         let t = self.walk(then_expr);
         let e = self.walk(else_expr);
-        let c = if matches!(cond, Expr::BinOp(..) | Expr::Ternary(..)) {
+        let c = if is_int_bitwise(cond) {
+            format!("(({c}) != 0)")
+        } else if matches!(cond, Expr::BinOp(..) | Expr::Ternary(..)) {
             format!("({c})")
         } else {
             c
@@ -2393,49 +2411,34 @@ mod tests {
     }
 
     #[test]
-    fn test_java_generates_unguarded_variant() {
+    fn test_java_generates_core_and_wrapper() {
         let func = load_sma();
         let enums = HashMap::new();
         let registry = make_registry();
         let output = generate(&func, &enums, &registry, &HelperRegistry::empty());
 
-        // Both internal cores are emitted, package-private (no `public`).
-        assert!(output.contains("   RetCode smaUnguardedInternal("), "Missing unguarded core");
+        // The internal core is emitted, package-private (no `public`).
         assert!(output.contains("   RetCode smaInternal("), "Missing guarded core");
+        assert!(!output.contains("Unguarded"), "no unguarded tier may exist");
         assert!(
             !output.contains("public RetCode sma"),
             "cores must be package-private — RetCode never appears on the public surface"
         );
 
-        // The unguarded core skips validation; the guarded one performs it.
-        let logic_pos = output.find("RetCode smaUnguardedInternal( ").unwrap();
-        let logic_section = &output[logic_pos..];
-        let next_fn_pos = logic_section[1..]
-            .find("   RetCode ")
-            .map_or(logic_section.len(), |i| i + 1);
-        let logic_body = &logic_section[..next_fn_pos];
-        assert!(
-            !logic_body.contains("OutOfRangeStartIndex"),
-            "Unguarded core should not contain validation"
-        );
-
+        // The surviving core validates. Bounded to the double core's own body so
+        // a match inside the float overload cannot stand in for it.
         let guarded_pos = output.find("RetCode smaInternal( ").unwrap();
         let guarded_section = &output[guarded_pos..];
-        let guarded_end = guarded_section
-            .find("RetCode smaUnguardedInternal(")
-            .unwrap_or(guarded_section.len());
-        let guarded_body = &guarded_section[..guarded_end];
+        let guarded_end = guarded_section[1..]
+            .find("   RetCode ")
+            .map_or(guarded_section.len(), |i| i + 1);
         assert!(
-            guarded_body.contains("OutOfRangeStartIndex"),
+            guarded_section[..guarded_end].contains("OutOfRangeStartIndex"),
             "Guarded core should contain validation"
         );
 
         // The public surface is OutRange-returning wrappers over those cores.
         assert!(output.contains("   public OutRange sma( "), "Missing public sma wrapper");
-        assert!(
-            output.contains("   public OutRange smaUnguarded( "),
-            "Missing public smaUnguarded wrapper"
-        );
         assert!(
             output.contains("throw failure(\"SMA\", retCode);"),
             "guarded wrapper must map RetCode onto the documented exception"

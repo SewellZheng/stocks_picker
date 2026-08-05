@@ -104,7 +104,7 @@ def _ta_ref_serve_paths(src_root, build_dir):
             os.path.join(src_root, "ta_codegen", "generator", "templates", "c"),
             # Current-tree layout: ta_memory.h / ta_utility.h live with the
             # library sources, not under ta_codegen/output/c, and the server
-            # includes "ta_func/ta_func_private.h" relative to src/.
+            # includes "ta_func/ta_func_stream_private.h" relative to src/.
             os.path.join(src_root, "src", "ta_common"),
             os.path.join(src_root, "src", "ta_func"),
             os.path.join(src_root, "src"),
@@ -190,8 +190,7 @@ def ensure_reference_serve(root, bin_dir):
         # use_float leg); the ORACLE property lives in lib_a, which stays the
         # frozen pinned-tag build. The two trees' public C API declarations are
         # identical (audited), so current headers link cleanly against the
-        # frozen library. TA_*_Unguarded/TA_S_*_Unguarded calls are compiled
-        # out via TA_REF_SERVE (the frozen lib has no unguarded symbols).
+        # frozen library.
         serve_src, _lib_ignored, includes = _ta_ref_serve_paths(root, os.path.join(root, "cmake-build"))
         # Build the frozen reference static lib (the tag is immutable, but the
         # FP-contraction setting must match this tree's — see build_frozen_lib).
@@ -212,6 +211,18 @@ def ensure_reference_serve(root, bin_dir):
         post_funcs = serve_version.post_version_funcs(root, ref_root)
         if post_funcs:
             print(f"  post-reference functions (skipped by the subset gate): {', '.join(post_funcs)}")
+        # Self-heal a stale transport: a post-reference function with no
+        # list_functions entry means `generate` ran without `generate-servers`
+        # (a brand-new function's first regtest.py run). Regenerate the server
+        # sources here rather than letting filter_list_functions assert; if an
+        # entry is still missing after regeneration, that assert still fires.
+        with open(serve_src) as f:
+            serve_text = f.read()
+        stale = [n for n in post_funcs if ('\\"TA_%s\\"' % n) not in serve_text]
+        if stale:
+            print(f"  transport stale (no list_functions entry for: {', '.join(stale)}) — regenerating server sources")
+            subprocess.run(["cargo", "run", "--release", "--", "generate-servers"],
+                           check=True, cwd=os.path.join(root, "ta_codegen", "generator"))
         rc = _compile_ta_ref_serve(serve_src, lib_a, includes, bin_dir, post_funcs)
         print("  ta_ref_serve:",
               "OK (from pinned-tag worktree)" if rc == 0 else f"FAILED (exit {rc})")
@@ -268,7 +279,7 @@ def main():
         "--function=", "--language=", "--points=", "--iters=", "--period=",
         "--shape=", "--seed=", "--regime-period=", "--trend-strength=",
         "--codegen", "--codegen=", "--codegen-only",
-        "--fuzz-064", "--xlang-hash", "--no-guarded", "--no-unguarded",
+        "--fuzz-064", "--xlang-hash", "--no-guarded",
     )
     unknown = [a for a in passthrough
                if a != "-p" and not a.startswith(KNOWN_PASSTHROUGH)]
@@ -412,7 +423,7 @@ def main():
         # ever ran. An allowlist keeps a future bench flag from breaking it again.
         REGTEST_FLAGS = ("--function=", "--language=", "--codegen", "--codegen=",
                          "--codegen-only", "--fuzz-064", "--xlang-hash",
-                         "--no-guarded", "--no-unguarded", "-p")
+                         "--no-guarded", "-p")
         codegen_args = [a for a in passthrough
                         if a == "-p" or a.startswith(tuple(
                             f for f in REGTEST_FLAGS if f != "-p"))]

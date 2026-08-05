@@ -56,6 +56,7 @@
  *                bound each ma() pass at its period's last use.
  *  072726 MF,CC  #145. Index the bucket table relative to the smallest period
  *                used, and bound it so an off-contract period cannot overflow.
+ *  080326 MF,CC  Split the size temp from the cast-fed period temp (#160).
  */
 
 // Import types from parent module
@@ -91,6 +92,9 @@ impl Core {
             optInMaxPeriod = 30;
         } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 100000) {
             return usize::MAX;
+        }
+        if ((optInMAType) as i32) == (i32::MIN) {
+            optInMAType = 0;
         }
         return self.ma_lookback(optInMaxPeriod, optInMAType);
     }
@@ -192,11 +196,20 @@ impl Core {
         } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
+        if ((optInMAType) as i32) == (i32::MIN) {
+            optInMAType = 0;
+        }
+        let _assertLb = self.mavp_lookback(optInMinPeriod, optInMaxPeriod, optInMAType);
+        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
+        assert!(_assertStart > endIdx || endIdx < inReal.len());
+        assert!(_assertStart > endIdx || endIdx < inPeriods.len());
+        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
         let mut startIdx = startIdx;
         let mut i: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         let mut outputSize: usize = 0_usize;
-        let mut tempInt: usize = 0_usize;
+        let mut firstOut: usize = 0_usize;
+        let mut tempInt: i32 = 0_i32;
         let mut curPeriod: usize = 0_usize;
         let mut firstOccurrence: usize = 0_usize;
         let mut lastOccurrence: usize = 0_usize;
@@ -236,19 +249,21 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
-        // Calculate exact output size
+        // Calculate exact output size. A dedicated temp: tempInt is the cast-fed
+        // period below, which the Rust backend types SIGNED (#160) — reusing it
+        // here would drag this index arithmetic into i32.
         if lookbackTotal > startIdx {
-            tempInt = lookbackTotal;
+            firstOut = lookbackTotal;
         } else {
-            tempInt = startIdx;
+            firstOut = startIdx;
         }
-        if tempInt > endIdx {
+        if firstOut > endIdx {
             // No output
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return RetCode::Success;
         }
-        outputSize = endIdx - tempInt + 1;
+        outputSize = endIdx - firstOut + 1;
         // Allocate intermediate local buffer.
         localOutputArray = vec![0.0_f64; (outputSize * 1) as usize];
         localPeriodArray = vec![0_i32; (outputSize * 1) as usize];
@@ -267,13 +282,12 @@ impl Core {
         }
         // Read the caller array of period, truncate to min/max, and track the
         // range of periods actually used so all later work is sized by the data,
-        // not by optInMaxPeriod. The floor at 1 (and on minUsed's start value) is
-        // inert through the guarded API (optInMinPeriod >= 1); it keeps an
-        // off-contract unguarded call with a period below 1 from indexing the
-        // occurrence tables out of range. The high side is not floored here: an
-        // out-of-range optInMaxPeriod violates the unguarded precondition (every
-        // optional parameter resolved and in-range), and the bucket-table bound
-        // below is what keeps that from becoming undefined behaviour.
+        // not by optInMaxPeriod. The floor at 1 (and on minUsed's start value)
+        // keeps a period below 1 from indexing the occurrence tables out of range.
+        // mavp.yaml caps both periods at [1, 100000], so it is inert through the
+        // API; it is kept because this file is the source of truth for four
+        // backends and it makes the shared source safe by construction rather than
+        // by trusting each backend's prologue to be identical.
         minUsed = (optInMaxPeriod) as usize;
         if minUsed < 1 {
             minUsed = 1;
@@ -282,34 +296,42 @@ impl Core {
         // for( i = 0; i < outputSize; i += 1 )
         i = 0;
         while i < outputSize {
-            tempInt = (inPeriods[startIdx + i] as usize) as usize;
-            if tempInt < (optInMinPeriod) as usize {
-                tempInt = (optInMinPeriod) as usize;
-            } else if tempInt > (optInMaxPeriod) as usize {
-                tempInt = (optInMaxPeriod) as usize;
+            tempInt = (inPeriods[startIdx + i]) as i32;
+            if tempInt < optInMinPeriod {
+                tempInt = optInMinPeriod;
+            } else if tempInt > optInMaxPeriod {
+                tempInt = optInMaxPeriod;
             }
             if tempInt < 1 {
                 tempInt = 1;
             }
             localPeriodArray[i] = (tempInt) as i32;
-            if tempInt < minUsed {
-                minUsed = tempInt;
+            if tempInt < ((minUsed) as i32) {
+                minUsed = (tempInt) as usize;
             }
-            if tempInt > maxUsed {
-                maxUsed = tempInt;
+            if tempInt > ((maxUsed) as i32) {
+                maxUsed = (tempInt) as usize;
             }
             i += 1;
         }
-        // Bound the bucket table before sizing it. Inert through the guarded API,
-        // where both periods are capped at 100000 (mavp.yaml) so the spread cannot
-        // reach the bound. It exists for an off-contract UNGUARDED call carrying a
-        // near-INT_MAX period, where the size expression below would otherwise
-        // overflow: signed-overflow UB in C, a wrapped negative in Java, a usize
-        // underflow panic in Rust. Written as a plain integer comparison on
-        // purpose — that is the only construct that means the same thing in every
-        // backend. A (size_t) cast would NOT help: this dialect's size_t parses to
-        // the generic index type and renders back as int in both the C and the
-        // Java output (it is a Rust-only annotation).
+        // Bound the bucket table before sizing it.
+        //
+        // Unreachable through the API: mavp.yaml caps both periods at 100000, so
+        // the widest spread expressible is 99999. It is kept because it protects a
+        // memory-safety property and this file is the source of truth for four
+        // backends — without it the size expression below can overflow (signed
+        // overflow in C, a wrapped negative in Java, a usize underflow panic in
+        // Rust), and the four bodies would rest on each backend's prologue being
+        // byte-for-byte equivalent, which nothing here states or checks. One
+        // integer comparison per call is a cheap way not to depend on that.
+        //
+        // Written as a plain integer comparison on purpose — that is the only
+        // construct that means the same thing in every backend. A (size_t) cast
+        // would NOT help: this dialect's size_t parses to the generic index type
+        // and renders back as int in both the C and the Java output (it is a
+        // Rust-only annotation).
+        //
+        // If you delete this, delete the clamps and the comments together.
         if maxUsed < minUsed || maxUsed - minUsed > 100000 {
             if finalIsAllocated != 0 {
             }
@@ -326,7 +348,7 @@ impl Core {
         if minUsed == maxUsed {
             // Single distinct period: one MA pass, written straight into the
             // destination buffer. Nothing to group or copy.
-            retCode = self.ma_unguarded(startIdx, endIdx, inReal, (minUsed) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localFinalArray[..]);
+            retCode = self.ma(startIdx, endIdx, inReal, (minUsed) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localFinalArray[..]);
             if retCode != RetCode::Success {
                 if finalIsAllocated != 0 {
                 }
@@ -349,8 +371,8 @@ impl Core {
                 // coerces an int-array read to the index type when it is a DIRECT
                 // operand, so bucketOfs[localPeriodArray[i]+1-minUsed] would mix
                 // i32 with usize and fail to compile.
-                tempInt = (localPeriodArray[i]) as usize;
-                bucketOfs[tempInt + 1 - minUsed] = (bucketOfs[tempInt + 1 - minUsed] + 1) as i32;
+                tempInt = localPeriodArray[i];
+                bucketOfs[(tempInt + 1 - ((minUsed) as i32)) as usize] = (bucketOfs[(tempInt + 1 - ((minUsed) as i32)) as usize] + 1) as i32;
                 i += 1;
             }
             for curPeriod in (minUsed as usize)..(maxUsed as usize) + 1 {
@@ -360,9 +382,9 @@ impl Core {
             // for( i = 0; i < outputSize; i += 1 )
             i = 0;
             while i < outputSize {
-                tempInt = (localPeriodArray[i]) as usize;
-                sortedIdx[(bucketOfs[tempInt - minUsed]) as usize] = (i) as i32;
-                bucketOfs[tempInt - minUsed] = (bucketOfs[tempInt - minUsed] + 1) as i32;
+                tempInt = localPeriodArray[i];
+                sortedIdx[(bucketOfs[(tempInt - ((minUsed) as i32)) as usize]) as usize] = (i) as i32;
+                bucketOfs[(tempInt - ((minUsed) as i32)) as usize] = (bucketOfs[(tempInt - ((minUsed) as i32)) as usize] + 1) as i32;
                 i += 1;
             }
             // One MA pass per period actually requested, ending at the last output
@@ -383,7 +405,7 @@ impl Core {
                     firstOccurrence = (sortedIdx[bucketStart]) as usize;
                     lastOccurrence = (sortedIdx[bucketEnd - 1]) as usize;
                     // Calculation of the MA required.
-                    retCode = self.ma_unguarded(startIdx, startIdx + lastOccurrence, inReal, (curPeriod) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localOutputArray[..]);
+                    retCode = self.ma(startIdx, startIdx + lastOccurrence, inReal, (curPeriod) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localOutputArray[..]);
                     if retCode != RetCode::Success {
                         if finalIsAllocated != 0 {
                         }
@@ -403,8 +425,8 @@ impl Core {
                         // for( i = bucketStart; i < bucketEnd; i += 1 )
                         i = bucketStart;
                         while i < bucketEnd {
-                            tempInt = (sortedIdx[i]) as usize;
-                            localFinalArray[tempInt] = localOutputArray[tempInt];
+                            tempInt = sortedIdx[i];
+                            localFinalArray[(tempInt) as usize] = localOutputArray[(tempInt) as usize];
                             i += 1;
                         }
                     }
@@ -427,202 +449,6 @@ impl Core {
         if finalIsAllocated != 0 {
         }
         // Done. Inform the caller of the success.
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outputSize;
-        return RetCode::Success;
-    }
-    /// Unguarded variant of [`Core::mavp`], used for internal cross-indicator calls.
-    ///
-    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
-    /// documented on [`Core::mavp`]; an out-of-range parameter, an input slice not covering
-    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
-    /// [`Core::mavp`].
-    #[inline]
-    pub fn mavp_unguarded(
-        &self,
-        mut startIdx: usize,
-        endIdx: usize,
-        inReal: &[f64],
-        inPeriods: &[f64],
-        mut optInMinPeriod: i32,
-        mut optInMaxPeriod: i32,
-        mut optInMAType: i32,
-        outBegIdx: &mut usize,
-        outNBElement: &mut usize,
-        outReal: &mut [f64],
-    ) -> RetCode {
-        let mut i: usize = 0_usize;
-        let mut lookbackTotal: usize = 0_usize;
-        let mut outputSize: usize = 0_usize;
-        let mut tempInt: usize = 0_usize;
-        let mut curPeriod: usize = 0_usize;
-        let mut firstOccurrence: usize = 0_usize;
-        let mut lastOccurrence: usize = 0_usize;
-        let mut bucketStart: usize = 0_usize;
-        let mut bucketEnd: usize = 0_usize;
-        let mut minUsed: usize = 0_usize;
-        let mut maxUsed: usize = 0_usize;
-        let mut localPeriodArray: Vec<i32> = Vec::new();
-        let mut sortedIdx: Vec<i32> = Vec::new();
-        let mut bucketOfs: Vec<i32> = Vec::new();
-        let mut localOutputArray: Vec<f64> = Vec::new();
-        let mut localFinalArray: Vec<f64> = Vec::new();
-        let mut finalIsAllocated: usize = 0_usize;
-        let mut localBegIdx: usize = 0_usize;
-        let mut localNbElement: usize = 0_usize;
-        let mut retCode: RetCode = RetCode::Success;
-        assert!(endIdx < inReal.len());
-        assert!(endIdx < inPeriods.len());
-        let _assertLb = self.mavp_lookback(optInMinPeriod, optInMaxPeriod, optInMAType);
-        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
-        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        if optInMinPeriod > optInMaxPeriod {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return RetCode::BadParam;
-        }
-        lookbackTotal = self.ma_lookback(optInMaxPeriod, optInMAType);
-        if startIdx < lookbackTotal {
-            startIdx = lookbackTotal;
-        }
-        if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return RetCode::Success;
-        }
-        if lookbackTotal > startIdx {
-            tempInt = lookbackTotal;
-        } else {
-            tempInt = startIdx;
-        }
-        if tempInt > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return RetCode::Success;
-        }
-        outputSize = endIdx - tempInt + 1;
-        localOutputArray = vec![0.0_f64; (outputSize * 1) as usize];
-        localPeriodArray = vec![0_i32; (outputSize * 1) as usize];
-        sortedIdx = vec![0_i32; (outputSize * 1) as usize];
-        finalIsAllocated = 0;
-        if outReal.as_ptr() == inReal.as_ptr() {
-            finalIsAllocated = 1;
-            localFinalArray = vec![0.0_f64; (outputSize * 1) as usize];
-        } else {
-            localFinalArray = outReal.to_vec();
-        }
-        minUsed = (optInMaxPeriod) as usize;
-        if minUsed < 1 {
-            minUsed = 1;
-        }
-        maxUsed = 1;
-        // for( i = 0; i < outputSize; i += 1 )
-        i = 0;
-        while i < outputSize {
-            tempInt = (inPeriods[startIdx + i] as usize) as usize;
-            if tempInt < (optInMinPeriod) as usize {
-                tempInt = (optInMinPeriod) as usize;
-            } else if tempInt > (optInMaxPeriod) as usize {
-                tempInt = (optInMaxPeriod) as usize;
-            }
-            if tempInt < 1 {
-                tempInt = 1;
-            }
-            localPeriodArray[i] = (tempInt) as i32;
-            if tempInt < minUsed {
-                minUsed = tempInt;
-            }
-            if tempInt > maxUsed {
-                maxUsed = tempInt;
-            }
-            i += 1;
-        }
-        if maxUsed < minUsed || maxUsed - minUsed > 100000 {
-            if finalIsAllocated != 0 {
-            }
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return RetCode::BadParam;
-        }
-        bucketOfs = vec![0_i32; ((maxUsed - minUsed + 2) * 1) as usize];
-        if minUsed == maxUsed {
-            retCode = self.ma_unguarded(startIdx, endIdx, inReal, (minUsed) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localFinalArray[..]);
-            if retCode != RetCode::Success {
-                if finalIsAllocated != 0 {
-                }
-                (*outBegIdx) = 0;
-                (*outNBElement) = 0;
-                return retCode;
-            }
-        } else {
-            for curPeriod in (minUsed as usize)..(maxUsed + 1 as usize) + 1 {
-                bucketOfs[curPeriod - minUsed] = 0;
-            }
-            curPeriod = (maxUsed + 1 as usize) + 1;
-            // for( i = 0; i < outputSize; i += 1 )
-            i = 0;
-            while i < outputSize {
-                tempInt = (localPeriodArray[i]) as usize;
-                bucketOfs[tempInt + 1 - minUsed] = (bucketOfs[tempInt + 1 - minUsed] + 1) as i32;
-                i += 1;
-            }
-            for curPeriod in (minUsed as usize)..(maxUsed as usize) + 1 {
-                bucketOfs[curPeriod + 1 - minUsed] = (bucketOfs[curPeriod + 1 - minUsed] + bucketOfs[curPeriod - minUsed]) as i32;
-            }
-            curPeriod = (maxUsed as usize) + 1;
-            // for( i = 0; i < outputSize; i += 1 )
-            i = 0;
-            while i < outputSize {
-                tempInt = (localPeriodArray[i]) as usize;
-                sortedIdx[(bucketOfs[tempInt - minUsed]) as usize] = (i) as i32;
-                bucketOfs[tempInt - minUsed] = (bucketOfs[tempInt - minUsed] + 1) as i32;
-                i += 1;
-            }
-            bucketStart = 0;
-            for curPeriod in (minUsed as usize)..(maxUsed as usize) + 1 {
-                bucketEnd = (bucketOfs[curPeriod - minUsed]) as usize;
-                if bucketEnd > bucketStart {
-                    firstOccurrence = (sortedIdx[bucketStart]) as usize;
-                    lastOccurrence = (sortedIdx[bucketEnd - 1]) as usize;
-                    retCode = self.ma_unguarded(startIdx, startIdx + lastOccurrence, inReal, (curPeriod) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localOutputArray[..]);
-                    if retCode != RetCode::Success {
-                        if finalIsAllocated != 0 {
-                        }
-                        (*outBegIdx) = 0;
-                        (*outNBElement) = 0;
-                        return retCode;
-                    }
-                    if lastOccurrence - firstOccurrence == bucketEnd - 1 - bucketStart {
-                        {
-            let _n = ((bucketEnd - bucketStart) * 1) as usize;
-            let _di = (firstOccurrence) as usize;
-            let _si = (firstOccurrence) as usize;
-            localFinalArray[_di.._di + _n].copy_from_slice(&localOutputArray[_si.._si + _n]);
-        };
-                    } else {
-                        // for( i = bucketStart; i < bucketEnd; i += 1 )
-                        i = bucketStart;
-                        while i < bucketEnd {
-                            tempInt = (sortedIdx[i]) as usize;
-                            localFinalArray[tempInt] = localOutputArray[tempInt];
-                            i += 1;
-                        }
-                    }
-                }
-                bucketStart = bucketEnd;
-            }
-            curPeriod = (maxUsed as usize) + 1;
-        }
-        if localFinalArray.as_ptr() != outReal.as_ptr() {
-            {
-            let _n = (outputSize * 1) as usize;
-            let _di = (0) as usize;
-            let _si = (0) as usize;
-            outReal[_di.._di + _n].copy_from_slice(&localFinalArray[_si.._si + _n]);
-        };
-        }
-        if finalIsAllocated != 0 {
-        }
         (*outBegIdx) = startIdx;
         (*outNBElement) = outputSize;
         return RetCode::Success;
@@ -693,6 +519,9 @@ impl Core {
             optInMaxPeriod = 30;
         } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
+        }
+        if ((optInMAType) as i32) == (i32::MIN) {
+            optInMAType = 0;
         }
         // An inverted [min, max] period window is invalid (batch rejects).
         if optInMinPeriod > optInMaxPeriod {
@@ -772,6 +601,9 @@ impl Core {
             optInMaxPeriod = 30;
         } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
+        }
+        if ((optInMAType) as i32) == (i32::MIN) {
+            optInMAType = 0;
         }
         // An inverted [min, max] period window is invalid (batch rejects).
         if optInMinPeriod > optInMaxPeriod {

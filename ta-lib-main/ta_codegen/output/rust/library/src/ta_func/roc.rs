@@ -158,6 +158,10 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
+        let _assertLb = self.roc_lookback(optInTimePeriod);
+        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
+        assert!(_assertStart > endIdx || endIdx < inReal.len());
+        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
         let mut startIdx = startIdx;
         let mut inIdx: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
@@ -195,7 +199,7 @@ impl Core {
         // always positive values.
         // Move up the start index if there is not
         // enough initial data.
-        if startIdx < (optInTimePeriod) as usize {
+        if startIdx < ((optInTimePeriod) as usize) {
             startIdx = (optInTimePeriod) as usize;
         }
         // Make sure there is still something to evaluate.
@@ -207,7 +211,7 @@ impl Core {
         // Calculate Rate of change: ((price / prevPrice)-1)*100
         outIdx = 0;
         inIdx = startIdx;
-        trailingIdx = startIdx - (optInTimePeriod) as usize;
+        trailingIdx = startIdx - ((optInTimePeriod) as usize);
         while inIdx <= endIdx {
             tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             if tempReal != 0.0 {
@@ -220,57 +224,6 @@ impl Core {
             inIdx += 1;
         }
         // Set output limits.
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
-        return RetCode::Success;
-    }
-    /// Unguarded variant of [`Core::roc`], used for internal cross-indicator calls.
-    ///
-    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
-    /// documented on [`Core::roc`]; an out-of-range parameter, an input slice not covering
-    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
-    /// [`Core::roc`].
-    #[inline]
-    pub fn roc_unguarded(
-        &self,
-        mut startIdx: usize,
-        endIdx: usize,
-        inReal: &[f64],
-        mut optInTimePeriod: i32,
-        outBegIdx: &mut usize,
-        outNBElement: &mut usize,
-        outReal: &mut [f64],
-    ) -> RetCode {
-        let mut inIdx: usize = 0_usize;
-        let mut outIdx: usize = 0_usize;
-        let mut trailingIdx: usize = 0_usize;
-        let mut tempReal: f64 = 0.0_f64;
-        assert!(endIdx < inReal.len());
-        let _assertLb = self.roc_lookback(optInTimePeriod);
-        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
-        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        if startIdx < (optInTimePeriod) as usize {
-            startIdx = (optInTimePeriod) as usize;
-        }
-        if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return RetCode::Success;
-        }
-        outIdx = 0;
-        inIdx = startIdx;
-        trailingIdx = startIdx - (optInTimePeriod) as usize;
-        while inIdx <= endIdx {
-            tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
-            if tempReal != 0.0 {
-                outReal[outIdx] = (((inReal[inIdx] / tempReal - 1.0) * 100.0) as f64);
-                outIdx += 1;
-            } else {
-                outReal[outIdx] = 0.0;
-                outIdx += 1;
-            }
-            inIdx += 1;
-        }
         (*outNBElement) = outIdx;
         (*outBegIdx) = startIdx;
         return RetCode::Success;
@@ -380,7 +333,7 @@ impl Core {
         // always positive values.
         // Move up the start index if there is not
         // enough initial data.
-        if startIdx < (optInTimePeriod) as usize {
+        if startIdx < ((optInTimePeriod) as usize) {
             startIdx = (optInTimePeriod) as usize;
         }
         // Make sure there is still something to evaluate.
@@ -392,7 +345,7 @@ impl Core {
         // Calculate Rate of change: ((price / prevPrice)-1)*100
         outIdx = 0;
         inIdx = startIdx;
-        trailingIdx = startIdx - (optInTimePeriod) as usize;
+        trailingIdx = startIdx - ((optInTimePeriod) as usize);
         while inIdx <= endIdx {
             tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             if tempReal != 0.0 {
@@ -506,7 +459,7 @@ impl Core {
         // always positive values.
         // Move up the start index if there is not
         // enough initial data.
-        if startIdx < (optInTimePeriod) as usize {
+        if startIdx < ((optInTimePeriod) as usize) {
             startIdx = (optInTimePeriod) as usize;
         }
         // Make sure there is still something to evaluate.
@@ -518,7 +471,7 @@ impl Core {
         // Calculate Rate of change: ((price / prevPrice)-1)*100
         outIdx = 0;
         inIdx = startIdx;
-        trailingIdx = startIdx - (optInTimePeriod) as usize;
+        trailingIdx = startIdx - ((optInTimePeriod) as usize);
         while inIdx <= endIdx {
             tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
             if tempReal != 0.0 {

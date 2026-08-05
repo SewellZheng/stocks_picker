@@ -30,11 +30,11 @@ use super::rust_lang::{collect_sentinel_vars, collect_signed_int_vars, collect_v
 /// see every fusion site, then revert).
 pub const EMIT_FMA: bool = true;
 
-/// Index-param seeds for the unguarded / `_private` variant (mirrors the Rust
+/// Index-param seeds for the `_private` variant (mirrors the Rust
 /// `RustRenderCtx` construction). These range/count indices are never float
 /// multiply operands, so the exact seed set does not change any fusion decision;
 /// the seeds are kept faithful only so the derived name-sets match Rust's.
-pub const UNGUARDED_INDEX_SEEDS: [&str; 4] = ["startIdx", "endIdx", "outBegIdx", "outNBElement"];
+pub const INDEX_PARAM_SEEDS: [&str; 4] = ["startIdx", "endIdx", "outBegIdx", "outNBElement"];
 /// Index-param seeds for the guarded variant.
 pub const GUARDED_INDEX_SEEDS: [&str; 2] = ["startIdx", "endIdx"];
 
@@ -99,7 +99,7 @@ pub fn build_fma_var_sets(
     }
     let mut sentinel_vars = HashSet::new();
     collect_sentinel_vars(body, &mut sentinel_vars);
-    collect_signed_int_vars(body, &index_vars, &mut sentinel_vars);
+    collect_signed_int_vars(body, &index_vars, &real_vars, &mut sentinel_vars);
     for sv in &sentinel_vars {
         index_vars.remove(sv);
     }
@@ -145,6 +145,7 @@ pub(crate) fn is_definitely_integer(expr: &Expr, ctx: &FmaCtx) -> bool {
                 || ctx.int_output_names.contains(name)
         }
         Expr::BinOp(a, _, b) => is_definitely_integer(a, ctx) || is_definitely_integer(b, ctx),
+        Expr::BitwiseNot(i) => is_definitely_integer(i, ctx),
         // IntLiteral and everything else: not definitely integer (literals coerce to f64).
         _ => false,
     }
@@ -316,6 +317,7 @@ fn expr_references(e: &Expr, name: &str) -> bool {
         Expr::BinOp(l, _, r) => expr_references(l, name) || expr_references(r, name),
         Expr::Cast(_, i)
         | Expr::Not(i)
+        | Expr::BitwiseNot(i)
         | Expr::AddressOf(i)
         | Expr::PostIncrement(i)
         | Expr::PostDecrement(i)

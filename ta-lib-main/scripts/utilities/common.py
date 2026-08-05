@@ -210,14 +210,6 @@ def is_msbuild_installed() -> bool:
             return False
     return False
 
-def is_brew_installed() -> bool:
-    try:
-        subprocess.run(['brew', '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
-    return False
-
 def is_arm64_toolchain_installed() -> bool:
     if is_linux():
         try:
@@ -298,6 +290,7 @@ def get_src_generated_files() -> list:
         'include/ta_func.h',
         'include/ta_defs.h',
         'src/ta_func/*.c',
+        'src/ta_func/ta_func_stream_private.h',
         'src/ta_abstract/*.c',
         'src/ta_abstract/frames/*.c',
         'src/ta_abstract/frames/*.h',

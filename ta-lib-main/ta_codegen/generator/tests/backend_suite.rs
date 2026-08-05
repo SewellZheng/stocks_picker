@@ -143,12 +143,6 @@ fn check_c_variants(c: &str, upper: &str, name: &str) {
         name,
         upper
     );
-    assert!(
-        c.contains(&format!("TA_{}_Unguarded(", upper)),
-        "{}: C missing TA_{}_Unguarded",
-        name,
-        upper
-    );
     // TA_INT_* macros are no longer generated
     assert!(
         !c.contains(&format!("#define TA_INT_{}", upper)),
@@ -163,16 +157,15 @@ fn check_c_variants(c: &str, upper: &str, name: &str) {
         upper
     );
     assert!(
-        c.contains(&format!("TA_S_{}_Unguarded(", upper)),
-        "{}: C missing TA_S_{}_Unguarded",
-        name,
-        upper
+        !c.contains("_Unguarded"),
+        "{name}: C must not emit an unguarded variant"
     );
 }
 
 /// Check that all Rust variants exist for a given indicator.
-/// After the 2-variant refactor: only `foo` (guarded) + `foo_unguarded`.
-/// No `_unchecked` or `_unguarded_unchecked` variants. Concrete f64 types, not generic.
+/// `foo` (guarded) plus `foo_lookback`, and `foo_private` only for the
+/// definitions that declare one. No `_unchecked` variants. Concrete f64 types,
+/// not generic.
 fn check_rust_generic_variants(r: &str, snake: &str, name: &str) {
     // Lookback (non-generic)
     assert!(
@@ -188,12 +181,9 @@ fn check_rust_generic_variants(r: &str, snake: &str, name: &str) {
         name,
         snake
     );
-    // Unguarded (concrete f64, no generics)
     assert!(
-        r.contains(&format!("fn {}_unguarded(", snake)),
-        "{}: Rust missing fn {}_unguarded(",
-        name,
-        snake
+        !r.contains("_unguarded"),
+        "{name}: Rust must not emit an unguarded variant"
     );
 }
 
@@ -213,10 +203,8 @@ fn check_java_variants(j: &str, lower: &str, name: &str) {
         lower
     );
     assert!(
-        j.contains(&format!("{}Unguarded(", lower)),
-        "{}: Java missing {}Unguarded",
-        name,
-        lower
+        !j.contains("Unguarded"),
+        "{name}: Java must not emit an unguarded variant"
     );
 }
 
@@ -228,6 +216,63 @@ fn check_c_int_alias(c: &str, upper: &str, name: &str) {
         name,
         upper
     );
+}
+
+/// Rust refuses to *parse* an `as` cast immediately followed by `<` or `<<` — it
+/// reads `usize <` as the start of generic arguments. Any emitted cast that lands
+/// on the left of one of those operators must therefore be wrapped in its own
+/// parens (`((x) as usize) < y`, never `(x) as usize < y`). Issue #159.
+///
+/// A correctly-wrapped cast puts `)` between the type and the operator, so a bare
+/// `as <ty>` followed by one of those two operators is the unparseable form.
+///
+/// `<` and `<<` only — measured against rustc, not assumed. `as usize <= y` and
+/// `as usize <<= 2` both parse, so matching a bare `as <ty> <` prefix would fail
+/// on legal output: 22 shipped sites spell `<=` after a cast.
+fn check_rust_cast_parens(r: &str, name: &str) {
+    // Ambiguous iff the cast is followed by `<` or `<<` that is not part of
+    // `<=` / `<<=`.
+    let ambiguous_at = |rest: &str| {
+        let t = rest.trim_start();
+        let mut it = t.chars();
+        match (it.next(), it.next(), it.next()) {
+            (Some('<'), Some('='), _) => None,             // <=   parses
+            (Some('<'), Some('<'), Some('=')) => None,     // <<=  parses
+            (Some('<'), Some('<'), _) => Some("<<"),
+            (Some('<'), _, _) => Some("<"),
+            _ => None,
+        }
+    };
+    for (lineno, line) in r.lines().enumerate() {
+        // Rustdoc and comments carry prose, not code the compiler parses.
+        if line.trim_start().starts_with("//") {
+            continue;
+        }
+        for ty in ["usize", "isize", "i32", "u32", "i64", "u64", "i16", "u16", "i8", "u8", "f32", "f64"] {
+            let needle = format!("as {ty}");
+            let mut from = 0;
+            while let Some(hit) = line[from..].find(&needle) {
+                let at = from + hit;
+                let rest = &line[at + needle.len()..];
+                // `as i32` must not be a prefix of a longer type name (`as i320`).
+                let boundary = !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_');
+                if boundary {
+                    if let Some(op) = ambiguous_at(rest) {
+                        panic!(
+                            "{}: unparenthesized `as {}` cast before `{}` (rustc reads it as \
+                             generic args, not a comparison) at line {}:\n{}",
+                            name,
+                            ty,
+                            op,
+                            lineno + 1,
+                            line.trim()
+                        );
+                    }
+                }
+                from = at + needle.len();
+            }
+        }
+    }
 }
 
 /// Try to load an indicator, returning None if parsing fails (not yet supported).
@@ -298,6 +343,7 @@ fn test_all_indicators_all_backends() {
             check_rust_generic_variants(&out.rust, &snake, &snake);
             check_java_variants(&out.java, &camel, &snake);
             check_c_int_alias(&out.c, &upper, &snake);
+            check_rust_cast_parens(&out.rust, &snake);
         }));
 
         if let Err(e) = result {
@@ -321,7 +367,18 @@ fn test_all_indicators_all_backends() {
         failures.len()
     );
 
-    // Ensure we tested at least the 6 known-good indicators
+    // Coverage is the gate here, not just the failure count: every check driven
+    // from this loop (check_rust_cast_parens among them) is worth exactly the
+    // number of indicators that reached it. `skipped` swallows a load/generate
+    // panic, so a parser regression could quietly empty the corpus while the
+    // suite stayed green — the floor of 6 this replaces would have allowed 162
+    // of 168 to vanish silently.
+    assert_eq!(
+        skipped, 0,
+        "{skipped} indicator(s) failed to load or generate and were silently \
+         skipped, so no per-indicator check ran on them; {tested} were tested. \
+         Fix the regression, or make the skip explicit if it is intended."
+    );
     assert!(
         tested >= 6,
         "Expected at least 6 indicators to pass, but only {} did",
@@ -355,14 +412,19 @@ fn test_ma_c_cross_calls() {
         c.contains("TA_EMA_Lookback("),
         "C: MA should call TA_EMA_Lookback"
     );
-    // Bare cross-indicator calls resolve to Unguarded (skip validation)
+    // Bare cross-indicator calls resolve to the guarded entry point. Anchored on
+    // the first argument: bare `TA_SMA(` would also match a declaration.
     assert!(
-        c.contains("TA_SMA_Unguarded("),
-        "C: MA should call TA_SMA_Unguarded"
+        c.contains("TA_SMA(startIdx"),
+        "C: MA should call guarded TA_SMA"
     );
     assert!(
-        c.contains("TA_EMA_Unguarded("),
-        "C: MA should call TA_EMA_Unguarded"
+        c.contains("TA_EMA(startIdx"),
+        "C: MA should call guarded TA_EMA"
+    );
+    assert!(
+        !c.contains("TA_SMA_Unguarded(") && !c.contains("TA_EMA_Unguarded("),
+        "C: MA must not call the unguarded variants"
     );
 }
 
@@ -380,10 +442,15 @@ fn test_ma_java_cross_calls() {
         j.contains("emaLookback("),
         "Java: MA should call emaLookback"
     );
-    // Bare cross-indicator calls resolve to the unguarded internal core
-    // (skip validation, and keep the C-shaped MInteger out-params).
-    assert!(j.contains("smaUnguardedInternal("), "Java: MA should call smaUnguardedInternal");
-    assert!(j.contains("emaUnguardedInternal("), "Java: MA should call emaUnguardedInternal");
+    // Bare cross-indicator calls resolve to the guarded internal core, which
+    // keeps the C-shaped MInteger out-params — going through the public
+    // OutRange wrapper would allocate a throwaway MInteger pair per call.
+    assert!(j.contains("smaInternal("), "Java: MA should call smaInternal");
+    assert!(j.contains("emaInternal("), "Java: MA should call emaInternal");
+    assert!(
+        !j.contains("smaUnguardedInternal(") && !j.contains("emaUnguardedInternal("),
+        "Java: MA must not call the unguarded cores"
+    );
 }
 
 #[test]
@@ -401,14 +468,18 @@ fn test_ma_rust_cross_calls() {
         r.contains("self.ema_lookback("),
         "Rust: MA should call self.ema_lookback"
     );
-    // Bare cross-indicator calls go to unguarded (skip validation)
+    // Bare cross-indicator calls go to the guarded fn
     assert!(
-        r.contains("self.sma_unguarded("),
-        "Rust: MA should call self.sma_unguarded"
+        r.contains("self.sma("),
+        "Rust: MA should call self.sma"
     );
     assert!(
-        r.contains("self.ema_unguarded("),
-        "Rust: MA should call self.ema_unguarded"
+        r.contains("self.ema("),
+        "Rust: MA should call self.ema"
+    );
+    assert!(
+        !r.contains("self.sma_unguarded(") && !r.contains("self.ema_unguarded("),
+        "Rust: MA must not call the unguarded variants"
     );
 }
 
@@ -417,13 +488,19 @@ fn test_ma_rust_cross_calls() {
 // ---------------------------------------------------------------------------
 
 /// Helper: extract the section of output between `start_marker` and `end_marker`.
-/// If `end_marker` is not found, returns everything after `start_marker`.
+///
+/// BOTH markers must be present. Falling back to "everything after the start" on
+/// a missing end marker silently turns a bounded `contains(..)` assertion into
+/// "the whole output mentions this somewhere", so a test keeps passing while
+/// checking strictly less.
 fn extract_section(output: &str, start_marker: &str, end_marker: &str) -> String {
     let start = output
         .find(start_marker)
-        .unwrap_or_else(|| panic!("Could not find '{}' in output", start_marker));
+        .unwrap_or_else(|| panic!("Could not find start marker '{start_marker}' in output"));
     let rest = &output[start..];
-    let end = rest.find(end_marker).unwrap_or(rest.len());
+    let end = rest.find(end_marker).unwrap_or_else(|| {
+        panic!("Could not find end marker '{end_marker}' after '{start_marker}' — the section would be unbounded")
+    });
     rest[..end].to_string()
 }
 
@@ -432,8 +509,8 @@ fn test_c_sma_guarded_has_validation() {
     let (func, enums) = load_indicator("sma");
     let out = generate_all(&func, &enums);
 
-    // Extract guarded function (between TA_SMA( and TA_SMA_Unguarded)
-    let guarded = extract_section(&out.c, "TA_RetCode TA_SMA(", "TA_SMA_Unguarded(");
+    // Bounded by the float twin, which directly follows the double guarded body.
+    let guarded = extract_section(&out.c, "TA_RetCode TA_SMA(", "TA_RetCode TA_S_SMA(");
     assert!(
         guarded.contains("TA_OUT_OF_RANGE_START_INDEX"),
         "C guarded SMA should have start index validation"
@@ -445,19 +522,25 @@ fn test_c_sma_guarded_has_validation() {
 }
 
 #[test]
-fn test_c_sma_logic_omits_validation() {
-    let (func, enums) = load_indicator("sma");
+fn test_c_ema_private_omits_validation() {
+    // Exactly one tier validates: the guarded entry point, not `_Private`.
+    // Anchored on EMA — the one definition in ta_codegen/input/ with an
+    // explicit _private.
+    let (func, enums) = load_indicator("ema");
     let out = generate_all(&func, &enums);
 
-    // Extract logic function (between TA_SMA_Unguarded( and #define TA_INT_SMA)
-    let logic = extract_section(&out.c, "TA_SMA_Unguarded(", "TA_S_SMA(");
-    assert!(
-        !logic.contains("TA_OUT_OF_RANGE_START_INDEX"),
-        "C logic SMA should NOT have start index validation"
+    let private = extract_section(
+        &out.c,
+        "static TA_RetCode TA_EMA_Private(",
+        "TA_LIB_API TA_RetCode TA_EMA(",
     );
     assert!(
-        !logic.contains("TA_OUT_OF_RANGE_END_INDEX"),
-        "C logic SMA should NOT have end index validation"
+        !private.contains("TA_OUT_OF_RANGE_START_INDEX"),
+        "C EMA _Private should NOT have start index validation"
+    );
+    assert!(
+        !private.contains("TA_OUT_OF_RANGE_END_INDEX"),
+        "C EMA _Private should NOT have end index validation"
     );
 }
 
@@ -466,8 +549,11 @@ fn test_java_sma_guarded_has_validation() {
     let (func, enums) = load_indicator("sma");
     let out = generate_all(&func, &enums);
 
-    // Extract the guarded core (between its own signature and the unguarded one)
-    let guarded = extract_section(&out.java, "RetCode smaInternal(", "smaUnguardedInternal(");
+    // Extract the double-precision core, bounded before the float overload
+    // Bounded to the DOUBLE core alone: the float twin is an overload with the
+    // same name, so a marker that spans both would let it satisfy the assertion.
+    let guarded = extract_section(&out.java, "RetCode smaInternal( int startIdx", "double inReal[]");
+    let guarded = format!("{guarded}{}", extract_section(&out.java, "double inReal[]", "float inReal[]"));
     assert!(
         guarded.contains("OutOfRangeStartIndex"),
         "Java guarded SMA should have start index validation"
@@ -475,22 +561,14 @@ fn test_java_sma_guarded_has_validation() {
 }
 
 #[test]
-fn test_java_sma_logic_omits_validation() {
-    let (func, enums) = load_indicator("sma");
+fn test_java_ema_private_omits_validation() {
+    let (func, enums) = load_indicator("ema");
     let out = generate_all(&func, &enums);
 
-    // Extract unguarded function (find smaUnguarded, get section until next "public RetCode")
-    let logic_start = out.java.find("smaUnguarded(").expect("Missing smaUnguarded");
-    let logic_section = &out.java[logic_start..];
-    // Look for next public function or end
-    let end = logic_section
-        .find("public RetCode sma(")
-        .or_else(|| logic_section.find("public int"))
-        .unwrap_or(logic_section.len());
-    let logic = &logic_section[..end];
+    let private = extract_section(&out.java, "RetCode emaPrivate(", "RetCode emaInternal(");
     assert!(
-        !logic.contains("OutOfRangeStartIndex"),
-        "Java logic SMA should NOT have start index validation"
+        !private.contains("OutOfRangeStartIndex"),
+        "Java emaPrivate should NOT have start index validation"
     );
 }
 
@@ -499,13 +577,9 @@ fn test_rust_sma_guarded_has_validation() {
     let (func, enums) = load_indicator("sma");
     let out = generate_all(&func, &enums);
 
-    // The guarded Rust function delegates to _unguarded, but first validates params.
-    // After 2-variant refactor: concrete f64 types, no generics.
-    let guarded = extract_section(
-        &out.rust,
-        "pub fn sma(",
-        "pub fn sma_unguarded(",
-    );
+    // The guarded Rust function holds the algorithm and validates first, bounded
+    // by the end of the impl block.
+    let guarded = extract_section(&out.rust, "pub fn sma(", "\n}\n");
     assert!(
         guarded.contains("endIdx < startIdx"),
         "Rust guarded SMA should have endIdx < startIdx check"
@@ -513,45 +587,24 @@ fn test_rust_sma_guarded_has_validation() {
 }
 
 #[test]
-fn test_rust_sma_unguarded_omits_validation() {
-    let (func, enums) = load_indicator("sma");
+fn test_rust_ema_private_omits_validation() {
+    let (func, enums) = load_indicator("ema");
     let out = generate_all(&func, &enums);
 
-    // The unguarded function should not have the range check.
-    // After 2-variant refactor: concrete f64 types, no _unchecked variant.
-    let unguarded_start = out
-        .rust
-        .find("pub fn sma_unguarded(")
-        .expect("Missing sma_unguarded");
-    let unguarded_section = &out.rust[unguarded_start..];
-    // No _unchecked variant anymore; use end of impl block or file as boundary
-    let end = unguarded_section.len();
-    let unguarded = &unguarded_section[..end];
+    let private = extract_section(&out.rust, "pub fn ema_private(", "\n}\n");
     assert!(
-        !unguarded.contains("OutOfRangeStartIndex"),
-        "Rust unguarded SMA should NOT have range validation"
+        !private.contains("OutOfRangeStartIndex"),
+        "Rust ema_private should NOT have range validation"
     );
 }
 
 // Also test a different indicator for validation (RSI)
 #[test]
-fn test_c_rsi_logic_omits_validation() {
-    let (func, enums) = load_indicator("rsi");
-    let out = generate_all(&func, &enums);
-
-    let logic = extract_section(&out.c, "TA_RSI_Unguarded(", "TA_S_RSI(");
-    assert!(
-        !logic.contains("TA_OUT_OF_RANGE_START_INDEX"),
-        "C logic RSI should NOT have start index validation"
-    );
-}
-
-#[test]
 fn test_c_rsi_guarded_has_validation() {
     let (func, enums) = load_indicator("rsi");
     let out = generate_all(&func, &enums);
 
-    let guarded = extract_section(&out.c, "TA_RetCode TA_RSI(", "TA_RSI_Unguarded(");
+    let guarded = extract_section(&out.c, "TA_RetCode TA_RSI(", "TA_RetCode TA_S_RSI(");
     assert!(
         guarded.contains("TA_OUT_OF_RANGE_START_INDEX"),
         "C guarded RSI should have start index validation"
@@ -1024,8 +1077,8 @@ fn test_all_indicators_contain_success_returns() {
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // Delegation functions (e.g. EMA -> TA_EMA_Private, MACDFIX ->
-            // TA_MACD_Unguarded) return a RetCode from a callee without ever
-            // mentioning TA_SUCCESS literally.
+            // TA_MACD) return a RetCode from a callee without ever mentioning
+            // TA_SUCCESS literally.
             // Accept: literal TA_SUCCESS OR a `return TA_<func>( ... )` delegation.
             let c_has_success = out.c.contains("TA_SUCCESS")
                 || out.c.lines().any(|l| {
@@ -1037,8 +1090,7 @@ fn test_all_indicators_contain_success_returns() {
             // callee without ever mentioning RetCode.Success literally.
             // Accept: literal RetCode::Success OR a return of a RetCode from a cross-indicator call.
             let rust_has_success = out.rust.contains("RetCode::Success")
-                || (out.rust.contains("return self.") && out.rust.contains("_unguarded"))
-                || (out.rust.contains("return self.") && out.rust.contains("_private("));
+                || out.rust.contains("return self.");
             assert!(
                 rust_has_success,
                 "Rust {}: missing RetCode::Success return",
@@ -1047,7 +1099,7 @@ fn test_all_indicators_contain_success_returns() {
             // Accept: literal RetCode.Success OR a return of a RetCode variable/call.
             let java_has_success = out.java.contains("RetCode.Success")
                 || out.java.contains("return retCode ;")
-                || (out.java.contains("return ") && out.java.contains("Unguarded("));
+                || (out.java.contains("return ") && out.java.contains("Internal("));
             assert!(
                 java_has_success,
                 "Java {}: missing RetCode.Success return",
@@ -1093,8 +1145,8 @@ fn test_rust_generic_output_smoke() {
         "Rust SMA should have pub fn sma("
     );
     assert!(
-        r.contains("pub fn sma_unguarded("),
-        "Rust SMA should have pub fn sma_unguarded("
+        !r.contains("_unguarded"),
+        "Rust SMA must not emit an unguarded variant"
     );
 
     // 2. No _s suffix methods
@@ -1115,7 +1167,7 @@ fn test_rust_generic_output_smoke() {
         "Rust SMA input params should use concrete type &[f64]"
     );
 
-    // 5. No _unchecked or _unguarded_unchecked variants
+    // 5. No _unchecked variants
     assert!(
         !r.contains("fn sma_unchecked(") && !r.contains("fn sma_unchecked<"),
         "Rust SMA should NOT contain _unchecked variants"
@@ -1125,13 +1177,13 @@ fn test_rust_generic_output_smoke() {
         "Rust SMA should NOT contain _unguarded_unchecked variants"
     );
 
-    // 6. Exactly 5 pub fn: guarded + unguarded + lookback + the stream tier's
-    // open + open_and_fill (open_internal is pub(crate), update/peek live on
-    // the handle type).
+    // 6. Exactly 4 pub fn: guarded + lookback + the stream tier's open +
+    // open_and_fill (open_internal is pub(crate), update/peek live on the handle
+    // type).
     let pub_fn_count = r.matches("pub fn sma").count();
     assert_eq!(
-        pub_fn_count, 5,
-        "Rust SMA should have exactly 5 pub fn (sma, sma_unguarded, sma_lookback, sma_open, sma_open_and_fill), got {}",
+        pub_fn_count, 4,
+        "Rust SMA should have exactly 4 pub fn (sma, sma_lookback, sma_open, sma_open_and_fill), got {}",
         pub_fn_count
     );
 }
@@ -1322,7 +1374,7 @@ fn rust_forc_emits_range_iteration_when_possible() {
         body: vec![],
     };
 
-    let ctx = RustRenderCtx::for_lookback();
+    let ctx = RustRenderCtx::empty();
     let for_loop_vars: Vec<String> = vec![];
     let var_inits: std::collections::HashMap<String, &Expr> = std::collections::HashMap::new();
     let output_names: Vec<String> = vec![];
@@ -1382,7 +1434,7 @@ fn rust_inline_condition_parenthesizes_or_operand() {
         cond_comments: vec![Some(vec!["one".into()]), Some(vec!["two".into()])],
     };
 
-    let ctx = RustRenderCtx::for_lookback();
+    let ctx = RustRenderCtx::empty();
     let enums = HashMap::new();
     let registry = make_registry();
     let helpers = HelperRegistry::empty();
@@ -1558,7 +1610,7 @@ fn rust_condition_from_int_ternary_helper_is_wrapped() {
         cond_comments: vec![],
     };
 
-    let ctx = RustRenderCtx::for_lookback();
+    let ctx = RustRenderCtx::empty();
     let enums = HashMap::new();
     let registry = make_registry();
     let helpers = make_helper_registry();
@@ -1640,7 +1692,7 @@ fn rust_forc_multi_init_falls_through_to_while() {
         body: vec![],
     };
 
-    let ctx = RustRenderCtx::for_lookback();
+    let ctx = RustRenderCtx::empty();
     let for_loop_vars: Vec<String> = vec![];
     let var_inits: std::collections::HashMap<String, &Expr> = std::collections::HashMap::new();
     let output_names: Vec<String> = vec![];
@@ -2736,12 +2788,20 @@ fn java_backend_hoisted_helper_declares_local_vars() {
 
 /// Helper to build a RustRenderCtx and call render_statement with minimal boilerplate.
 fn render_rust_stmt(stmt: &ir::Statement) -> String {
-    render_rust_stmt_with_ctx(stmt, &backends::rust_lang::RustRenderCtx::for_lookback())
+    render_rust_stmt_with_ctx(stmt, &backends::rust_lang::RustRenderCtx::empty())
 }
 
 fn render_rust_stmt_with_ctx(
     stmt: &ir::Statement,
     ctx: &backends::rust_lang::RustRenderCtx,
+) -> String {
+    render_rust_stmt_with_helpers(stmt, ctx, &HelperRegistry::empty())
+}
+
+fn render_rust_stmt_with_helpers(
+    stmt: &ir::Statement,
+    ctx: &backends::rust_lang::RustRenderCtx,
+    helpers: &HelperRegistry,
 ) -> String {
     let for_loop_vars: Vec<String> = vec![];
     let var_inits: std::collections::HashMap<String, &ir::Expr> =
@@ -2750,7 +2810,6 @@ fn render_rust_stmt_with_ctx(
     let opt_real_params: Vec<String> = vec![];
     let enums = HashMap::new();
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
     let inline_counter = std::cell::Cell::new(0);
 
     backends::rust_lang::render_statement(
@@ -2763,7 +2822,7 @@ fn render_rust_stmt_with_ctx(
         &opt_real_params,
         &enums,
         &registry,
-        &helpers,
+        helpers,
         &inline_counter,
     )
 }
@@ -2867,7 +2926,7 @@ fn rust_compound_assign_casts_i32_param_into_inferred_usize_var() {
     // `trailingPos1` is usize only via subscript inference (ctx.index_vars) —
     // its name matches no index heuristic — and the RHS is an i32 optIn param.
     // Regression for the `usize -= i32` mismatch in PR #154's ULTOSC ring wraps.
-    let mut ctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    let mut ctx = backends::rust_lang::RustRenderCtx::empty();
     ctx.is_lookback = false;
     ctx.index_vars.insert("trailingPos1".to_string());
     let stmt = ir::Statement::Assign {
@@ -2888,7 +2947,7 @@ fn rust_compound_assign_casts_i32_param_into_inferred_usize_var() {
     // Ctx construction removes sentinels from index_vars, so in production a
     // sentinel (i32-rendered) reaches this gate only through the name
     // heuristic. Pin that arm: a heuristic-matched sentinel must stay uncast.
-    let mut sctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    let mut sctx = backends::rust_lang::RustRenderCtx::empty();
     sctx.is_lookback = false;
     sctx.sentinel_vars.insert("highestIdx".to_string());
     let sstmt = ir::Statement::Assign {
@@ -2906,6 +2965,358 @@ fn rust_compound_assign_casts_i32_param_into_inferred_usize_var() {
             && !rendered.contains("as usize"),
         "compound assign into a heuristic-named sentinel (i32) var must stay uncast: {rendered}"
     );
+}
+
+/// Issue #158: the mirror of the test above. A target the generator has typed
+/// as an integer must never take the f64 RHS cast just because its name is on
+/// no index list — and an i32 target with a usize RHS needs the third branch
+/// (`as i32`) that used to be missing entirely.
+#[test]
+fn rust_compound_assign_types_target_by_declaration_not_by_name() {
+    // `k` is the strongest possible name to test with: `expr_is_float_typed`
+    // hard-codes it as Real (EMA's k factor). The declaration must still win.
+    // (a) declared Integer -> usize target, i32 optIn RHS: `as usize`, never `as f64`.
+    let mut ctx = backends::rust_lang::RustRenderCtx::empty();
+    ctx.is_lookback = false;
+    ctx.index_vars.insert("k".to_string());
+    let stmt = ir::Statement::Assign {
+        target: ir::Expr::Var("k".to_string()),
+        value: ir::Expr::BinOp(
+            Box::new(ir::Expr::Var("k".to_string())),
+            ir::BinOp::Add,
+            Box::new(ir::Expr::Var("optInTimePeriod".to_string())),
+        ),
+        compound: true,
+    };
+    let rendered = render_rust_stmt_with_ctx(&stmt, &ctx);
+    assert!(
+        rendered.contains("k += (optInTimePeriod) as usize") && !rendered.contains("as f64"),
+        "declared-Integer target must take the usize cast, not f64: {rendered}"
+    );
+
+    // (b) signed local (i32) + i32 optIn RHS: no cast at all. This is the shape
+    // issue #158 was filed on, but it was already correct at HEAD (b8619ed6b
+    // excluded sentinels from the f64 arm); what this pins is the I32 arm's
+    // bare-render path, which the three-arm rewrite could easily have lost.
+    let mut sctx = backends::rust_lang::RustRenderCtx::empty();
+    sctx.is_lookback = false;
+    sctx.sentinel_vars.insert("k".to_string());
+    let rendered = render_rust_stmt_with_ctx(&stmt, &sctx);
+    assert!(
+        rendered.contains("k += optInTimePeriod")
+            && !rendered.contains("as f64")
+            && !rendered.contains("as usize"),
+        "signed local + i32 param must render uncast: {rendered}"
+    );
+
+    // (c) signed local (i32) + usize RHS: `as i32`. Without this branch the
+    // bare `k += today` failed E0277 the other way round.
+    let mut mctx = backends::rust_lang::RustRenderCtx::empty();
+    mctx.is_lookback = false;
+    mctx.sentinel_vars.insert("k".to_string());
+    mctx.index_vars.insert("today".to_string());
+    let mixed = ir::Statement::Assign {
+        target: ir::Expr::Var("k".to_string()),
+        value: ir::Expr::BinOp(
+            Box::new(ir::Expr::Var("k".to_string())),
+            ir::BinOp::Add,
+            Box::new(ir::Expr::Var("today".to_string())),
+        ),
+        compound: true,
+    };
+    let rendered = render_rust_stmt_with_ctx(&mixed, &mctx);
+    assert!(
+        rendered.contains("k += (today) as i32"),
+        "i32 target with a usize RHS must take the i32 cast: {rendered}"
+    );
+
+    // (d) a Real local still gets the f64 cast — positively, via real_vars.
+    let mut rctx = backends::rust_lang::RustRenderCtx::empty();
+    rctx.is_lookback = false;
+    rctx.real_vars.insert("k".to_string());
+    let rendered = render_rust_stmt_with_ctx(&stmt, &rctx);
+    assert!(
+        rendered.contains("k += ((optInTimePeriod) as f64)"),
+        "Real target must still cast the i32 RHS to f64: {rendered}"
+    );
+
+    // (e) The cast has to follow what the RHS *renders* as, not its C type.
+    // `today + optInTimePeriod` renders `today + (optInTimePeriod) as usize`,
+    // i.e. usize, even though `expr_is_i32_typed` sees an i32 operand. Both an
+    // i32 and an f64 target must cast it.
+    let mixed_rhs = |target: &str| ir::Statement::Assign {
+        target: ir::Expr::Var(target.to_string()),
+        value: ir::Expr::BinOp(
+            Box::new(ir::Expr::Var(target.to_string())),
+            ir::BinOp::Add,
+            Box::new(ir::Expr::BinOp(
+                Box::new(ir::Expr::Var("today".to_string())),
+                ir::BinOp::Add,
+                Box::new(ir::Expr::Var("optInTimePeriod".to_string())),
+            )),
+        ),
+        compound: true,
+    };
+    let mut xctx = backends::rust_lang::RustRenderCtx::empty();
+    xctx.is_lookback = false;
+    xctx.index_vars.insert("today".to_string());
+    xctx.sentinel_vars.insert("k".to_string());
+    xctx.real_vars.insert("total".to_string());
+    let rendered = render_rust_stmt_with_ctx(&mixed_rhs("k"), &xctx);
+    assert!(
+        rendered.contains("as i32"),
+        "i32 target with a usize-RENDERING mixed RHS must cast: {rendered}"
+    );
+    let rendered = render_rust_stmt_with_ctx(&mixed_rhs("total"), &xctx);
+    assert!(
+        rendered.contains("as f64"),
+        "Real target with a usize-RENDERING mixed RHS must cast: {rendered}"
+    );
+
+    // (g) The bar range never narrows to i32, even into a signed target: bare,
+    // so it fails to compile rather than truncating above 2^31.
+    let mut ictx = backends::rust_lang::RustRenderCtx::empty();
+    ictx.is_lookback = false;
+    ictx.sentinel_vars.insert("k".to_string());
+    ictx.index_vars.insert("startIdx".to_string());
+    ictx.index_vars.insert("endIdx".to_string());
+    let range_rhs = ir::Statement::Assign {
+        target: ir::Expr::Var("k".to_string()),
+        value: ir::Expr::BinOp(
+            Box::new(ir::Expr::Var("k".to_string())),
+            ir::BinOp::Add,
+            Box::new(ir::Expr::BinOp(
+                Box::new(ir::Expr::Var("endIdx".to_string())),
+                ir::BinOp::Sub,
+                Box::new(ir::Expr::Var("startIdx".to_string())),
+            )),
+        ),
+        compound: true,
+    };
+    let rendered = render_rust_stmt_with_ctx(&range_rhs, &ictx);
+    assert!(
+        !rendered.contains("as i32"),
+        "the caller's bar range must never be narrowed to i32: {rendered}"
+    );
+
+    // (h) An unlisted Real optional parameter is Real because the YAML says so.
+    // `is_i32_opt_in_param` is a NEGATIVE allowlist, so consulting it first
+    // would call any Real param it has not been told about an integer.
+    let mut pctx = backends::rust_lang::RustRenderCtx::empty();
+    pctx.is_lookback = false;
+    let param_stmt = ir::Statement::Assign {
+        target: ir::Expr::Var("optInThreshold".to_string()),
+        value: ir::Expr::BinOp(
+            Box::new(ir::Expr::Var("optInThreshold".to_string())),
+            ir::BinOp::Add,
+            Box::new(ir::Expr::Var("optInTimePeriod".to_string())),
+        ),
+        compound: true,
+    };
+    let rendered = backends::rust_lang::render_statement(
+        &param_stmt,
+        12,
+        &pctx,
+        &[],
+        &std::collections::HashMap::new(),
+        &[],
+        &["optInThreshold".to_string()],
+        &HashMap::new(),
+        &make_registry(),
+        &HelperRegistry::empty(),
+        &std::cell::Cell::new(0),
+    );
+    assert!(
+        rendered.contains("optInThreshold += ((optInTimePeriod) as f64)"),
+        "a YAML-declared Real optIn param must be Real: {rendered}"
+    );
+
+    // (f) A signed local reaching a Real target is an integer too — the plain
+    // `expr_is_i32_typed` does not know about sentinels, so this arrived uncast.
+    let sentinel_rhs = ir::Statement::Assign {
+        target: ir::Expr::Var("total".to_string()),
+        value: ir::Expr::BinOp(
+            Box::new(ir::Expr::Var("total".to_string())),
+            ir::BinOp::Add,
+            Box::new(ir::Expr::Var("k".to_string())),
+        ),
+        compound: true,
+    };
+    let rendered = render_rust_stmt_with_ctx(&sentinel_rhs, &xctx);
+    assert!(
+        rendered.contains("total += ((k) as f64)"),
+        "Real target must cast a signed-local RHS to f64: {rendered}"
+    );
+}
+
+/// An implicit `double` -> `int` conversion in the input C is refused at parse
+/// time. C narrows silently, but Java, C# and Rust all reject the statement, so
+/// it used to generate four files of which three did not compile — with no
+/// diagnostic. The four languages also disagree on negative and out-of-range
+/// values (issue #160), so the generator must not pick a meaning.
+#[test]
+#[should_panic(expected = "is an integer, and it is assigned a floating-point expression")]
+fn parser_rejects_implicit_double_to_int_narrowing() {
+    parser::c_source::parse_c_source_str(
+        "TA_RetCode test( int startIdx, int endIdx, const double inReal[],
+                          int *outBegIdx, int *outNBElement, double outReal[] )
+         {
+            int r;
+            double q;
+            q = inReal[startIdx];
+            r = q;
+            *outBegIdx = 0; *outNBElement = r;
+            return TA_SUCCESS;
+         }",
+    );
+}
+
+/// The same body with the cast written out is accepted — the check must not
+/// fire on the explicit form every shipped function uses.
+#[test]
+fn parser_accepts_explicit_double_to_int_cast() {
+    let parsed = parser::c_source::parse_c_source_str(
+        "TA_RetCode test( int startIdx, int endIdx, const double inReal[],
+                          int *outBegIdx, int *outNBElement, double outReal[] )
+         {
+            int r;
+            double q;
+            q = inReal[startIdx];
+            r = (int)q;
+            *outBegIdx = 0; *outNBElement = r;
+            return TA_SUCCESS;
+         }",
+    );
+    assert_eq!(parsed.functions.len(), 1, "explicit cast must parse cleanly");
+}
+
+/// Issue #158: a helper-inlined temporary has no `VarDecl` in the body it is
+/// inlined into — the inliner renames the helper's own local `range` to
+/// `range_0` — so it must be typed from the HELPER's declaration, not from its
+/// name. Before this was handled, `range_0` reached the classifier with nothing
+/// to go on.
+#[test]
+fn rust_compound_assign_types_helper_inlined_temp_from_the_helper() {
+    let helper = |name: &str, local: &str, ty: ir::VarType| ir::HelperDef {
+        name: name.to_string(),
+        return_type: ir::VarType::Real,
+        params: vec![],
+        body: vec![ir::Statement::VarDecl {
+            var_type: ty,
+            name: local.to_string(),
+            init: None,
+        }],
+    };
+    let helpers = HelperRegistry::from_defs(vec![
+        helper("ta_true_range", "range", ir::VarType::Real),
+        helper("ta_some_counter", "slot", ir::VarType::Integer),
+    ]);
+    let compound = |target: &str| ir::Statement::Assign {
+        target: ir::Expr::Var(target.to_string()),
+        value: ir::Expr::BinOp(
+            Box::new(ir::Expr::Var(target.to_string())),
+            ir::BinOp::Add,
+            Box::new(ir::Expr::Var("optInTimePeriod".to_string())),
+        ),
+        compound: true,
+    };
+    let mut ctx = backends::rust_lang::RustRenderCtx::empty();
+    ctx.is_lookback = false;
+
+    // `range` is a double in the helper -> the i32 param must be cast to f64.
+    let rendered = render_rust_stmt_with_helpers(&compound("range_0"), &ctx, &helpers);
+    assert!(
+        rendered.contains("range_0 += ((optInTimePeriod) as f64)"),
+        "helper-declared Real temp must take the f64 cast: {rendered}"
+    );
+
+    // `slot` is an int in the helper -> usize, so the cast is `as usize`.
+    // Its NAME is on no index list, which is the whole point.
+    let rendered = render_rust_stmt_with_helpers(&compound("slot_2"), &ctx, &helpers);
+    assert!(
+        rendered.contains("slot_2 += (optInTimePeriod) as usize"),
+        "helper-declared integer temp must take the usize cast: {rendered}"
+    );
+
+    // Two helpers declaring the SAME name with different types must not resolve
+    // by whichever the registry yields first — it is a `HashMap`, so that would
+    // make generation depend on hash order.
+    let conflicting = HelperRegistry::from_defs(vec![
+        helper("ta_one", "amount", ir::VarType::Real),
+        helper("ta_two", "amount", ir::VarType::Integer),
+    ]);
+    let rendered = render_rust_stmt_with_helpers(&compound("amount_0"), &ctx, &conflicting);
+    assert!(
+        !rendered.contains("as usize"),
+        "a name two helpers type differently must not resolve from helper decls: {rendered}"
+    );
+}
+
+/// The lookback leg of the implicit-narrowing check: a `LookbackExpr::Code`
+/// body is parsed separately from the function bodies and needs its own guard.
+#[test]
+#[should_panic(expected = "is an integer, and it is assigned a floating-point expression")]
+fn parser_rejects_implicit_narrowing_in_a_lookback_body() {
+    parser::c_source::parse_c_source_str(
+        "int test_lookback( int optInTimePeriod )
+         {
+            int lb;
+            double scale;
+            scale = optInTimePeriod * 0.5;
+            lb = scale;
+            return lb;
+         }",
+    );
+}
+
+/// A lookback's own parameters are not all integers — 14 shipped lookbacks take
+/// a `double` (`optInPenetration`, `optInNbDev`, ...). They have to be typed
+/// from the signature, or assigning one to an int local slips through.
+#[test]
+#[should_panic(expected = "is an integer, and it is assigned a floating-point expression")]
+fn parser_rejects_implicit_narrowing_of_a_real_lookback_param() {
+    parser::c_source::parse_c_source_str(
+        "int test_lookback( int optInTimePeriod, double optInPenetration )
+         {
+            int lb;
+            lb = optInPenetration;
+            return lb + optInTimePeriod;
+         }",
+    );
+}
+
+/// `input/helpers/*.c` parse through a different entry point. A narrowing there
+/// is inlined into every call site, so it reaches all four backends multiplied
+/// by however many sites the helper serves.
+#[test]
+#[should_panic(expected = "is an integer, and it is assigned a floating-point expression")]
+fn parser_rejects_implicit_narrowing_inside_a_helper() {
+    parser::c_source::parse_helper_file_str(
+        "double ta_scaled_range(double th, double tl) {
+            double range = th - tl;
+            int whole;
+            whole = range;
+            return range + whole;
+         }",
+    );
+}
+
+/// Two disjoint blocks may reuse a name with different types. The backends
+/// render those as separate scopes and compile, so the check must not flatten
+/// a function into one namespace and reject the second declaration.
+#[test]
+fn parser_accepts_same_name_different_type_in_disjoint_scopes() {
+    let parsed = parser::c_source::parse_c_source_str(
+        "TA_RetCode test( int startIdx, int endIdx, const double inReal[],
+                          int *outBegIdx, int *outNBElement, double outReal[] )
+         {
+            if( startIdx > 0 ) { int    tmpz; tmpz = startIdx; (void)tmpz; }
+            if( startIdx > 1 ) { double tmpz; tmpz = 1.5;      (void)tmpz; }
+            *outBegIdx = 0; *outNBElement = 0;
+            return TA_SUCCESS;
+         }",
+    );
+    assert_eq!(parsed.functions.len(), 1, "disjoint scopes must parse cleanly");
 }
 
 #[test]
@@ -2928,7 +3339,7 @@ fn rust_vardecl_with_init_expr() {
 
 #[test]
 fn rust_vardecl_sentinel_var_renders_i32() {
-    let mut ctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    let mut ctx = backends::rust_lang::RustRenderCtx::empty();
     ctx.sentinel_vars.insert("highestIdx".to_string());
     let stmt = ir::Statement::VarDecl {
         var_type: ir::VarType::Integer,
@@ -3278,14 +3689,20 @@ fn rust_cross_indicator_call_via_generate() {
     let helpers = make_helpers();
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
-    // Cross-indicator calls resolve to _unguarded (skip validation)
+    // Cross-indicator calls resolve to the guarded fn
     assert!(
-        rust_out.contains("self.sma_unguarded("),
-        "MA Rust should call self.sma_unguarded(): {rust_out}"
+        rust_out.contains("self.sma("),
+        "MA Rust should call self.sma(): {rust_out}"
     );
     assert!(
-        rust_out.contains("self.ema_unguarded("),
-        "MA Rust should call self.ema_unguarded(): {rust_out}"
+        rust_out.contains("self.ema("),
+        "MA Rust should call self.ema(): {rust_out}"
+    );
+    // `self.` makes this a call, not a definition, so the negative is real.
+    // step 1 still emits — so the negative is real, not vacuous.
+    assert!(
+        !rust_out.contains("self.sma_unguarded(") && !rust_out.contains("self.ema_unguarded("),
+        "MA Rust must not call the unguarded variants: {rust_out}"
     );
 }
 
@@ -3307,7 +3724,8 @@ fn rust_cross_indicator_lookback_with_pascal_case() {
 #[test]
 fn rust_private_cross_indicator_call() {
     // EMA has explicit _private with extra params. Registry routes:
-    //   ema() → ema_unguarded(), ema_private() → ema_private()
+    //   ema() → ema(), ema_private() → ema_private()
+    // The `_private` arm has its own resolution path and is
     // (MACD was the original vehicle for both paths, but its lockstep fusion
     // removed the EMA calls.) The bare-name path is exercised by MA's dispatch;
     // the private-name path by EMA's guarded body delegating to ema_private().
@@ -3317,8 +3735,8 @@ fn rust_private_cross_indicator_call() {
     let (func, enums) = load_indicator("ma");
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
     assert!(
-        rust_out.contains("self.ema_unguarded("),
-        "MA Rust dispatch should call self.ema_unguarded(): {rust_out}"
+        rust_out.contains("self.ema("),
+        "MA Rust dispatch should call self.ema(): {rust_out}"
     );
 
     let (func, enums) = load_indicator("ema");
@@ -3334,15 +3752,15 @@ fn rust_cross_indicator_vec_input_gets_ref() {
     // Indicators that allocate a local buffer (Vec) and pass it to a cross-indicator
     // call should render the Vec as `&name` in input position. (MACD was the original
     // vehicle, but its lockstep fusion removed the local buffers.) STOCH builds
-    // tempBuffer and passes it into ma_unguarded as an input.
+    // tempBuffer and passes it into ma as an input.
     let (func, enums) = load_indicator("stoch");
     let registry = make_registry();
     let helpers = make_helpers();
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
     assert!(
-        rust_out.contains("self.ma_unguarded(") && rust_out.contains("&tempBuffer"),
-        "STOCH Rust should pass &tempBuffer into self.ma_unguarded(): {rust_out}"
+        rust_out.contains("self.ma(") && rust_out.contains("&tempBuffer"),
+        "STOCH Rust should pass &tempBuffer into self.ma(): {rust_out}"
     );
 }
 
@@ -3916,7 +4334,7 @@ fn rust_continue_renders() {
 
 #[test]
 fn rust_compound_add_assignment() {
-    let mut ctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    let mut ctx = backends::rust_lang::RustRenderCtx::empty();
     ctx.real_vars.insert("total".to_string());
     let stmt = ir::Statement::Assign {
         target: ir::Expr::Var("total".to_string()),
@@ -3936,7 +4354,7 @@ fn rust_compound_add_assignment() {
 
 #[test]
 fn rust_compound_sub_assignment() {
-    let mut ctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    let mut ctx = backends::rust_lang::RustRenderCtx::empty();
     ctx.real_vars.insert("total".to_string());
     let stmt = ir::Statement::Assign {
         target: ir::Expr::Var("total".to_string()),
@@ -3956,7 +4374,7 @@ fn rust_compound_sub_assignment() {
 
 #[test]
 fn rust_compound_mul_assignment() {
-    let mut ctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    let mut ctx = backends::rust_lang::RustRenderCtx::empty();
     ctx.real_vars.insert("total".to_string());
     let stmt = ir::Statement::Assign {
         target: ir::Expr::Var("total".to_string()),
@@ -3976,7 +4394,7 @@ fn rust_compound_mul_assignment() {
 
 #[test]
 fn rust_compound_div_assignment() {
-    let mut ctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    let mut ctx = backends::rust_lang::RustRenderCtx::empty();
     ctx.real_vars.insert("total".to_string());
     let stmt = ir::Statement::Assign {
         target: ir::Expr::Var("total".to_string()),
@@ -4189,7 +4607,7 @@ fn rust_lookback_none() {
 #[test]
 fn rust_lookback_return_casts_to_usize() {
     // In lookback context, return values that are i32-typed should be cast to usize
-    let mut ctx = backends::rust_lang::RustRenderCtx::for_lookback();
+    let mut ctx = backends::rust_lang::RustRenderCtx::empty();
     ctx.is_lookback = true;
 
     let stmt = ir::Statement::Return {
@@ -4210,7 +4628,7 @@ fn rust_lookback_return_casts_to_usize() {
 fn rust_while_with_for_loop_var_renders_for_in() {
     use backends::rust_lang::RustRenderCtx;
 
-    let ctx = RustRenderCtx::for_lookback();
+    let ctx = RustRenderCtx::empty();
     let for_loop_vars: Vec<String> = vec!["i".to_string()];
     let init_expr = ir::Expr::Var("startIdx".to_string());
     let mut var_inits: std::collections::HashMap<String, &ir::Expr> =
@@ -4407,6 +4825,207 @@ fn rust_lookback_code_renders_var_types_correctly() {
     assert!(
         lookback_section.contains("[i32; 5 as usize]"),
         "Lookback should declare IntArray: {lookback_section}"
+    );
+}
+
+/// A lookback body must never fuse a multiply-add, in any backend.
+///
+/// C, Java and C# all pass `fma: None` when rendering a lookback ("pure integer
+/// index arithmetic"). Rust reaches fusion through `real_vars`, which was empty
+/// in the lookback context until issue #158 populated it — so fusing would have
+/// silently become Rust-only, and a lookback drives `outBegIdx` and the output
+/// length, making that a shape divergence rather than a tolerance one.
+#[test]
+fn rust_lookback_body_never_fuses_multiply_add() {
+    let decl = |name: &str| ir::Statement::VarDecl {
+        var_type: ir::VarType::Real,
+        name: name.to_string(),
+        init: None,
+    };
+    let lookback_stmts = vec![
+        decl("acc"),
+        decl("scale"),
+        decl("bias"),
+        // The canonical fusable shape: acc = acc + scale * bias.
+        ir::Statement::Assign {
+            target: ir::Expr::Var("acc".to_string()),
+            value: ir::Expr::BinOp(
+                Box::new(ir::Expr::Var("acc".to_string())),
+                ir::BinOp::Add,
+                Box::new(ir::Expr::BinOp(
+                    Box::new(ir::Expr::Var("scale".to_string())),
+                    ir::BinOp::Mul,
+                    Box::new(ir::Expr::Var("bias".to_string())),
+                )),
+            ),
+            compound: false,
+        },
+        ir::Statement::Return { value: Some(ir::Expr::IntLiteral(0)) },
+    ];
+    let body = vec![ir::Statement::Return {
+        value: Some(ir::Expr::Var("SUCCESS".to_string())),
+    }];
+    let func = ir::FuncDef {
+        name: "TEST".to_string(),
+        group: "Test".to_string(),
+        description: None,
+        camel_case: None,
+        hint: None,
+        flags: vec![],
+        inputs: vec![ir::Input::new("inReal", ir::ParamType::Real)],
+        optional_inputs: vec![],
+        outputs: vec![ir::Output {
+            name: "outReal".to_string(),
+            param_type: ir::ParamType::Real,
+            flags: vec![],
+        }],
+        lookback: Some(ir::LookbackExpr::Code(lookback_stmts)),
+        body: body.clone(),
+        private_body: body,
+        private_extra_params: vec![],
+        private_param_init: vec![],
+        has_explicit_private: false,
+        header_comments: vec![],
+        doc: None,
+        streaming: false,
+    };
+    let enums = HashMap::new();
+    let out = backends::rust_lang::generate(&func, &enums, &make_registry(), &HelperRegistry::empty());
+    let section = extract_section(&out, "_lookback(", "pub fn test(");
+    let section = &section[..section.find("\n    }").expect("lookback body must close")];
+    assert!(
+        section.contains("acc = acc + scale * bias"),
+        "the fusable shape must actually reach the lookback renderer: {section}"
+    );
+    assert!(
+        !section.contains(".mul_add("),
+        "a lookback body must not fuse — C/Java/C# do not: {section}"
+    );
+}
+
+/// Issue #158: a lookback body's locals are typed by their declarations, so the
+/// variable's *name* cannot change the generated code.
+///
+/// The lookback renderer used to build an empty `RustRenderCtx`, which left
+/// every local to the naming heuristics. `expr_is_float_typed` hard-codes `k`
+/// as Real (EMA's k factor), so `int k; k += optInTimePeriod;` was declared
+/// `usize` and assigned `((optInTimePeriod) as f64)` — E0277 — while the same
+/// body written with `j` compiled. Both must now render identically.
+#[test]
+fn rust_lookback_body_types_locals_by_declaration_not_name() {
+    fn lookback_section_for(var: &str) -> String {
+        let lookback_stmts = vec![
+            ir::Statement::VarDecl {
+                var_type: ir::VarType::Integer,
+                name: var.to_string(),
+                init: None,
+            },
+            ir::Statement::Assign {
+                target: ir::Expr::Var(var.to_string()),
+                value: ir::Expr::Var("optInTimePeriod".to_string()),
+                compound: false,
+            },
+            ir::Statement::Assign {
+                target: ir::Expr::Var(var.to_string()),
+                value: ir::Expr::BinOp(
+                    Box::new(ir::Expr::Var(var.to_string())),
+                    ir::BinOp::Add,
+                    Box::new(ir::Expr::Var("optInTimePeriod".to_string())),
+                ),
+                compound: true,
+            },
+            ir::Statement::Return {
+                value: Some(ir::Expr::Var(var.to_string())),
+            },
+        ];
+        let body = vec![ir::Statement::Return {
+            value: Some(ir::Expr::Var("SUCCESS".to_string())),
+        }];
+        let func = ir::FuncDef {
+            name: "TEST".to_string(),
+            group: "Test".to_string(),
+            description: None,
+            camel_case: None,
+            hint: None,
+            flags: vec![],
+            inputs: vec![ir::Input::new("inReal", ir::ParamType::Real)],
+            optional_inputs: vec![ir::OptInput {
+                name: "optInTimePeriod".to_string(),
+                param_type: ir::ParamType::Integer,
+                range: Some((2.0, 100_000.0)),
+                default: Some(30.0),
+                display_name: None,
+                hint: None,
+                flags: vec![],
+                suggested: None,
+                precision: None,
+            }],
+            outputs: vec![ir::Output {
+                name: "outReal".to_string(),
+                param_type: ir::ParamType::Real,
+                flags: vec![],
+            }],
+            lookback: Some(ir::LookbackExpr::Code(lookback_stmts)),
+            body: body.clone(),
+            private_body: body,
+            private_extra_params: vec![],
+            private_param_init: vec![],
+            has_explicit_private: false,
+            header_comments: vec![],
+            doc: None,
+            streaming: false,
+        };
+        let enums = HashMap::new();
+        let registry = make_registry();
+        let helpers = HelperRegistry::empty();
+        let out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+        let section = extract_section(&out, "_lookback(", "pub fn test(");
+        // Stop at the lookback's own closing brace — the tail of that slice is
+        // the guarded function's rustdoc, whose doctest mentions `as f64`.
+        let end = section.find("\n    }").expect("lookback body must close");
+        section[..end].to_string()
+    }
+
+    let with_k = lookback_section_for("k");
+    assert!(
+        with_k.contains("let mut k: usize = 0_usize"),
+        "lookback int local must declare usize: {with_k}"
+    );
+    assert!(
+        !with_k.contains("as f64"),
+        "an integer lookback local must never take an f64 RHS cast: {with_k}"
+    );
+    assert!(
+        with_k.contains("k += (optInTimePeriod) as usize"),
+        "usize lookback local must cast the i32 param RHS to usize: {with_k}"
+    );
+
+    // The name is not allowed to matter — this is the whole point of the issue.
+    // Substitute the identifier only where it stands alone (`lookback` contains
+    // a k) and keep every other byte, punctuation included: splitting on
+    // non-alphanumerics and re-joining would erase the operators, making
+    // `k -= x;` and `j += x;` compare equal.
+    fn blank_ident(src: &str, ident: &str) -> String {
+        let mut out = String::with_capacity(src.len());
+        let mut rest = src;
+        while let Some(pos) = rest.find(ident) {
+            let (before, at) = rest.split_at(pos);
+            let tail = &at[ident.len()..];
+            let boundary = |c: char| !c.is_alphanumeric() && c != '_';
+            let standalone = before.chars().next_back().is_none_or(boundary)
+                && tail.chars().next().is_none_or(boundary);
+            out.push_str(before);
+            out.push_str(if standalone { "@" } else { ident });
+            rest = tail;
+        }
+        out.push_str(rest);
+        out
+    }
+    let with_j = lookback_section_for("j");
+    assert_eq!(
+        blank_ident(&with_k, "k"),
+        blank_ident(&with_j, "j"),
+        "renaming a lookback local must not change the generated code"
     );
 }
 
@@ -4719,18 +5338,18 @@ fn java_stoch_malloc_renders_as_new_array() {
 
 #[test]
 fn java_ma_cross_indicator_calls() {
-    // MA dispatches to the per-type moving averages via the unguarded variants.
+    // MA dispatches to the per-type moving averages via the guarded internal cores.
     // (MACD was the original vehicle, but its lockstep fusion removed the EMA
     // calls.)
     let (func, enums) = load_indicator("ma");
     let out = generate_all(&func, &enums);
     let j = &out.java;
 
-    // Anchor the call site so demaUnguarded(/temaUnguarded( (adjacent dispatch
+    // Anchor the call site so demaInternal(/temaInternal( (adjacent dispatch
     // arms) cannot substring-shadow the EMA arm.
     assert!(
-        j.contains("= emaUnguardedInternal("),
-        "Java MA should call emaUnguardedInternal(): {j}"
+        j.contains("= emaInternal("),
+        "Java MA should call emaInternal(): {j}"
     );
     assert!(
         j.contains("= emaLookback("),
@@ -4750,11 +5369,11 @@ fn java_stochrsi_cross_indicator_calls() {
 
     // STOCHRSI calls rsi and stochf (stochf's Java name is the irregular `stochF`)
     assert!(
-        j.contains("rsiUnguarded(") || j.contains("rsiLookback("),
+        j.contains("rsiInternal(") || j.contains("rsiLookback("),
         "Java STOCHRSI should call rsi: {j}"
     );
     assert!(
-        j.contains("stochFUnguarded(") || j.contains("stochFLookback("),
+        j.contains("stochFInternal(") || j.contains("stochFLookback("),
         "Java STOCHRSI should call stochF: {j}"
     );
 }
@@ -5310,7 +5929,7 @@ fn c_stoch_has_malloc_and_free() {
 
 #[test]
 fn c_ma_cross_indicator_calls() {
-    // MA dispatches to the per-type moving averages via the unguarded variants.
+    // MA dispatches to the per-type moving averages via the guarded internal cores.
     // (MACD was the original vehicle, but its lockstep fusion removed the EMA
     // calls.)
     let (func, enums) = load_indicator("ma");
@@ -5318,7 +5937,7 @@ fn c_ma_cross_indicator_calls() {
     let c = &out.c;
 
     assert!(
-        c.contains("TA_INT_EMA(") || c.contains("TA_EMA(") || c.contains("TA_EMA_Unguarded("),
+        c.contains("TA_INT_EMA(") || c.contains("TA_EMA("),
         "C MA should call EMA: {c}"
     );
     assert!(
@@ -6485,7 +7104,7 @@ fn test_c_mama_nullable_fama_batch() {
     let mac = backends::c::generate(&ma, &ma_enums, &registry, &helpers);
     assert!(
         mac.contains(
-            "TA_MAMA_Unguarded(startIdx,endIdx,inReal,0.5,0.05,outBegIdx,outNBElement,outReal,NULL)"
+            "TA_MAMA(startIdx,endIdx,inReal,0.5,0.05,outBegIdx,outNBElement,outReal,NULL)"
         ),
         "MA batch MAMA arm passes NULL for FAMA"
     );
@@ -6852,7 +7471,7 @@ fn test_c_stoch_composed_stream_section() {
     // Open: sub0 opens on the RAW series strictly BEFORE the in-place
     // smoothing call; sub1 after it, before the %D call.
     let sub0 = stream.find("subRc = TA_MA_OpenInternal( &sub0, tempBuffer").expect("sub0 open");
-    let ma1 = stream.find("retCode = TA_MA_Unguarded(0,outIdx - 1,tempBuffer").expect("in-place smoothing");
+    let ma1 = stream.find("retCode = TA_MA(0,outIdx - 1,tempBuffer").expect("in-place smoothing");
     let sub1 = stream.find("subRc = TA_MA_OpenInternal( &sub1, tempBuffer").expect("sub1 open");
     let ma2 = stream.find("optInSlowD_MAType,&dummyBegIdx,&dummyNBElement,sc_outSlowD").expect("%D call");
     assert!(sub0 < ma1 && ma1 < sub1 && sub1 < ma2, "sub-open ordering");
@@ -7055,7 +7674,7 @@ fn rust_bbands_elects_output_scratch_only_in_the_sma_fast_path() {
         "BBANDS Rust should have no pointer tests left on tempBuffer1: {rust_out}"
     );
     // The general MA path's allocations are real and must survive — one pair in
-    // each of the guarded and unguarded batch variants, plus the stream tier's.
+    // the batch variant, plus the stream tier's.
     let allocs = rust_out.matches("tempBuffer1 = vec![0.0_f64;").count();
     assert!(
         allocs >= 2,
@@ -7290,9 +7909,9 @@ fn csharp_resolve_call_agrees_with_pascal_method_naming() {
     // whatever csharp_base returns -- deriving it from the dir-name yields
     // `Willr` and still satisfies every one of them. Only these catch that.
     for (dir, want) in [
-        ("willr", "WillRUnguarded"),
-        ("stochf", "StochFUnguarded"),
-        ("ma", "MovingAverageUnguarded"),
+        ("willr", "WillR"),
+        ("stochf", "StochF"),
+        ("ma", "MovingAverage"),
     ] {
         assert_eq!(
             registry.resolve_call(dir, ta_codegen_lib::registry::Lang::CSharp),
@@ -7306,15 +7925,15 @@ fn csharp_resolve_call_agrees_with_pascal_method_naming() {
         let bare = registry.resolve_call(&name, ta_codegen_lib::registry::Lang::CSharp);
         let lookback = registry.resolve_call(&format!("{name}_lookback"), ta_codegen_lib::registry::Lang::CSharp);
         assert!(
-            bare.ends_with("Unguarded"),
-            "{name}: bare cross-indicator call must resolve to the Unguarded \
-             variant, got {bare}"
+            !bare.ends_with("Unguarded"),
+            "{name}: bare cross-indicator call must resolve to the guarded \
+             entry point, got {bare}"
         );
-        let base = bare.trim_end_matches("Unguarded");
+        let base = &bare;
         assert_eq!(
             lookback,
             format!("{base}Lookback"),
-            "{name}: lookback and unguarded names disagree on the PascalCase base"
+            "{name}: lookback and guarded names disagree on the PascalCase base"
         );
         assert!(
             base.chars().next().is_some_and(char::is_uppercase),
@@ -7361,17 +7980,12 @@ fn rust_fma_dispatch_fires_for_exactly_the_fusing_functions() {
             let calls = out.matches("ta_lib_dispatch::dispatch_fma!").count();
             let clones = out.matches("#[target_feature(enable = \"fma\")]").count();
             assert_eq!(calls, clones, "{name}: dispatcher/clone count mismatch");
-            // BOTH batch variants must carry their clone — a one-variant
-            // partial no-op keeps calls==clones balanced, so pin each by
-            // name. (A future private-delegating fused function would trip
-            // this on purpose: a human must decide where dispatch goes.)
+            // The batch variant must carry its clone. (A future
+            // private-delegating fused function would trip the dispatcher/clone
+            // balance above on purpose.)
             assert!(
                 out.contains(&format!("fn {name}_fma(")),
                 "{name}: guarded variant lost its FMA clone"
-            );
-            assert!(
-                out.contains(&format!("fn {name}_unguarded_fma(")),
-                "{name}: unguarded variant lost its FMA clone"
             );
             // The fused sites live on in the renamed portable impl.
             assert!(
@@ -7389,4 +8003,748 @@ fn rust_fma_dispatch_fires_for_exactly_the_fusing_functions() {
     dispatched.sort();
     assert_eq!(dispatched, FUSING, "FMA dispatch inventory drifted");
     assert!(checked >= 150, "expected ~168 functions, checked {checked}");
+}
+
+// ---------------------------------------------------------------------------
+// Bitwise operators (issue #157): every C bitwise form renders correctly in
+// all four backends. C/Java/C# spell `~` as `~`; Rust spells it `!` and needs
+// explicit `!= 0` for C's int-truthiness conditions. C's grouping must survive
+// Rust's different precedence (`&`/`^`/`|` bind tighter than `==` in Rust).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bitwise_operators_render_in_all_backends() {
+    let source = r#"
+int max_lookback( int optInTimePeriod )
+{
+   return (optInTimePeriod-1);
+}
+
+TA_RetCode max( int    startIdx,
+                int    endIdx,
+                const double inReal[],
+                int    optInTimePeriod,
+                int   *outBegIdx,
+                int   *outNBElement,
+                double outReal[] )
+{
+   int outIdx, i, mask, neg;
+
+   mask = (optInTimePeriod ^ 3) & ~1;
+   mask |= 2;
+   mask &= 15;
+   mask ^= 1;
+   mask <<= 1;
+   mask >>= 1;
+   mask = ((mask | 4) << 1) >> 1;
+   mask = (mask << 2) + 1;
+   neg = ~optInTimePeriod;
+   if( (mask & 1) == 9999 )
+      return TA_INTERNAL_ERROR;
+   if( mask & 16 )
+      return TA_INTERNAL_ERROR;
+   if( (mask & 1) && (neg < 0) )
+      outIdx = 0;
+   if( !(mask & 1) )
+      return TA_INTERNAL_ERROR;
+   while( mask & 1024 )
+      mask = mask & ~1024;
+   i = (mask & 2) ? 1 : 0;
+   if( i == 9999 )
+      return TA_INTERNAL_ERROR;
+   outIdx = 0;
+   for( i=startIdx; i <= endIdx; i++ )
+      outReal[outIdx++] = inReal[i];
+   *outBegIdx = startIdx;
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let (func, enums) = load_indicator_with_source("max", source);
+    let out = generate_all(&func, &enums);
+
+    for needle in [
+        "mask = (optInTimePeriod ^ 3) & ~1;",
+        "mask |= 2;",
+        "mask &= 15;",
+        "mask ^= 1;",
+        "mask <<= 1;",
+        "mask >>= 1;",
+        "mask = (mask | 4) << 1 >> 1;",
+        "mask = (mask << 2) + 1;",
+        "neg = ~optInTimePeriod;",
+        "if( (mask & 1) == 9999 )",
+        "if( mask & 16 )",
+        "if( mask & 1 && neg < 0 )",
+        "if( !(mask & 1) )",
+        "while( mask & 1024 )",
+        "i = (mask & 2) ? 1 : 0;",
+    ] {
+        assert!(out.c.contains(needle), "C output missing `{needle}`:\n{}", out.c);
+    }
+
+    for needle in [
+        "mask = (optInTimePeriod ^ 3) & ~1;",
+        "mask |= 2;",
+        "mask &= 15;",
+        "mask ^= 1;",
+        "mask <<= 1;",
+        "mask >>= 1;",
+        "(mask & 1) == 9999",
+        "(mask & 16) != 0",
+        "(mask & 1) != 0 && neg < 0",
+        "((mask & 1) == 0)",
+        "while( (mask & 1024) != 0 )",
+        "((mask & 2) != 0) ? 1 : 0",
+    ] {
+        assert!(out.java.contains(needle), "Java output missing `{needle}`:\n{}", out.java);
+    }
+
+    for needle in [
+        "& !(1)",
+        "mask |= 2;",
+        "mask &= 15;",
+        "mask ^= 1;",
+        "mask <<= 1;",
+        "mask >>= 1;",
+        "mask & 1 == 9999",
+        "(mask & 16) != 0",
+        "(mask << 2) + 1",           // Rust shifts bind looser than + : parens required
+        "let mut neg: i32",          // ~x can be negative: var must be signed
+        "(mask & 1) != 0 && neg < 0",
+        "(mask & 1) == 0",
+        "while (mask & 1024) != 0 {",
+        "if (mask & 2) != 0 {",
+    ] {
+        assert!(out.rust.contains(needle), "Rust output missing `{needle}`:\n{}", out.rust);
+    }
+
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let cs = backends::csharp::generate(&func, &enums, &registry, &helpers);
+    for needle in [
+        "& ~1;",
+        "(mask & 1) == 9999",
+        "(mask & 16) != 0",
+        "(mask & 1) != 0 && neg < 0",
+        "((mask & 1) == 0)",
+        "while( (mask & 1024) != 0 )",
+        "((mask & 2) != 0) ? 1 : 0",
+    ] {
+        assert!(cs.contains(needle), "C# output missing `{needle}`:\n{cs}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Issue #160: a C `(int)` cast of a possibly-negative double must land in a
+// SIGNED Rust local (the default f64→usize cast saturates negatives to 0).
+// MAVP's period clamp is the shipped case; synth2 in input_synth/ is the
+// end-to-end gate. This pins the rendering so a classifier regression is a
+// test failure, not a silent semantic drift.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rust_negative_capable_cast_gets_signed_local() {
+    let (func, enums) = load_indicator("mavp");
+    let out = generate_all(&func, &enums);
+    for needle in [
+        "let mut tempInt: i32",                    // cast-fed local is signed
+        "tempInt = (inPeriods[startIdx + i]) as i32;", // true negative preserved
+        "if tempInt < optInMinPeriod {",           // clamps stay signed compares
+    ] {
+        assert!(out.rust.contains(needle), "MAVP Rust missing `{needle}`:\n{}", out.rust);
+    }
+    // sqrt-fed locals stay usize (provably non-negative allowlist): HMA's
+    // sqrtPeriod = (int)(sqrt(...)) is the shipped case.
+    let (hma, enums2) = load_indicator("hma");
+    let hma_out = generate_all(&hma, &enums2);
+    assert!(
+        hma_out.rust.contains("let mut sqrtPeriod: usize"),
+        "HMA sqrtPeriod must stay usize (allowlist regression):\n{}",
+        hma_out.rust
+    );
+}
+
+// Index-domain values must never narrow to i32: every runtime gate feeds
+// <= 100k bars, so an i32-narrowed endIdx misbehaves only at >= 2^31 inputs —
+// structurally invisible to value comparison. Pin it textually instead (the
+// exact regression the #160 review caught in MAVP's dual-role temp).
+#[test]
+fn rust_index_domain_never_narrows_to_i32() {
+    for name in discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        let out = generate_all(&func, &enums);
+        for needle in ["(endIdx) as i32", "(startIdx) as i32", "endIdx as i32", "startIdx as i32"] {
+            assert!(
+                !out.rust.contains(needle),
+                "{name}: generated Rust narrows an index-domain value (`{needle}`)"
+            );
+        }
+        // The needles above are the bare forms; an arithmetic expression
+        // narrows just as badly and matches none of them. A broader "any line
+        // with `as i32` mentioning the range" rule is wrong — MAVP's
+        // `(inPeriods[startIdx + i]) as i32` casts an i32 array element and
+        // only uses the range as a subscript — so pin the arithmetic forms.
+        for op in ['+', '-', '*'] {
+            for needle in [
+                format!("startIdx {op} "),
+                format!("endIdx {op} "),
+            ] {
+                for line in out.rust.lines().filter(|l| l.contains("as i32")) {
+                    assert!(
+                        !(line.contains(&needle) && !line.contains('[')),
+                        "{name}: generated Rust narrows an index-domain expression to i32: {line}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The shared abstract row model
+// ---------------------------------------------------------------------------
+//
+// `backends::abstract_rows` is the one derivation the Rust registry, the Java
+// server table, the shipped Java registry and the shipped C# registry all
+// render. These pin the facts that used to be hand-maintained inside one
+// backend, plus the two domains that are currently unreachable — so the day one
+// appears, the sweep names the renderers that need a look.
+
+/// Load every shipped definition once, as the abstract rows.
+fn all_abstract_rows() -> Vec<ta_codegen_lib::backends::abstract_rows::FuncRow> {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let enums = parser::enums::load_enums(&base.join("enums.yaml"));
+    let funcs: Vec<ir::FuncDef> = discover_indicators()
+        .iter()
+        .map(|n| parser::yaml::parse_yaml(&base.join(format!("{n}/{n}.yaml"))))
+        .collect();
+    backends::abstract_rows::rows(&funcs, &enums)
+}
+
+/// The unstable-period set used to live as a 20-arm hardcoded name -> variant
+/// `match` inside `rust_abstract`, duplicating `enums.yaml`. It is now resolved
+/// by name (`TA_FUNC_UNST_<NAME>`), the same derivation the servers use. This
+/// pins the resulting set both ways: a lost mapping and a spurious one both fail.
+#[test]
+fn abstract_rows_unstable_period_set_is_exactly_the_twenty() {
+    const EXPECTED: &[(&str, &str)] = &[
+        ("ADX", "Adx"),
+        ("ATR", "Atr"),
+        ("CMO", "Cmo"),
+        ("DX", "Dx"),
+        ("EMA", "Ema"),
+        ("HT_DCPERIOD", "HtDcPeriod"),
+        ("HT_DCPHASE", "HtDcPhase"),
+        ("HT_PHASOR", "HtPhasor"),
+        ("HT_SINE", "HtSine"),
+        ("HT_TRENDLINE", "HtTrendline"),
+        ("HT_TRENDMODE", "HtTrendMode"),
+        ("KAMA", "Kama"),
+        ("MAMA", "Mama"),
+        ("MINUS_DI", "MinusDI"),
+        ("MINUS_DM", "MinusDM"),
+        ("NATR", "Natr"),
+        ("PLUS_DI", "PlusDI"),
+        ("PLUS_DM", "PlusDM"),
+        ("RSI", "Rsi"),
+        ("T3", "T3"),
+    ];
+
+    let rows = all_abstract_rows();
+    let mut got: Vec<(String, String)> = rows
+        .iter()
+        .filter_map(|r| r.unst.as_ref().map(|u| (r.name.clone(), u.pascal_name.clone())))
+        .collect();
+    got.sort();
+    let mut want: Vec<(String, String)> =
+        EXPECTED.iter().map(|(a, b)| ((*a).to_string(), (*b).to_string())).collect();
+    want.sort();
+    assert_eq!(got, want, "unstable-period set changed (name -> FuncUnstId variant)");
+
+    // The `unstable_period` function flag and the resolved id must not disagree:
+    // one without the other means a function that says it is recursive but has
+    // no state slot, or a slot nothing declares.
+    for r in &rows {
+        let flagged = r.flags & 0x0800_0000 != 0;
+        assert_eq!(
+            flagged,
+            r.unst.is_some(),
+            "{}: unstable_period flag ({flagged}) disagrees with its FuncUnstId ({:?})",
+            r.name,
+            r.unst.as_ref().map(|u| &u.c_name)
+        );
+    }
+}
+
+/// Every shipped `group:` string must parse into the closed `Group` set, and
+/// every variant must render back to the exact display string C's
+/// `TA_GroupString` and the YAML use.
+#[test]
+fn abstract_rows_group_strings_round_trip() {
+    use ta_codegen_lib::backends::abstract_rows::Group;
+    for g in Group::ALL {
+        assert_eq!(Group::parse(g.as_str()), *g, "group round-trip for {}", g.as_str());
+    }
+    let rows = all_abstract_rows();
+    for g in Group::ALL {
+        // Not an emptiness check: every declared group must actually be used,
+        // so a retired group cannot linger in the closed set unnoticed.
+        assert!(
+            rows.iter().any(|r| r.group == *g),
+            "no shipped function is in group {}",
+            g.as_str()
+        );
+    }
+}
+
+/// Two shapes the model can express that nothing currently declares. Pinned
+/// rather than asserted away: the renderers each have an arm for them that no
+/// gate exercises, so the day a definition uses one, this says so by name.
+#[test]
+fn abstract_rows_unreachable_domains_stay_unreachable() {
+    use ta_codegen_lib::backends::abstract_rows::{InputKind, OptDomain};
+    for r in all_abstract_rows() {
+        for o in &r.opt_inputs {
+            assert!(
+                !matches!(o.domain, OptDomain::RealList { .. }),
+                "{}.{} is the first real-list parameter — re-check the RealList arm in \
+                 rust_abstract, java_abstract, java_metadata and csharp_metadata",
+                r.name,
+                o.param_name
+            );
+        }
+        for i in &r.inputs {
+            assert!(
+                i.kind != InputKind::Integer,
+                "{}.{} is the first integer input — re-check every registry's Integer arm \
+                 and the ParamHolder/dispatch binding",
+                r.name,
+                i.param_name
+            );
+        }
+    }
+}
+
+/// A price bundle is ONE parameter carrying a component bitmask, not N arrays.
+/// `Core.Adx` takes three `double[]`, but `TA_FuncInfo.nbInput` for ADX is 1 —
+/// the fold every registry inherits from `price_bundle`.
+#[test]
+fn abstract_rows_price_bundle_is_one_parameter() {
+    use ta_codegen_lib::backends::abstract_rows::InputKind;
+    const HLC: u32 = 0x0000_0002 | 0x0000_0004 | 0x0000_0008;
+    let rows = all_abstract_rows();
+    let adx = rows.iter().find(|r| r.name == "ADX").expect("ADX row");
+    assert_eq!(adx.inputs.len(), 1, "ADX must present one bundled price input");
+    assert_eq!(adx.inputs[0].kind, InputKind::Price);
+    assert_eq!(adx.inputs[0].param_name, "inPriceHLC");
+    assert_eq!(adx.inputs[0].flags, HLC, "ADX's bundle is exactly H+L+C");
+
+    // And the non-bundled case still carries no component bits.
+    let sma = rows.iter().find(|r| r.name == "SMA").expect("SMA row");
+    assert_eq!(sma.inputs.len(), 1);
+    assert_eq!(sma.inputs[0].kind, InputKind::Real);
+    assert_eq!(sma.inputs[0].flags, 0);
+}
+
+/// Issue #159: an `int`-array subscript compared against a `usize`-typed variable
+/// must render with the whole cast parenthesized. rustc cannot *parse* a cast
+/// followed by `<` — it reads `usize <` as the start of generic arguments — so
+/// `(dqI[hd]) as usize < trailingIdx` is a hard error while `generate` exits 0.
+///
+/// No shipped indicator has this shape (the monotonic-deque rolling-extremum
+/// candidates in #147 are what surfaced it), so a regenerate is byte-identical
+/// here and proves nothing; this fixture is the coverage.
+///
+/// Both operand positions are exercised. The right-hand one is not merely
+/// defensive: `render_binop_operand` leaves a higher-precedence arithmetic child
+/// unparenthesized on the left of a comparison, so `trailingIdx + dqI[hd] < today`
+/// puts a *right*-operand cast directly before a `<` too.
+#[test]
+fn int_array_vs_usize_comparison_parenthesizes_the_cast() {
+    let source = r#"
+int max_lookback( int optInTimePeriod )
+{
+   return (optInTimePeriod-1);
+}
+
+TA_RetCode max( int    startIdx,
+                int    endIdx,
+                const double inReal[],
+                int    optInTimePeriod,
+                int   *outBegIdx,
+                int   *outNBElement,
+                double outReal[] )
+{
+   int outIdx, trailingIdx, today, highestIdx;
+   int dqI[4];
+   int hd;
+
+   hd = 0;
+   dqI[hd] = startIdx;
+   outIdx = 0;
+   today = startIdx;
+   trailingIdx = startIdx;
+   highestIdx = -1;
+
+   while( today <= endIdx )
+   {
+      /* left operand carries the cast, directly before `<` */
+      if( dqI[hd] < trailingIdx )
+         hd = 0;
+
+      /* right operand carries the cast, and the enclosing `<` still follows it */
+      if( trailingIdx + dqI[hd] < today )
+         hd = 0;
+
+      /* mirror: the cast lands on the right operand of the comparison itself */
+      if( trailingIdx < dqI[hd] )
+         hd = 0;
+
+      /* the i32 sentinel path (the shape WILLR/MIN/MAX already emit) */
+      if( highestIdx < trailingIdx )
+         highestIdx = trailingIdx;
+
+      outReal[outIdx++] = inReal[today];
+      trailingIdx++;
+      today++;
+   }
+
+   *outBegIdx = startIdx;
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let (func, enums) = load_indicator_with_source("max", source);
+    let out = generate_all(&func, &enums);
+
+    // The whole cast is wrapped, in every position.
+    for needle in [
+        "((dqI[hd]) as usize) < trailingIdx",
+        "trailingIdx + ((dqI[hd]) as usize) < today",
+        "trailingIdx < ((dqI[hd]) as usize)",
+        "highestIdx < ((trailingIdx) as i32)",
+    ] {
+        assert!(
+            out.rust.contains(needle),
+            "Rust output missing `{needle}`:\n{}",
+            out.rust
+        );
+    }
+
+    // And nowhere does a bare cast sit directly before `<`, which would not parse.
+    check_rust_cast_parens(&out.rust, "max/#159");
+
+    // C and Java are unaffected — they have no cast to place at all.
+    assert!(
+        out.c.contains("if( dqI[hd] < trailingIdx )"),
+        "C output should compare directly:\n{}",
+        out.c
+    );
+    assert!(
+        out.java.contains("if( dqI[hd] < trailingIdx )"),
+        "Java output should compare directly:\n{}",
+        out.java
+    );
+}
+
+/// Issue #163: arithmetic over an `int` array element, compared against a
+/// `usize`-typed variable, must carry a cast. `expr_is_i32_typed` recurses through
+/// arithmetic but has no `ArrayAccess` arm, while `render_binop`'s array tests knew
+/// about `int` arrays but matched a *direct* subscript only — so `dqI[hd] + 1`
+/// was typed by neither and rendered bare, failing to compile with E0308.
+///
+/// The two shapes that already worked are asserted alongside the four that did
+/// not, because they are what pin the root cause: a plain `int` local is usize in
+/// Rust and needs nothing, and an expression with a usize operand already got its
+/// cast from the arithmetic arm. A fix that changed either of those would be
+/// reaching too far — that is how the first attempt at this turned
+/// `(periods[j] as usize) > longestPeriod` into `periods[j] > (longestPeriod as
+/// i32)` in ULTOSC, narrowing an index-domain value.
+#[test]
+fn arithmetic_over_int_array_elements_is_typed_i32() {
+    let source = r#"
+int max_lookback( int optInTimePeriod )
+{
+   return (optInTimePeriod-1);
+}
+
+TA_RetCode max( int    startIdx,
+                int    endIdx,
+                const double inReal[],
+                int    optInTimePeriod,
+                int   *outBegIdx,
+                int   *outNBElement,
+                double outReal[] )
+{
+   int outIdx, trailingIdx, today;
+   int dqI[4];
+   int hd;
+
+   hd = 0;
+   dqI[hd] = startIdx;
+   outIdx = 0;
+   today = startIdx;
+   trailingIdx = startIdx;
+
+   while( today <= endIdx )
+   {
+      if( dqI[hd] + 1 < today )        /* was E0308 */
+         hd = 0;
+      if( dqI[hd] - 1 < today )        /* was E0308 */
+         hd = 0;
+      if( dqI[hd] * 2 < today )        /* was E0308 */
+         hd = 0;
+      if( dqI[hd] << 1 < today )       /* was E0308 */
+         hd = 0;
+      if( dqI[hd] / 2 < today )        /* was E0308 */
+         hd = 0;
+      if( dqI[hd] % 3 < today )        /* was E0308 */
+         hd = 0;
+      if( (dqI[hd] & 3) < today )      /* was E0308 */
+         hd = 0;
+      if( dqI[hd] + optInTimePeriod < today )  /* was E0308: i32 opt param, not a literal */
+         hd = 0;
+      if( today < dqI[hd] + 1 )        /* mirror: the compound is the RIGHT operand */
+         hd = 0;
+      if( dqI[hd] + 1 <= today )       /* <= is legal after a bare cast; still must be typed */
+         hd = 0;
+      if( hd + 1 < today )             /* control: plain int local, already usize */
+         hd = 0;
+      if( trailingIdx + dqI[hd] < today )  /* control: usize operand present */
+         hd = 0;
+
+      outReal[outIdx++] = inReal[today];
+      trailingIdx++;
+      today++;
+   }
+
+   *outBegIdx = startIdx;
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let (func, enums) = load_indicator_with_source("max", source);
+    let out = generate_all(&func, &enums);
+
+    // The four that did not compile now cast, in the usize (index) domain, and
+    // the cast is fully parenthesized — it sits on the left of a `<`, so without
+    // #159's wrap_cast this would not even parse.
+    for needle in [
+        "((dqI[hd] + 1) as usize) < today",
+        "((dqI[hd] - 1) as usize) < today",
+        "((dqI[hd] * 2) as usize) < today",
+        "((dqI[hd] << 1) as usize) < today",
+        "((dqI[hd] / 2) as usize) < today",
+        "((dqI[hd] % 3) as usize) < today",
+        "((dqI[hd] & 3) as usize) < today",
+        // An i32 opt-in param is not an IntLiteral; the first cut of stays_i32
+        // rejected it and this shape still failed to compile.
+        "((dqI[hd] + optInTimePeriod) as usize) < today",
+        // Mirror: the compound as the RIGHT operand of the comparison.
+        "today < ((dqI[hd] + 1) as usize)",
+        // `<=` parses after a bare cast, so this one proves the TYPING fired,
+        // independently of #159's parenthesization.
+        "((dqI[hd] + 1) as usize) <= today",
+    ] {
+        assert!(
+            out.rust.contains(needle),
+            "Rust output missing `{needle}`:\n{}",
+            out.rust
+        );
+    }
+
+    // The two that already worked are untouched — no cast appears on either.
+    for needle in ["if hd + 1 < today {", "if trailingIdx + ((dqI[hd]) as usize) < today {"] {
+        assert!(
+            out.rust.contains(needle),
+            "Rust output should leave `{needle}` unchanged:\n{}",
+            out.rust
+        );
+    }
+
+    check_rust_cast_parens(&out.rust, "max/#163");
+
+    // C and Java compare directly; neither has a cast to place.
+    assert!(out.c.contains("if( dqI[hd] + 1 < today )"), "C changed:\n{}", out.c);
+    assert!(out.java.contains("if( dqI[hd] + 1 < today )"), "Java changed:\n{}", out.java);
+}
+
+/// The cast-parens gate must key on the operators rustc actually cannot parse.
+/// `<` and `<<` after a bare cast are errors; `<=` and `<<=` are legal, and 22
+/// shipped sites spell `<=` after a cast — matching them would fail the suite on
+/// correct output. Verified against rustc, not assumed.
+#[test]
+fn cast_parens_gate_flags_only_the_ambiguous_operators() {
+    let must_flag = [
+        "        if (dqI[hd]) as usize < trailingIdx {",
+        "        x = (dqI[hd]) as i32 << 2;",
+        "        if a + (dqI[hd]) as usize < today {",
+    ];
+    for line in must_flag {
+        assert!(
+            std::panic::catch_unwind(|| check_rust_cast_parens(line, "fixture")).is_err(),
+            "gate failed to flag an unparseable cast: {line}"
+        );
+    }
+
+    let must_pass = [
+        "        if ((dqI[hd]) as usize) < trailingIdx {",   // correctly wrapped
+        "        if (dqI[hd]) as usize <= trailingIdx {",    // `<=` parses
+        "        x = (dqI[hd]) as i32 <<= 2;",               // `<<=` parses
+        "        if (dqI[hd]) as usize > trailingIdx {",     // `>` parses
+        "        let n = (x) as usize;",                     // terminal position
+        "        v[(i) as usize] = 0.0;",                    // index position
+        "        // prose mentioning as usize < in a comment",
+    ];
+    for line in must_pass {
+        assert!(
+            std::panic::catch_unwind(|| check_rust_cast_parens(line, "fixture")).is_ok(),
+            "gate false-positived on legal output: {line}"
+        );
+    }
+}
+
+/// An empty C comment must not abort `generate`. `/*  */` is ordinary C, and
+/// `/* * */` reduces to the same thing because the lone `*` is eaten as a
+/// continuation prefix; both reached `block_comment` with zero lines, which
+/// indexed `lines[1..]` on an empty slice and panicked out of the whole run.
+///
+/// Found by a synth3 fixture that happened to label a multiply with `/* * */`.
+#[test]
+fn empty_c_comments_do_not_abort_generation() {
+    for comment in ["/*  */", "/* * */", "/**/", "/*\n    *\n    */"] {
+        let source = format!(
+            r#"
+int max_lookback( int optInTimePeriod )
+{{
+   return (optInTimePeriod-1);
+}}
+
+TA_RetCode max( int    startIdx,
+                int    endIdx,
+                const double inReal[],
+                int    optInTimePeriod,
+                int   *outBegIdx,
+                int   *outNBElement,
+                double outReal[] )
+{{
+   int outIdx, i;
+
+   outIdx = 0;
+   for( i=startIdx; i <= endIdx; i++ )
+   {{
+      {comment}
+      outReal[outIdx++] = inReal[i];
+   }}
+   *outBegIdx = startIdx;
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}}
+"#
+        );
+        let (func, enums) = load_indicator_with_source("max", &source);
+        let out = generate_all(&func, &enums);
+        for (lang, text) in [("C", &out.c), ("Rust", &out.rust), ("Java", &out.java)] {
+            assert!(
+                !text.is_empty(),
+                "{lang} output empty for comment {comment:?}"
+            );
+        }
+        // The body still renders; the comment must not have eaten it.
+        assert!(
+            out.c.contains("outReal[outIdx++] = inReal[i];"),
+            "C body lost after comment {comment:?}:\n{}",
+            out.c
+        );
+    }
+}
+
+/// Issue #165: a local that `collect_signed_int_vars` elected i32 (#160) must
+/// stay recognisably i32 *inside an expression*, not only when it stands alone.
+///
+/// `expr_is_i32_typed_ctx` folded over the four arithmetic operators only, so
+/// `head = lag;` took its `as usize` from the assign ladder while
+/// `head = lag & 3;` took none and did not compile. The same omission left an
+/// i32 local and a usize local unreconciled on either side of a bitwise
+/// operator (`k & 65535 | hits << 16` → `i32 | usize`) — one gap, two symptoms,
+/// which is why widening that operator set fixes both.
+#[test]
+fn signed_locals_stay_i32_inside_expressions() {
+    let source = r#"
+int max_lookback( int optInTimePeriod )
+{
+   return (optInTimePeriod-1);
+}
+
+TA_RetCode max( int    startIdx,
+                int    endIdx,
+                const double inReal[],
+                int    optInTimePeriod,
+                int   *outBegIdx,
+                int   *outNBElement,
+                double outReal[] )
+{
+   int outIdx, today, trailingIdx;
+   int ring[4];
+   int head, hits, lag, kk;
+   double barVal;
+
+   outIdx = 0;
+   today = startIdx;
+   trailingIdx = startIdx;
+
+   while( today <= endIdx )
+   {
+      barVal = inReal[today];
+      if( !(barVal > 0.0) || !(barVal < 1000000.0) )
+         barVal = 0.0;
+      lag = (int)barVal;
+      kk = 0 - optInTimePeriod;
+      if( kk < 0 )
+         kk += optInTimePeriod;
+
+      head = lag & 3;
+      ring[head] = lag & 7;
+      hits = 0;
+      if( ring[head] < trailingIdx )
+         hits += 1;
+      kk += (kk & 65535) | (hits << 16);
+
+      outReal[outIdx] = barVal;
+      outIdx++;
+      trailingIdx++;
+      today++;
+   }
+   *outBegIdx = startIdx;
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let (func, enums) = load_indicator_with_source("max", source);
+    let out = generate_all(&func, &enums);
+
+    // A: usize target, masked signed local on the right.
+    assert!(
+        out.rust.contains("head = (lag & 3) as usize;"),
+        "Rust missing the `as usize` on a masked signed local:\n{}",
+        out.rust
+    );
+    // B: the usize half is brought into the i32 domain by the sentinel arm.
+    assert!(
+        out.rust.contains("((hits << 16) as i32)"),
+        "Rust left an i32 local and a usize local unreconciled across `|`:\n{}",
+        out.rust
+    );
+    // The plain form was always right and must not have moved.
+    assert!(
+        out.rust.contains("ring[head] = (lag & 7) as i32;"),
+        "Rust changed the int-array store:\n{}",
+        out.rust
+    );
+    check_rust_cast_parens(&out.rust, "max/#165");
+
+    // C and Java have no cast to place here.
+    assert!(out.c.contains("head = lag & 3;"), "C changed:\n{}", out.c);
+    assert!(out.java.contains("head = lag & 3;"), "Java changed:\n{}", out.java);
 }

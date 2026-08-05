@@ -184,48 +184,92 @@ their internal ADX/RSI instead, so `UNSTABLE_MAP` maps them to
 `TA_FUNC_UNST_ADX`/`_RSI` (the DEMA→EMA pattern), keeping the converging
 range tolerance and the stream K-leg coverage.
 
-## The VARIANT gate — four-variant bitwise parity, no oracle (issue #137)
+## Abstract-metadata parity — every language server vs the C library
 
-Every function ships four times over: `TA_<N>`, `TA_<N>_Unguarded`, `TA_S_<N>`,
-`TA_S_<N>_Unguarded`. `test_variants.c` (tag `UNGUARDED,TA_S_,VARIANT`) asserts
-two exact contracts across all of them, in-process, with no server and no oracle
-— so a bare `./ta_regtest` covers it, which is what the autotools dist nightly runs:
+`ta_regtest.c` opens a dedicated pipe per language and points `test_abstract.c`
+at it (`test_abstract_set_server`). There is one block per language, and **the
+block is the coverage**: `test_abstract_server_metadata()` and the server legs of
+`test_abstract()` both short-circuit to `TA_TEST_PASS` when no pipe is set, so a
+server can implement every RPC perfectly or not at all and, without a block,
+every gate stays green. The C# block was added for exactly that reason — its
+RPCs had none.
 
-1. **unguarded == guarded** — the generator strips only a validation prologue, so
-   on already-valid arguments the two must be bit-identical.
-2. **`TA_S_` == `TA_` on widened inputs** — PR #33's contract. Feed `TA_S_` a float
-   array and `TA_` those same floats widened back; outputs must match bit for bit.
+Each block runs two passes: the metadata getters (`TA_GetFuncInfo` +
+`TA_Get{Input,OptInput,Output}ParameterInfo`) for every function, and the
+dynamic-dispatch path (`abstract_call` / `abstract_get_lookback` /
+`TA_FunctionDescriptionXML`) comparing output **values**. The C server is run as
+the **control arm**: it answers from the very `ta_abstract` it is compared
+against, so a failure there is a comparator defect, which is what makes a failure
+on Rust/Java/C# meaningful.
+
+Three properties keep the sweep from passing vacuously:
+
+* **A missing server is a hard failure when its language was named.**
+  `--language=csharp` on a box with no .NET SDK used to print a skip and exit 0.
+* **`ctx.checked == 0` fails**, and on an unfiltered run so does comparing zero
+  opt-level hints or zero ranges — the counts are printed *and* asserted.
+* **`if( crefOpt->dataSet )` is counted.** That branch silently skips five field
+  comparisons; `g_optExtendedCompared` makes "we compared all the ranges"
+  distinguishable from "we looked at none".
+
+`abstract_for_each_func` **had no caller in any language** until
+`abstract_verify_for_each_func()`. It compares the server's enumeration against
+`TA_ForEachFunc` as a **set** — C walks group by group while the registries are
+name-sorted, so an order-sensitive compare would fail on a correct server — and
+reports a function C does not have, a duplicate, an omission, or a count
+mismatch. It is the only gate that can see a function *missing from* a registry,
+because the per-function getters are driven by C's own enumeration. Sabotage-
+proven: deleting one entry from the Java server's handler fails with
+`abstract_for_each_func omits 'WILLR'` while the metadata sweep still reports 0
+failures.
+
+Opt-level `hint` is compared too, and it was worth adding precisely because
+nothing compared it: for the ~80 opt slots whose C descriptor is a predefined
+`TA_DEF_UI_*`, the hint is a hand-written literal in the generator rather than a
+YAML-derived value, so this is one of the few metadata checks that is not a
+generator comparing against itself.
+
+Where this runs: **one** nightly job — dev-nightly's `xlang` step, which is the
+only one invoking `regtest.py --codegen-only` unfiltered. The other `--codegen`
+jobs narrow to `rust` or `c,rust`, and `main-nightly` runs `--xlang-hash`, which
+reaches `abstract_get_lookback` and no other abstract RPC. So every gate in this
+section has a single point of failure in CI. That is deliberate rather than
+overlooked: a second job would buy redundancy against runner flakiness, not
+against defects. Worth knowing before assuming a green `main` nightly says
+anything about abstract-metadata parity.
+
+## The VARIANT gate — TA_/TA_S_ bitwise parity, no oracle (issue #137)
+
+Every function ships twice over: `TA_<N>` and `TA_S_<N>`. `test_variants.c`
+(tag `TA_S_,VARIANT`) asserts one exact contract across them, in-process, with no
+server and no oracle — so a bare `./ta_regtest` covers it, which is what the
+autotools dist nightly runs:
+
+**`TA_S_` == `TA_` on widened inputs** — PR #33's contract. Feed `TA_S_` a float
+array and `TA_` those same floats widened back; outputs must match bit for bit.
 
 Dispatch comes from the generated `ta_variant_frame.h`
-(`generator/src/backends/variant_frame.rs`): four uniform thunks plus a row per
+(`generator/src/backends/variant_frame.rs`): two uniform thunks plus a row per
 function. A **header on purpose** — no source-list entry, so the CMake/autotools
 lists cannot drift.
 
-Sabotage-proven to catch what nothing caught before: `-999.0` in
-`TA_S_CMF_Unguarded` (post-cutover, skipped by `--codegen`); in **guarded**
-`TA_S_ADX` (the server calls `TA_S_<N>` then `TA_S_<N>_Unguarded` into the *same*
-buffer, so the guarded single-precision result was reported nowhere, for any
-function); in `TA_WILLR_Unguarded` (**pre-cutover leaf** — so the hole was never
-limited to the 6 skipped functions); and a `1e-12` drift in `TA_SMA_Unguarded`
-(ref diff is 1e-9, float leg 1e-6 — this gate is bitwise).
+Sabotage-proven to catch what nothing caught before: `-999.0` in **guarded**
+`TA_S_ADX`, and a `1e-12` drift in a `TA_S_` body (ref diff is 1e-9, float leg
+1e-6 — this gate is bitwise).
 
 **It found a live defect on first run:** `TA_S_WMA` at `optInTimePeriod == 1` did
 `memmove(..., n * sizeof(double))` out of a `const float*` — wrong bits plus a
 `4n`-byte over-read, through the *public guarded* API (WMA's range is
-`[1,100000]`). Same shape in `TA_S_{RSI,CMO}_Unguarded`. Fixed in
+`[1,100000]`). Same shape in `TA_S_{RSI,CMO}`. Fixed in
 `ta_codegen/input/{wma,rsi,cmo}/` with a forward element loop, which the
 generator widens via an explicit `(double)` in the `TA_S_` bodies and which still
 handles the in-place `out == in` case from #94.
 
-Preconditions it maintains (the negation of the stripped checks — violating any
-makes an unguarded call read out of bounds): `startIdx >= 0`; `endIdx >= startIdx`;
-non-NULL inputs; every optional parameter **resolved and in-range** (never a
-`TA_INTEGER_DEFAULT` sentinel — unguarded does not substitute defaults); non-NULL,
-pairwise-distinct outputs. `startIdx < lookback` *is* allowed — that clamp lives
-in the shared body.
-
-The gate prints its coverage (functions, vectors, and how many compared actual
-output) and asserts it non-zero, so it cannot pass by silently doing nothing.
+The gate prints its coverage and asserts it non-zero, so it cannot pass by
+silently doing nothing. The counter that matters is `nbOutputCmp`, incremented
+**at the memcmp itself** — a counter bumped before the comparisons and
+independently of them lets a deleted comparison leave the summary printing
+byte-identical numbers while the gate checks strictly less.
 
 ## Transport
 
@@ -311,7 +355,7 @@ Scope rules (deliberate):
   Reported in the summary as a `skipped:` line; everything else remains
   waiver-free at period ≥ 2.
 - **#112 NaN-to-neutral (`TOL_NAN_TO`):** where 0.6.4's *successful* call emitted
-  NaN from an unguarded `x/0`, the fix substitutes a defined neutral value; that
+  NaN from an unchecked `x/0`, the fix substitutes a defined neutral value; that
   categorical `NaN(0.6.4) → finite` divergence is tolerated by the manifest.
   IMI is the first: an all-flat window (`FUZZ_CONSTANT`/`FUZZ_TIE_HEAVY`, every
   `close == open`) made `upsum+downsum == 0` → `100*(0/0)` → NaN; the guard now
@@ -370,7 +414,7 @@ Architecture (see `fuzz_data.h`, the Rust port in
     per-function `TA_<name>` request with `want_hash`. Same guarded call, same
     `out_hash`. No server-side change was needed — this reuses the #115 machinery.
   - Both take the digest of the **guarded** call — like-for-like with the golden's
-    `TA_CallFunc` — before the unguarded timing loop runs.
+    `TA_CallFunc`.
 - **Transcendental tolerance (Java and C#).** Java's fdlibm differs from the C
   libm by ~1 ULP on `atan/sin/cos/exp/log/...`; .NET's `Math.*` is not
   guaranteed to reach the platform libm and empirically does not on some hosts.
@@ -397,11 +441,19 @@ Architecture (see `fuzz_data.h`, the Rust port in
   output hashes the same on both sides).
 
 Scope rules (deliberate):
-- **No 0.6.4, no waivers; one tolerance + one ill-conditioning skip.** This is
+- **No 0.6.4, no waivers; one tolerance and two skips.** This is
   current-vs-current across languages, so — unlike `--fuzz-064` — there are none
   of the `#98`/`#107`/FMA-transition carve-outs. Every case is bitwise except
   the transcendental calls of Java and C# (1e-9, above). A non-tolerated
   mismatch is a real fusion-site / codegen divergence to fix.
+- **The second skip: the choice-list default sentinel, Java only.** Every
+  optional parameter gets a `TA_*_DEFAULT` vector that must resolve to the
+  declared default, `enum:MAType` included. Java's `MAType` is a real enum, so
+  that value is unrepresentable there and the driver never sends it (withheld
+  cases are counted and printed); C, Rust and C# type the parameter as an integer
+  and are held to it. These cases carry their own count and their own non-vacuity
+  floor: they are a small subset of `sentCases`, so the combined total cannot show
+  that the leg has stopped running.
 - **The one ill-conditioning skip: HT_DCPHASE / HT_SINE on the constant shape,
   for the tolerance-lane servers (Java and C#).** These two derive their output from `atan2` of the Hilbert
   transform's in-phase/quadrature components. On `FUZZ_CONSTANT` (flat O=H=L=C,

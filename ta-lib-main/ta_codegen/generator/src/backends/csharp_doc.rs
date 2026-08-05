@@ -12,7 +12,7 @@
 //! `GenerateDocumentationFile` + `TreatWarningsAsErrors`, so a public member
 //! without a `<summary>` (CS1591), a mis-named `<param>` (CS1572/CS1573) or
 //! malformed XML (CS1570) fails the library build. Method cross-references are
-//! deliberately plain `<c>` text, not `cref`: the guarded/unguarded methods are
+//! deliberately plain `<c>` text, not `cref`: the wrapper and core methods are
 //! overload sets (double/float inputs, plus the internal RetCode cores of the
 //! same name), and an ambiguous `cref` is CS0419 — another error.
 
@@ -117,42 +117,6 @@ pub fn guarded_docs(
     b.render()
 }
 
-/// XML docs for the public unguarded wrapper. Documents the sharp edge honestly.
-pub fn unguarded_docs(func: &FuncDef, cs_name: &str, single_precision: bool) -> String {
-    let empty = DocDef::default();
-    let doc = func.doc.as_ref().unwrap_or(&empty);
-    let mut b = Block::new();
-
-    b.open("summary");
-    b.text(&format!(
-        "{} — <b>unchecked</b> variant of <c>{cs_name}</c>.",
-        summary_text(func, doc)
-    ));
-    b.close("summary");
-    b.open("remarks");
-    b.text(
-        "Skips every parameter check. The caller guarantees: non-negative \
-         <c>startIdx</c>, <c>endIdx &gt;= startIdx</c>, non-null arrays, output arrays \
-         distinct from each other, and every optional parameter already resolved and \
-         within its documented range — a sentinel such as <c>int.MinValue</c> is \
-         <b>not</b> substituted here.",
-    );
-    b.para(
-        "Breaking any of those yields an empty <see cref=\"OutRange\"/>, silently \
-         wrong output, or a runtime exception thrown from inside the calculation \
-         (the CLR bounds-checks array access, so misuse never reaches C's undefined \
-         behaviour — but it is not turned into a useful diagnostic either; C and \
-         Rust return a status code from this tier, this one has nowhere to report \
-         it). Use the guarded method unless the arguments are already known good.",
-    );
-    if single_precision {
-        b.para("This is the <c>float[]</c> overload; see the guarded method.");
-    }
-    b.close("remarks");
-    b.all_params_terse(func, single_precision);
-    b.tag("returns", "The range written, exactly as the guarded method reports it.");
-    b.render()
-}
 
 /// XML docs for the public lookback method.
 #[allow(clippy::implicit_hasher)]
@@ -250,6 +214,10 @@ fn param_doc(opt: &OptInput, doc: &DocDef, enums: &HashMap<String, EnumDef>) -> 
             let values: Vec<String> = m.values.iter().map(|(v, n)| format!("{v}={n}")).collect();
             meta.push(format!("values: {}", values.join(", ")));
         }
+        // Unlike Java's, a C# enum is an `int` with names, so the sentinel IS
+        // expressible here and the typed API resolves it (issue #162). Same
+        // clause, same position, as the period parameter beside it.
+        meta.push("<c>int.MinValue</c> selects the default".to_string());
     } else {
         if let Some(d) = &m.default {
             meta.push(format!("default {d}"));
@@ -305,7 +273,7 @@ fn csdoc(text: &str) -> String {
 
 /// Escape a raw (formula) line for XML content — entities only, no backtick
 /// handling (formulas use `*`/`<`/`>` as math, not markup).
-fn xml_escape_raw(text: &str) -> String {
+pub(crate) fn xml_escape_raw(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
@@ -378,24 +346,6 @@ impl Block {
             if let Some(last) = self.lines.last_mut() {
                 last.push_str(close);
             }
-        }
-    }
-
-    /// Terse `<param>` entries for every wrapper parameter — the unguarded
-    /// wrappers repeat the guarded signature, and CS1573 fires if only some
-    /// parameters carry a tag once any does. Cross-reference the guarded docs
-    /// instead of repeating them.
-    fn all_params_terse(&mut self, func: &FuncDef, _single_precision: bool) {
-        self.param("startIdx", "See the guarded method.");
-        self.param("endIdx", "See the guarded method.");
-        for input in &func.inputs {
-            self.param(&input.name, "See the guarded method.");
-        }
-        for opt in &func.optional_inputs {
-            self.param(&opt.name, "See the guarded method.");
-        }
-        for out in &func.outputs {
-            self.param(&out.name, "See the guarded method.");
         }
     }
 

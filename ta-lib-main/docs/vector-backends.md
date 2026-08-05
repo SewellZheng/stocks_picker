@@ -97,7 +97,7 @@ expressed in the parsed-C statement IR, so it is injected by the emitter around 
 keyed off metadata — not parsed from the input.
 
 **Dispatch only in the double batch variants.** Each of these functions emits several variants
-(guarded / unguarded / `TA_S_*` single-precision / streaming one-value). The vector call is valid
+(guarded / `TA_S_*` single-precision / streaming one-value). The vector call is valid
 only for the `double` batch loop; the float and streaming paths stay scalar.
 
 ### 3.2 The data (one central file: `ta_codegen/input/vector_backends.yaml`)
@@ -381,8 +381,8 @@ vForce.
   manifest ~`:3101-3110`; `CODEGEN_EPSILON = 1e-6` ~`:92`.
 - CI: `.github/workflows/dev-nightly-tests.yml` — `test-macos` job ~`:170` (scalar-only, macos-latest);
   `fuzz-vs-064` ~`:316` (ubuntu). `main-nightly-tests.yml` has no macOS leg.
-- Brew tooling: `scripts/post-release-brew.py`, `scripts/utilities/common.py`,
-  `scripts/package.py` (`package_src_tar_gz`).
+- Brew: homebrew-core autobumps the formula from the release tarball; the source
+  asset it consumes comes from `scripts/package.py` (`package_src_tar_gz`).
 - Clean input examples: `ta_codegen/input/sin/sin.c`, `input/add/add.c`, `input/sub/sub.c`.
 
 **External:**

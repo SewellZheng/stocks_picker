@@ -99,10 +99,16 @@ impl Core {
         } else if (((optInSlowK_Period) as i32) < 1) || (((optInSlowK_Period) as i32) > 100000) {
             return usize::MAX;
         }
+        if ((optInSlowK_MAType) as i32) == (i32::MIN) {
+            optInSlowK_MAType = 0;
+        }
         if ((optInSlowD_Period) as i32) == (i32::MIN) {
             optInSlowD_Period = 3;
         } else if (((optInSlowD_Period) as i32) < 1) || (((optInSlowD_Period) as i32) > 100000) {
             return usize::MAX;
+        }
+        if ((optInSlowD_MAType) as i32) == (i32::MIN) {
+            optInSlowD_MAType = 0;
         }
         let mut retValue: usize = 0_usize;
         // Account for the initial data needed for Fast-K.
@@ -229,14 +235,27 @@ impl Core {
         } else if (((optInSlowK_Period) as i32) < 1) || (((optInSlowK_Period) as i32) > 100000) {
             return RetCode::BadParam;
         }
+        if ((optInSlowK_MAType) as i32) == (i32::MIN) {
+            optInSlowK_MAType = 0;
+        }
         if ((optInSlowD_Period) as i32) == (i32::MIN) {
             optInSlowD_Period = 3;
         } else if (((optInSlowD_Period) as i32) < 1) || (((optInSlowD_Period) as i32) > 100000) {
             return RetCode::BadParam;
         }
+        if ((optInSlowD_MAType) as i32) == (i32::MIN) {
+            optInSlowD_MAType = 0;
+        }
         if outSlowK.as_ptr() == outSlowD.as_ptr() {
             return RetCode::BadParam;
         }
+        let _assertLb = self.stoch_lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType);
+        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
+        assert!(_assertStart > endIdx || endIdx < inHigh.len());
+        assert!(_assertStart > endIdx || endIdx < inLow.len());
+        assert!(_assertStart > endIdx || endIdx < inClose.len());
+        assert!(_assertStart > endIdx || endIdx - _assertStart < outSlowK.len());
+        assert!(_assertStart > endIdx || endIdx - _assertStart < outSlowD.len());
         let mut startIdx = startIdx;
         let mut retCode: RetCode = RetCode::Success;
         let mut lowest: f64 = 0.0_f64;
@@ -342,7 +361,7 @@ impl Core {
         while today <= endIdx {
             // Set the lowest low
             tmp = inLow[today];
-            if lowestIdx < (trailingIdx) as i32 {
+            if lowestIdx < ((trailingIdx) as i32) {
                 lowestIdx = (trailingIdx) as i32;
                 lowest = inLow[(lowestIdx) as usize];
                 i = (lowestIdx) as usize;
@@ -361,7 +380,7 @@ impl Core {
             }
             // Set the highest high
             tmp = inHigh[today];
-            if highestIdx < (trailingIdx) as i32 {
+            if highestIdx < ((trailingIdx) as i32) {
                 highestIdx = (trailingIdx) as i32;
                 highest = inHigh[(highestIdx) as usize];
                 i = (highestIdx) as usize;
@@ -395,7 +414,7 @@ impl Core {
         // to the caller. It is always smoothed and then return.
         // Some documentation will refer to the smoothed version as being
         // "K-Slow", but often this end up to be shorten to "K".
-        retCode = { let mut _tempBuffer_alias: Vec<f64> = vec![0.0_f64; tempBuffer.len()]; let _rc = self.ma_unguarded(0, outIdx - 1, &tempBuffer, optInSlowK_Period, optInSlowK_MAType, outBegIdx, outNBElement, &mut _tempBuffer_alias[..]); std::mem::swap(&mut tempBuffer, &mut _tempBuffer_alias); _rc };
+        retCode = { let mut _tempBuffer_alias: Vec<f64> = vec![0.0_f64; tempBuffer.len()]; let _rc = self.ma(0, outIdx - 1, &tempBuffer, optInSlowK_Period, optInSlowK_MAType, outBegIdx, outNBElement, &mut _tempBuffer_alias[..]); std::mem::swap(&mut tempBuffer, &mut _tempBuffer_alias); _rc };
         if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
             if bufferIsAllocated != 0 {
             }
@@ -406,7 +425,7 @@ impl Core {
         }
         // Calculate the %D which is simply a moving average of
         // the already smoothed %K.
-        retCode = self.ma_unguarded(0, (((*outNBElement) as usize) - 1) as usize, &tempBuffer, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, outSlowD);
+        retCode = self.ma(0, (((*outNBElement) as usize) - 1) as usize, &tempBuffer, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, outSlowD);
         // Copy tempBuffer into the caller buffer.
         // (Calculation could not be done directly in the
         //  caller buffer because more input data then the
@@ -414,7 +433,7 @@ impl Core {
         // memmove, not memcpy: tempBuffer aliases outSlowK when the caller buffer is
         // reused as scratch, so source and destination overlap (issue #94).
         {
-            let _n = ((((*outNBElement) as usize)) as usize * 1) as usize;
+            let _n = (((((*outNBElement) as usize)) as usize) * 1) as usize;
             let _di = (0) as usize;
             let _si = (lookbackDSlow) as usize;
             outSlowK[_di.._di + _n].copy_from_slice(&tempBuffer[_si.._si + _n]);
@@ -430,153 +449,6 @@ impl Core {
         }
         // Note: Keep the outBegIdx relative to the
         //       caller input before returning.
-        (*outBegIdx) = startIdx;
-        return RetCode::Success;
-    }
-    /// Unguarded variant of [`Core::stoch`], used for internal cross-indicator calls.
-    ///
-    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
-    /// documented on [`Core::stoch`]; an out-of-range parameter, an input slice not covering
-    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
-    /// [`Core::stoch`].
-    #[inline]
-    pub fn stoch_unguarded(
-        &self,
-        mut startIdx: usize,
-        endIdx: usize,
-        inHigh: &[f64],
-        inLow: &[f64],
-        inClose: &[f64],
-        mut optInFastK_Period: i32,
-        mut optInSlowK_Period: i32,
-        mut optInSlowK_MAType: i32,
-        mut optInSlowD_Period: i32,
-        mut optInSlowD_MAType: i32,
-        outBegIdx: &mut usize,
-        outNBElement: &mut usize,
-        outSlowK: &mut [f64],
-        outSlowD: &mut [f64],
-    ) -> RetCode {
-        let mut retCode: RetCode = RetCode::Success;
-        let mut lowest: f64 = 0.0_f64;
-        let mut highest: f64 = 0.0_f64;
-        let mut tmp: f64 = 0.0_f64;
-        let mut diff: f64 = 0.0_f64;
-        let mut tempBuffer: Vec<f64> = Vec::new();
-        let mut outIdx: usize = 0_usize;
-        let mut lowestIdx: i32 = 0_i32;
-        let mut highestIdx: i32 = 0_i32;
-        let mut lookbackTotal: usize = 0_usize;
-        let mut lookbackK: usize = 0_usize;
-        let mut lookbackKSlow: usize = 0_usize;
-        let mut lookbackDSlow: usize = 0_usize;
-        let mut trailingIdx: usize = 0_usize;
-        let mut today: usize = 0_usize;
-        let mut i: usize = 0_usize;
-        let mut bufferIsAllocated: usize = 0_usize;
-        assert!(endIdx < inHigh.len());
-        assert!(endIdx < inLow.len());
-        assert!(endIdx < inClose.len());
-        let _assertLb = self.stoch_lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType);
-        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
-        assert!(_assertStart > endIdx || endIdx - _assertStart < outSlowK.len());
-        assert!(_assertStart > endIdx || endIdx - _assertStart < outSlowD.len());
-        lookbackK = (optInFastK_Period - 1) as usize;
-        lookbackKSlow = self.ma_lookback(optInSlowK_Period, optInSlowK_MAType);
-        lookbackDSlow = self.ma_lookback(optInSlowD_Period, optInSlowD_MAType);
-        lookbackTotal = lookbackK + lookbackDSlow + lookbackKSlow;
-        if startIdx < lookbackTotal {
-            startIdx = lookbackTotal;
-        }
-        if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return RetCode::Success;
-        }
-        outIdx = 0;
-        trailingIdx = startIdx - lookbackTotal;
-        today = trailingIdx + lookbackK;
-        highestIdx = 0 - 1;
-        lowestIdx = highestIdx;
-        lowest = 0.0;
-        highest = lowest;
-        diff = highest;
-        bufferIsAllocated = 0;
-        if outSlowK.as_ptr() == inHigh.as_ptr() || outSlowK.as_ptr() == inLow.as_ptr() || outSlowK.as_ptr() == inClose.as_ptr() {
-            tempBuffer = outSlowK.to_vec();
-        } else {
-            bufferIsAllocated = 1;
-            tempBuffer = vec![0.0_f64; ((endIdx - today + 1) * 1) as usize];
-        }
-        while today <= endIdx {
-            tmp = inLow[today];
-            if lowestIdx < (trailingIdx) as i32 {
-                lowestIdx = (trailingIdx) as i32;
-                lowest = inLow[(lowestIdx) as usize];
-                i = (lowestIdx) as usize;
-                while { i += 1; i } <= today {
-                    tmp = inLow[i];
-                    if tmp < lowest {
-                        lowestIdx = (i) as i32;
-                        lowest = tmp;
-                    }
-                }
-                diff = (highest - lowest) / 100.0;
-            } else if tmp <= lowest {
-                lowestIdx = (today) as i32;
-                lowest = tmp;
-                diff = (highest - lowest) / 100.0;
-            }
-            tmp = inHigh[today];
-            if highestIdx < (trailingIdx) as i32 {
-                highestIdx = (trailingIdx) as i32;
-                highest = inHigh[(highestIdx) as usize];
-                i = (highestIdx) as usize;
-                while { i += 1; i } <= today {
-                    tmp = inHigh[i];
-                    if tmp > highest {
-                        highestIdx = (i) as i32;
-                        highest = tmp;
-                    }
-                }
-                diff = (highest - lowest) / 100.0;
-            } else if tmp >= highest {
-                highestIdx = (today) as i32;
-                highest = tmp;
-                diff = (highest - lowest) / 100.0;
-            }
-            if !((diff).abs() < 1e-14) {
-                tempBuffer[outIdx] = (inClose[today] - lowest) / diff;
-                outIdx += 1;
-            } else {
-                tempBuffer[outIdx] = 0.0;
-                outIdx += 1;
-            }
-            trailingIdx += 1;
-            today += 1;
-        }
-        retCode = { let mut _tempBuffer_alias: Vec<f64> = vec![0.0_f64; tempBuffer.len()]; let _rc = self.ma_unguarded(0, outIdx - 1, &tempBuffer, optInSlowK_Period, optInSlowK_MAType, outBegIdx, outNBElement, &mut _tempBuffer_alias[..]); std::mem::swap(&mut tempBuffer, &mut _tempBuffer_alias); _rc };
-        if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
-            if bufferIsAllocated != 0 {
-            }
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return retCode;
-        }
-        retCode = self.ma_unguarded(0, (((*outNBElement) as usize) - 1) as usize, &tempBuffer, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, outSlowD);
-        {
-            let _n = ((((*outNBElement) as usize)) as usize * 1) as usize;
-            let _di = (0) as usize;
-            let _si = (lookbackDSlow) as usize;
-            outSlowK[_di.._di + _n].copy_from_slice(&tempBuffer[_si.._si + _n]);
-        };
-        if bufferIsAllocated != 0 {
-        }
-        if retCode != RetCode::Success {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return retCode;
-        }
         (*outBegIdx) = startIdx;
         return RetCode::Success;
     }
@@ -646,7 +518,7 @@ impl Core {
             sp.lowestIdx = sp.trailingIdx;
             sp.lowest = sp.x_inLow[(sp.lowestIdx % sp.xCap) as usize];
             sp.i = sp.lowestIdx;
-            while ({ sp.i += 1; sp.i }) as i32 <= sp.today {
+            while (({ sp.i += 1; sp.i }) as i32) <= sp.today {
                 tmp = sp.x_inLow[(sp.i % sp.xCap) as usize];
                 if tmp < sp.lowest {
                     sp.lowestIdx = sp.i;
@@ -665,7 +537,7 @@ impl Core {
             sp.highestIdx = sp.trailingIdx;
             sp.highest = sp.x_inHigh[(sp.highestIdx % sp.xCap) as usize];
             sp.i = sp.highestIdx;
-            while ({ sp.i += 1; sp.i }) as i32 <= sp.today {
+            while (({ sp.i += 1; sp.i }) as i32) <= sp.today {
                 tmp = sp.x_inHigh[(sp.i % sp.xCap) as usize];
                 if tmp > sp.highest {
                     sp.highestIdx = sp.i;
@@ -716,10 +588,16 @@ impl Core {
         } else if (((optInSlowK_Period) as i32) < 1) || (((optInSlowK_Period) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
+        if ((optInSlowK_MAType) as i32) == (i32::MIN) {
+            optInSlowK_MAType = 0;
+        }
         if ((optInSlowD_Period) as i32) == (i32::MIN) {
             optInSlowD_Period = 3;
         } else if (((optInSlowD_Period) as i32) < 1) || (((optInSlowD_Period) as i32) > 100000) {
             return Err(RetCode::BadParam);
+        }
+        if ((optInSlowD_MAType) as i32) == (i32::MIN) {
+            optInSlowD_MAType = 0;
         }
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
@@ -838,7 +716,7 @@ impl Core {
         while today <= endIdx {
             // Set the lowest low
             tmp = inLow[today];
-            if lowestIdx < (trailingIdx) as i32 {
+            if lowestIdx < ((trailingIdx) as i32) {
                 lowestIdx = (trailingIdx) as i32;
                 lowest = inLow[(lowestIdx) as usize];
                 i = (lowestIdx) as usize;
@@ -857,7 +735,7 @@ impl Core {
             }
             // Set the highest high
             tmp = inHigh[today];
-            if highestIdx < (trailingIdx) as i32 {
+            if highestIdx < ((trailingIdx) as i32) {
                 highestIdx = (trailingIdx) as i32;
                 highest = inHigh[(highestIdx) as usize];
                 i = (highestIdx) as usize;
@@ -894,7 +772,7 @@ impl Core {
         // Sub-stream 0: ma over `tempBuffer`, warmed from bar 0 up to the
         // sub-call's own startIdx (the seeding point).
         let (sub0, _) = self.ma_open_internal(&tempBuffer[..((outIdx - 1) as usize) + 1], ((0) as usize), optInSlowK_Period, optInSlowK_MAType)?;
-        retCode = { let mut _tempBuffer_alias: Vec<f64> = vec![0.0_f64; tempBuffer.len()]; let _rc = self.ma_unguarded(0, outIdx - 1, &tempBuffer, optInSlowK_Period, optInSlowK_MAType, outBegIdx, outNBElement, &mut _tempBuffer_alias[..]); std::mem::swap(&mut tempBuffer, &mut _tempBuffer_alias); _rc };
+        retCode = { let mut _tempBuffer_alias: Vec<f64> = vec![0.0_f64; tempBuffer.len()]; let _rc = self.ma(0, outIdx - 1, &tempBuffer, optInSlowK_Period, optInSlowK_MAType, outBegIdx, outNBElement, &mut _tempBuffer_alias[..]); std::mem::swap(&mut tempBuffer, &mut _tempBuffer_alias); _rc };
         if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
             if bufferIsAllocated != 0 {
             }
@@ -908,7 +786,7 @@ impl Core {
         // Sub-stream 1: ma over `tempBuffer`, warmed from bar 0 up to the
         // sub-call's own startIdx (the seeding point).
         let (sub1, _) = self.ma_open_internal(&tempBuffer[..((((*outNBElement) as usize) - 1) as usize) + 1], ((0) as usize), optInSlowD_Period, optInSlowD_MAType)?;
-        retCode = self.ma_unguarded(0, (((*outNBElement) as usize) - 1) as usize, &tempBuffer, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, &mut sc_outSlowD[..]);
+        retCode = self.ma(0, (((*outNBElement) as usize) - 1) as usize, &tempBuffer, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, &mut sc_outSlowD[..]);
         // Copy tempBuffer into the caller buffer.
         // (Calculation could not be done directly in the
         //  caller buffer because more input data then the
@@ -916,7 +794,7 @@ impl Core {
         // memmove, not memcpy: tempBuffer aliases outSlowK when the caller buffer is
         // reused as scratch, so source and destination overlap (issue #94).
         {
-            let _n = ((((*outNBElement) as usize)) as usize * 1) as usize;
+            let _n = (((((*outNBElement) as usize)) as usize) * 1) as usize;
             let _di = (0) as usize;
             let _si = (lookbackDSlow) as usize;
             sc_outSlowK[_di.._di + _n].copy_from_slice(&tempBuffer[_si.._si + _n]);
@@ -1032,10 +910,16 @@ impl Core {
         } else if (((optInSlowK_Period) as i32) < 1) || (((optInSlowK_Period) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
+        if ((optInSlowK_MAType) as i32) == (i32::MIN) {
+            optInSlowK_MAType = 0;
+        }
         if ((optInSlowD_Period) as i32) == (i32::MIN) {
             optInSlowD_Period = 3;
         } else if (((optInSlowD_Period) as i32) < 1) || (((optInSlowD_Period) as i32) > 100000) {
             return Err(RetCode::BadParam);
+        }
+        if ((optInSlowD_MAType) as i32) == (i32::MIN) {
+            optInSlowD_MAType = 0;
         }
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
@@ -1148,7 +1032,7 @@ impl Core {
         while today <= endIdx {
             // Set the lowest low
             tmp = inLow[today];
-            if lowestIdx < (trailingIdx) as i32 {
+            if lowestIdx < ((trailingIdx) as i32) {
                 lowestIdx = (trailingIdx) as i32;
                 lowest = inLow[(lowestIdx) as usize];
                 i = (lowestIdx) as usize;
@@ -1167,7 +1051,7 @@ impl Core {
             }
             // Set the highest high
             tmp = inHigh[today];
-            if highestIdx < (trailingIdx) as i32 {
+            if highestIdx < ((trailingIdx) as i32) {
                 highestIdx = (trailingIdx) as i32;
                 highest = inHigh[(highestIdx) as usize];
                 i = (highestIdx) as usize;
@@ -1204,7 +1088,7 @@ impl Core {
         // Sub-stream 0: ma over `tempBuffer`, warmed from bar 0 up to the
         // sub-call's own startIdx (the seeding point).
         let (sub0, _) = self.ma_open_internal(&tempBuffer[..((outIdx - 1) as usize) + 1], ((0) as usize), optInSlowK_Period, optInSlowK_MAType)?;
-        retCode = { let mut _tempBuffer_alias: Vec<f64> = vec![0.0_f64; tempBuffer.len()]; let _rc = self.ma_unguarded(0, outIdx - 1, &tempBuffer, optInSlowK_Period, optInSlowK_MAType, outBegIdx, outNBElement, &mut _tempBuffer_alias[..]); std::mem::swap(&mut tempBuffer, &mut _tempBuffer_alias); _rc };
+        retCode = { let mut _tempBuffer_alias: Vec<f64> = vec![0.0_f64; tempBuffer.len()]; let _rc = self.ma(0, outIdx - 1, &tempBuffer, optInSlowK_Period, optInSlowK_MAType, outBegIdx, outNBElement, &mut _tempBuffer_alias[..]); std::mem::swap(&mut tempBuffer, &mut _tempBuffer_alias); _rc };
         if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
             if bufferIsAllocated != 0 {
             }
@@ -1218,7 +1102,7 @@ impl Core {
         // Sub-stream 1: ma over `tempBuffer`, warmed from bar 0 up to the
         // sub-call's own startIdx (the seeding point).
         let (sub1, _) = self.ma_open_internal(&tempBuffer[..((((*outNBElement) as usize) - 1) as usize) + 1], ((0) as usize), optInSlowD_Period, optInSlowD_MAType)?;
-        retCode = self.ma_unguarded(0, (((*outNBElement) as usize) - 1) as usize, &tempBuffer, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, &mut sc_outSlowD[..]);
+        retCode = self.ma(0, (((*outNBElement) as usize) - 1) as usize, &tempBuffer, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, &mut sc_outSlowD[..]);
         // Copy tempBuffer into the caller buffer.
         // (Calculation could not be done directly in the
         //  caller buffer because more input data then the
@@ -1226,7 +1110,7 @@ impl Core {
         // memmove, not memcpy: tempBuffer aliases outSlowK when the caller buffer is
         // reused as scratch, so source and destination overlap (issue #94).
         {
-            let _n = ((((*outNBElement) as usize)) as usize * 1) as usize;
+            let _n = (((((*outNBElement) as usize)) as usize) * 1) as usize;
             let _di = (0) as usize;
             let _si = (lookbackDSlow) as usize;
             sc_outSlowK[_di.._di + _n].copy_from_slice(&tempBuffer[_si.._si + _n]);

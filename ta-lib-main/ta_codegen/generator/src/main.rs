@@ -632,17 +632,22 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         // cutover option B). The generated C lib lives in `src/` too, so the
         // servers/unity build directly against `src/...` — no copy into output/c.
 
-        // Generate ta_func_unguarded.h into include/ (public header)
-        let unguarded_h = server_gen::generate_c_header_stub(all_funcs);
-        let include_path = root.join("include").join("ta_func_unguarded.h");
-        std::fs::write(&include_path, &unguarded_h).unwrap();
-        println!("  ta_func_unguarded.h -> {}", include_path.display());
-
-        // Generate ta_func_private.h into src/ta_func/ (alongside the generated indicators)
-        let private_h = server_gen::generate_c_private_header(all_funcs);
-        let private_path = root.join("src/ta_func").join("ta_func_private.h");
-        std::fs::write(&private_path, &private_h).unwrap();
-        println!("  ta_func_private.h -> {}", private_path.display());
+        // Generate the private stream header into src/ta_func/ (alongside the
+        // generated indicators). NOT installed. Remove the two headers it
+        // superseded so a stale copy cannot satisfy an include.
+        let stream_h = server_gen::generate_c_stream_private_header(all_funcs);
+        let stream_path = root.join("src/ta_func").join("ta_func_stream_private.h");
+        std::fs::write(&stream_path, &stream_h).unwrap();
+        println!("  ta_func_stream_private.h -> {}", stream_path.display());
+        for stale in [
+            root.join("include").join("ta_func_unguarded.h"),
+            root.join("src/ta_func").join("ta_func_private.h"),
+        ] {
+            if stale.exists() {
+                std::fs::remove_file(&stale).unwrap();
+                println!("  removed superseded header {}", stale.display());
+            }
+        }
 
         // Generate ta_abstract layer from YAML definitions
         backends::ta_abstract_c::generate(all_funcs, &enums, &out_base);
@@ -699,14 +704,23 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
 
     // Shipped C# library enums. Everything generated lives under library/src/
     // (per-indicator Core_*.cs files land there via the backend's out_subdir);
-    // the hand-written scaffolding stays in library/. Unlike Java there is no
-    // `func_filter.is_none()` guard to inherit — C# uses partial classes, one
-    // file per indicator, so a --func subset is correct rather than destructive.
+    // the hand-written scaffolding stays in library/. The per-indicator partial
+    // classes need no `--func` guard — one file per indicator, so a subset is
+    // correct rather than destructive.
     if backends_to_run.contains(&"csharp") {
         let csharp_src = root.join("ta_codegen/output/csharp/library/src");
         std::fs::create_dir_all(&csharp_src).unwrap();
         backends::csharp_enums::generate(&enums, &csharp_src.join("FuncUnstId.cs"));
         backends::csharp_enums::generate_matype(&enums, &csharp_src.join("MAType.cs"));
+        // The catalogue IS whole-corpus, so it renders `all_funcs` rather than
+        // the filtered set — the same source `rust_abstract` uses. Java's
+        // registry instead SKIPS under `--func` because its Core.java splice
+        // would drop every other indicator; here there is nothing to drop, and
+        // rendering the full corpus is strictly better than skipping: a
+        // `generate --func=SMA` followed by `build.py servers` would otherwise
+        // leave a catalogue whose entries the server's own
+        // `FunctionCatalog.Default[name]` lookups no longer find.
+        backends::csharp_metadata::generate(all_funcs, &enums, &csharp_src.join("metadata"));
     }
 }
 
@@ -733,11 +747,9 @@ fn load_all_yaml_defs(base: &Path) -> Vec<ir::FuncDef> {
         if yaml_path.exists() {
             let mut func_def = parser::yaml::parse_yaml(&yaml_path);
             // Wire the parsed .c source too: cross-function artifacts written
-            // from this list (ta_func_unguarded.h, ta_func_private.h) need the
-            // source-derived fields — has_explicit_private and the private
-            // extra params. A YAML-only def silently dropped the TA_*_Private
-            // declarations from the shared headers on every --func=X run
-            // (caught by clang: implicit declaration of TA_EMA_Private).
+            // from this list need the source-derived fields — has_explicit_private,
+            // the private extra params, and `streaming`. A YAML-only def silently
+            // dropped declarations from the shared header on every --func=X run.
             let c_path = dir.join(format!("{}.c", dir_name));
             if c_path.exists() {
                 let parsed = parser::c_source::parse_c_source(&c_path);
@@ -1451,6 +1463,10 @@ fn build_csharp_library(root: &Path) -> bool {
 /// restore from NuGet, so a box can compile a TFM it cannot launch. It is
 /// printed loudly so the gap is visible in the log instead of reading as
 /// coverage — the same rule the compatibility skips in server_verify follow.
+///
+/// Skipping them ALL is a failure, though. The tolerance above is "the others
+/// still ran"; with the library on a single TFM there are no others, so one
+/// skip would mean the suite reported success having executed nothing.
 fn run_csharp_tests(lib_dir: &Path) -> bool {
     let test_dir = lib_dir.join("test");
     if !test_dir.exists() {
@@ -1482,6 +1498,7 @@ fn run_csharp_tests(lib_dir: &Path) -> bool {
         }
     }
 
+    let mut ran = 0;
     for tfm in &tfms {
         print!("  Running C# tests ({tfm})... ");
         let out = std::process::Command::new("dotnet")
@@ -1491,6 +1508,7 @@ fn run_csharp_tests(lib_dir: &Path) -> bool {
         match out {
             Ok(o) if o.status.success() => {
                 print!("{}", String::from_utf8_lossy(&o.stdout));
+                ran += 1;
             }
             Ok(o) => {
                 let combined = format!(
@@ -1515,6 +1533,16 @@ fn run_csharp_tests(lib_dir: &Path) -> bool {
                 return false;
             }
         }
+    }
+
+    // Skipping SOME target framework is a coverage gap worth tolerating (the
+    // others still ran). Skipping them ALL means the suite reported success
+    // having executed nothing, which is the failure mode every gate in this
+    // tree exists to prevent — and with the library on a single TFM, one skip
+    // is all of them.
+    if ran == 0 {
+        println!("  Running C# tests... FAILED (no target framework could be run — nothing was tested)");
+        return false;
     }
     true
 }
@@ -1807,19 +1835,53 @@ fn generate_rust_crate_scaffolding(out_base: &Path, funcs: &[ir::FuncDef], templ
     let dispatch_dir = rust_dir.join("dispatch");
     let dispatch_src = dispatch_dir.join("src");
     std::fs::create_dir_all(&dispatch_src).unwrap();
-    let dispatch_toml = "[package]\nname = \"ta-lib-dispatch\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"1.86\"\n\
+    let dispatch_toml = "[package]\nname = \"ta-lib-dispatch\"\nversion = \"0.1.1\"\nedition = \"2021\"\nrust-version = \"1.86\"\n\
         description = \"Runtime CPU-feature dispatch macro for the ta-lib crate (internal support crate).\"\n\
-        license = \"BSD-3-Clause\"\nrepository = \"https://github.com/TA-Lib/ta-lib\"\n\n\
+        license = \"BSD-3-Clause\"\nhomepage = \"https://ta-lib.org\"\nrepository = \"https://github.com/TA-Lib/ta-lib\"\n\
+        documentation = \"https://docs.rs/ta-lib-dispatch\"\nreadme = \"README.md\"\n\n\
         [lib]\nname = \"ta_lib_dispatch\"\npath = \"src/lib.rs\"\n";
     std::fs::write(dispatch_dir.join("Cargo.toml"), dispatch_toml).unwrap();
-    let dispatch_lib = r#"//! Runtime CPU-feature dispatch for the `ta-lib` crate (issue #156).
-//!
-//! Support crate: it exists so the library crate can stay `#![forbid(unsafe_code)]`
-//! while selecting hardware-FMA clones at runtime — the single `unsafe` in the
-//! ta-lib workspace lives here, adjacent to the CPU-feature check that justifies
-//! it. This is the Rust analogue of the C library's
-//! `__attribute__((target_clones("default","fma")))` ifunc dispatch.
-//! Internal contract; no semver promises outside the ta-lib workspace.
+    let dispatch_readme = r#"# ta-lib-dispatch
+
+Runtime CPU-feature dispatch for fused multiply-add (FMA), used internally
+by the [`ta-lib`](https://crates.io/crates/ta-lib) crate — part of the
+[TA-Lib](https://ta-lib.org) project.
+
+## Why this exists
+
+[Fused multiply-add](https://en.wikipedia.org/wiki/Multiply%E2%80%93accumulate_operation)
+(FMA) computes `a * b + c` in one rounding step instead of two, and has
+been a hardware x86-64 instruction since 2013 (Haswell). A published crate
+has to run on any x86-64 CPU, though, so it can't require that instruction
+at compile time — the safe fallback is a software `fma()` call through
+libm, which costs up to ~7x in execution speed on FMA-heavy code.
+
+This crate is one macro: check `is_x86_feature_detected!("fma")` once,
+then call whichever of two compiled clones — one built with
+`#[target_feature(enable = "fma")]`, one without — matches the CPU. Both
+produce identical, correctly-rounded results; only speed changes.
+
+## Not a novel trick
+
+Runtime CPU-feature dispatch for numerical code is standard practice —
+NumPy and OpenBLAS both select their FMA/SIMD kernels the same way, at
+runtime, based on detected CPU features.
+
+## Do you need this crate directly?
+
+Almost certainly not. `ta-lib` already depends on an exact-pinned version
+of this crate — the macro is an internal contract between the two, not a
+public API.
+
+## License
+
+BSD-3-Clause — see
+[LICENSE](https://github.com/TA-Lib/ta-lib/blob/main/LICENSE).
+"#;
+    std::fs::write(dispatch_dir.join("README.md"), dispatch_readme).unwrap();
+    let dispatch_lib = r#"// Crate docs = README.md verbatim (single source for crates.io + docs.rs;
+// see README.md for the actual text).
+#![doc = include_str!("../README.md")]
 
 /// Dispatch one indicator call to its hardware-FMA clone when the CPU supports
 /// FMA, else to the portable implementation.
@@ -1846,6 +1908,7 @@ macro_rules! dispatch_fma {
 "#;
     std::fs::write(dispatch_src.join("lib.rs"), dispatch_lib).unwrap();
     println!("  Scaffolding -> {}", dispatch_dir.join("Cargo.toml").display());
+    println!("  Scaffolding -> {}", dispatch_dir.join("README.md").display());
 
     // --- library/Cargo.toml (the published `ta-lib` crate — no bin; one
     //     internal dep: the dispatch macro crate, exact-pinned) ---
@@ -1874,7 +1937,7 @@ path = "src/lib.rs"
 # internal contract, so a published ta-lib must never float onto a newer
 # dispatch release. Publish order when releasing to crates.io: dispatch
 # first, then ta-lib (cargo strips `path` and resolves by version).
-ta-lib-dispatch = { path = "../dispatch", version = "=0.1.0" }
+ta-lib-dispatch = { path = "../dispatch", version = "=0.1.1" }
 "#;
     let lib_cargo_path = lib_dir.join("Cargo.toml");
     std::fs::write(&lib_cargo_path, format!("{lib_toml_head}{lib_toml_tail}")).unwrap();
@@ -1964,10 +2027,8 @@ ta-lib-dispatch = { path = "../dispatch", version = "=0.1.0" }
 //! To change a setting, build a new `Core` (cloning is cheap); [`Core::to_builder()`]
 //! seeds a builder from an existing instance.
 //!
-//! Every indicator also has an `*_unguarded` variant that skips parameter
-//! validation for internal cross-indicator calls — prefer the checked methods.
-//! The crate is `#![forbid(unsafe_code)]`: misuse of an `*_unguarded` variant
-//! panics, it never triggers undefined behavior. On x86-64, the batch entry
+//! The crate is `#![forbid(unsafe_code)]`: a bounds violation panics, it never
+//! triggers undefined behavior. On x86-64, the batch entry
 //! points of indicators built on fused multiply-adds are compiled twice and the
 //! hardware-FMA clone is selected at runtime (the same dispatch the C library
 //! performs via `target_clones`); both paths are correctly rounded, so results

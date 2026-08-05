@@ -157,6 +157,10 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
+        let _assertLb = self.avgdev_lookback(optInTimePeriod);
+        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
+        assert!(_assertStart > endIdx || endIdx < inReal.len());
+        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
         let mut startIdx = startIdx;
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
@@ -180,77 +184,16 @@ impl Core {
             let mut todayDev: f64 = 0.0_f64;
             let mut i: usize = 0_usize;
             todaySum = 0.0;
-            // for( i = 0; i < (optInTimePeriod) as usize; i += 1 )
+            // for( i = 0; i < ((optInTimePeriod) as usize); i += 1 )
             i = 0;
-            while i < (optInTimePeriod) as usize {
+            while i < ((optInTimePeriod) as usize) {
                 todaySum += inReal[today - i];
                 i += 1;
             }
             todayDev = 0.0;
-            // for( i = 0; i < (optInTimePeriod) as usize; i += 1 )
+            // for( i = 0; i < ((optInTimePeriod) as usize); i += 1 )
             i = 0;
-            while i < (optInTimePeriod) as usize {
-                todayDev += (inReal[today - i] - todaySum / ((optInTimePeriod) as f64)).abs();
-                i += 1;
-            }
-            outReal[outIdx] = todayDev / ((optInTimePeriod) as f64);
-            outIdx += 1;
-            today += 1;
-        }
-        (*outNBElement) = outIdx;
-        return RetCode::Success;
-    }
-    /// Unguarded variant of [`Core::avgdev`], used for internal cross-indicator calls.
-    ///
-    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
-    /// documented on [`Core::avgdev`]; an out-of-range parameter, an input slice not covering
-    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
-    /// [`Core::avgdev`].
-    #[inline]
-    pub fn avgdev_unguarded(
-        &self,
-        mut startIdx: usize,
-        endIdx: usize,
-        inReal: &[f64],
-        mut optInTimePeriod: i32,
-        outBegIdx: &mut usize,
-        outNBElement: &mut usize,
-        outReal: &mut [f64],
-    ) -> RetCode {
-        let mut today: usize = 0_usize;
-        let mut outIdx: usize = 0_usize;
-        let mut lookback: usize = 0_usize;
-        assert!(endIdx < inReal.len());
-        let _assertLb = self.avgdev_lookback(optInTimePeriod);
-        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
-        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        lookback = (optInTimePeriod - 1) as usize;
-        if startIdx < lookback {
-            startIdx = lookback;
-        }
-        today = startIdx;
-        if today > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return RetCode::Success;
-        }
-        (*outBegIdx) = today;
-        outIdx = 0;
-        while today <= endIdx {
-            let mut todaySum: f64 = 0.0_f64;
-            let mut todayDev: f64 = 0.0_f64;
-            let mut i: usize = 0_usize;
-            todaySum = 0.0;
-            // for( i = 0; i < (optInTimePeriod) as usize; i += 1 )
-            i = 0;
-            while i < (optInTimePeriod) as usize {
-                todaySum += inReal[today - i];
-                i += 1;
-            }
-            todayDev = 0.0;
-            // for( i = 0; i < (optInTimePeriod) as usize; i += 1 )
-            i = 0;
-            while i < (optInTimePeriod) as usize {
+            while i < ((optInTimePeriod) as usize) {
                 todayDev += (inReal[today - i] - todaySum / ((optInTimePeriod) as f64)).abs();
                 i += 1;
             }
@@ -297,16 +240,16 @@ impl Core {
         let mut i: usize = 0_usize;
         sp.win_i_inReal[sp.winPos_i] = inReal;
         todaySum = 0.0;
-        // for( i = 0; i < (sp.optInTimePeriod) as usize; i += 1 )
+        // for( i = 0; i < ((sp.optInTimePeriod) as usize); i += 1 )
         i = 0;
-        while i < (sp.optInTimePeriod) as usize {
+        while i < ((sp.optInTimePeriod) as usize) {
             todaySum += sp.win_i_inReal[((if sp.winPos_i + sp.winCap_i - i >= sp.winCap_i { sp.winPos_i + sp.winCap_i - i - sp.winCap_i } else { sp.winPos_i + sp.winCap_i - i })) as usize];
             i += 1;
         }
         todayDev = 0.0;
-        // for( i = 0; i < (sp.optInTimePeriod) as usize; i += 1 )
+        // for( i = 0; i < ((sp.optInTimePeriod) as usize); i += 1 )
         i = 0;
-        while i < (sp.optInTimePeriod) as usize {
+        while i < ((sp.optInTimePeriod) as usize) {
             todayDev += (sp.win_i_inReal[((if sp.winPos_i + sp.winCap_i - i >= sp.winCap_i { sp.winPos_i + sp.winCap_i - i - sp.winCap_i } else { sp.winPos_i + sp.winCap_i - i })) as usize] - todaySum / ((sp.optInTimePeriod) as f64)).abs();
             i += 1;
         }
@@ -360,16 +303,16 @@ impl Core {
             let mut todayDev: f64 = 0.0_f64;
             let mut i: usize = 0_usize;
             todaySum = 0.0;
-            // for( i = 0; i < (optInTimePeriod) as usize; i += 1 )
+            // for( i = 0; i < ((optInTimePeriod) as usize); i += 1 )
             i = 0;
-            while i < (optInTimePeriod) as usize {
+            while i < ((optInTimePeriod) as usize) {
                 todaySum += inReal[today - i];
                 i += 1;
             }
             todayDev = 0.0;
-            // for( i = 0; i < (optInTimePeriod) as usize; i += 1 )
+            // for( i = 0; i < ((optInTimePeriod) as usize); i += 1 )
             i = 0;
-            while i < (optInTimePeriod) as usize {
+            while i < ((optInTimePeriod) as usize) {
                 todayDev += (inReal[today - i] - todaySum / ((optInTimePeriod) as f64)).abs();
                 i += 1;
             }
@@ -463,16 +406,16 @@ impl Core {
             let mut todayDev: f64 = 0.0_f64;
             let mut i: usize = 0_usize;
             todaySum = 0.0;
-            // for( i = 0; i < (optInTimePeriod) as usize; i += 1 )
+            // for( i = 0; i < ((optInTimePeriod) as usize); i += 1 )
             i = 0;
-            while i < (optInTimePeriod) as usize {
+            while i < ((optInTimePeriod) as usize) {
                 todaySum += inReal[today - i];
                 i += 1;
             }
             todayDev = 0.0;
-            // for( i = 0; i < (optInTimePeriod) as usize; i += 1 )
+            // for( i = 0; i < ((optInTimePeriod) as usize); i += 1 )
             i = 0;
-            while i < (optInTimePeriod) as usize {
+            while i < ((optInTimePeriod) as usize) {
                 todayDev += (inReal[today - i] - todaySum / ((optInTimePeriod) as f64)).abs();
                 i += 1;
             }

@@ -18,7 +18,7 @@ ta_codegen/input/                (per-indicator .c logic + YAML metadata)
 backends            server_gen / bench_gen
   ↓                      ↓
 c.rs, rust_lang.rs,   JSON-RPC servers, bench binary,
-java.rs               include/ta_func_unguarded.h
+java.rs               src/ta_func/ta_func_stream_private.h
 ta_abstract_c.rs
   ↓
 src/ta_func/*.c          (C indicator code — generated IN PLACE)
@@ -27,7 +27,7 @@ ta_codegen/output/       (per-language products: library/ (shipped) + tools/ (se
   c/tools/               (server + bench + aggregation TUs; C library ships from src/)
   rust/library/ + rust/tools/  (ta-lib crate + server/bench — a Cargo workspace)
   java/library/ + java/tools/  (shipped package + meta/  +  JSON-RPC server)
-  csharp/library/ + csharp/tools/  (shipped TALib package + managed JSON-RPC server)
+  csharp/library/ + csharp/tools/  (shipped TALib package incl. src/metadata/ + managed JSON-RPC server)
 include/ta_func.h        (generated public header)
 ```
 
@@ -49,7 +49,6 @@ touching all three.
   (`backends/retcode.rs`) → `src/ta_common/ta_retcode.c`.
 - `templates/c/ta_abstract_serve.c` — hand-written abstract-serve handlers `#include`d
   into the C JSON-RPC server (added to the server compile's `-I` path).
-- `templates/c/ta_abstract_dump.c` — standalone dev tool dumping the ta_abstract API as JSON.
 
 ### Key Modules
 
@@ -58,16 +57,18 @@ touching all three.
 | `parser` | Parses YAML metadata (via raw serde structs) into `FuncDef`; parses `.c` source directly into IR `Statement`/`Expr` (no intermediate raw-struct stage for the logic) |
 | `ir` | Intermediate representation (`FuncDef`, `ParamType`, `Statement`, `Expr`, etc.) |
 | `extractor` | Extracts indicator definitions from C source files → YAML |
-| `backends/c.rs` | Generates C indicator implementations (guarded + unguarded variants) |
-| `backends/rust_lang.rs` | Generates Rust indicator implementations (concrete `f64`, guarded + unguarded variants) |
+| `backends/c.rs` | Generates C indicator implementations (guarded `TA_<N>` / `TA_S_<N>`, plus `TA_<N>_Private` where declared) |
+| `backends/rust_lang.rs` | Generates Rust indicator implementations (concrete `f64`, guarded entry point plus `_private` where declared) |
 | `backends/rust_doc.rs` | Renders each function's canonical `<name>.md` as rustdoc on the generated Rust methods (summary/formula/notes, `# Arguments` with YAML numbers injected, `# Errors`/`# Panics`, a runnable doctest, `#[doc(alias)]`, intra-doc `# See also` links) |
 | `backends/java.rs` | Generates Java Core class methods |
 | `backends/csharp.rs` | Generates the shipped C# indicators — one `Core_<NAME>.cs` (`public partial class Core`) per function; XML docs via `csharp_doc.rs`, condition folding shared with Java via `compat_fold.rs` |
+| `backends/csharp_metadata.rs` | Generates the shipped C# introspection registry (`TALib.Metadata` under `csharp/library/src/metadata/`): the vocabularies, the model records, `FunctionCall`, and one factory per function carrying its two dispatch thunks. The C# JSON-RPC server answers the `ta_abstract` RPCs out of *this* registry — its csproj compiles the library sources — so `test_abstract.c` proves the shipped artifact, not a test-only copy |
+| `backends/abstract_rows.rs` | **The backend-neutral `ta_abstract` row model.** One derivation of every function's metadata (flags, price bundling, parameter domains, unstable-period id), rendered by `rust_abstract`, `java_abstract` (server table), `java_metadata` (shipped registry) and `csharp_metadata`. Sum-typed `OptDomain` + closed `Group`/`InputKind`/`OutputKind` enums, so a renderer cannot silently mis-tag a domain. **C and `func_api_xml` deliberately do NOT render from it** — see below |
 | `backends/ta_abstract_c.rs` | Generates `ta_abstract` introspection layer (tables, frames, group index, runtime API) |
 | `backends/price_bundle.rs` | Folds the expanded price components back into the single `TA_Input_Price` descriptor (`inPriceHLC` + flags). Shared by the C, Rust and Java abstract backends — that name and flags word are **public ABI** (wrappers read them; ta-lib-python renders them as `{'prices': [...]}`), so they are derived once, from the YAML declaration carried on each `Input` as a `PriceRef`, never re-inferred from argument names |
 | `backends/func_api_xml.rs` | Generates `ta_func_api.xml` metadata |
 | `backends/docs_site.rs` | Generates the ta-lib.org website (`website/src/functions/<name>.md` + `index.md`) from each function's `ta_codegen/input/<name>/<name>.md` — written directly into the VuePress site source tree (`website/`), not `ta_codegen/output/` |
-| `server_gen` | Generates JSON-RPC server wrappers + `include/ta_func_unguarded.h` |
+| `server_gen` | Generates JSON-RPC server wrappers + `src/ta_func/ta_func_stream_private.h` |
 | `bench_gen` | Generates direct-call benchmark binary |
 | `registry` | Function registry for tracking available indicators |
 
@@ -177,6 +178,42 @@ JSON-RPC over stdin/stdout.
 - Multi-output support (BBANDS=3, MACD=3, STOCH=2) with `outReal`, `outReal1`, `outReal2`
 - Integer output support (CDL* patterns, MINMAXINDEX) with `outInteger`
 
+## The abstract layer: one row model, and one independent oracle
+
+Four surfaces describe the same metadata. Three of them — Rust's `abstract_api`,
+the Java server's inline table plus the shipped `io.github.talib.metadata`, and
+the shipped C# `TALib.Metadata` — render `backends/abstract_rows.rs`. **C's
+`ta_abstract_c` does not, and that is the point.**
+
+`test_abstract.c` proves each language server's metadata against the C library's
+`ta_abstract` at run time. That gate is only worth something while C's values
+come from somewhere else: fold C into the shared rows and it becomes a generator
+compared against itself, unable to fail on a wrong row. So C keeps its own
+derivation (its own `get_precision`, its own fallbacks, and
+`match_predefined_opt_input`'s dedup against hand-curated `TA_DEF_UI_*`
+descriptors), and stays the oracle. `func_api_xml` is left out for the same
+reason plus a different projection (display labels, legacy ordering).
+
+That is stronger than it first looks. `match_predefined_opt_input` keys **only**
+on `(param name, range min, range max, default)`, so for the ~80 of 122 opt slots
+that match a predefined descriptor, C's `displayName`, `hint`, `precision` and
+`suggested` triple are hand-written literals in `ta_abstract_c.rs` — not derived
+from the YAML the other three read. Editing SMA's `display_name` or its
+`suggested` triple moves three backends and not C, and the gate fails. What it
+still cannot see is a wrong `default:` or a wrong function-level `hint:`, where
+every derivation moves together.
+
+Two pieces C *does* share are shared deliberately, because an independent gate
+already covers them: `price_bundle` (its own unit tests) and the flag bit values
+(`flag_sync` pins them against `include/ta_abstract.h`).
+
+Per-backend derived *names* are never fields on a row. A Java or C# method name
+is computed by the backend, with the very helper it emits the signature with, so
+the registry cannot name a method that does not exist. The row keeps
+`camel_case: Option<String>` unresolved for the same reason: the helpers
+distinguish `None` from `Some`, and a pre-resolved `camelCaseName` would turn
+`HT_DCPERIOD` into `hT_DCPERIOD` instead of `htDcperiod`.
+
 ## Rust Backend Details
 
 ### Concrete `f64` API (no generics)
@@ -193,13 +230,11 @@ is concrete-`f64` only.
 |---------|---------|
 | `fn xxx_lookback(...) -> usize` | Lookback (first valid output index) |
 | `fn xxx(...)` | Guarded public API: validates params, pre-computes optimization values, delegates |
-| `fn xxx_unguarded(...)` | Cross-indicator calls: skips the validation prologue. Indexing stays safe (`#![forbid(unsafe_code)]`), so a violated precondition panics, never UB |
+| `fn xxx_private(...)` | Only where the definition declares one (EMA). Extra pre-computed params (EMA's `k`), no validation prologue — its only caller is the guarded body above it |
 
-Cross-indicator calls always use `_unguarded` to avoid double-validation.
-Functions with extra internal params (e.g. EMA's `k` factor) get an additional
-`fn xxx_private(...)` exposing them; the guarded/unguarded variants pre-compute
-the params and delegate to it. There are **no** `_unchecked` /
-`_unguarded_unchecked` variants.
+Cross-indicator calls target the **guarded** entry point, which carries the
+bounds-assert preamble; that preamble takes an empty-range escape so a call
+computing nothing cannot panic.
 
 ### Documentation (rustdoc)
 
@@ -266,9 +301,6 @@ on `attempt to subtract with overflow`.
 ### Known Code Quality Issues (non-blocking)
 
 1. **`collect_for_loop_vars`** doesn't recurse into nested structures
-2. **`gen_opt_param_validation`** skips `enum:` optional params — no `i32::MIN`
-   substitution, so `Core::ma(.., i32::MIN)` falls through the `match` instead of
-   selecting SMA (Real is done, #148; enums declare no `range:`)
 
 ## Linting
 

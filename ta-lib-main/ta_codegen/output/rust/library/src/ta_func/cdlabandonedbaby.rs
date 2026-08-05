@@ -230,6 +230,13 @@ impl Core {
         } else if (optInPenetration < 0e0) || (optInPenetration > REAL_MAX) {
             return RetCode::BadParam;
         }
+        let _assertLb = self.cdlabandonedbaby_lookback(optInPenetration);
+        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
+        assert!(_assertStart > endIdx || endIdx < inOpen.len());
+        assert!(_assertStart > endIdx || endIdx < inHigh.len());
+        assert!(_assertStart > endIdx || endIdx < inLow.len());
+        assert!(_assertStart > endIdx || endIdx < inClose.len());
+        assert!(_assertStart > endIdx || endIdx - _assertStart < outInteger.len());
         let mut startIdx = startIdx;
         let mut BodyDojiPeriodTotal: f64 = 0.0_f64;
         let mut BodyLongPeriodTotal: f64 = 0.0_f64;
@@ -277,9 +284,9 @@ impl Core {
         BodyLongPeriodTotal = 0.0;
         BodyDojiPeriodTotal = 0.0;
         BodyShortPeriodTotal = 0.0;
-        BodyLongTrailingIdx = startIdx - 2 - (BodyLong_avgPeriod) as usize;
-        BodyDojiTrailingIdx = startIdx - 1 - (BodyDoji_avgPeriod) as usize;
-        BodyShortTrailingIdx = startIdx - (BodyShort_avgPeriod) as usize;
+        BodyLongTrailingIdx = startIdx - 2 - ((BodyLong_avgPeriod) as usize);
+        BodyDojiTrailingIdx = startIdx - 1 - ((BodyDoji_avgPeriod) as usize);
+        BodyShortTrailingIdx = startIdx - ((BodyShort_avgPeriod) as usize);
         i = BodyLongTrailingIdx;
         while i < startIdx - 2 {
             let mut _candlerange_0: f64;
@@ -360,7 +367,7 @@ impl Core {
             if (inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), _ => (inHigh[i - 2]) - (inLow[i - 2]) - ((inClose[i - 2]) - (inOpen[i - 2])).abs() } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st: long
                (inClose[i - 1] - inOpen[i - 1]).abs() <= ((BodyDoji_factor) * (if (BodyDoji_avgPeriod) != 0 { (BodyDojiPeriodTotal) / (BodyDoji_avgPeriod as f64) } else { match BodyDoji_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), _ => (inHigh[i - 1]) - (inLow[i - 1]) - ((inClose[i - 1]) - (inOpen[i - 1])).abs() } }) / (if (BodyDoji_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd: doji
                (inClose[i] - inOpen[i]).abs() > ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyShortPeriodTotal) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => (inHigh[i]) - (inLow[i]), _ => (inHigh[i]) - (inLow[i]) - ((inClose[i]) - (inOpen[i])).abs() } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd: longer than short
-               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == 1 && ((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 })) as i32 == 0 - 1 && inClose[i] < inClose[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs() * optInPenetration && ((if inLow[i - 1] > inHigh[i - 2] { 1 } else { 0 }) != 0) && ((if inHigh[i] < inLow[i - 1] { 1 } else { 0 }) != 0) || ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 })) as i32 == 0 - 1 && (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) == 1 && inClose[i] > ((inClose[i - 2] - inOpen[i - 2]).abs() as f64).mul_add(optInPenetration, inClose[i - 2]) && ((if inHigh[i - 1] < inLow[i - 2] { 1 } else { 0 }) != 0) && ((if inLow[i] > inHigh[i - 1] { 1 } else { 0 }) != 0)) // 1st white 3rd black 3rd closes well within 1st rb upside gap between 1st and 2nd downside gap between 2nd and 3rd 1st black 3rd white 3rd closes well within 1st rb downside gap between 1st and 2nd upside gap between 2nd and 3rd
+               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == 1 && (((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && inClose[i] < inClose[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs() * optInPenetration && ((if inLow[i - 1] > inHigh[i - 2] { 1 } else { 0 }) != 0) && ((if inHigh[i] < inLow[i - 1] { 1 } else { 0 }) != 0) || (((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) == 1 && inClose[i] > ((inClose[i - 2] - inOpen[i - 2]).abs() as f64).mul_add(optInPenetration, inClose[i - 2]) && ((if inHigh[i - 1] < inLow[i - 2] { 1 } else { 0 }) != 0) && ((if inLow[i] > inHigh[i - 1] { 1 } else { 0 }) != 0)) // 1st white 3rd black 3rd closes well within 1st rb upside gap between 1st and 2nd downside gap between 2nd and 3rd 1st black 3rd white 3rd closes well within 1st rb downside gap between 1st and 2nd upside gap between 2nd and 3rd
             {
                 outInteger[outIdx] = ((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) * 100) as i32;
                 outIdx += 1;
@@ -474,284 +481,6 @@ impl Core {
         (*outBegIdx) = startIdx;
         return RetCode::Success;
     }
-    /// Unguarded variant of [`Core::cdlabandonedbaby`], used for internal cross-indicator calls.
-    ///
-    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
-    /// documented on [`Core::cdlabandonedbaby`]; an out-of-range parameter, an input slice not
-    /// covering `startIdx..=endIdx`, or an undersized output slice panics (never undefined
-    /// behavior). Prefer [`Core::cdlabandonedbaby`].
-    #[inline]
-    pub fn cdlabandonedbaby_unguarded(
-        &self,
-        startIdx: usize,
-        endIdx: usize,
-        inOpen: &[f64],
-        inHigh: &[f64],
-        inLow: &[f64],
-        inClose: &[f64],
-        optInPenetration: f64,
-        outBegIdx: &mut usize,
-        outNBElement: &mut usize,
-        outInteger: &mut [i32],
-    ) -> RetCode {
-        #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, cdlabandonedbaby_unguarded_fma, cdlabandonedbaby_unguarded_impl, (startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger));
-        #[cfg(not(target_arch = "x86_64"))]
-        self.cdlabandonedbaby_unguarded_impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger)
-    }
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "fma")]
-    fn cdlabandonedbaby_unguarded_fma(
-        &self,
-        startIdx: usize,
-        endIdx: usize,
-        inOpen: &[f64],
-        inHigh: &[f64],
-        inLow: &[f64],
-        inClose: &[f64],
-        optInPenetration: f64,
-        outBegIdx: &mut usize,
-        outNBElement: &mut usize,
-        outInteger: &mut [i32],
-    ) -> RetCode {
-        self.cdlabandonedbaby_unguarded_impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger)
-    }
-    #[inline(always)]
-    fn cdlabandonedbaby_unguarded_impl(
-        &self,
-        mut startIdx: usize,
-        endIdx: usize,
-        inOpen: &[f64],
-        inHigh: &[f64],
-        inLow: &[f64],
-        inClose: &[f64],
-        mut optInPenetration: f64,
-        outBegIdx: &mut usize,
-        outNBElement: &mut usize,
-        outInteger: &mut [i32],
-    ) -> RetCode {
-        let mut BodyDojiPeriodTotal: f64 = 0.0_f64;
-        let mut BodyLongPeriodTotal: f64 = 0.0_f64;
-        let mut BodyShortPeriodTotal: f64 = 0.0_f64;
-        let mut i: usize = 0_usize;
-        let mut outIdx: usize = 0_usize;
-        let mut BodyDojiTrailingIdx: usize = 0_usize;
-        let mut BodyLongTrailingIdx: usize = 0_usize;
-        let mut BodyShortTrailingIdx: usize = 0_usize;
-        let mut lookbackTotal: usize = 0_usize;
-        #[allow(non_snake_case)]
-        let BodyDoji_rangeType: i32 = self.candle_settings.body_doji.range_type;
-        #[allow(non_snake_case)]
-        let BodyDoji_avgPeriod: i32 = self.candle_settings.body_doji.avg_period;
-        #[allow(non_snake_case)]
-        let BodyDoji_factor: f64 = self.candle_settings.body_doji.factor;
-        #[allow(non_snake_case)]
-        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type;
-        #[allow(non_snake_case)]
-        let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
-        #[allow(non_snake_case)]
-        let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
-        #[allow(non_snake_case)]
-        let BodyShort_rangeType: i32 = self.candle_settings.body_short.range_type;
-        #[allow(non_snake_case)]
-        let BodyShort_avgPeriod: i32 = self.candle_settings.body_short.avg_period;
-        #[allow(non_snake_case)]
-        let BodyShort_factor: f64 = self.candle_settings.body_short.factor;
-        assert!(endIdx < inOpen.len());
-        assert!(endIdx < inHigh.len());
-        assert!(endIdx < inLow.len());
-        assert!(endIdx < inClose.len());
-        let _assertLb = self.cdlabandonedbaby_lookback(optInPenetration);
-        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
-        assert!(_assertStart > endIdx || endIdx - _assertStart < outInteger.len());
-        lookbackTotal = self.cdlabandonedbaby_lookback(optInPenetration);
-        if startIdx < lookbackTotal {
-            startIdx = lookbackTotal;
-        }
-        if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return RetCode::Success;
-        }
-        BodyLongPeriodTotal = 0.0;
-        BodyDojiPeriodTotal = 0.0;
-        BodyShortPeriodTotal = 0.0;
-        BodyLongTrailingIdx = startIdx - 2 - (BodyLong_avgPeriod) as usize;
-        BodyDojiTrailingIdx = startIdx - 1 - (BodyDoji_avgPeriod) as usize;
-        BodyShortTrailingIdx = startIdx - (BodyShort_avgPeriod) as usize;
-        i = BodyLongTrailingIdx;
-        while i < startIdx - 2 {
-            let mut _candlerange_0: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_0 = (inClose[i] - inOpen[i]).abs();
-                }
-                1 => {
-                    _candlerange_0 = inHigh[i] - inLow[i];
-                }
-                2 => {
-                    _candlerange_0 = inHigh[i] - inLow[i] - (inClose[i] - inOpen[i]).abs();
-                }
-                _ => {
-                    _candlerange_0 = 0.0;
-                }
-            }
-            BodyLongPeriodTotal += _candlerange_0;
-            i += 1;
-        }
-        i = BodyDojiTrailingIdx;
-        while i < startIdx - 1 {
-            let mut _candlerange_1: f64;
-            match BodyDoji_rangeType {
-                0 => {
-                    _candlerange_1 = (inClose[i] - inOpen[i]).abs();
-                }
-                1 => {
-                    _candlerange_1 = inHigh[i] - inLow[i];
-                }
-                2 => {
-                    _candlerange_1 = inHigh[i] - inLow[i] - (inClose[i] - inOpen[i]).abs();
-                }
-                _ => {
-                    _candlerange_1 = 0.0;
-                }
-            }
-            BodyDojiPeriodTotal += _candlerange_1;
-            i += 1;
-        }
-        i = BodyShortTrailingIdx;
-        while i < startIdx {
-            let mut _candlerange_2: f64;
-            match BodyShort_rangeType {
-                0 => {
-                    _candlerange_2 = (inClose[i] - inOpen[i]).abs();
-                }
-                1 => {
-                    _candlerange_2 = inHigh[i] - inLow[i];
-                }
-                2 => {
-                    _candlerange_2 = inHigh[i] - inLow[i] - (inClose[i] - inOpen[i]).abs();
-                }
-                _ => {
-                    _candlerange_2 = 0.0;
-                }
-            }
-            BodyShortPeriodTotal += _candlerange_2;
-            i += 1;
-        }
-        i = startIdx;
-        outIdx = 0;
-        loop {
-            if (inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), _ => (inHigh[i - 2]) - (inLow[i - 2]) - ((inClose[i - 2]) - (inOpen[i - 2])).abs() } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && (inClose[i - 1] - inOpen[i - 1]).abs() <= ((BodyDoji_factor) * (if (BodyDoji_avgPeriod) != 0 { (BodyDojiPeriodTotal) / (BodyDoji_avgPeriod as f64) } else { match BodyDoji_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), _ => (inHigh[i - 1]) - (inLow[i - 1]) - ((inClose[i - 1]) - (inOpen[i - 1])).abs() } }) / (if (BodyDoji_rangeType) == 2 { 2.0 } else { 1.0 })) && (inClose[i] - inOpen[i]).abs() > ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyShortPeriodTotal) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => (inHigh[i]) - (inLow[i]), _ => (inHigh[i]) - (inLow[i]) - ((inClose[i]) - (inOpen[i])).abs() } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) && ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == 1 && ((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 })) as i32 == 0 - 1 && inClose[i] < inClose[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs() * optInPenetration && ((if inLow[i - 1] > inHigh[i - 2] { 1 } else { 0 }) != 0) && ((if inHigh[i] < inLow[i - 1] { 1 } else { 0 }) != 0) || ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 })) as i32 == 0 - 1 && (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) == 1 && inClose[i] > ((inClose[i - 2] - inOpen[i - 2]).abs() as f64).mul_add(optInPenetration, inClose[i - 2]) && ((if inHigh[i - 1] < inLow[i - 2] { 1 } else { 0 }) != 0) && ((if inLow[i] > inHigh[i - 1] { 1 } else { 0 }) != 0)) {
-                outInteger[outIdx] = ((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) * 100) as i32;
-                outIdx += 1;
-            } else {
-                outInteger[outIdx] = 0;
-                outIdx += 1;
-            }
-            let mut _candlerange_3: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_3 = (inClose[i - 2] - inOpen[i - 2]).abs();
-                }
-                1 => {
-                    _candlerange_3 = inHigh[i - 2] - inLow[i - 2];
-                }
-                2 => {
-                    _candlerange_3 = inHigh[i - 2] - inLow[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs();
-                }
-                _ => {
-                    _candlerange_3 = 0.0;
-                }
-            }
-            let mut _candlerange_4: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_4 = (inClose[BodyLongTrailingIdx] - inOpen[BodyLongTrailingIdx]).abs();
-                }
-                1 => {
-                    _candlerange_4 = inHigh[BodyLongTrailingIdx] - inLow[BodyLongTrailingIdx];
-                }
-                2 => {
-                    _candlerange_4 = inHigh[BodyLongTrailingIdx] - inLow[BodyLongTrailingIdx] - (inClose[BodyLongTrailingIdx] - inOpen[BodyLongTrailingIdx]).abs();
-                }
-                _ => {
-                    _candlerange_4 = 0.0;
-                }
-            }
-            BodyLongPeriodTotal += _candlerange_3 - _candlerange_4;
-            let mut _candlerange_5: f64;
-            match BodyDoji_rangeType {
-                0 => {
-                    _candlerange_5 = (inClose[i - 1] - inOpen[i - 1]).abs();
-                }
-                1 => {
-                    _candlerange_5 = inHigh[i - 1] - inLow[i - 1];
-                }
-                2 => {
-                    _candlerange_5 = inHigh[i - 1] - inLow[i - 1] - (inClose[i - 1] - inOpen[i - 1]).abs();
-                }
-                _ => {
-                    _candlerange_5 = 0.0;
-                }
-            }
-            let mut _candlerange_6: f64;
-            match BodyDoji_rangeType {
-                0 => {
-                    _candlerange_6 = (inClose[BodyDojiTrailingIdx] - inOpen[BodyDojiTrailingIdx]).abs();
-                }
-                1 => {
-                    _candlerange_6 = inHigh[BodyDojiTrailingIdx] - inLow[BodyDojiTrailingIdx];
-                }
-                2 => {
-                    _candlerange_6 = inHigh[BodyDojiTrailingIdx] - inLow[BodyDojiTrailingIdx] - (inClose[BodyDojiTrailingIdx] - inOpen[BodyDojiTrailingIdx]).abs();
-                }
-                _ => {
-                    _candlerange_6 = 0.0;
-                }
-            }
-            BodyDojiPeriodTotal += _candlerange_5 - _candlerange_6;
-            let mut _candlerange_7: f64;
-            match BodyShort_rangeType {
-                0 => {
-                    _candlerange_7 = (inClose[i] - inOpen[i]).abs();
-                }
-                1 => {
-                    _candlerange_7 = inHigh[i] - inLow[i];
-                }
-                2 => {
-                    _candlerange_7 = inHigh[i] - inLow[i] - (inClose[i] - inOpen[i]).abs();
-                }
-                _ => {
-                    _candlerange_7 = 0.0;
-                }
-            }
-            let mut _candlerange_8: f64;
-            match BodyShort_rangeType {
-                0 => {
-                    _candlerange_8 = (inClose[BodyShortTrailingIdx] - inOpen[BodyShortTrailingIdx]).abs();
-                }
-                1 => {
-                    _candlerange_8 = inHigh[BodyShortTrailingIdx] - inLow[BodyShortTrailingIdx];
-                }
-                2 => {
-                    _candlerange_8 = inHigh[BodyShortTrailingIdx] - inLow[BodyShortTrailingIdx] - (inClose[BodyShortTrailingIdx] - inOpen[BodyShortTrailingIdx]).abs();
-                }
-                _ => {
-                    _candlerange_8 = 0.0;
-                }
-            }
-            BodyShortPeriodTotal += _candlerange_7 - _candlerange_8;
-            i += 1;
-            BodyLongTrailingIdx += 1;
-            BodyDojiTrailingIdx += 1;
-            BodyShortTrailingIdx += 1;
-            if !(i <= endIdx) { break; }
-        }
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
-        return RetCode::Success;
-    }
 }
 /**** Streaming API *****/
 
@@ -848,7 +577,7 @@ impl Core {
         if (sp.lag2_inClose - sp.lag2_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), _ => (sp.lag2_inHigh) - (sp.lag2_inLow) - ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs() } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st: long
            (sp.lag1_inClose - sp.lag1_inOpen).abs() <= ((BodyDoji_factor) * (if (BodyDoji_avgPeriod) != 0 { (sp.BodyDojiPeriodTotal) / (BodyDoji_avgPeriod as f64) } else { match BodyDoji_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), _ => (sp.lag1_inHigh) - (sp.lag1_inLow) - ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs() } }) / (if (BodyDoji_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd: doji
            (inClose - inOpen).abs() > ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyShortPeriodTotal) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => (inClose - inOpen).abs(), 1 => (inHigh) - (inLow), _ => (inHigh) - (inLow) - ((inClose) - (inOpen)).abs() } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd: longer than short
-           ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == 1 && ((if inClose >= inOpen { 1 } else { 0 - 1 })) as i32 == 0 - 1 && inClose < sp.lag2_inClose - (sp.lag2_inClose - sp.lag2_inOpen).abs() * sp.optInPenetration && ((if sp.lag1_inLow > sp.lag2_inHigh { 1 } else { 0 }) != 0) && ((if inHigh < sp.lag1_inLow { 1 } else { 0 }) != 0) || ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 })) as i32 == 0 - 1 && (if inClose >= inOpen { 1 } else { 0 - 1 }) == 1 && inClose > ((sp.lag2_inClose - sp.lag2_inOpen).abs() as f64).mul_add(sp.optInPenetration, sp.lag2_inClose) && ((if sp.lag1_inHigh < sp.lag2_inLow { 1 } else { 0 }) != 0) && ((if inLow > sp.lag1_inHigh { 1 } else { 0 }) != 0)) // 1st white 3rd black 3rd closes well within 1st rb upside gap between 1st and 2nd downside gap between 2nd and 3rd 1st black 3rd white 3rd closes well within 1st rb downside gap between 1st and 2nd upside gap between 2nd and 3rd
+           ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == 1 && (((if inClose >= inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 && inClose < sp.lag2_inClose - (sp.lag2_inClose - sp.lag2_inOpen).abs() * sp.optInPenetration && ((if sp.lag1_inLow > sp.lag2_inHigh { 1 } else { 0 }) != 0) && ((if inHigh < sp.lag1_inLow { 1 } else { 0 }) != 0) || (((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 && (if inClose >= inOpen { 1 } else { 0 - 1 }) == 1 && inClose > ((sp.lag2_inClose - sp.lag2_inOpen).abs() as f64).mul_add(sp.optInPenetration, sp.lag2_inClose) && ((if sp.lag1_inHigh < sp.lag2_inLow { 1 } else { 0 }) != 0) && ((if inLow > sp.lag1_inHigh { 1 } else { 0 }) != 0)) // 1st white 3rd black 3rd closes well within 1st rb upside gap between 1st and 2nd downside gap between 2nd and 3rd 1st black 3rd white 3rd closes well within 1st rb downside gap between 1st and 2nd upside gap between 2nd and 3rd
         {
             (*outInteger) = ((if inClose >= inOpen { 1 } else { 0 - 1 }) * 100) as i32;
         } else {
@@ -1050,9 +779,9 @@ impl Core {
         BodyLongPeriodTotal = 0.0;
         BodyDojiPeriodTotal = 0.0;
         BodyShortPeriodTotal = 0.0;
-        BodyLongTrailingIdx = startIdx - 2 - (BodyLong_avgPeriod) as usize;
-        BodyDojiTrailingIdx = startIdx - 1 - (BodyDoji_avgPeriod) as usize;
-        BodyShortTrailingIdx = startIdx - (BodyShort_avgPeriod) as usize;
+        BodyLongTrailingIdx = startIdx - 2 - ((BodyLong_avgPeriod) as usize);
+        BodyDojiTrailingIdx = startIdx - 1 - ((BodyDoji_avgPeriod) as usize);
+        BodyShortTrailingIdx = startIdx - ((BodyShort_avgPeriod) as usize);
         i = BodyLongTrailingIdx;
         while i < startIdx - 2 {
             let mut _candlerange_6: f64;
@@ -1133,7 +862,7 @@ impl Core {
             if (inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), _ => (inHigh[i - 2]) - (inLow[i - 2]) - ((inClose[i - 2]) - (inOpen[i - 2])).abs() } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st: long
                (inClose[i - 1] - inOpen[i - 1]).abs() <= ((BodyDoji_factor) * (if (BodyDoji_avgPeriod) != 0 { (BodyDojiPeriodTotal) / (BodyDoji_avgPeriod as f64) } else { match BodyDoji_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), _ => (inHigh[i - 1]) - (inLow[i - 1]) - ((inClose[i - 1]) - (inOpen[i - 1])).abs() } }) / (if (BodyDoji_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd: doji
                (inClose[i] - inOpen[i]).abs() > ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyShortPeriodTotal) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => (inHigh[i]) - (inLow[i]), _ => (inHigh[i]) - (inLow[i]) - ((inClose[i]) - (inOpen[i])).abs() } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd: longer than short
-               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == 1 && ((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 })) as i32 == 0 - 1 && inClose[i] < inClose[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs() * optInPenetration && ((if inLow[i - 1] > inHigh[i - 2] { 1 } else { 0 }) != 0) && ((if inHigh[i] < inLow[i - 1] { 1 } else { 0 }) != 0) || ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 })) as i32 == 0 - 1 && (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) == 1 && inClose[i] > ((inClose[i - 2] - inOpen[i - 2]).abs() as f64).mul_add(optInPenetration, inClose[i - 2]) && ((if inHigh[i - 1] < inLow[i - 2] { 1 } else { 0 }) != 0) && ((if inLow[i] > inHigh[i - 1] { 1 } else { 0 }) != 0)) // 1st white 3rd black 3rd closes well within 1st rb upside gap between 1st and 2nd downside gap between 2nd and 3rd 1st black 3rd white 3rd closes well within 1st rb downside gap between 1st and 2nd upside gap between 2nd and 3rd
+               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == 1 && (((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && inClose[i] < inClose[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs() * optInPenetration && ((if inLow[i - 1] > inHigh[i - 2] { 1 } else { 0 }) != 0) && ((if inHigh[i] < inLow[i - 1] { 1 } else { 0 }) != 0) || (((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) == 1 && inClose[i] > ((inClose[i - 2] - inOpen[i - 2]).abs() as f64).mul_add(optInPenetration, inClose[i - 2]) && ((if inHigh[i - 1] < inLow[i - 2] { 1 } else { 0 }) != 0) && ((if inLow[i] > inHigh[i - 1] { 1 } else { 0 }) != 0)) // 1st white 3rd black 3rd closes well within 1st rb upside gap between 1st and 2nd downside gap between 2nd and 3rd 1st black 3rd white 3rd closes well within 1st rb downside gap between 1st and 2nd upside gap between 2nd and 3rd
             {
                 lastValue_outInteger = ((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) * 100) as i32;
             } else {
@@ -1430,9 +1159,9 @@ impl Core {
         BodyLongPeriodTotal = 0.0;
         BodyDojiPeriodTotal = 0.0;
         BodyShortPeriodTotal = 0.0;
-        BodyLongTrailingIdx = startIdx - 2 - (BodyLong_avgPeriod) as usize;
-        BodyDojiTrailingIdx = startIdx - 1 - (BodyDoji_avgPeriod) as usize;
-        BodyShortTrailingIdx = startIdx - (BodyShort_avgPeriod) as usize;
+        BodyLongTrailingIdx = startIdx - 2 - ((BodyLong_avgPeriod) as usize);
+        BodyDojiTrailingIdx = startIdx - 1 - ((BodyDoji_avgPeriod) as usize);
+        BodyShortTrailingIdx = startIdx - ((BodyShort_avgPeriod) as usize);
         i = BodyLongTrailingIdx;
         while i < startIdx - 2 {
             let mut _candlerange_15: f64;
@@ -1513,7 +1242,7 @@ impl Core {
             if (inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), _ => (inHigh[i - 2]) - (inLow[i - 2]) - ((inClose[i - 2]) - (inOpen[i - 2])).abs() } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st: long
                (inClose[i - 1] - inOpen[i - 1]).abs() <= ((BodyDoji_factor) * (if (BodyDoji_avgPeriod) != 0 { (BodyDojiPeriodTotal) / (BodyDoji_avgPeriod as f64) } else { match BodyDoji_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), _ => (inHigh[i - 1]) - (inLow[i - 1]) - ((inClose[i - 1]) - (inOpen[i - 1])).abs() } }) / (if (BodyDoji_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd: doji
                (inClose[i] - inOpen[i]).abs() > ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyShortPeriodTotal) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => (inHigh[i]) - (inLow[i]), _ => (inHigh[i]) - (inLow[i]) - ((inClose[i]) - (inOpen[i])).abs() } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd: longer than short
-               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == 1 && ((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 })) as i32 == 0 - 1 && inClose[i] < inClose[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs() * optInPenetration && ((if inLow[i - 1] > inHigh[i - 2] { 1 } else { 0 }) != 0) && ((if inHigh[i] < inLow[i - 1] { 1 } else { 0 }) != 0) || ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 })) as i32 == 0 - 1 && (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) == 1 && inClose[i] > ((inClose[i - 2] - inOpen[i - 2]).abs() as f64).mul_add(optInPenetration, inClose[i - 2]) && ((if inHigh[i - 1] < inLow[i - 2] { 1 } else { 0 }) != 0) && ((if inLow[i] > inHigh[i - 1] { 1 } else { 0 }) != 0)) // 1st white 3rd black 3rd closes well within 1st rb upside gap between 1st and 2nd downside gap between 2nd and 3rd 1st black 3rd white 3rd closes well within 1st rb downside gap between 1st and 2nd upside gap between 2nd and 3rd
+               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == 1 && (((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && inClose[i] < inClose[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs() * optInPenetration && ((if inLow[i - 1] > inHigh[i - 2] { 1 } else { 0 }) != 0) && ((if inHigh[i] < inLow[i - 1] { 1 } else { 0 }) != 0) || (((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) == 1 && inClose[i] > ((inClose[i - 2] - inOpen[i - 2]).abs() as f64).mul_add(optInPenetration, inClose[i - 2]) && ((if inHigh[i - 1] < inLow[i - 2] { 1 } else { 0 }) != 0) && ((if inLow[i] > inHigh[i - 1] { 1 } else { 0 }) != 0)) // 1st white 3rd black 3rd closes well within 1st rb upside gap between 1st and 2nd downside gap between 2nd and 3rd 1st black 3rd white 3rd closes well within 1st rb downside gap between 1st and 2nd upside gap between 2nd and 3rd
             {
                 outInteger[outIdx] = ((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) * 100) as i32;
                 outIdx += 1;

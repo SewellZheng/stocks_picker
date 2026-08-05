@@ -9,7 +9,7 @@ backend: C, Rust, Java, .NET.
 There is **no bespoke DSL** — write idiomatic C. Metadata (inputs, optional params,
 outputs, flags) lives in the companion `<name>.yaml`; see
 [ta_codegen_input_yaml.md](ta_codegen_input_yaml.md). The generator adds parameter
-validation, the guarded/unguarded split, single-precision variants, and per-language
+validation, single-precision variants, and per-language
 naming — so the `.c` file contains only the algorithm.
 
 ## File contents
@@ -121,6 +121,7 @@ generator recognizes and maps per language:
 | `TA_GetUnstablePeriod(TA_FUNC_UNST_<NAME>)` | this function's configured unstable period |
 | `TA_COMPATIBILITY_DEFAULT` / `TA_COMPATIBILITY_METASTOCK` | compatibility-mode constants |
 | candle-settings access (CDL* patterns) | resolved via the generated candle helpers |
+| `CIRCBUF_PROLOG_CLASS` / `CIRCBUF_INIT_CLASS` / `CIRCBUF_NEXT` / `CIRCBUF_DESTROY` | circular scratch buffer over a local `typedef struct` element type (`src/ta_common/ta_memory.h`); see `cmf.c` or `ultosc.c` for usage |
 
 Standard math functions (`sqrt`, `floor`, `ceil`, `fabs`, `sin`, `cos`, `atan`,
 `atan2`, `log`, `exp`, `pow`, `fmod`, …) are mapped to each language's math library.
@@ -128,20 +129,20 @@ Standard math functions (`sqrt`, `floor`, `ceil`, `fabs`, `sin`, `cos`, `atan`,
 ## Cross-indicator calls
 
 Call another indicator by its **bare lowercase name** (matching its directory) — the
-generator resolves it to the correct symbol per language and routes it to the
-*unguarded* variant to avoid double validation. From `ta_codegen/input/ma/ma.c`:
+generator resolves it to the correct symbol per language. From
+`ta_codegen/input/ma/ma.c`:
 
 ```c
 retCode = sma( startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal );
 ```
 
-maps to `TA_SMA_Unguarded(...)` in C, `self.sma_unguarded(...)` in Rust, etc.
+maps to `TA_SMA(...)` in C, `self.sma(...)` in Rust, `smaInternal(...)` in Java and
+`Sma(...)` in C#. Cross-indicator calls target the **guarded** entry point.
 `sma_lookback(...)` similarly maps to `TA_SMA_Lookback(...)` / `self.sma_lookback(...)`.
 
 ## What the generator adds (do NOT write these)
 
-- Parameter validation (NULL checks, range checks, `INTEGER_DEFAULT` substitution) and
-  the guarded `<name>` vs. unguarded `<name>_unguarded` split
+- Parameter validation (NULL checks, range checks, `INTEGER_DEFAULT` substitution)
 - Single-precision (`TA_S_*`) variants — generated automatically with `(double)` casts
   on inputs
 - Per-language function signatures/naming, doc comments, file headers, imports

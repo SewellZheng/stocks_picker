@@ -11,17 +11,17 @@ use crate::parser::enums::lookup_variant;
 use crate::registry::Registry;
 use super::common::{contains_alloc_err_return, expr_directly_contains_candle_call, find_sizeof_type};
 use super::builtins::{MathFn, SpecialBuiltin, StdlibFn};
-use super::expr_walk::ExprEmitter;
+use super::expr_walk::{is_int_bitwise, ExprEmitter};
 use super::fma::{self, is_i32_opt_in_param, is_integer_returning_helper, FmaCtx};
 use super::stmt_walk::StatementEmitter;
 
 /// Controls how the Rust renderer emits code.
 #[derive(Clone)]
 pub struct RustRenderCtx {
-    /// If true, emit a pre-loop bounds-assert preamble at the top of the body (the
-    /// `_unguarded`/`_private` variants). The asserts give LLVM the proof it needs to
-    /// elide the per-access bounds checks on the safe `[]` indexing that follows — the
-    /// generated code never uses `unsafe`. See `gen_unguarded_or_private_func`.
+    /// If true, emit a pre-loop bounds-assert preamble at the top of the body. The
+    /// asserts give LLVM the proof it needs to elide the per-access bounds checks on
+    /// the safe `[]` indexing that follows — the generated code never uses `unsafe`.
+    /// See `emit_bounds_asserts`.
     pub bounds_asserts: bool,
     /// Variable names declared as `VarType::Integer` or `VarType::Index` (usize in Rust).
     /// Used by type inference in expression rendering.
@@ -93,7 +93,11 @@ impl RustRenderCtx {
         }
     }
 
-    pub fn for_lookback() -> Self {
+    /// A context that classifies nothing. Only useful as a starting point the
+    /// caller fills in — every renderer that sees real input builds its sets
+    /// from the body (issue #158). `is_lookback` starts `true`; callers using
+    /// this as a blank body context clear it.
+    pub fn empty() -> Self {
         RustRenderCtx {
             bounds_asserts: false,
             index_vars: std::collections::HashSet::new(),
@@ -105,9 +109,58 @@ impl RustRenderCtx {
             is_lookback: true,
             sentinel_vars: std::collections::HashSet::new(),
             result_error_returns: false,
-            // Populated by the caller (which has `enums`); lookback bodies never
-            // reference MA-type constants, but keep it consistent with batch.
             matype_map: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Context for a `LookbackExpr::Code` body.
+    ///
+    /// Issue #158: this used to be built empty, so every local in a lookback
+    /// body fell through to the naming heuristics — `expr_is_float_typed`
+    /// hard-codes `k` as a Real name (EMA's k factor), so `int k; k +=
+    /// optInTimePeriod;` in a lookback rendered an `as f64` RHS onto a `usize`
+    /// declaration and did not compile, while the same code named `j` did. The
+    /// declared IR type decides, exactly as it does for batch bodies.
+    pub fn for_lookback(body: &[Statement]) -> Self {
+        let mut index_vars = std::collections::HashSet::new();
+        let mut real_vars = std::collections::HashSet::new();
+        let mut vec_vars = std::collections::HashSet::new();
+        let mut real_array_vars = std::collections::HashSet::new();
+        let mut int_vec_vars = std::collections::HashSet::new();
+        collect_var_types(
+            body,
+            &mut index_vars,
+            &mut real_vars,
+            &mut vec_vars,
+            &mut real_array_vars,
+            &mut int_vec_vars,
+        );
+        // Same signed-local pipeline as the batch ctx, so a lookback local that
+        // participates in signed arithmetic is declared i32 and used as i32
+        // (`render_lookback_code` honours `sentinel_vars` in its decl emitter).
+        let mut sentinel_vars = std::collections::HashSet::new();
+        collect_sentinel_vars(body, &mut sentinel_vars);
+        collect_signed_int_vars(body, &index_vars, &real_vars, &mut sentinel_vars);
+        // The signed election is only sound alongside #160's rejection of the
+        // cast shapes this backend cannot render sign-faithfully. Batch bodies
+        // have run this since b8619ed6b; opting the lookback tier into the
+        // election without it would let a nested `(int)` of a negative double
+        // through here alone.
+        reject_unsupported_negative_casts(body, &real_vars, "lookback");
+        for sv in &sentinel_vars {
+            index_vars.remove(sv);
+        }
+        RustRenderCtx {
+            index_vars,
+            real_vars,
+            vec_vars,
+            real_array_vars,
+            int_vec_vars,
+            sentinel_vars,
+            // `matype_map` is populated by the caller (which has `enums`);
+            // lookback bodies never reference MA-type constants, but keep it
+            // consistent with batch.
+            ..RustRenderCtx::empty()
         }
     }
 }
@@ -118,6 +171,58 @@ fn is_int_array_or_vec(name: &str, ctx: &RustRenderCtx) -> bool {
     ctx.int_vec_vars.contains(name)
         || is_int_array_var(name)
         || ctx.int_output_names.contains(name)
+}
+
+/// Does this expression evaluate to `i32` because an `int` array element drives it?
+///
+/// True for a subscript of an `int` array, and — recursively — for arithmetic over
+/// one whose other operand cannot widen the result (another such subscript, or an
+/// integer literal).
+///
+/// This is deliberately **not** folded into [`expr_is_i32_typed_ctx`]. That
+/// predicate feeds the sentinel test (`ctx-typed i32 && !plain-typed i32`), so
+/// teaching it about arrays would make every `int` array element look like an
+/// opt-param sentinel and route the comparison down the branch that narrows the
+/// *other* side with `as i32` — turning `(periods[j] as usize) > longestPeriod`
+/// into `periods[j] > (longestPeriod as i32)`, an index-domain value narrowed to
+/// i32. Keeping it separate leaves a direct subscript rendering exactly as before
+/// and extends only the nested case. Issue #163.
+fn expr_is_int_array_typed(expr: &Expr, ctx: &RustRenderCtx) -> bool {
+    match expr {
+        Expr::ArrayAccess(name, _) => is_int_array_or_vec(name, ctx),
+        Expr::BinOp(
+            left,
+            BinOp::Add
+            | BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Mod
+            | BinOp::Shl
+            | BinOp::Shr
+            | BinOp::BitwiseAnd
+            | BinOp::BitwiseOr
+            | BinOp::BitwiseXor,
+            right,
+        ) => {
+            // The result stays i32 only if the other operand cannot widen it:
+            // another int-array element, an already-i32-typed expression (an
+            // opt-in param, UNSTABLE_PERIOD, an explicit `(int)` cast), or an
+            // untyped integer literal. `optInTimePeriod` is the one that matters
+            // in practice — evicting a deque index that has left a period-sized
+            // window is spelled `dqI[hd] + optInTimePeriod < today`.
+            //
+            // expr_is_i32_typed, not the _ctx form: sentinels must stay out, for
+            // the reason in this function's doc comment.
+            let stays_i32 = |e: &Expr| {
+                expr_is_int_array_typed(e, ctx)
+                    || expr_is_i32_typed(e)
+                    || matches!(e, Expr::IntLiteral(_))
+            };
+            expr_is_int_array_typed(left, ctx) && stays_i32(right)
+                || expr_is_int_array_typed(right, ctx) && stays_i32(left)
+        }
+        _ => false,
+    }
 }
 
 #[allow(clippy::implicit_hasher)]
@@ -308,13 +413,14 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
 
     out.push_str(&gen_lookback(func, &snake, enums, registry, helpers));
 
-    // Guarded: validates params, delegates to unguarded
+    // Guarded public entry: validates params, then either renders the algorithm
+    // inline or delegates to `_private`.
     out.push_str(&fma_dispatch_wrap(
         gen_guarded_func(func, &snake, enums, registry, helpers),
         &snake,
     ));
 
-    // Build a temporary FuncDef with private_body for the unguarded/private variants
+    // Build a temporary FuncDef with private_body for the `_private` variant
     let mut body_func = func.clone();
     body_func.body.clone_from(&func.private_body);
 
@@ -334,8 +440,14 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
     // Pre-scan for sentinel variables (assigned -1) — these must be i32, not usize
     let mut sentinel_vars = std::collections::HashSet::new();
     collect_sentinel_vars(&body_func.body, &mut sentinel_vars);
-    // Also detect integer variables that participate in signed arithmetic (< 0, 0 - N)
-    collect_signed_int_vars(&body_func.body, &index_vars, &mut sentinel_vars);
+    // Also detect integer variables that participate in signed arithmetic
+    // (< 0, 0 - N, negative-capable casts — issue #160). Deliberately NOT
+    // transitive through var-to-var copies: propagating the extremum family's
+    // -1 sentinels into their loop indices churned 14 hot files for no
+    // behavior change. A local needing signedness must be assigned a signed
+    // EXPRESSION (cast, negative literal, 0-N) directly.
+    collect_signed_int_vars(&body_func.body, &index_vars, &real_vars, &mut sentinel_vars);
+    reject_unsupported_negative_casts(&body_func.body, &real_vars, &func.name);
     // Remove sentinel/signed vars from index_vars — they're i32, not usize
     for sv in &sentinel_vars {
         index_vars.remove(sv);
@@ -361,33 +473,14 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         matype_map: build_matype_map(enums),
     };
 
-    // For functions with explicit _private:
-    // 1. Generate _private (extra params, private_body) — generic, handles f32/f64
-    // 2. Generate _unguarded (same signature as guarded, delegates to _private via body)
-    // For functions without _private:
-    // 1. Generate _unguarded (private_body = copy of body, same as before)
+    // `_private` holds the algorithm for the functions that declare one (Rust has
+    // no single-precision variant), and the guarded body above delegates to it.
+    // Functions without an explicit `_private` render the algorithm inline in the
+    // guarded body.
     if func.has_explicit_private {
-        // `_private` holds the algorithm (Rust has no single-precision variant) —
-        // keep its comments. The thin `_unguarded` delegate duplicates the guarded
-        // body, so strip its comments.
         out.push_str(&fma_dispatch_wrap(
             gen_private_func(&body_func, &snake, &ctx, enums, registry, helpers),
             &format!("{snake}_private"),
-        ));
-        let mut unguarded = func.clone();
-        unguarded.body = super::stmt_walk::strip_comments(&func.body);
-        out.push_str(&fma_dispatch_wrap(
-            gen_unguarded_func(&unguarded, &snake, &ctx, enums, registry, helpers),
-            &format!("{snake}_unguarded"),
-        ));
-    } else {
-        // `_unguarded` duplicates the guarded body — strip its comments so they
-        // appear only in the guarded variant.
-        let mut unguarded = body_func.clone();
-        unguarded.body = super::stmt_walk::strip_comments(&body_func.body);
-        out.push_str(&fma_dispatch_wrap(
-            gen_unguarded_func(&unguarded, &snake, &ctx, enums, registry, helpers),
-            &format!("{snake}_unguarded"),
         ));
     }
 
@@ -458,8 +551,9 @@ fn gen_lookback(
     out
 }
 
-/// Generate the guarded public function.
-/// Validates params, delegates to `{snake}_unguarded`.
+/// Generate the guarded public function — the batch entry point. Validates params,
+/// then renders the algorithm inline (or delegates to `{snake}_private` when the
+/// function declares one).
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 fn gen_guarded_func(
     func: &FuncDef,
@@ -514,9 +608,14 @@ fn gen_guarded_func(
         out.push_str("        }\n");
     }
 
+    // The bounds-assert preamble: the LLVM proof that elides per-access bounds
+    // checks in a `#![forbid(unsafe_code)]` crate. `guard_empty_range` keeps a
+    // call that computes nothing from panicking.
+    out.push_str(&emit_bounds_asserts(func, snake, true));
+
     if func.has_explicit_private {
-        // The guarded body already contains delegation to _unguarded with extra params.
-        // Render it directly (it includes pre-computation + delegation call).
+        // The guarded body contains the pre-computation plus the delegation call
+        // to `_private`. Render it directly.
         let mut g_index_vars = std::collections::HashSet::new();
         let mut g_real_vars = std::collections::HashSet::new();
         let mut g_vec_vars = std::collections::HashSet::new();
@@ -527,7 +626,7 @@ fn gen_guarded_func(
         g_index_vars.insert("endIdx".to_string());
         let mut g_sentinel_vars = std::collections::HashSet::new();
         collect_sentinel_vars(&func.body, &mut g_sentinel_vars);
-        collect_signed_int_vars(&func.body, &g_index_vars, &mut g_sentinel_vars);
+        collect_signed_int_vars(&func.body, &g_index_vars, &g_real_vars, &mut g_sentinel_vars);
         for sv in &g_sentinel_vars {
             g_index_vars.remove(sv);
         }
@@ -536,6 +635,8 @@ fn gen_guarded_func(
             .map(|o| o.name.clone())
             .collect();
         let g_ctx = RustRenderCtx {
+            // The guarded preamble is emitted once by gen_guarded_func above, not
+            // from the statement renderer — keep this false so it cannot double.
             bounds_asserts: false,
             index_vars: g_index_vars,
             real_vars: g_real_vars,
@@ -620,7 +721,7 @@ fn gen_guarded_func(
         g_index_vars.insert("outNBElement".to_string());
         let mut g_sentinel_vars = std::collections::HashSet::new();
         collect_sentinel_vars(&func.body, &mut g_sentinel_vars);
-        collect_signed_int_vars(&func.body, &g_index_vars, &mut g_sentinel_vars);
+        collect_signed_int_vars(&func.body, &g_index_vars, &g_real_vars, &mut g_sentinel_vars);
         for sv in &g_sentinel_vars {
             g_index_vars.remove(sv);
         }
@@ -629,6 +730,8 @@ fn gen_guarded_func(
             .map(|o| o.name.clone())
             .collect();
         let g_ctx = RustRenderCtx {
+            // The guarded preamble is emitted once by gen_guarded_func above, not
+            // from the statement renderer — keep this false so it cannot double.
             bounds_asserts: false,
             index_vars: g_index_vars,
             real_vars: g_real_vars,
@@ -642,7 +745,7 @@ fn gen_guarded_func(
             matype_map: build_matype_map(enums),
         };
 
-        // Use the same full rendering as gen_unguarded_func
+        // Use the same full rendering as the `_private` body
         let g_for_loop_vars = collect_for_loop_vars(&func.body);
         let g_var_inits: std::collections::HashMap<String, &Expr> = func
             .body
@@ -662,7 +765,7 @@ fn gen_guarded_func(
             .collect();
         let g_inline_counter = std::cell::Cell::new(0);
 
-        // Variable declarations (same pattern as gen_unguarded_func)
+        // Variable declarations (same pattern as the `_private` body)
         for stmt in &func.body {
             if let Statement::CircBuf(CircBuf::Prolog {
                 id,
@@ -752,7 +855,11 @@ fn gen_guarded_func(
                     &g_output_names, &g_opt_real_params, enums, registry,
                     helpers, &g_inline_counter,
                 ));
-                let rendered_init = render_expr(&new_init, &g_ctx, &g_opt_real_params, registry, helpers);
+                let rendered_init = if g_ctx.sentinel_vars.contains(name) {
+                    render_signed_dest_value(&new_init, &g_ctx, &g_opt_real_params, registry, helpers)
+                } else {
+                    render_expr(&new_init, &g_ctx, &g_opt_real_params, registry, helpers)
+                };
                 let wrapped_init = if (g_ctx.real_vars.contains(name) || *vt == VarType::Real) && expr_is_untyped_integer(&new_init) {
                     format!("(({rendered_init}) as f64)")
                 } else {
@@ -789,43 +896,82 @@ fn gen_private_func(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    gen_unguarded_or_private_func(func, snake, ctx, enums, registry, helpers, true)
+    gen_private_func_inner(func, snake, ctx, enums, registry, helpers)
 }
 
-/// Generate the unguarded function: same signature as guarded, no validation.
-/// For functions without _private: the real algorithm, with the same safe `[]`
-/// indexing the guarded body uses (the crate is `#![forbid(unsafe_code)]`).
-/// For functions with _private: delegates to _private (uses guarded body).
+/// Pre-loop bounds-assert preamble: give LLVM proof that `endIdx` is within all
+/// input/output array bounds. This enables loop unswitching and vectorization and
+/// lets LLVM elide the per-access bounds checks on the safe `[]` indexing in the
+/// body — no `unsafe` needed. O(1) per call.
+///
+/// Output arrays are sized by the caller for the elements actually written:
+/// `endIdx - max(startIdx, lookback) + 1`. Internal callers pass exactly-sized
+/// buffers with `startIdx` below the lookback (e.g. the re-based EMA chaining in
+/// TEMA/DEMA/T3 reached through MA/MACDEXT), so the bound uses the adjusted start.
+/// When the adjusted start exceeds `endIdx` the function writes nothing and any
+/// length is fine.
+///
+/// `guard_empty_range` makes the INPUT assertion take that same escape, and is set
+/// on the public guarded entry point only. A call whose lookback clamp pushes the
+/// start past `endIdx` returns `Success` with zero elements and touches neither
+/// array, so asserting on it would panic where the contract says success. On every
+/// call that *does* compute, the escape is false and the proof handed to LLVM is
+/// identical.
+fn emit_bounds_asserts(func: &FuncDef, snake: &str, guard_empty_range: bool) -> String {
+    let mut out = String::new();
+    let needs_start = guard_empty_range || !func.outputs.is_empty();
+    if needs_start {
+        let lb_args: Vec<String> =
+            func.optional_inputs.iter().map(|o| o.name.clone()).collect();
+        out.push_str(&format!(
+            "        let _assertLb = self.{snake}_lookback({});\n",
+            lb_args.join(", ")
+        ));
+        out.push_str(
+            "        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };\n",
+        );
+    }
+    let escape = if guard_empty_range { "_assertStart > endIdx || " } else { "" };
+    // Only assert on inputs the body actually reads. Four CDL patterns take an
+    // OHLC leg they never index (e.g. cdl3outside's inHigh/inLow), and asserting
+    // on those would reject a caller who legitimately passed a short or empty
+    // slice for a leg the algorithm ignores — while proving nothing to LLVM,
+    // which is the only reason the assert is here. Detected on the
+    // comment-stripped IR so a name mentioned only in prose cannot count.
+    let body_no_comments = super::stmt_walk::strip_comments(&func.body);
+    let body_repr = format!("{body_no_comments:?}");
+    for input in &func.inputs {
+        if !body_repr.contains(&format!("\"{}\"", input.name)) {
+            continue;
+        }
+        out.push_str(&format!(
+            "        assert!({escape}endIdx < {}.len());\n", input.name
+        ));
+    }
+    for output in &func.outputs {
+        out.push_str(&format!(
+            "        assert!(_assertStart > endIdx || endIdx - _assertStart < {}.len());\n",
+            output.name
+        ));
+    }
+    out
+}
+
+/// Render the `_private` body: the algorithm with the extra pre-computed params
+/// and no validation prologue.
 #[allow(clippy::too_many_lines)]
-fn gen_unguarded_func(
+fn gen_private_func_inner(
     func: &FuncDef,
     snake: &str,
     ctx: &RustRenderCtx,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
     helpers: &HelperRegistry,
-) -> String {
-    gen_unguarded_or_private_func(func, snake, ctx, enums, registry, helpers, false)
-}
-
-#[allow(clippy::too_many_lines)]
-fn gen_unguarded_or_private_func(
-    func: &FuncDef,
-    snake: &str,
-    ctx: &RustRenderCtx,
-    enums: &HashMap<String, EnumDef>,
-    registry: &Registry,
-    helpers: &HelperRegistry,
-    is_private: bool,
 ) -> String {
     let mut out = String::new();
-    let func_name = if is_private {
-        format!("{snake}_private")
-    } else {
-        format!("{snake}_unguarded")
-    };
+    let func_name = format!("{snake}_private");
 
-    out.push_str(&super::rust_doc::unguarded_docs(func, snake, is_private));
+    out.push_str(&super::rust_doc::private_docs(func, snake));
 
     // Function signature — always pub fn (unsafe is contained internally)
     // #[inline] enables cross-module inlining for cross-indicator calls
@@ -835,16 +981,14 @@ fn gen_unguarded_or_private_func(
     out.push_str("        mut startIdx: usize,\n");
     out.push_str("        endIdx: usize,\n");
     out.push_str(&gen_generic_params(func));
-    // Extra params only on _private variant (e.g., EMA's k factor)
-    if is_private {
-        for (param_name, c_type) in &func.private_extra_params {
-            let rust_type = match c_type.as_str() {
-                "double" => "f64",
-                "int" => "i32",
-                other => panic!("Unknown C type '{other}' for extra param '{param_name}'"),
-            };
-            out.push_str(&format!("        {param_name}: {rust_type},\n"));
-        }
+    // Extra params carried only by `_private` (e.g. EMA's k factor)
+    for (param_name, c_type) in &func.private_extra_params {
+        let rust_type = match c_type.as_str() {
+            "double" => "f64",
+            "int" => "i32",
+            other => panic!("Unknown C type '{other}' for extra param '{param_name}'"),
+        };
+        out.push_str(&format!("        {param_name}: {rust_type},\n"));
     }
     out.push_str("        outBegIdx: &mut usize,\n");
     out.push_str("        outNBElement: &mut usize,\n");
@@ -977,41 +1121,8 @@ fn gen_unguarded_or_private_func(
 
     let inline_counter = Cell::new(0);
 
-    // Emit the pre-loop bounds-assert preamble for the unguarded/private variants.
     if ctx.bounds_asserts {
-        // Pre-loop bounds assertions: give LLVM proof that endIdx is within all
-        // input/output array bounds. This enables loop unswitching and vectorization
-        // and lets LLVM elide the per-access bounds checks on the safe `[]` indexing
-        // in the body — no `unsafe` needed. O(1) per call.
-        for input in &func.inputs {
-            out.push_str(&format!(
-                "        assert!(endIdx < {}.len());\n", input.name
-            ));
-        }
-        // Output arrays are sized by the caller for the elements actually
-        // written: endIdx - max(startIdx, lookback) + 1. Internal callers pass
-        // exactly-sized buffers with startIdx below the lookback (e.g. the
-        // re-based EMA chaining in TEMA/DEMA/T3 reached through MA/MACDEXT),
-        // so the bound must use the adjusted start — still exactly the proof
-        // LLVM needs to elide the write bounds checks. When the adjusted start
-        // exceeds endIdx the function writes nothing and any length is fine.
-        if !func.outputs.is_empty() {
-            let lb_args: Vec<String> =
-                func.optional_inputs.iter().map(|o| o.name.clone()).collect();
-            out.push_str(&format!(
-                "        let _assertLb = self.{snake}_lookback({});\n",
-                lb_args.join(", ")
-            ));
-            out.push_str(
-                "        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };\n",
-            );
-            for output in &func.outputs {
-                out.push_str(&format!(
-                    "        assert!(_assertStart > endIdx || endIdx - _assertStart < {}.len());\n",
-                    output.name
-                ));
-            }
-        }
+        out.push_str(&emit_bounds_asserts(func, snake, false));
     }
 
     // Emit VarDecl initializations only when there's no body assignment for the same var
@@ -1038,7 +1149,11 @@ fn gen_unguarded_or_private_func(
                 &output_names, &opt_real_params, enums, registry,
                 helpers, &inline_counter,
             ));
-            let rendered_init = render_expr(&new_init, ctx, &opt_real_params, registry, helpers);
+            let rendered_init = if ctx.sentinel_vars.contains(name) {
+                render_signed_dest_value(&new_init, ctx, &opt_real_params, registry, helpers)
+            } else {
+                render_expr(&new_init, ctx, &opt_real_params, registry, helpers)
+            };
             let wrapped_init = if (ctx.real_vars.contains(name) || *vt == VarType::Real) && expr_is_untyped_integer(&new_init) {
                 format!("(({rendered_init}) as f64)")
             } else {
@@ -1119,12 +1234,18 @@ fn gen_opt_param_validation(opt: &OptInput, pad: &str, is_lookback: bool) -> Str
 /// Core of the optional-parameter default-substitution + range check, with the
 /// failure statement supplied by the caller (batch returns a bare `RetCode`,
 /// the stream tier returns `Err(RetCode::BadParam)`).
+///
+/// `enum:` params share the `Integer` arm, exactly as they do in `backends::c`:
+/// the Rust surface types them `i32`, so `i32::MIN` is a value a caller can pass
+/// and the substitution is the only thing that maps it to the documented default
+/// (issue #162). They declare no `range:` (see `doc_meta::RangeMeta`), so in
+/// practice only the substitution half is emitted for them.
 pub(crate) fn gen_opt_param_validation_with(opt: &OptInput, pad: &str, err_return: &str) -> String {
     let mut out = String::new();
     let name = &opt.name;
 
     match &opt.param_type {
-        ParamType::Integer => {
+        ParamType::Integer | ParamType::Enum(_) => {
             if let Some(default) = opt.default {
                 out.push_str(&format!("{pad}if (({name}) as i32) == (i32::MIN) {{\n"));
                 #[allow(clippy::cast_possible_truncation)]
@@ -1161,10 +1282,9 @@ pub(crate) fn gen_opt_param_validation_with(opt: &OptInput, pad: &str, err_retur
                 out.push_str(&format!("{pad}}}\n"));
             }
         }
-        // Enum optional params declare no `range:` in the YAML (see `doc_meta::RangeMeta`),
-        // so there is no bound to check. Price params expand to arrays validated
-        // separately; no scalar validation applies.
-        ParamType::Enum(_) | ParamType::Price(_) => {}
+        // Price params expand to arrays validated separately; no scalar
+        // validation applies.
+        ParamType::Price(_) => {}
     }
 
     out
@@ -1279,21 +1399,145 @@ fn is_negative_one(expr: &Expr) -> bool {
     )
 }
 
-/// Check if an expression can produce a negative integer value.
-/// Catches: `0 - N`, `-N` literal, `X * (... ? 1 : (0-N))`, ternary with negative branch.
-fn expr_can_be_negative(expr: &Expr) -> bool {
-    match expr {
-        // 0 - N is negative
-        Expr::BinOp(left, BinOp::Sub, _right) => {
-            matches!(left.as_ref(), Expr::IntLiteral(0))
+/// Issue #160: fail generation LOUDLY when a negative-capable `(int)(float)`
+/// cast appears anywhere the Rust backend cannot yet render sign-faithfully.
+/// Supported positions: the whole right-hand side of a plain assignment to a
+/// signed local or an i32 array slot, or a VarDecl initializer of a signed
+/// local. Everything else (nested in arithmetic, compound assigns, conditions,
+/// call arguments) would silently saturate negatives to 0 — reject instead.
+pub(crate) fn reject_unsupported_negative_casts(
+    body: &[Statement],
+    real_vars: &std::collections::HashSet<String>,
+    func_name: &str,
+) {
+    fn check_expr(e: &Expr, rv: &std::collections::HashSet<String>, f: &str) {
+        crate::streaming::walk_expr(e, &mut |x| {
+            if let Expr::Cast(VarType::Integer | VarType::Index, inner) = x {
+                assert!(
+                    !cast_inner_negative_capable(inner, rv),
+                    "{f}: a (int) cast of a possibly-negative double is only \
+                     supported as the whole right-hand side of a plain \
+                     assignment (issue #160); found it nested at {x:?}. \
+                     Stage it through its own int local first."
+                );
+            }
+        });
+    }
+    // Allowed root: the cast itself — but its INNER must still be clean.
+    fn check_value(v: &Expr, rv: &std::collections::HashSet<String>, f: &str) {
+        if let Expr::Cast(VarType::Integer | VarType::Index, inner) = v {
+            check_expr(inner, rv, f);
+        } else {
+            check_expr(v, rv, f);
         }
-        // Multiplication or addition where either side can be negative
-        Expr::BinOp(left, BinOp::Mul | BinOp::Add, right) => {
-            expr_can_be_negative(left) || expr_can_be_negative(right)
+    }
+    for stmt in body {
+        match stmt {
+            Statement::VarDecl { init: Some(init), .. } => check_value(init, real_vars, func_name),
+            Statement::Assign { value, compound, .. } => {
+                if *compound {
+                    // Desugared form embeds the target: check only the true RHS.
+                    if let Expr::BinOp(_, _, rhs) = value {
+                        check_expr(rhs, real_vars, func_name);
+                    } else {
+                        check_expr(value, real_vars, func_name);
+                    }
+                } else {
+                    check_value(value, real_vars, func_name);
+                }
+            }
+            Statement::If { condition, then_body, else_body, .. } => {
+                check_expr(condition, real_vars, func_name);
+                reject_unsupported_negative_casts(then_body, real_vars, func_name);
+                reject_unsupported_negative_casts(else_body, real_vars, func_name);
+            }
+            Statement::While { condition, body: b } | Statement::DoWhile { condition, body: b } => {
+                check_expr(condition, real_vars, func_name);
+                reject_unsupported_negative_casts(b, real_vars, func_name);
+            }
+            Statement::For { count, body: b, .. } => {
+                check_expr(count, real_vars, func_name);
+                reject_unsupported_negative_casts(b, real_vars, func_name);
+            }
+            Statement::ForC { init, condition, update, body: b } => {
+                reject_unsupported_negative_casts(std::slice::from_ref(init), real_vars, func_name);
+                check_expr(condition, real_vars, func_name);
+                reject_unsupported_negative_casts(std::slice::from_ref(update), real_vars, func_name);
+                reject_unsupported_negative_casts(b, real_vars, func_name);
+            }
+            Statement::Block { body: b } => reject_unsupported_negative_casts(b, real_vars, func_name),
+            Statement::Switch { expr, cases, default, .. } => {
+                check_expr(expr, real_vars, func_name);
+                for (_, cb) in cases {
+                    reject_unsupported_negative_casts(cb, real_vars, func_name);
+                }
+                reject_unsupported_negative_casts(default, real_vars, func_name);
+            }
+            #[allow(clippy::match_same_arms)] // Return/Expr coincide today; distinct concepts
+            Statement::Return { value: Some(e) } => check_expr(e, real_vars, func_name),
+            Statement::Expr(e) => check_expr(e, real_vars, func_name),
+            _ => {}
+        }
+    }
+}
+
+/// Issue #160: render a value destined for a SIGNED (i32) local or an i32
+/// array slot. A whole-RHS `(int)(float)` cast renders `as i32` — the default
+/// f64→usize cast saturates negatives to 0 before any later conversion could
+/// recover them. Non-cast values render normally.
+fn render_signed_dest_value(
+    value: &Expr,
+    ctx: &RustRenderCtx,
+    opt_real_params: &[String],
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> String {
+    if let Expr::Cast(VarType::Integer | VarType::Index, inner) = value {
+        if expr_is_float_typed_ctx(inner, Some(ctx)) {
+            let inner_str = render_expr(inner, ctx, opt_real_params, registry, helpers);
+            return format!("({inner_str}) as i32");
+        }
+    }
+    render_expr(value, ctx, opt_real_params, registry, helpers)
+}
+
+/// True when `inner` is a float-typed cast operand that could be negative —
+/// the issue #160 class. `real_vars` recognizes plain double LOCALS (the
+/// name-heuristic float classifier alone misses e.g. `double basis; (int)basis`).
+/// sqrt/fabs/abs inners are provably non-negative (HMA's sqrtPeriod stays usize).
+fn cast_inner_negative_capable(inner: &Expr, real_vars: &std::collections::HashSet<String>) -> bool {
+    let is_float = fma::expr_is_float_typed(inner, None)
+        || matches!(inner, Expr::Var(v) if real_vars.contains(v));
+    is_float
+        && !matches!(inner,
+                     Expr::FuncCall(name, _) if name == "sqrt" || name == "fabs" || name == "abs")
+}
+
+/// Check if an expression can produce a negative integer value.
+/// Catches: `0 - N`, `-N` literal, negative-capable `(int)` casts (#160),
+/// arithmetic/ternary combinations of the above.
+fn expr_can_be_negative(expr: &Expr, real_vars: &std::collections::HashSet<String>) -> bool {
+    match expr {
+        // 0 - N is negative; any subtraction of/by a negative-capable operand
+        // can be negative too.
+        Expr::BinOp(left, BinOp::Sub, right) => {
+            matches!(left.as_ref(), Expr::IntLiteral(0))
+                || expr_can_be_negative(left, real_vars)
+                || expr_can_be_negative(right, real_vars)
+        }
+        // ~x is negative for every x >= 0 (two's complement)
+        Expr::BitwiseNot(_) => true,
+        // (int)(<float expr>) truncates: negative doubles yield negative ints (#160)
+        Expr::Cast(VarType::Integer | VarType::Index, inner) => {
+            cast_inner_negative_capable(inner, real_vars)
+        }
+        // Arithmetic where either side can be negative
+        Expr::BinOp(left, BinOp::Mul | BinOp::Add | BinOp::Div | BinOp::Mod, right) => {
+            expr_can_be_negative(left, real_vars) || expr_can_be_negative(right, real_vars)
         }
         // Ternary: if either branch can be negative
         Expr::Ternary(_, then_e, else_e) => {
-            expr_can_be_negative(then_e) || expr_can_be_negative(else_e)
+            expr_can_be_negative(then_e, real_vars) || expr_can_be_negative(else_e, real_vars)
         }
         // Negative integer literal
         Expr::IntLiteral(n) if *n < 0 => true,
@@ -1337,6 +1581,7 @@ fn condition_implies_signed(
 pub(crate) fn collect_signed_int_vars(
     body: &[Statement],
     int_vars: &std::collections::HashSet<String>,
+    real_vars: &std::collections::HashSet<String>,
     signed_vars: &mut std::collections::HashSet<String>,
 ) {
     for stmt in body {
@@ -1346,42 +1591,42 @@ pub(crate) fn collect_signed_int_vars(
                 var_type: VarType::Integer | VarType::Index,
                 name,
                 init: Some(init),
-            } if expr_can_be_negative(init) => {
+            } if expr_can_be_negative(init, real_vars) => {
                 signed_vars.insert(name.clone());
             }
             // Integer variable assigned a negative expression
             Statement::Assign { target: Expr::Var(name), value, .. }
-                if int_vars.contains(name) && expr_can_be_negative(value) =>
+                if int_vars.contains(name) && expr_can_be_negative(value, real_vars) =>
             {
                 signed_vars.insert(name.clone());
             }
             // Condition checking `var < 0` (only on integer vars)
             Statement::If { condition, then_body, else_body, .. } => {
                 condition_implies_signed(condition, int_vars, signed_vars);
-                collect_signed_int_vars(then_body, int_vars, signed_vars);
-                collect_signed_int_vars(else_body, int_vars, signed_vars);
+                collect_signed_int_vars(then_body, int_vars, real_vars, signed_vars);
+                collect_signed_int_vars(else_body, int_vars, real_vars, signed_vars);
             }
             Statement::While { condition, body: inner, .. }
             | Statement::DoWhile { condition, body: inner, .. } => {
                 condition_implies_signed(condition, int_vars, signed_vars);
-                collect_signed_int_vars(inner, int_vars, signed_vars);
+                collect_signed_int_vars(inner, int_vars, real_vars, signed_vars);
             }
             Statement::For { body: inner, .. } => {
-                collect_signed_int_vars(inner, int_vars, signed_vars);
+                collect_signed_int_vars(inner, int_vars, real_vars, signed_vars);
             }
             Statement::ForC { init, condition, body: inner, .. } => {
                 condition_implies_signed(condition, int_vars, signed_vars);
-                collect_signed_int_vars(&[init.as_ref().clone()], int_vars, signed_vars);
-                collect_signed_int_vars(inner, int_vars, signed_vars);
+                collect_signed_int_vars(&[init.as_ref().clone()], int_vars, real_vars, signed_vars);
+                collect_signed_int_vars(inner, int_vars, real_vars, signed_vars);
             }
             Statement::Block { body: block_body } => {
-                collect_signed_int_vars(block_body, int_vars, signed_vars);
+                collect_signed_int_vars(block_body, int_vars, real_vars, signed_vars);
             }
             Statement::Switch { cases, default, .. } => {
                 for (_, case_body) in cases {
-                    collect_signed_int_vars(case_body, int_vars, signed_vars);
+                    collect_signed_int_vars(case_body, int_vars, real_vars, signed_vars);
                 }
-                collect_signed_int_vars(default, int_vars, signed_vars);
+                collect_signed_int_vars(default, int_vars, real_vars, signed_vars);
             }
             _ => {}
         }
@@ -1469,7 +1714,7 @@ fn count_increments_in_expr(name: &str, expr: &Expr) -> usize {
         }
         Expr::ArrayAccess(_, idx) => count_increments_in_expr(name, idx),
         Expr::FuncCall(_, args) => args.iter().map(|a| count_increments_in_expr(name, a)).sum(),
-        Expr::Not(inner) | Expr::Cast(_, inner) => {
+        Expr::Not(inner) | Expr::BitwiseNot(inner) | Expr::Cast(_, inner) => {
             count_increments_in_expr(name, inner)
         }
         Expr::Ternary(cond, then_expr, else_expr) => {
@@ -1905,7 +2150,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
                 );
                 let mut s = String::new();
                 // Parity with the pre-cutover reference's CIRCBUF_INIT _RUST guard;
-                // also prevents the `(sz as usize) - 1` underflow on the unguarded path.
+                // also prevents the `(sz as usize) - 1` underflow.
                 let alloc_fail = if self.ctx.result_error_returns {
                     "return Err(RetCode::AllocErr);"
                 } else {
@@ -2040,7 +2285,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
         );
         // Canonicalize accumulator recurrences so all backends fuse the same
         // product regardless of operand order (cross-language / batch-vs-stream).
-        let new_value = if fma::EMIT_FMA {
+        let new_value = if fma::EMIT_FMA && !self.ctx.is_lookback {
             fma::canonicalize_accumulator_add(target, &new_value)
         } else {
             new_value
@@ -2066,6 +2311,11 @@ impl StatementEmitter for RustStmt<'_, '_> {
                             BinOp::Sub => "-=",
                             BinOp::Mul => "*=",
                             BinOp::Div => "/=",
+                            BinOp::BitwiseAnd => "&=",
+                            BinOp::BitwiseOr => "|=",
+                            BinOp::BitwiseXor => "^=",
+                            BinOp::Shl => "<<=",
+                            BinOp::Shr => ">>=",
                             BinOp::Mod
                             | BinOp::LessEq
                             | BinOp::Less
@@ -2074,40 +2324,68 @@ impl StatementEmitter for RustStmt<'_, '_> {
                             | BinOp::Eq
                             | BinOp::NotEq
                             | BinOp::And
-                            | BinOp::Or
-                            | BinOp::BitwiseOr
-                            | BinOp::Shr
-                            | BinOp::Shl => "",
+                            | BinOp::Or => "",
                         };
                         if !op_str.is_empty() {
                             let target_str =
                                 render_assign_target(target, self.ctx, self.opt_real_params, self.registry, self.helpers);
                             let rhs_str = render_expr(right, self.ctx, self.opt_real_params, self.registry, self.helpers);
-                            // Check if the target is T-typed (Real variable)
-                            let target_is_real = self.ctx.real_vars.contains(tname)
-                                || (!self.ctx.index_vars.contains(tname)
-                                    && !is_likely_index_var(tname)
-                                    && !is_i32_opt_in_param(tname)
-                                    && !tname.ends_with("_avgPeriod")
-                                    && !tname.ends_with("_rangeType"));
-                            // Cast integer RHS in compound assignments to f64-typed variables
-                            let rhs_wrapped = if target_is_real {
-                                if expr_is_untyped_integer(right) || expr_is_i32_typed(right)
-                                    || (expr_is_known_usize_ctx(right, self.ctx) && !expr_is_float_typed_ctx(right, Some(self.ctx)))
-                                {
-                                    format!("(({rhs_str}) as f64)")
-                                } else {
-                                    rhs_str
+                            // Issue #158: the target's Rust type is classified
+                            // POSITIVELY (declared IR type first, naming
+                            // heuristics only for names no declaration covers).
+                            // It used to be a negative test — "not recognised as
+                            // index-ish, therefore f64" — which put an `as f64`
+                            // RHS on an integer local whose name happened not to
+                            // be on the hard-coded list.
+                            let target_ty = scalar_target_ty(tname, self.ctx, self.opt_real_params, self.helpers);
+                            let rhs_wrapped = match target_ty {
+                                ScalarTy::F64 => {
+                                    // `_ctx` and `renders_usize` rather than the
+                                    // bare predicates: a sentinel local and a
+                                    // usize⊕i32 BinOp both reach an f64 target
+                                    // as integers, and both used to arrive uncast.
+                                    if expr_is_untyped_integer(right)
+                                        || expr_is_i32_typed_ctx(right, self.ctx)
+                                        || (compound_rhs_renders_usize(right, self.ctx)
+                                            && !expr_is_float_typed_ctx(right, Some(self.ctx)))
+                                    {
+                                        format!("(({rhs_str}) as f64)")
+                                    } else {
+                                        rhs_str
+                                    }
                                 }
-                            } else if !target_is_real
-                                && (self.ctx.index_vars.contains(tname) || is_likely_index_var(tname))
-                                && !self.ctx.sentinel_vars.contains(tname)
-                                && expr_is_i32_typed(right)
-                            {
-                                // usize target, i32 RHS: cast to usize
-                                format!("({rhs_str}) as usize")
-                            } else {
-                                rhs_str
+                                ScalarTy::Usize if expr_is_i32_typed_ctx(right, self.ctx) => {
+                                    // usize target, i32-typed RHS (incl. sentinel
+                                    // locals, runtime-non-negative here): as usize
+                                    format!("({rhs_str}) as usize")
+                                }
+                                ScalarTy::I32 => {
+                                    // The third branch issue #158 was missing.
+                                    // Bare only where bare compiles: an untyped
+                                    // literal, or an RHS that is i32-typed AND
+                                    // actually renders that way — `(int)d` is
+                                    // i32-typed but renders `d as usize`.
+                                    // A float RHS is deliberately left bare: the
+                                    // crate build's E0277 is a better answer than
+                                    // a silent `as i32` narrowing of a double.
+                                    let bare = expr_is_untyped_integer(right)
+                                        || expr_is_float_typed_ctx(right, Some(self.ctx))
+                                        // The index domain never narrows to i32
+                                        // (the runtime gates cap at 100k bars,
+                                        // the API does not), so `k += endIdx -
+                                        // startIdx` stays bare and fails to
+                                        // compile rather than truncating above
+                                        // 2^31. Same policy as the float arm.
+                                        || expr_mentions_index_domain(right)
+                                        || (expr_is_i32_typed_ctx(right, self.ctx)
+                                            && !compound_rhs_renders_usize(right, self.ctx));
+                                    if bare {
+                                        rhs_str
+                                    } else {
+                                        format!("({rhs_str}) as i32")
+                                    }
+                                }
+                                ScalarTy::Usize => rhs_str,
                             };
                             out.push_str(&format!(
                                 "{pad}{target_str} {op_str} {rhs_wrapped};\n"
@@ -2119,7 +2397,21 @@ impl StatementEmitter for RustStmt<'_, '_> {
             }
         }
         let target_str = render_assign_target(target, self.ctx, self.opt_real_params, self.registry, self.helpers);
-        let value_str = render_expr(&new_value, self.ctx, self.opt_real_params, self.registry, self.helpers);
+        // Issue #160: signed destinations render a whole-RHS (int)(float) cast
+        // as `as i32` (see render_signed_dest_value). Applies to sentinel
+        // locals and to i32 array slots (outInteger[i] = (int)(x)).
+        let signed_dest = match target {
+            Expr::Var(tname) => self.ctx.sentinel_vars.contains(tname),
+            Expr::ArrayAccess(aname, _) => {
+                self.ctx.int_output_names.contains(aname) || is_int_array_or_vec(aname, self.ctx)
+            }
+            _ => false,
+        };
+        let value_str = if signed_dest {
+            render_signed_dest_value(&new_value, self.ctx, self.opt_real_params, self.registry, self.helpers)
+        } else {
+            render_expr(&new_value, self.ctx, self.opt_real_params, self.registry, self.helpers)
+        };
         let needs_f64_cast = if let Expr::ArrayAccess(name, _) = target {
             self.output_names.contains(name)
                 && !self.ctx.int_output_names.contains(name)
@@ -2134,6 +2426,12 @@ impl StatementEmitter for RustStmt<'_, '_> {
                 && !matches!(new_value, Expr::IntLiteral(_))
                 && !is_negative_one(&new_value)
                 && (expr_is_known_usize_ctx(&new_value, self.ctx)
+                    || expr_binop_renders_as_usize(&new_value, self.ctx)
+                    || expr_renders_as_usize_despite_i32(&new_value, self.ctx)
+                    // A `*_lookback()` call returns usize. This gate was an
+                    // allowlist of variable shapes, so `lb = sma_lookback(p);`
+                    // into a signed local emitted bare and failed E0308.
+                    || expr_returns_usize(&new_value)
                     || matches!(new_value, Expr::Var(ref v) if self.ctx.index_vars.contains(v) || is_likely_index_var(v)))
         } else {
             false
@@ -2332,7 +2630,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
         let mut out = format!(
             "{}while {} {{\n",
             pad,
-            render_expr(condition, self.ctx, self.opt_real_params, self.registry, self.helpers)
+            render_condition(condition, self.ctx, self.opt_real_params, self.registry, self.helpers)
         );
         for s in while_body {
             out.push_str(&self.walk_stmt(s, indent + 4));
@@ -2350,7 +2648,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
         out.push_str(&format!(
             "{}    if !({}) {{ break; }}\n",
             pad,
-            render_expr(condition, self.ctx, self.opt_real_params, self.registry, self.helpers)
+            render_condition(condition, self.ctx, self.opt_real_params, self.registry, self.helpers)
         ));
         out.push_str(&format!("{pad}}}\n"));
         out
@@ -2681,7 +2979,7 @@ fn expr_has_uncast_array_access(expr: &Expr) -> bool {
         Expr::BinOp(left, _, right) => {
             expr_has_uncast_array_access(left) || expr_has_uncast_array_access(right)
         }
-        Expr::Not(inner) => expr_has_uncast_array_access(inner),
+        Expr::Not(inner) | Expr::BitwiseNot(inner) => expr_has_uncast_array_access(inner),
         Expr::FuncCall(_, args) => args.iter().any(expr_has_uncast_array_access),
         Expr::Ternary(cond, then_expr, else_expr) => {
             expr_has_uncast_array_access(cond)
@@ -2712,6 +3010,7 @@ fn render_assign_target(
         | Expr::BinOp(_, _, _)
         | Expr::Cast(_, _)
         | Expr::Not(_)
+        | Expr::BitwiseNot(_)
         | Expr::FuncCall(_, _)
         | Expr::PointerDeref(_)
         | Expr::AddressOf(_)
@@ -2723,15 +3022,24 @@ fn render_assign_target(
     }
 }
 
+/// RUST operator precedence (not C's) — this table decides parenthesization of
+/// the emitted Rust, so it must follow the Rust grammar. The visible difference
+/// from C: bitwise `&`/`^`/`|` bind TIGHTER than comparisons in Rust, the
+/// reverse of C. The IR tree already carries C's grouping (the input parser is
+/// a C parser), so rendering with Rust's table inserts exactly the parens Rust
+/// needs to preserve that grouping.
 fn op_precedence(op: &BinOp) -> u8 {
     match op {
         BinOp::Or => 1,
         BinOp::And => 2,
-        BinOp::BitwiseOr => 3,
-        BinOp::Eq | BinOp::NotEq => 4,
-        BinOp::Less | BinOp::LessEq | BinOp::Greater | BinOp::GreaterEq => 5,
-        BinOp::Add | BinOp::Sub | BinOp::Shr | BinOp::Shl => 6,
-        BinOp::Mul | BinOp::Div | BinOp::Mod => 7,
+        BinOp::Eq | BinOp::NotEq => 3,
+        BinOp::Less | BinOp::LessEq | BinOp::Greater | BinOp::GreaterEq => 4,
+        BinOp::BitwiseOr => 5,
+        BinOp::BitwiseXor => 6,
+        BinOp::BitwiseAnd => 7,
+        BinOp::Shl | BinOp::Shr => 8,
+        BinOp::Add | BinOp::Sub => 9,
+        BinOp::Mul | BinOp::Div | BinOp::Mod => 10,
     }
 }
 
@@ -2744,12 +3052,35 @@ fn render_binop_operand(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
+    let is_cmp = |op: &BinOp| {
+        matches!(
+            op,
+            BinOp::Eq | BinOp::NotEq | BinOp::Less | BinOp::LessEq | BinOp::Greater | BinOp::GreaterEq
+        )
+    };
     match expr {
         Expr::Cast(_, _) => format!("({})", render_expr(expr, ctx, opt_real_params, registry, helpers)),
+        // Integer-bitwise operand of a logical operator: C truthiness needs an
+        // explicit comparison in Rust ( `(x & 1) && p` → `(x & 1) != 0 && p` ).
+        e if is_int_bitwise(e) && matches!(parent_op, BinOp::And | BinOp::Or) => {
+            let rendered = render_expr(expr, ctx, opt_real_params, registry, helpers);
+            format!("({rendered}) != 0")
+        }
+        // `!(x & 1)` as a logical operand: invert to == 0 (Rust `!` on an
+        // integer is bitwise complement, not logical not).
+        Expr::Not(inner) if is_int_bitwise(inner) && matches!(parent_op, BinOp::And | BinOp::Or) => {
+            let rendered = render_expr(inner, ctx, opt_real_params, registry, helpers);
+            format!("({rendered}) == 0")
+        }
         Expr::BinOp(_, child_op, _) => {
             let parent_prec = op_precedence(parent_op);
             let child_prec = op_precedence(child_op);
-            if child_prec < parent_prec || (!is_left && child_prec == parent_prec) {
+            // Rust comparisons are one non-associative tier: a comparison
+            // nested in a comparison must be parenthesized to parse at all.
+            if is_cmp(parent_op) && is_cmp(child_op)
+                || child_prec < parent_prec
+                || (!is_left && child_prec == parent_prec)
+            {
                 format!("({})", render_expr(expr, ctx, opt_real_params, registry, helpers))
             } else {
                 render_expr(expr, ctx, opt_real_params, registry, helpers)
@@ -2777,6 +3108,7 @@ fn render_binop_operand(
         | Expr::Var(_)
         | Expr::ArrayAccess(_, _)
         | Expr::Not(_)
+        | Expr::BitwiseNot(_)
         | Expr::FuncCall(_, _)
         | Expr::PointerDeref(_)
         | Expr::AddressOf(_)
@@ -2838,6 +3170,18 @@ fn render_condition(
             }
         }
     }
+    // Integer-valued bitwise expression as condition (C truthiness): Rust
+    // needs an explicit comparison. `!(x & k)` inverts to == 0.
+    if is_int_bitwise(expr) {
+        let rendered = render_expr(expr, ctx, opt_real_params, registry, helpers);
+        return format!("({rendered}) != 0");
+    }
+    if let Expr::Not(inner) = expr {
+        if is_int_bitwise(inner) {
+            let rendered = render_expr(inner, ctx, opt_real_params, registry, helpers);
+            return format!("({rendered}) == 0");
+        }
+    }
     // Ternary producing integer used as condition: needs != 0
     if let Expr::Ternary(_, then_expr, _) = expr {
         if expr_is_untyped_integer(then_expr) || matches!(then_expr.as_ref(), Expr::IntLiteral(_)) {
@@ -2872,6 +3216,24 @@ struct RustExpr<'a> {
 }
 
 impl ExprEmitter for RustExpr<'_> {
+    // C's bitwise complement `~x` is spelled `!x` in Rust (on integers).
+    fn bitwise_not(&self, inner: &Expr) -> String {
+        format!("!({})", self.walk(inner))
+    }
+
+    // C's logical `!` over an integer-bitwise value yields int 0/1. Rust's `!`
+    // on an integer is bitwise complement, so spell out the comparison. All
+    // condition contexts intercept this shape earlier (render_condition /
+    // render_binop_operand); this covers value position, where usize is the
+    // backend's default integer — a signed target fails to compile rather than
+    // silently wrapping.
+    fn not(&self, inner: &Expr) -> String {
+        if is_int_bitwise(inner) {
+            return format!("usize::from(({}) == 0)", self.walk(inner));
+        }
+        format!("!({})", self.walk(inner))
+    }
+
     fn var(&self, name: &str) -> String {
         match name {
             "COMPATIBILITY" => "(self.compatibility)".to_string(),
@@ -2890,9 +3252,9 @@ impl ExprEmitter for RustExpr<'_> {
     fn array_access(&self, name: &str, idx: &Expr) -> String {
         let idx_rendered =
             render_index_expr(idx, self.ctx, self.opt_real_params, self.registry, self.helpers);
-        // Always safe `[]` indexing. In the `_unguarded`/`_private` variants the
-        // bounds-assert preamble lets LLVM elide the per-access checks, so this is
-        // as fast as the old raw-pointer path while keeping the crate `unsafe`-free.
+        // Always safe `[]` indexing. The bounds-assert preamble lets LLVM elide the
+        // per-access checks, so this is as fast as a raw-pointer path while keeping
+        // the crate `unsafe`-free.
         format!("{name}[{idx_rendered}]")
     }
 
@@ -2927,6 +3289,13 @@ impl ExprEmitter for RustExpr<'_> {
         // `as` binds tighter than every binary operator, so a binary-op inner
         // must be wrapped; atomic/unary inners do not, and a ternary already
         // self-parenthesizes as `(if ... else ...)`.
+        // Negative-capable (int)(float) casts do NOT reach this hook in the
+        // saturating form: issue #160 classifies their destinations signed
+        // (render_signed_dest_value emits `as i32`), and any position the
+        // backend cannot render sign-faithfully fails generation loudly in
+        // reject_unsupported_negative_casts. This default `as usize` therefore
+        // serves int-typed inners and provably non-negative float inners
+        // (sqrt/fabs), where saturation is unreachable.
         let s = self.walk(inner);
         if matches!(inner, Expr::BinOp(..)) {
             format!("({s}) as {rust_type}")
@@ -2975,6 +3344,27 @@ impl ExprEmitter for RustExpr<'_> {
     }
 }
 
+/// Parenthesize a whole `as` cast an operand is being wrapped in, e.g.
+/// `dqI[hd]` → `((dqI[hd]) as usize)`.
+///
+/// The outer parens are not cosmetic. Rust refuses to *parse* a cast followed by
+/// `<` or `<<` — it reads `usize <` as the start of generic arguments — so a bare
+/// `(x) as usize` is unparseable both as the left operand of `a < b` and, via an
+/// enclosing comparison, as the tail of a higher-precedence arithmetic operand
+/// (`t + (x) as usize < u`; [`render_binop_operand`] leaves that child unwrapped
+/// because its precedence is higher). Wrapping unconditionally at every site
+/// keeps that out of the emitter's reasoning entirely.
+///
+/// Every cast [`render_binop`] emits from an *operand* goes through here —
+/// including the `as f64` ones, which already wrapped and so are unchanged — so
+/// the invariant is one function rather than a rule each site has to re-derive.
+/// The one cast it does not cover is the FMA fusion's `({a} as f64).mul_add(..)`,
+/// which returns immediately and whose cast is followed by `)` by construction.
+/// Issue #159.
+fn wrap_cast(operand: &str, ty: &str) -> String {
+    format!("(({operand}) as {ty})")
+}
+
 /// Render an `Expr::BinOp` to Rust, including the FMA fusion (via the shared
 /// [`fma::fuse_operands`] detector, gated by [`fma::EMIT_FMA`]), pointer-identity
 /// buffer comparisons, and the operand int/usize/f64 cast inference. Delegated to
@@ -2993,7 +3383,13 @@ fn render_binop(
     // fmadd (1 FP op) vs fmul+fadd (2 FP ops), IEEE-754 correctly-rounded so it
     // matches the C `fma()` / Java `Math.fma` the other backends emit at the same
     // sites (site selection lives in `fma::fuse_operands`, shared by all backends).
-    if fma::EMIT_FMA {
+    // Never in a lookback body: C, Java and C# all pass `fma: None` there
+    // ("pure integer index arithmetic", c.rs), so fusing only in Rust would
+    // give one backend a different lookback — an outBegIdx/length divergence,
+    // not a tolerance one. Before issue #158 the lookback ctx was empty, so
+    // `real_vars` was too and the detector could never fire; populating it is
+    // what made this reachable.
+    if fma::EMIT_FMA && !ctx.is_lookback {
         if let Some((a, b, c)) = fma::fuse_operands(left, op, right, &ctx.fma_view()) {
             let a_str = render_expr(a, ctx, opt_real_params, registry, helpers);
             let b_str = render_expr(b, ctx, opt_real_params, registry, helpers);
@@ -3032,10 +3428,24 @@ fn render_binop(
         BinOp::And => " && ",
         BinOp::Or => " || ",
         BinOp::BitwiseOr => " | ",
+        BinOp::BitwiseXor => " ^ ",
+        BinOp::BitwiseAnd => " & ",
         BinOp::Shr => " >> ",
         BinOp::Shl => " << ",
     };
-    let is_arithmetic = matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Shr | BinOp::Shl);
+    let is_arithmetic = matches!(
+        op,
+        BinOp::Add
+            | BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Mod
+            | BinOp::Shr
+            | BinOp::Shl
+            | BinOp::BitwiseAnd
+            | BinOp::BitwiseOr
+            | BinOp::BitwiseXor
+    );
     let mut left_str = render_binop_operand(left, op, true, ctx, opt_real_params, registry, helpers);
     let mut right_str = render_binop_operand(right, op, false, ctx, opt_real_params, registry, helpers);
     if is_arithmetic {
@@ -3043,10 +3453,10 @@ fn render_binop(
         let left_is_sentinel = expr_is_i32_typed_ctx(left, ctx) && !expr_is_i32_typed(left);
         let right_is_sentinel = expr_is_i32_typed_ctx(right, ctx) && !expr_is_i32_typed(right);
         if left_is_sentinel && !right_is_sentinel && !expr_is_i32_typed(right) && !expr_is_float_typed_ctx(right, Some(ctx)) && !matches!(right, Expr::IntLiteral(_)) {
-            right_str = format!("({right_str}) as i32");
+            right_str = wrap_cast(&right_str, "i32");
         }
         if right_is_sentinel && !left_is_sentinel && !expr_is_i32_typed(left) && !expr_is_float_typed_ctx(left, Some(ctx)) && !matches!(left, Expr::IntLiteral(_)) {
-            left_str = format!("({left_str}) as i32");
+            left_str = wrap_cast(&left_str, "i32");
         }
         let left_is_i32 = expr_is_i32_typed(left) || left_is_sentinel;
         let right_is_i32 = expr_is_i32_typed(right) || right_is_sentinel;
@@ -3069,18 +3479,18 @@ fn render_binop(
                 }
             }
             if left_is_i32 && right_is_float && !left_is_int_lit && !left_is_float {
-                left_str = format!("(({left_str}) as f64)");
+                left_str = wrap_cast(&left_str, "f64");
             }
             if right_is_i32 && left_is_float && !right_is_int_lit && !right_is_float {
-                right_str = format!("(({right_str}) as f64)");
+                right_str = wrap_cast(&right_str, "f64");
             }
             let left_is_untyped_int = expr_is_untyped_integer(left);
             let right_is_untyped_int = expr_is_untyped_integer(right);
             if left_is_untyped_int && !left_is_int_lit && right_is_float {
-                left_str = format!("(({left_str}) as f64)");
+                left_str = wrap_cast(&left_str, "f64");
             }
             if right_is_untyped_int && !right_is_int_lit && left_is_float {
-                right_str = format!("(({right_str}) as f64)");
+                right_str = wrap_cast(&right_str, "f64");
             }
             let left_is_known_usize = expr_is_known_usize_ctx(left, ctx);
             let right_is_known_usize = expr_is_known_usize_ctx(right, ctx);
@@ -3089,25 +3499,25 @@ fn render_binop(
             let right_eff_usize = right_is_known_usize
                 || expr_binop_renders_as_usize(right, ctx);
             if left_eff_usize && right_is_float && !left_is_i32 {
-                left_str = format!("(({left_str}) as f64)");
+                left_str = wrap_cast(&left_str, "f64");
             }
             if right_eff_usize && left_is_float && !right_is_i32 {
-                right_str = format!("(({right_str}) as f64)");
+                right_str = wrap_cast(&right_str, "f64");
             }
         }
         // Cast i32 operands to usize when mixed with usize-typed operands (not float)
         // Also detect i32 array accesses (IntArray/IntPointer)
-        let arith_left_is_i32_arr = matches!(left, Expr::ArrayAccess(ref name, _) if is_int_array_or_vec(name, ctx));
-        let arith_right_is_i32_arr = matches!(right, Expr::ArrayAccess(ref name, _) if is_int_array_or_vec(name, ctx));
+        let arith_left_is_i32_arr = expr_is_int_array_typed(left, ctx);
+        let arith_right_is_i32_arr = expr_is_int_array_typed(right, ctx);
         let left_is_i32_eff = left_is_i32 || arith_left_is_i32_arr;
         let right_is_i32_eff = right_is_i32 || arith_right_is_i32_arr;
         let left_is_usize = !left_is_i32_eff && !left_is_float && !left_is_int_lit;
         let right_is_usize = !right_is_i32_eff && !right_is_float && !right_is_int_lit;
         if left_is_i32_eff && right_is_usize && !left_is_sentinel {
-            left_str = format!("({left_str}) as usize");
+            left_str = wrap_cast(&left_str, "usize");
         }
         if right_is_i32_eff && left_is_usize && !right_is_sentinel {
-            right_str = format!("({right_str}) as usize");
+            right_str = wrap_cast(&right_str, "usize");
         }
         // When both sides appear i32-typed but one actually renders as usize
         // (e.g., Cast(Integer, usize_expr) drops the cast), fix the mismatch.
@@ -3115,10 +3525,10 @@ fn render_binop(
             let left_renders_usize = expr_renders_as_usize_despite_i32(left, ctx);
             let right_renders_usize = expr_renders_as_usize_despite_i32(right, ctx);
             if left_renders_usize && !right_renders_usize {
-                right_str = format!("({right_str}) as usize");
+                right_str = wrap_cast(&right_str, "usize");
             }
             if right_renders_usize && !left_renders_usize {
-                left_str = format!("({left_str}) as usize");
+                left_str = wrap_cast(&left_str, "usize");
             }
         }
     }
@@ -3129,10 +3539,10 @@ fn render_binop(
         let cmp_left_sentinel = expr_is_i32_typed_ctx(left, ctx) && !expr_is_i32_typed(left);
         let cmp_right_sentinel = expr_is_i32_typed_ctx(right, ctx) && !expr_is_i32_typed(right);
         if cmp_left_sentinel && !cmp_right_sentinel && !expr_is_i32_typed(right) && !expr_is_float_typed_ctx(right, Some(ctx)) && !matches!(right, Expr::IntLiteral(_)) {
-            right_str = format!("({right_str}) as i32");
+            right_str = wrap_cast(&right_str, "i32");
         }
         if cmp_right_sentinel && !cmp_left_sentinel && !expr_is_i32_typed(left) && !expr_is_float_typed_ctx(left, Some(ctx)) && !matches!(left, Expr::IntLiteral(_)) {
-            left_str = format!("({left_str}) as i32");
+            left_str = wrap_cast(&left_str, "i32");
         }
         let left_is_i32 = expr_is_i32_typed(left) || cmp_left_sentinel;
         let right_is_i32 = expr_is_i32_typed(right) || cmp_right_sentinel;
@@ -3156,36 +3566,36 @@ fn render_binop(
                 }
             }
             if left_is_i32 && right_is_float && !left_is_int_lit && !left_is_float {
-                left_str = format!("(({left_str}) as f64)");
+                left_str = wrap_cast(&left_str, "f64");
             }
             if right_is_i32 && left_is_float && !right_is_int_lit && !right_is_float {
-                right_str = format!("(({right_str}) as f64)");
+                right_str = wrap_cast(&right_str, "f64");
             }
             if left_is_untyped_int && !left_is_int_lit && right_is_float {
-                left_str = format!("(({left_str}) as f64)");
+                left_str = wrap_cast(&left_str, "f64");
             }
             if right_is_untyped_int && !right_is_int_lit && left_is_float {
-                right_str = format!("(({right_str}) as f64)");
+                right_str = wrap_cast(&right_str, "f64");
             }
             let cmp_left_is_known_usize = expr_is_known_usize_ctx(left, ctx);
             let cmp_right_is_known_usize = expr_is_known_usize_ctx(right, ctx);
             if cmp_left_is_known_usize && right_is_float && !cmp_right_is_known_usize && !left_is_i32 && !left_is_int_lit {
-                left_str = format!("(({left_str}) as f64)");
+                left_str = wrap_cast(&left_str, "f64");
             }
             if cmp_right_is_known_usize && left_is_float && !cmp_left_is_known_usize && !right_is_i32 && !right_is_int_lit {
-                right_str = format!("(({right_str}) as f64)");
+                right_str = wrap_cast(&right_str, "f64");
             }
         }
         // Also detect i32 array accesses (IntArray/IntPointer) using context
-        let left_is_i32_arr = matches!(left, Expr::ArrayAccess(ref name, _) if is_int_array_or_vec(name, ctx));
-        let right_is_i32_arr = matches!(right, Expr::ArrayAccess(ref name, _) if is_int_array_or_vec(name, ctx));
+        let left_is_i32_arr = expr_is_int_array_typed(left, ctx);
+        let right_is_i32_arr = expr_is_int_array_typed(right, ctx);
         let left_is_i32_eff = left_is_i32 || left_is_i32_arr;
         let right_is_i32_eff = right_is_i32 || right_is_i32_arr;
         if left_is_i32_eff && !right_is_i32_eff && !right_is_float && !right_is_int_lit && !cmp_left_sentinel {
-            left_str = format!("({left_str}) as usize");
+            left_str = wrap_cast(&left_str, "usize");
         }
         if right_is_i32_eff && !left_is_i32_eff && !left_is_float && !left_is_int_lit && !cmp_right_sentinel {
-            right_str = format!("({right_str}) as usize");
+            right_str = wrap_cast(&right_str, "usize");
         }
     }
     format!("{left_str}{op_str}{right_str}")
@@ -3205,6 +3615,8 @@ fn render_ternary(
     // Use render_condition for the ternary condition when it's a non-boolean
     // expression (integer variable, ternary producing integer, etc.)
     let cond_needs_bool = match cond {
+        e if is_int_bitwise(e) => true,
+        Expr::Not(inner) if is_int_bitwise(inner) => true,
         Expr::Ternary(_, t, _) => expr_is_untyped_integer(t) || matches!(t.as_ref(), Expr::IntLiteral(_)),
         Expr::Var(name) => ctx.index_vars.contains(name) || is_likely_index_var(name) || is_i32_opt_in_param(name),
         Expr::Not(inner) => matches!(inner.as_ref(), Expr::Var(name) if ctx.index_vars.contains(name) || is_likely_index_var(name)),
@@ -3307,10 +3719,24 @@ fn expr_is_i32_typed(expr: &Expr) -> bool {
             }
             false
         }
-        Expr::BinOp(left, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Shr | BinOp::Shl | BinOp::Mod, right) => {
+        Expr::BinOp(
+            left,
+            BinOp::Add
+            | BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Shr
+            | BinOp::Shl
+            | BinOp::Mod
+            | BinOp::BitwiseAnd
+            | BinOp::BitwiseOr
+            | BinOp::BitwiseXor,
+            right,
+        ) => {
             expr_is_i32_typed(left) && (expr_is_i32_typed(right) || matches!(right.as_ref(), Expr::IntLiteral(_)))
                 || expr_is_i32_typed(right) && matches!(left.as_ref(), Expr::IntLiteral(_))
         }
+        Expr::BitwiseNot(inner) => expr_is_i32_typed(inner),
         Expr::Cast(VarType::Integer, _inner) => {
             true
         }
@@ -3325,7 +3751,24 @@ fn expr_is_i32_typed_ctx(expr: &Expr, ctx: &RustRenderCtx) -> bool {
     }
     match expr {
         Expr::Var(name) => ctx.sentinel_vars.contains(name),
-        Expr::BinOp(left, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div, right) => {
+        // The same operator set `expr_is_i32_typed` folds over. It used to stop
+        // at the four arithmetic ones, so `lag & 3` — a signed local masked by a
+        // literal — was typed by nothing, and a usize target took no cast from
+        // the assign ladder while `head = lag` took one. Issue #165.
+        Expr::BinOp(
+            left,
+            BinOp::Add
+                | BinOp::Sub
+                | BinOp::Mul
+                | BinOp::Div
+                | BinOp::Mod
+                | BinOp::Shl
+                | BinOp::Shr
+                | BinOp::BitwiseAnd
+                | BinOp::BitwiseOr
+                | BinOp::BitwiseXor,
+            right,
+        ) => {
             let l_i32 = expr_is_i32_typed_ctx(left, ctx)
                 || matches!(left.as_ref(), Expr::IntLiteral(_));
             let r_i32 = expr_is_i32_typed_ctx(right, ctx)
@@ -3510,6 +3953,12 @@ fn render_lookback_code(
     let empty_output_names: Vec<String> = Vec::new();
     let empty_opt_real_params: Vec<String> = Vec::new();
 
+    // Issue #158: the declaration emitter and the use-site classifier must be
+    // driven by the same context, or a local is declared one type and assigned
+    // as another.
+    let mut lookback_ctx = RustRenderCtx::for_lookback(stmts);
+    lookback_ctx.matype_map = build_matype_map(enums);
+
     for stmt in stmts {
         if let Statement::VarDecl { var_type, name, .. } = stmt {
             let total_assigns = count_assignments(name, stmts);
@@ -3528,9 +3977,12 @@ fn render_lookback_code(
                     ));
                 }
                 _ => {
+                    let is_sentinel = lookback_ctx.sentinel_vars.contains(name);
                     let rust_type = match var_type {
                         VarType::Real => "f64",
-                        VarType::Integer | VarType::Index => "usize",
+                        VarType::Integer | VarType::Index => {
+                            if is_sentinel { "i32" } else { "usize" }
+                        }
                         VarType::RetCodeType => "RetCode",
                         VarType::RealPointer => "Vec<f64>",
                         VarType::IntPointer => "Vec<i32>",
@@ -3539,7 +3991,9 @@ fn render_lookback_code(
                     // Always initialize — lookback is always concrete (non-generic)
                     let default_val = match var_type {
                         VarType::Real => "0.0_f64",
-                        VarType::Integer | VarType::Index => "0_usize",
+                        VarType::Integer | VarType::Index => {
+                            if is_sentinel { "0i32" } else { "0_usize" }
+                        }
                         VarType::RetCodeType => "RetCode::Success",
                         VarType::RealPointer | VarType::IntPointer => "Vec::new()",
                         VarType::RealArray(_) | VarType::IntArray(_) => unreachable!(),
@@ -3560,8 +4014,6 @@ fn render_lookback_code(
         out.push_str(&emit_rust_unpacking(&candle_used, 8));
     }
 
-    let mut lookback_ctx = RustRenderCtx::for_lookback();
-    lookback_ctx.matype_map = build_matype_map(enums);
     let inline_counter = Cell::new(0);
     for stmt in stmts {
         if matches!(stmt, Statement::VarDecl { .. }) {
@@ -3913,8 +4365,7 @@ fn render_func_call(
         )
     } else if registry.contains(fname) || fname.ends_with("_private") {
         // Cross-indicator call: use registry to resolve the function name.
-        // Bare names (ema) → ema_unguarded (skip validation).
-        // Private names (ema_private) → ema_private (generic, handles both f32/f64).
+        // Bare names (ema) → ema. Private names (ema_private) → ema_private.
         let resolved = registry.resolve_call(fname, crate::registry::Lang::Rust);
         let (rendered_args, aliased) = render_cross_indicator_args(args, ctx, opt_real_params, registry, helpers);
         wrap_cross_indicator_call(format!("self.{}({})", resolved, rendered_args.join(", ")), &aliased)
@@ -4114,7 +4565,7 @@ fn render_cross_indicator_arg(
                 }
                 rendered
             // Non-startIdx/endIdx, non-output position: if a usize variable is passed
-            // where an i32 param is expected (e.g., curPeriod to ma_unguarded), cast to i32
+            // where an i32 param is expected (e.g., curPeriod to ma), cast to i32
             } else if position > 1 && !is_output_position {
                 if let Expr::Var(name) = arg {
                     if (ctx.index_vars.contains(name) || is_likely_index_var(name))
@@ -4847,6 +5298,7 @@ fn walk_rename(expr: &Expr, elections: &ElectionMap, hit: &mut bool) -> Expr {
             Expr::Cast(t.clone(), Box::new(walk_rename(inner, elections, hit)))
         }
         Expr::Not(inner) => Expr::Not(Box::new(walk_rename(inner, elections, hit))),
+        Expr::BitwiseNot(inner) => Expr::BitwiseNot(Box::new(walk_rename(inner, elections, hit))),
         Expr::FuncCall(name, args) => Expr::FuncCall(
             name.clone(),
             args.iter().map(|a| walk_rename(a, elections, hit)).collect(),
@@ -4899,6 +5351,171 @@ fn is_int_array_var(name: &str) -> bool {
     matches!(strip_state_prefix(name),
         "periods" | "usedFlag" | "sortedPeriods"
     )
+}
+
+/// Does this expression *render* as `usize`?
+///
+/// Not "is it i32 in the C" — issue #158's compound arm has to match what the
+/// expression emitter actually produced. `(int)d` is `expr_is_i32_typed`, but
+/// [`RustExpr::cast`] renders it `d as usize` when `d` is already usize; and a
+/// `usize ⊕ i32` BinOp renders usize because the BinOp handler casts the i32
+/// side up. Both reach a compound assignment as `usize` text.
+fn compound_rhs_renders_usize(expr: &Expr, ctx: &RustRenderCtx) -> bool {
+    expr_is_known_usize_ctx(expr, ctx)
+        || expr_binop_renders_as_usize(expr, ctx)
+        || expr_renders_as_usize_despite_i32(expr, ctx)
+}
+
+/// Does this expression's VALUE carry `startIdx`/`endIdx` — the caller-supplied
+/// bar range, which is `usize` and must never be truncated to `i32`?
+///
+/// Subscript positions do not count: `inPeriods[startIdx + i]` produces an
+/// array element, not an index, and MAVP casts exactly that to i32.
+fn expr_mentions_index_domain(expr: &Expr) -> bool {
+    match expr {
+        Expr::Var(n) | Expr::PointerDeref(n) => {
+            matches!(strip_state_prefix(n), "startIdx" | "endIdx")
+        }
+        Expr::BinOp(l, _, r) => {
+            expr_mentions_index_domain(l) || expr_mentions_index_domain(r)
+        }
+        Expr::Ternary(_, a, b) => {
+            expr_mentions_index_domain(a) || expr_mentions_index_domain(b)
+        }
+        Expr::Cast(_, inner)
+        | Expr::PostIncrement(inner)
+        | Expr::PostDecrement(inner)
+        | Expr::PreIncrement(inner)
+        | Expr::PreDecrement(inner) => expr_mentions_index_domain(inner),
+        // Everything else, including `ArrayAccess` — its subscript is an index
+        // but its value is an element, so the walk deliberately stops here.
+        _ => false,
+    }
+}
+
+/// The Rust scalar type a named assignment target renders as.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ScalarTy {
+    F64,
+    Usize,
+    I32,
+}
+
+/// Classify a scalar assignment target POSITIVELY — issue #158.
+///
+/// Order is the point. The declared IR type wins over every naming heuristic:
+/// `real_vars` / `index_vars` come straight from the `VarDecl`s via
+/// [`collect_var_types`], and `sentinel_vars` from [`collect_signed_int_vars`],
+/// so a local is classified as whatever the declaration emitter declared it.
+/// The heuristics below them only cover names no `VarDecl` describes — the
+/// function's own parameters, helper-inlined temporaries, and the streaming
+/// tier's `sp.`-qualified state fields.
+fn scalar_target_ty(
+    name: &str,
+    ctx: &RustRenderCtx,
+    opt_real_params: &[String],
+    helpers: &HelperRegistry,
+) -> ScalarTy {
+    // 1. Declared type.
+    if ctx.real_vars.contains(name) {
+        return ScalarTy::F64;
+    }
+    if ctx.sentinel_vars.contains(name) {
+        return ScalarTy::I32;
+    }
+    if ctx.index_vars.contains(name) {
+        return ScalarTy::Usize;
+    }
+    // 2. Names carried by the signature rather than a declaration. The YAML
+    //    Real params go FIRST: `is_i32_opt_in_param` is a negative allowlist
+    //    ("starts with optIn and is not one of these known Real names"), so it
+    //    calls an unlisted Real param i32.
+    let base = strip_state_prefix(name);
+    if opt_real_params.iter().any(|p| p == base) {
+        return ScalarTy::F64;
+    }
+    if is_i32_opt_in_param(name) || base.ends_with("_avgPeriod") || base.ends_with("_rangeType") {
+        return ScalarTy::I32;
+    }
+    // 3. A helper-inlined temporary: the inliner renames the helper's own
+    //    local `range` to `range_0`, so it has no VarDecl in THIS body. The
+    //    helper declared it — that is still a declaration, just one file over.
+    if let Some(t) = helper_local_ty(base, helpers) {
+        return t;
+    }
+    // 4. Last resort, and only ever to say "index", never to say "Real".
+    if is_likely_index_var(name) {
+        return ScalarTy::Usize;
+    }
+    // 5. Nothing knows this name. Keep the historical f64 answer rather than
+    //    refusing to generate: every wrong verdict here is a *type* error the
+    //    crate build catches, never a silently wrong number, so a hard failure
+    //    would trade a loud compile error for a louder one while being able to
+    //    block a build over a name the classifier simply has not met. What
+    //    issue #158 required — that a DECLARED integer can never be called
+    //    Real by its name — is settled by steps 1-3 above.
+    ScalarTy::F64
+}
+
+/// The declared type of a helper's own local or parameter, matched through the
+/// inliner's `<name>_<n>` renaming.
+///
+/// All matches must agree: `HelperRegistry::iter` is `HashMap` order, so a name
+/// two helpers declare differently must not resolve by whichever came first.
+fn helper_local_ty(base: &str, helpers: &HelperRegistry) -> Option<ScalarTy> {
+    // Strip the inliner's numeric suffix, if any.
+    let stem = base
+        .rsplit_once('_')
+        .filter(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        .map_or(base, |(s, _)| s);
+    let mut found: Option<ScalarTy> = None;
+    for h in helpers.iter() {
+        let declared = h
+            .params
+            .iter()
+            .find(|p| p.name == stem)
+            .map(|p| &p.var_type)
+            .or_else(|| helper_decl_ty(&h.body, stem));
+        let Some(t) = declared else { continue };
+        let scalar = match t {
+            VarType::Real => ScalarTy::F64,
+            VarType::Integer | VarType::Index => ScalarTy::Usize,
+            // Arrays/pointers/RetCode are never scalar compound targets.
+            _ => return None,
+        };
+        match found {
+            Some(prev) if prev != scalar => return None,
+            _ => found = Some(scalar),
+        }
+    }
+    found
+}
+
+fn helper_decl_ty<'a>(body: &'a [Statement], name: &str) -> Option<&'a VarType> {
+    for stmt in body {
+        match stmt {
+            Statement::VarDecl { var_type, name: n, .. } if n == name => return Some(var_type),
+            Statement::If { then_body, else_body, .. } => {
+                if let Some(t) = helper_decl_ty(then_body, name) {
+                    return Some(t);
+                }
+                if let Some(t) = helper_decl_ty(else_body, name) {
+                    return Some(t);
+                }
+            }
+            Statement::While { body: b, .. }
+            | Statement::DoWhile { body: b, .. }
+            | Statement::For { body: b, .. }
+            | Statement::ForC { body: b, .. }
+            | Statement::Block { body: b } => {
+                if let Some(t) = helper_decl_ty(b, name) {
+                    return Some(t);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Helper functions that return int (not double/T).

@@ -75,7 +75,8 @@ public partial class Core
    /// <param name="optInFastD_Period">Smoothing period for %D (default 3; range 1..100000; <c>int.MinValue</c>
    /// selects the default).</param>
    /// <param name="optInFastD_MAType">MA type used to smooth %D (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA,
-   /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED).</param>
+   /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED;
+   /// <c>int.MinValue</c> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int StochRsiLookback( int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
    {
@@ -93,6 +94,9 @@ public partial class Core
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return -1;
+      }
+      if( (int)optInFastD_MAType == int.MinValue ) {
+         optInFastD_MAType = MAType.Sma;
       }
       int retValue = 0;
       retValue = RsiLookback(optInTimePeriod) + StochFLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
@@ -142,6 +146,9 @@ public partial class Core
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return RetCode.BadParam;
       }
+      if( (int)optInFastD_MAType == int.MinValue ) {
+         optInFastD_MAType = MAType.Sma;
+      }
       if( outFastK == outFastD ) {
          return RetCode.BadParam ;
       }
@@ -186,64 +193,13 @@ public partial class Core
       outBegIdx = startIdx;
       tempArraySize = endIdx - startIdx + 1 + lookbackSTOCHF;
       tempRSIBuffer = new double[(int)(tempArraySize * 1)];
-      retCode = RsiUnguarded(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, out outBegIdx1, out outNbElement1, tempRSIBuffer);
+      retCode = Rsi(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, out outBegIdx1, out outNbElement1, tempRSIBuffer);
       if( retCode != RetCode.Success || outNbElement1 == 0 ) {
          outBegIdx = 0;
          outNBElement = 0;
          return retCode ;
       }
-      retCode = StochFUnguarded(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx2, out outNBElement, outFastK, outFastD);
-      if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
-      return RetCode.Success ;
-   }
-   internal RetCode StochRsiUnguarded( int startIdx,
-                                       int endIdx,
-                                       double[] inReal,
-                                       int optInTimePeriod,
-                                       int optInFastK_Period,
-                                       int optInFastD_Period,
-                                       MAType optInFastD_MAType,
-                                       out int outBegIdx,
-                                       out int outNBElement,
-                                       double[] outFastK,
-                                       double[] outFastD )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      double[] tempRSIBuffer;
-      RetCode retCode;
-      int lookbackTotal = 0;
-      int lookbackSTOCHF = 0;
-      int tempArraySize = 0;
-      int outBegIdx1 = 0;
-      int outBegIdx2 = 0;
-      int outNbElement1 = 0;
-      outBegIdx = 0;
-      outNBElement = 0;
-      lookbackSTOCHF = StochFLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
-      lookbackTotal = RsiLookback(optInTimePeriod) + lookbackSTOCHF;
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
-      }
-      if( startIdx > endIdx ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return RetCode.Success ;
-      }
-      outBegIdx = startIdx;
-      tempArraySize = endIdx - startIdx + 1 + lookbackSTOCHF;
-      tempRSIBuffer = new double[(int)(tempArraySize * 1)];
-      retCode = RsiUnguarded(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, out outBegIdx1, out outNbElement1, tempRSIBuffer);
-      if( retCode != RetCode.Success || outNbElement1 == 0 ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
-      retCode = StochFUnguarded(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx2, out outNBElement, outFastK, outFastD);
+      retCode = StochF(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx2, out outNBElement, outFastK, outFastD);
       if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
          outBegIdx = 0;
          outNBElement = 0;
@@ -294,6 +250,9 @@ public partial class Core
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return RetCode.BadParam;
       }
+      if( (int)optInFastD_MAType == int.MinValue ) {
+         optInFastD_MAType = MAType.Sma;
+      }
       if( outFastK == outFastD ) {
          return RetCode.BadParam ;
       }
@@ -312,64 +271,13 @@ public partial class Core
       outBegIdx = startIdx;
       tempArraySize = endIdx - startIdx + 1 + lookbackSTOCHF;
       tempRSIBuffer = new double[(int)(tempArraySize * 1)];
-      retCode = RsiUnguarded(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, out outBegIdx1, out outNbElement1, tempRSIBuffer);
+      retCode = Rsi(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, out outBegIdx1, out outNbElement1, tempRSIBuffer);
       if( retCode != RetCode.Success || outNbElement1 == 0 ) {
          outBegIdx = 0;
          outNBElement = 0;
          return retCode ;
       }
-      retCode = StochFUnguarded(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx2, out outNBElement, outFastK, outFastD);
-      if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
-      return RetCode.Success ;
-   }
-   internal RetCode StochRsiUnguarded( int startIdx,
-                                       int endIdx,
-                                       float[] inReal,
-                                       int optInTimePeriod,
-                                       int optInFastK_Period,
-                                       int optInFastD_Period,
-                                       MAType optInFastD_MAType,
-                                       out int outBegIdx,
-                                       out int outNBElement,
-                                       double[] outFastK,
-                                       double[] outFastD )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      double[] tempRSIBuffer;
-      RetCode retCode;
-      int lookbackTotal = 0;
-      int lookbackSTOCHF = 0;
-      int tempArraySize = 0;
-      int outBegIdx1 = 0;
-      int outBegIdx2 = 0;
-      int outNbElement1 = 0;
-      outBegIdx = 0;
-      outNBElement = 0;
-      lookbackSTOCHF = StochFLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
-      lookbackTotal = RsiLookback(optInTimePeriod) + lookbackSTOCHF;
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
-      }
-      if( startIdx > endIdx ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return RetCode.Success ;
-      }
-      outBegIdx = startIdx;
-      tempArraySize = endIdx - startIdx + 1 + lookbackSTOCHF;
-      tempRSIBuffer = new double[(int)(tempArraySize * 1)];
-      retCode = RsiUnguarded(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, out outBegIdx1, out outNbElement1, tempRSIBuffer);
-      if( retCode != RetCode.Success || outNbElement1 == 0 ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
-      retCode = StochFUnguarded(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx2, out outNBElement, outFastK, outFastD);
+      retCode = StochF(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx2, out outNBElement, outFastK, outFastD);
       if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
          outBegIdx = 0;
          outNBElement = 0;
@@ -412,7 +320,8 @@ public partial class Core
    /// <param name="optInFastD_Period">Smoothing period for %D (default 3; range 1..100000; <c>int.MinValue</c>
    /// selects the default).</param>
    /// <param name="optInFastD_MAType">MA type used to smooth %D (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA,
-   /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED).</param>
+   /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED;
+   /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="outFastK">Unsmoothed stochastic of the RSI (raw %K) Must hold at least <c>endIdx -
    /// startIdx + 1</c> values.</param>
    /// <param name="outFastD">%K smoothed over FastD_Period (signal line) Must hold at least <c>endIdx -
@@ -439,50 +348,6 @@ public partial class Core
       if( retCode != RetCode.Success ) {
          throw Failure("STOCHRSI", retCode);
       }
-      return new OutRange(outBegIdx, outNBElement);
-   }
-   /// <summary>
-   /// Applies the Fast Stochastic (STOCHF) oscillator to an RSI series instead
-   /// of price, measuring where RSI sits within its recent min/max range.
-   /// Oscillates 0-100; high = RSI near its recent top, low = near its recent
-   /// bottom. — <b>unchecked</b> variant of <c>StochRsi</c>.
-   /// </summary>
-   /// <remarks>
-   /// Skips every parameter check. The caller guarantees: non-negative
-   /// <c>startIdx</c>, <c>endIdx &gt;= startIdx</c>, non-null arrays, output
-   /// arrays distinct from each other, and every optional parameter already
-   /// resolved and within its documented range — a sentinel such as
-   /// <c>int.MinValue</c> is <b>not</b> substituted here.
-   /// <para>
-   /// Breaking any of those yields an empty <see cref="OutRange"/>, silently
-   /// wrong output, or a runtime exception thrown from inside the calculation
-   /// (the CLR bounds-checks array access, so misuse never reaches C's undefined
-   /// behaviour — but it is not turned into a useful diagnostic either; C and
-   /// Rust return a status code from this tier, this one has nowhere to report
-   /// it). Use the guarded method unless the arguments are already known good.
-   /// </para>
-   /// </remarks>
-   /// <param name="startIdx">See the guarded method.</param>
-   /// <param name="endIdx">See the guarded method.</param>
-   /// <param name="inReal">See the guarded method.</param>
-   /// <param name="optInTimePeriod">See the guarded method.</param>
-   /// <param name="optInFastK_Period">See the guarded method.</param>
-   /// <param name="optInFastD_Period">See the guarded method.</param>
-   /// <param name="optInFastD_MAType">See the guarded method.</param>
-   /// <param name="outFastK">See the guarded method.</param>
-   /// <param name="outFastD">See the guarded method.</param>
-   /// <returns>The range written, exactly as the guarded method reports it.</returns>
-   public OutRange StochRsiUnguarded( int startIdx,
-                                      int endIdx,
-                                      double[] inReal,
-                                      int optInTimePeriod,
-                                      int optInFastK_Period,
-                                      int optInFastD_Period,
-                                      MAType optInFastD_MAType,
-                                      double[] outFastK,
-                                      double[] outFastD )
-   {
-      StochRsiUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out int outBegIdx, out int outNBElement, outFastK, outFastD);
       return new OutRange(outBegIdx, outNBElement);
    }
    /// <summary>
@@ -526,7 +391,8 @@ public partial class Core
    /// <param name="optInFastD_Period">Smoothing period for %D (default 3; range 1..100000; <c>int.MinValue</c>
    /// selects the default).</param>
    /// <param name="optInFastD_MAType">MA type used to smooth %D (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA,
-   /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED).</param>
+   /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED;
+   /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="outFastK">Unsmoothed stochastic of the RSI (raw %K) Must hold at least <c>endIdx -
    /// startIdx + 1</c> values.</param>
    /// <param name="outFastD">%K smoothed over FastD_Period (signal line) Must hold at least <c>endIdx -
@@ -553,53 +419,6 @@ public partial class Core
       if( retCode != RetCode.Success ) {
          throw Failure("STOCHRSI", retCode);
       }
-      return new OutRange(outBegIdx, outNBElement);
-   }
-   /// <summary>
-   /// Applies the Fast Stochastic (STOCHF) oscillator to an RSI series instead
-   /// of price, measuring where RSI sits within its recent min/max range.
-   /// Oscillates 0-100; high = RSI near its recent top, low = near its recent
-   /// bottom. — <b>unchecked</b> variant of <c>StochRsi</c>.
-   /// </summary>
-   /// <remarks>
-   /// Skips every parameter check. The caller guarantees: non-negative
-   /// <c>startIdx</c>, <c>endIdx &gt;= startIdx</c>, non-null arrays, output
-   /// arrays distinct from each other, and every optional parameter already
-   /// resolved and within its documented range — a sentinel such as
-   /// <c>int.MinValue</c> is <b>not</b> substituted here.
-   /// <para>
-   /// Breaking any of those yields an empty <see cref="OutRange"/>, silently
-   /// wrong output, or a runtime exception thrown from inside the calculation
-   /// (the CLR bounds-checks array access, so misuse never reaches C's undefined
-   /// behaviour — but it is not turned into a useful diagnostic either; C and
-   /// Rust return a status code from this tier, this one has nowhere to report
-   /// it). Use the guarded method unless the arguments are already known good.
-   /// </para>
-   /// <para>
-   /// This is the <c>float[]</c> overload; see the guarded method.
-   /// </para>
-   /// </remarks>
-   /// <param name="startIdx">See the guarded method.</param>
-   /// <param name="endIdx">See the guarded method.</param>
-   /// <param name="inReal">See the guarded method.</param>
-   /// <param name="optInTimePeriod">See the guarded method.</param>
-   /// <param name="optInFastK_Period">See the guarded method.</param>
-   /// <param name="optInFastD_Period">See the guarded method.</param>
-   /// <param name="optInFastD_MAType">See the guarded method.</param>
-   /// <param name="outFastK">See the guarded method.</param>
-   /// <param name="outFastD">See the guarded method.</param>
-   /// <returns>The range written, exactly as the guarded method reports it.</returns>
-   public OutRange StochRsiUnguarded( int startIdx,
-                                      int endIdx,
-                                      float[] inReal,
-                                      int optInTimePeriod,
-                                      int optInFastK_Period,
-                                      int optInFastD_Period,
-                                      MAType optInFastD_MAType,
-                                      double[] outFastK,
-                                      double[] outFastD )
-   {
-      StochRsiUnguarded(startIdx, endIdx, inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out int outBegIdx, out int outNBElement, outFastK, outFastD);
       return new OutRange(outBegIdx, outNBElement);
    }
 }

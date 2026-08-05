@@ -41,6 +41,20 @@ impl HelperRegistry {
     pub fn get(&self, name: &str) -> Option<&HelperDef> {
         self.helpers.get(name)
     }
+
+    /// Build a registry from already-parsed helpers (tests, fixtures).
+    pub fn from_defs(defs: Vec<HelperDef>) -> Self {
+        HelperRegistry {
+            helpers: defs.into_iter().map(|h| (h.name.clone(), h)).collect(),
+        }
+    }
+
+    /// Every registered helper. Order is unspecified (the backing map is a
+    /// `HashMap`), so callers must not let it decide anything — see
+    /// `rust_lang::helper_local_ty`, which requires all matches to agree.
+    pub fn iter(&self) -> impl Iterator<Item = &HelperDef> {
+        self.helpers.values()
+    }
 }
 
 /// Substitute helper parameters with actual arguments in an expression.
@@ -72,6 +86,7 @@ pub fn substitute_expr(expr: &Expr, subs: &HashMap<String, Expr>) -> Expr {
         ),
         Expr::Cast(vt, inner) => Expr::Cast(vt.clone(), Box::new(substitute_expr(inner, subs))),
         Expr::Not(inner) => Expr::Not(Box::new(substitute_expr(inner, subs))),
+        Expr::BitwiseNot(inner) => Expr::BitwiseNot(Box::new(substitute_expr(inner, subs))),
         Expr::AddressOf(inner) => Expr::AddressOf(Box::new(substitute_expr(inner, subs))),
         Expr::PostIncrement(inner) => {
             Expr::PostIncrement(Box::new(substitute_expr(inner, subs)))
@@ -442,6 +457,9 @@ pub fn hoist_block_helpers(
         Expr::Not(inner) => {
             Expr::Not(Box::new(hoist_block_helpers(inner, helpers, hoisted, counter, skip_fns)))
         }
+        Expr::BitwiseNot(inner) => Expr::BitwiseNot(Box::new(hoist_block_helpers(
+            inner, helpers, hoisted, counter, skip_fns,
+        ))),
         Expr::AddressOf(inner) => Expr::AddressOf(Box::new(hoist_block_helpers(
             inner, helpers, hoisted, counter, skip_fns,
         ))),

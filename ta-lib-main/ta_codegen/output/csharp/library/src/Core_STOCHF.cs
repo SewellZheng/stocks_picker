@@ -78,7 +78,7 @@ public partial class Core
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInFastD_MAType">Moving-average type used to smooth Fast-D (default 0 = SMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED).</param>
+   /// 10=DISABLED; <c>int.MinValue</c> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int StochFLookback( int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
    {
@@ -91,6 +91,9 @@ public partial class Core
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return -1;
+      }
+      if( (int)optInFastD_MAType == int.MinValue ) {
+         optInFastD_MAType = MAType.Sma;
       }
       int retValue = 0;
       /* Account for the initial data needed for Fast-K. */
@@ -146,6 +149,9 @@ public partial class Core
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (int)optInFastD_MAType == int.MinValue ) {
+         optInFastD_MAType = MAType.Sma;
       }
       if( outFastK == outFastD ) {
          return RetCode.BadParam ;
@@ -293,7 +299,7 @@ public partial class Core
       /* Fast-K calculation completed. This K calculation is returned
        * to the caller. It is smoothed to become Fast-D.
        */
-      retCode = MovingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outFastD);
+      retCode = MovingAverage(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outFastD);
       if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
          if( (bufferIsAllocated) != 0 ) {
          }
@@ -323,127 +329,6 @@ public partial class Core
       /* Note: Keep the outBegIdx relative to the
        *       caller input before returning.
        */
-      outBegIdx = startIdx;
-      return RetCode.Success ;
-   }
-   internal RetCode StochFUnguarded( int startIdx,
-                                     int endIdx,
-                                     double[] inHigh,
-                                     double[] inLow,
-                                     double[] inClose,
-                                     int optInFastK_Period,
-                                     int optInFastD_Period,
-                                     MAType optInFastD_MAType,
-                                     out int outBegIdx,
-                                     out int outNBElement,
-                                     double[] outFastK,
-                                     double[] outFastD )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      RetCode retCode;
-      double lowest = 0;
-      double highest = 0;
-      double tmp = 0;
-      double diff = 0;
-      double[] tempBuffer;
-      int outIdx = 0;
-      int lowestIdx = 0;
-      int highestIdx = 0;
-      int lookbackTotal = 0;
-      int lookbackK = 0;
-      int lookbackFastD = 0;
-      int trailingIdx = 0;
-      int today = 0;
-      int i = 0;
-      int bufferIsAllocated = 0;
-      lookbackK = optInFastK_Period - 1;
-      lookbackFastD = MovingAverageLookback(optInFastD_Period, optInFastD_MAType);
-      lookbackTotal = lookbackK + lookbackFastD;
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
-      }
-      if( startIdx > endIdx ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return RetCode.Success ;
-      }
-      outIdx = 0;
-      trailingIdx = startIdx - lookbackTotal;
-      today = trailingIdx + lookbackK;
-      highestIdx = 0 - 1;
-      lowestIdx = highestIdx;
-      lowest = 0.0;
-      highest = lowest;
-      diff = highest;
-      bufferIsAllocated = 0;
-      if( outFastK == inHigh || outFastK == inLow || outFastK == inClose ) {
-         tempBuffer = outFastK;
-      } else {
-         bufferIsAllocated = 1;
-         tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
-      }
-      while( today <= endIdx ) {
-         tmp = inLow[today];
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
-            lowest = inLow[lowestIdx];
-            i = lowestIdx;
-            while( ++i <= today ) {
-               tmp = inLow[i];
-               if( tmp < lowest ) {
-                  lowestIdx = i;
-                  lowest = tmp;
-               }
-            }
-            diff = (highest - lowest) / 100.0;
-         } else if( tmp <= lowest ) {
-            lowestIdx = today;
-            lowest = tmp;
-            diff = (highest - lowest) / 100.0;
-         }
-         tmp = inHigh[today];
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
-            highest = inHigh[highestIdx];
-            i = highestIdx;
-            while( ++i <= today ) {
-               tmp = inHigh[i];
-               if( tmp > highest ) {
-                  highestIdx = i;
-                  highest = tmp;
-               }
-            }
-            diff = (highest - lowest) / 100.0;
-         } else if( tmp >= highest ) {
-            highestIdx = today;
-            highest = tmp;
-            diff = (highest - lowest) / 100.0;
-         }
-         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
-            tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
-         } else {
-            tempBuffer[outIdx++] = 0.0;
-         }
-         trailingIdx += 1;
-         today += 1;
-      }
-      retCode = MovingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outFastD);
-      if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
-         if( (bufferIsAllocated) != 0 ) {
-         }
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
-      Array.Copy(tempBuffer, lookbackFastD, outFastK, 0, (int)outNBElement * 1);
-      if( (bufferIsAllocated) != 0 ) {
-      }
-      if( retCode != RetCode.Success ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
@@ -493,6 +378,9 @@ public partial class Core
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (int)optInFastD_MAType == int.MinValue ) {
+         optInFastD_MAType = MAType.Sma;
       }
       if( outFastK == outFastD ) {
          return RetCode.BadParam ;
@@ -564,124 +452,7 @@ public partial class Core
          trailingIdx += 1;
          today += 1;
       }
-      retCode = MovingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outFastD);
-      if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
-         if( (bufferIsAllocated) != 0 ) {
-         }
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
-      Array.Copy(tempBuffer, lookbackFastD, outFastK, 0, (int)outNBElement * 1);
-      if( (bufferIsAllocated) != 0 ) {
-      }
-      if( retCode != RetCode.Success ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
-      outBegIdx = startIdx;
-      return RetCode.Success ;
-   }
-   internal RetCode StochFUnguarded( int startIdx,
-                                     int endIdx,
-                                     float[] inHigh,
-                                     float[] inLow,
-                                     float[] inClose,
-                                     int optInFastK_Period,
-                                     int optInFastD_Period,
-                                     MAType optInFastD_MAType,
-                                     out int outBegIdx,
-                                     out int outNBElement,
-                                     double[] outFastK,
-                                     double[] outFastD )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      RetCode retCode;
-      double lowest = 0;
-      double highest = 0;
-      double tmp = 0;
-      double diff = 0;
-      double[] tempBuffer;
-      int outIdx = 0;
-      int lowestIdx = 0;
-      int highestIdx = 0;
-      int lookbackTotal = 0;
-      int lookbackK = 0;
-      int lookbackFastD = 0;
-      int trailingIdx = 0;
-      int today = 0;
-      int i = 0;
-      int bufferIsAllocated = 0;
-      lookbackK = optInFastK_Period - 1;
-      lookbackFastD = MovingAverageLookback(optInFastD_Period, optInFastD_MAType);
-      lookbackTotal = lookbackK + lookbackFastD;
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
-      }
-      if( startIdx > endIdx ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return RetCode.Success ;
-      }
-      outIdx = 0;
-      trailingIdx = startIdx - lookbackTotal;
-      today = trailingIdx + lookbackK;
-      highestIdx = 0 - 1;
-      lowestIdx = highestIdx;
-      lowest = 0.0;
-      highest = lowest;
-      diff = highest;
-      bufferIsAllocated = 0;
-      bufferIsAllocated = 1;
-      tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
-      while( today <= endIdx ) {
-         tmp = (double)inLow[today];
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
-            lowest = (double)inLow[lowestIdx];
-            i = lowestIdx;
-            while( ++i <= today ) {
-               tmp = (double)inLow[i];
-               if( tmp < lowest ) {
-                  lowestIdx = i;
-                  lowest = tmp;
-               }
-            }
-            diff = (highest - lowest) / 100.0;
-         } else if( tmp <= lowest ) {
-            lowestIdx = today;
-            lowest = tmp;
-            diff = (highest - lowest) / 100.0;
-         }
-         tmp = (double)inHigh[today];
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
-            highest = (double)inHigh[highestIdx];
-            i = highestIdx;
-            while( ++i <= today ) {
-               tmp = (double)inHigh[i];
-               if( tmp > highest ) {
-                  highestIdx = i;
-                  highest = tmp;
-               }
-            }
-            diff = (highest - lowest) / 100.0;
-         } else if( tmp >= highest ) {
-            highestIdx = today;
-            highest = tmp;
-            diff = (highest - lowest) / 100.0;
-         }
-         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
-            tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
-         } else {
-            tempBuffer[outIdx++] = 0.0;
-         }
-         trailingIdx += 1;
-         today += 1;
-      }
-      retCode = MovingAverageUnguarded(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outFastD);
+      retCode = MovingAverage(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outFastD);
       if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
          if( (bufferIsAllocated) != 0 ) {
          }
@@ -734,7 +505,7 @@ public partial class Core
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInFastD_MAType">Moving-average type used to smooth Fast-D (default 0 = SMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED).</param>
+   /// 10=DISABLED; <c>int.MinValue</c> selects the default).</param>
    /// <param name="outFastK">Raw %K stochastic line. Must hold at least <c>endIdx - startIdx + 1</c>
    /// values.</param>
    /// <param name="outFastD">MA-smoothed %K (signal line) Must hold at least <c>endIdx - startIdx +
@@ -762,52 +533,6 @@ public partial class Core
       if( retCode != RetCode.Success ) {
          throw Failure("STOCHF", retCode);
       }
-      return new OutRange(outBegIdx, outNBElement);
-   }
-   /// <summary>
-   /// Fast Stochastic Oscillator: the raw %K line and its
-   /// moving-average-smoothed %D line. Unlike STOCH (which slows both lines),
-   /// STOCHF returns the unsmoothed FastK and FastD. Oscillates 0-100; &gt;80
-   /// overbought, &lt;20 oversold. — <b>unchecked</b> variant of <c>StochF</c>.
-   /// </summary>
-   /// <remarks>
-   /// Skips every parameter check. The caller guarantees: non-negative
-   /// <c>startIdx</c>, <c>endIdx &gt;= startIdx</c>, non-null arrays, output
-   /// arrays distinct from each other, and every optional parameter already
-   /// resolved and within its documented range — a sentinel such as
-   /// <c>int.MinValue</c> is <b>not</b> substituted here.
-   /// <para>
-   /// Breaking any of those yields an empty <see cref="OutRange"/>, silently
-   /// wrong output, or a runtime exception thrown from inside the calculation
-   /// (the CLR bounds-checks array access, so misuse never reaches C's undefined
-   /// behaviour — but it is not turned into a useful diagnostic either; C and
-   /// Rust return a status code from this tier, this one has nowhere to report
-   /// it). Use the guarded method unless the arguments are already known good.
-   /// </para>
-   /// </remarks>
-   /// <param name="startIdx">See the guarded method.</param>
-   /// <param name="endIdx">See the guarded method.</param>
-   /// <param name="inHigh">See the guarded method.</param>
-   /// <param name="inLow">See the guarded method.</param>
-   /// <param name="inClose">See the guarded method.</param>
-   /// <param name="optInFastK_Period">See the guarded method.</param>
-   /// <param name="optInFastD_Period">See the guarded method.</param>
-   /// <param name="optInFastD_MAType">See the guarded method.</param>
-   /// <param name="outFastK">See the guarded method.</param>
-   /// <param name="outFastD">See the guarded method.</param>
-   /// <returns>The range written, exactly as the guarded method reports it.</returns>
-   public OutRange StochFUnguarded( int startIdx,
-                                    int endIdx,
-                                    double[] inHigh,
-                                    double[] inLow,
-                                    double[] inClose,
-                                    int optInFastK_Period,
-                                    int optInFastD_Period,
-                                    MAType optInFastD_MAType,
-                                    double[] outFastK,
-                                    double[] outFastD )
-   {
-      StochFUnguarded(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out int outBegIdx, out int outNBElement, outFastK, outFastD);
       return new OutRange(outBegIdx, outNBElement);
    }
    /// <summary>
@@ -850,7 +575,7 @@ public partial class Core
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInFastD_MAType">Moving-average type used to smooth Fast-D (default 0 = SMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED).</param>
+   /// 10=DISABLED; <c>int.MinValue</c> selects the default).</param>
    /// <param name="outFastK">Raw %K stochastic line. Must hold at least <c>endIdx - startIdx + 1</c>
    /// values.</param>
    /// <param name="outFastD">MA-smoothed %K (signal line) Must hold at least <c>endIdx - startIdx +
@@ -878,55 +603,6 @@ public partial class Core
       if( retCode != RetCode.Success ) {
          throw Failure("STOCHF", retCode);
       }
-      return new OutRange(outBegIdx, outNBElement);
-   }
-   /// <summary>
-   /// Fast Stochastic Oscillator: the raw %K line and its
-   /// moving-average-smoothed %D line. Unlike STOCH (which slows both lines),
-   /// STOCHF returns the unsmoothed FastK and FastD. Oscillates 0-100; &gt;80
-   /// overbought, &lt;20 oversold. — <b>unchecked</b> variant of <c>StochF</c>.
-   /// </summary>
-   /// <remarks>
-   /// Skips every parameter check. The caller guarantees: non-negative
-   /// <c>startIdx</c>, <c>endIdx &gt;= startIdx</c>, non-null arrays, output
-   /// arrays distinct from each other, and every optional parameter already
-   /// resolved and within its documented range — a sentinel such as
-   /// <c>int.MinValue</c> is <b>not</b> substituted here.
-   /// <para>
-   /// Breaking any of those yields an empty <see cref="OutRange"/>, silently
-   /// wrong output, or a runtime exception thrown from inside the calculation
-   /// (the CLR bounds-checks array access, so misuse never reaches C's undefined
-   /// behaviour — but it is not turned into a useful diagnostic either; C and
-   /// Rust return a status code from this tier, this one has nowhere to report
-   /// it). Use the guarded method unless the arguments are already known good.
-   /// </para>
-   /// <para>
-   /// This is the <c>float[]</c> overload; see the guarded method.
-   /// </para>
-   /// </remarks>
-   /// <param name="startIdx">See the guarded method.</param>
-   /// <param name="endIdx">See the guarded method.</param>
-   /// <param name="inHigh">See the guarded method.</param>
-   /// <param name="inLow">See the guarded method.</param>
-   /// <param name="inClose">See the guarded method.</param>
-   /// <param name="optInFastK_Period">See the guarded method.</param>
-   /// <param name="optInFastD_Period">See the guarded method.</param>
-   /// <param name="optInFastD_MAType">See the guarded method.</param>
-   /// <param name="outFastK">See the guarded method.</param>
-   /// <param name="outFastD">See the guarded method.</param>
-   /// <returns>The range written, exactly as the guarded method reports it.</returns>
-   public OutRange StochFUnguarded( int startIdx,
-                                    int endIdx,
-                                    float[] inHigh,
-                                    float[] inLow,
-                                    float[] inClose,
-                                    int optInFastK_Period,
-                                    int optInFastD_Period,
-                                    MAType optInFastD_MAType,
-                                    double[] outFastK,
-                                    double[] outFastD )
-   {
-      StochFUnguarded(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out int outBegIdx, out int outNBElement, outFastK, outFastD);
       return new OutRange(outBegIdx, outNBElement);
    }
 }

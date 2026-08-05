@@ -7,23 +7,21 @@
 //! reflected over `@FuncInfo` annotations, shipped empty function hints, and
 //! could only describe the guarded double-precision batch API.
 //!
-//! Both surfaces render from [`java_abstract::rows`], so they cannot disagree:
-//! the values come from the same `func_flag_bits` / `price_bundle` /
-//! helpers that build the C and Rust tables, and
-//! `test_abstract.c` already diffs the server's copy against C.
+//! Both surfaces render from [`abstract_rows::rows`](super::abstract_rows::rows),
+//! so they cannot disagree: the values come from the same backend-neutral rows
+//! the Rust and C# registries render, and `test_abstract.c` already diffs the
+//! server's copy against C.
 //!
-//! Scope is the guarded double-precision batch API — the same as the C and Rust
-//! abstract layers. Describing streaming handles, `Unguarded` variants and
-//! `float[]` overloads is new schema design no backend does yet, and is a
-//! deliberate follow-up.
+//! Scope is the double-precision batch API — the same as the C and Rust abstract
+//! layers. Describing streaming handles and `float[]` overloads is new schema
+//! design no backend does yet, and is a deliberate follow-up.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use super::java_abstract::{rows, FuncRow};
-use super::price_bundle;
-use crate::ir::{EnumDef, FuncDef, ParamType};
+use super::abstract_rows::{rows, FuncRow, InputKind, OptDomain, OutputKind};
+use crate::ir::{EnumDef, FuncDef};
 
 /// Java package (and directory) the registry is emitted into.
 const PACKAGE: &str = "io.github.talib.metadata";
@@ -113,7 +111,7 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, lib_src: &P
     write(&dir, "FunctionInfo.java", &function_info_record());
     write(&dir, "Functions.java", &functions_registry(&rows));
     write(&dir, "ParamHolder.java", &param_holder_class());
-    write(&dir, "Dispatch.java", &dispatch_class(funcs));
+    write(&dir, "Dispatch.java", &dispatch_class(&rows));
 
     println!("  java metadata registry -> {} ({} functions)", dir.display(), rows.len());
 }
@@ -444,10 +442,9 @@ fn functions_registry(rows: &[FuncRow]) -> String {
          \x20* }\n\
          \x20* }</pre>\n\
          \x20*\n\
-         \x20* <p>Scope is the guarded, double-precision batch API — the same surface C's\n\
+         \x20* <p>Scope is the double-precision batch API — the same surface C's\n\
          \x20* {@code ta_abstract} and Rust's {@code abstract_api} describe. Streaming\n\
-         \x20* handles, {@code Unguarded} variants and {@code float[]} overloads are not\n\
-         \x20* catalogued.\n\
+         \x20* handles and {@code float[]} overloads are not catalogued.\n\
          \x20*/\n\
          public final class Functions {\n\n\
          \x20   private Functions() { }\n\n",
@@ -515,10 +512,13 @@ fn emit_function_factory(s: &mut String, f: &FuncRow) {
         s,
         "         {}, {}, {}, {}, {}, 0x{:08X},",
         js(&f.name),
-        js(&f.group),
+        js(f.group.as_str()),
         js(&f.hint),
-        js(&f.camel_case_name),
-        js(&f.java_method_name),
+        js(f.camel_case_name()),
+        // Derived here, with the very helper `java.rs` names the method with, so
+        // it cannot drift from the real signature — which is why it is not a
+        // field on the backend-neutral row.
+        js(&super::java::to_java_method_name(&f.name, f.camel_case.as_deref())),
         f.flags
     );
 
@@ -531,7 +531,7 @@ fn emit_function_factory(s: &mut String, f: &FuncRow) {
             let _ = writeln!(
                 s,
                 "            new InputInfo(InputType.{}, {}, 0x{:08X}){sep}",
-                input_type_name(inp.ty),
+                input_type_name(inp.kind),
                 js(&inp.param_name),
                 inp.flags
             );
@@ -545,12 +545,39 @@ fn emit_function_factory(s: &mut String, f: &FuncRow) {
         s.push_str("         List.of(\n");
         for (i, o) in f.opt_inputs.iter().enumerate() {
             let sep = if i + 1 == f.opt_inputs.len() { "" } else { "," };
-            let vl = o.value_list.as_ref().map_or_else(|| "null".to_string(), |v| js(v));
+            // Every domain's slots are carried positionally; the ones this
+            // domain does not use stay literal 0 / null, and `type()` is what
+            // tells a consumer which to read. The arms are spelled out rather
+            // than caught by `_` so a new OptDomain variant fails to compile
+            // here too: a catch-all would hand it zeros and a null value list,
+            // which is a plausible-looking row rather than a build error.
+            let (rmin, rmax, prec, rs, re, ri) = match &o.domain {
+                OptDomain::RealRange { min, max, precision, suggested, .. } => {
+                    (*min, *max, *precision, suggested.0, suggested.1, suggested.2)
+                }
+                OptDomain::IntegerRange { .. }
+                | OptDomain::IntegerList { .. }
+                | OptDomain::RealList { .. } => (0.0, 0.0, 0, 0.0, 0.0, 0.0),
+            };
+            let (imin, imax, is, ie, ii) = match &o.domain {
+                OptDomain::IntegerRange { min, max, suggested, .. } => {
+                    (*min, *max, suggested.0, suggested.1, suggested.2)
+                }
+                OptDomain::RealRange { .. }
+                | OptDomain::IntegerList { .. }
+                | OptDomain::RealList { .. } => (0, 0, 0, 0, 0),
+            };
+            let vl = match &o.domain {
+                OptDomain::IntegerList { .. } | OptDomain::RealList { .. } => {
+                    js(&o.domain.value_list_string())
+                }
+                OptDomain::RealRange { .. } | OptDomain::IntegerRange { .. } => "null".to_string(),
+            };
             let _ = writeln!(s, "            new OptInputInfo(");
-            let _ = writeln!(s, "               OptInputType.{}, {}, 0x{:08X},", opt_type_name(o.ty), js(&o.param_name), o.flags);
-            let _ = writeln!(s, "               {}, {}, {},", js(&o.display_name), js(&o.hint), jd(o.default_value));
-            let _ = writeln!(s, "               {}, {}, {}, {}, {}, {},", jd(o.rmin), jd(o.rmax), o.precision, jd(o.rsug.0), jd(o.rsug.1), jd(o.rsug.2));
-            let _ = writeln!(s, "               {}, {}, {}, {}, {}, {}){sep}", o.imin, o.imax, o.isug.0, o.isug.1, o.isug.2, vl);
+            let _ = writeln!(s, "               OptInputType.{}, {}, 0x{:08X},", opt_type_name(&o.domain), js(&o.param_name), o.flags);
+            let _ = writeln!(s, "               {}, {}, {},", js(&o.display_name), js(&o.hint), jd(o.domain.default_as_f64()));
+            let _ = writeln!(s, "               {}, {}, {prec}, {}, {}, {},", jd(rmin), jd(rmax), jd(rs), jd(re), jd(ri));
+            let _ = writeln!(s, "               {imin}, {imax}, {is}, {ie}, {ii}, {vl}){sep}");
         }
         s.push_str("         ),\n");
     }
@@ -564,7 +591,7 @@ fn emit_function_factory(s: &mut String, f: &FuncRow) {
             let _ = writeln!(
                 s,
                 "            new OutputInfo(OutputType.{}, {}, 0x{:08X}){sep}",
-                output_type_name(out.ty),
+                output_type_name(out.kind),
                 js(&out.param_name),
                 out.flags
             );
@@ -574,27 +601,27 @@ fn emit_function_factory(s: &mut String, f: &FuncRow) {
     s.push_str("   }\n\n");
 }
 
-fn input_type_name(ty: i32) -> &'static str {
-    match ty {
-        0 => "PRICE",
-        2 => "INTEGER",
-        _ => "REAL",
+fn input_type_name(kind: InputKind) -> &'static str {
+    match kind {
+        InputKind::Price => "PRICE",
+        InputKind::Real => "REAL",
+        InputKind::Integer => "INTEGER",
     }
 }
 
-fn opt_type_name(ty: i32) -> &'static str {
-    match ty {
-        1 => "REAL_LIST",
-        2 => "INTEGER_RANGE",
-        3 => "INTEGER_LIST",
-        _ => "REAL_RANGE",
+fn opt_type_name(domain: &OptDomain) -> &'static str {
+    match domain {
+        OptDomain::RealRange { .. } => "REAL_RANGE",
+        OptDomain::RealList { .. } => "REAL_LIST",
+        OptDomain::IntegerRange { .. } => "INTEGER_RANGE",
+        OptDomain::IntegerList { .. } => "INTEGER_LIST",
     }
 }
 
-fn output_type_name(ty: i32) -> &'static str {
-    match ty {
-        1 => "INTEGER",
-        _ => "REAL",
+fn output_type_name(kind: OutputKind) -> &'static str {
+    match kind {
+        OutputKind::Real => "REAL",
+        OutputKind::Integer => "INTEGER",
     }
 }
 
@@ -881,10 +908,7 @@ public final class ParamHolder {
 }
 
 /// The generated `switch` from a function name onto its typed public wrapper.
-fn dispatch_class(funcs: &[FuncDef]) -> String {
-    let mut sorted: Vec<&FuncDef> = funcs.iter().collect();
-    sorted.sort_by(|a, b| a.name.cmp(&b.name));
-
+fn dispatch_class(rows: &[FuncRow]) -> String {
     let mut s = header("MF,CC");
     s.push_str(
         "import io.github.talib.Core;
@@ -908,50 +932,45 @@ fn dispatch_class(funcs: &[FuncDef]) -> String {
 ",
     );
 
-    for f in &sorted {
+    for f in rows {
         let camel = super::java::to_java_method_name(&f.name, f.camel_case.as_deref());
-        // Collapsed input slots, so the holder's indices line up with FunctionInfo.
-        let mut slot_of: HashMap<String, (usize, usize)> = HashMap::new();
-        let mut slot = 0usize;
-        for grouped in price_bundle::group(&f.inputs) {
-            match grouped {
-                price_bundle::Grouped::Price(bundle) => {
-                    for inp in &bundle {
-                        let comp = inp.price.expect("bundle member carries a PriceRef").component;
-                        slot_of.insert(inp.name.clone(), (slot, comp as usize));
-                    }
-                    slot += 1;
-                }
-                price_bundle::Grouped::Single(inp) => {
-                    slot_of.insert(inp.name.clone(), (slot, usize::MAX));
-                    slot += 1;
-                }
-            }
-        }
 
+        // Argument order comes STRAIGHT from the row the registry publishes:
+        // a price bundle is one slot, and `signature_components` is the order
+        // the typed method takes its arrays in. This used to re-fold `FuncDef`
+        // with a second `price_bundle::group` pass, whose agreement with the
+        // row's own slot numbering nothing checked.
+        //
+        // Not merely equivalent to the old fold — strictly safer than it. That
+        // one keyed a `HashMap<String, _>` on the input NAME, which is derived
+        // from the price component, so two bundles sharing a component would
+        // have collided and pointed both at one slot. Reading the row cannot:
+        // the slot IS the row's index.
         let mut args: Vec<String> = vec!["startIdx".into(), "endIdx".into()];
-        for inp in &f.inputs {
-            let (sl, comp) = slot_of[&inp.name];
-            if comp == usize::MAX {
-                match inp.param_type {
-                    ParamType::Integer => args.push(format!("h.intInput({sl})")),
-                    _ => args.push(format!("h.realInput({sl})")),
+        for (slot, inp) in f.inputs.iter().enumerate() {
+            match inp.kind {
+                InputKind::Price => {
+                    for c in &inp.signature_components {
+                        args.push(format!("h.price({slot}, {})", *c as usize));
+                    }
                 }
-            } else {
-                args.push(format!("h.price({sl}, {comp})"));
+                InputKind::Real => args.push(format!("h.realInput({slot})")),
+                InputKind::Integer => args.push(format!("h.intInput({slot})")),
             }
         }
-        for (k, opt) in f.optional_inputs.iter().enumerate() {
-            match &opt.param_type {
-                ParamType::Real => args.push(format!("h.realOpt({k})")),
-                ParamType::Enum(_) => args.push(format!("h.maTypeOpt({k})")),
-                _ => args.push(format!("h.intOpt({k})")),
+        for (k, opt) in f.opt_inputs.iter().enumerate() {
+            match &opt.domain {
+                OptDomain::RealRange { .. } | OptDomain::RealList { .. } => {
+                    args.push(format!("h.realOpt({k})"));
+                }
+                OptDomain::IntegerList { .. } => args.push(format!("h.maTypeOpt({k})")),
+                OptDomain::IntegerRange { .. } => args.push(format!("h.intOpt({k})")),
             }
         }
         for (k, out) in f.outputs.iter().enumerate() {
-            match out.param_type {
-                ParamType::Integer => args.push(format!("h.intOutput({k})")),
-                _ => args.push(format!("h.realOutput({k})")),
+            match out.kind {
+                OutputKind::Integer => args.push(format!("h.intOutput({k})")),
+                OutputKind::Real => args.push(format!("h.realOutput({k})")),
             }
         }
 

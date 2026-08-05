@@ -157,6 +157,10 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
+        let _assertLb = self.mom_lookback(optInTimePeriod);
+        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
+        assert!(_assertStart > endIdx || endIdx < inReal.len());
+        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
         let mut startIdx = startIdx;
         let mut inIdx: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
@@ -193,7 +197,7 @@ impl Core {
         // always positive values.
         // Move up the start index if there is not
         // enough initial data.
-        if startIdx < (optInTimePeriod) as usize {
+        if startIdx < ((optInTimePeriod) as usize) {
             startIdx = (optInTimePeriod) as usize;
         }
         // Make sure there is still something to evaluate.
@@ -207,55 +211,12 @@ impl Core {
         //    current value.
         outIdx = 0;
         inIdx = startIdx;
-        trailingIdx = startIdx - (optInTimePeriod) as usize;
+        trailingIdx = startIdx - ((optInTimePeriod) as usize);
         while inIdx <= endIdx {
             outReal[outIdx] = ((inReal[{ let _v = inIdx; inIdx += 1; _v }] - inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }]) as f64);
             outIdx += 1;
         }
         // Set output limits.
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
-        return RetCode::Success;
-    }
-    /// Unguarded variant of [`Core::mom`], used for internal cross-indicator calls.
-    ///
-    /// Skips parameter validation; indexing stays safe. Every argument must satisfy the constraints
-    /// documented on [`Core::mom`]; an out-of-range parameter, an input slice not covering
-    /// `startIdx..=endIdx`, or an undersized output slice panics (never undefined behavior). Prefer
-    /// [`Core::mom`].
-    #[inline]
-    pub fn mom_unguarded(
-        &self,
-        mut startIdx: usize,
-        endIdx: usize,
-        inReal: &[f64],
-        mut optInTimePeriod: i32,
-        outBegIdx: &mut usize,
-        outNBElement: &mut usize,
-        outReal: &mut [f64],
-    ) -> RetCode {
-        let mut inIdx: usize = 0_usize;
-        let mut outIdx: usize = 0_usize;
-        let mut trailingIdx: usize = 0_usize;
-        assert!(endIdx < inReal.len());
-        let _assertLb = self.mom_lookback(optInTimePeriod);
-        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
-        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        if startIdx < (optInTimePeriod) as usize {
-            startIdx = (optInTimePeriod) as usize;
-        }
-        if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return RetCode::Success;
-        }
-        outIdx = 0;
-        inIdx = startIdx;
-        trailingIdx = startIdx - (optInTimePeriod) as usize;
-        while inIdx <= endIdx {
-            outReal[outIdx] = ((inReal[{ let _v = inIdx; inIdx += 1; _v }] - inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }]) as f64);
-            outIdx += 1;
-        }
         (*outNBElement) = outIdx;
         (*outBegIdx) = startIdx;
         return RetCode::Success;
@@ -358,7 +319,7 @@ impl Core {
         // always positive values.
         // Move up the start index if there is not
         // enough initial data.
-        if startIdx < (optInTimePeriod) as usize {
+        if startIdx < ((optInTimePeriod) as usize) {
             startIdx = (optInTimePeriod) as usize;
         }
         // Make sure there is still something to evaluate.
@@ -372,7 +333,7 @@ impl Core {
         //    current value.
         outIdx = 0;
         inIdx = startIdx;
-        trailingIdx = startIdx - (optInTimePeriod) as usize;
+        trailingIdx = startIdx - ((optInTimePeriod) as usize);
         while inIdx <= endIdx {
             lastValue_outReal = inReal[{ let _v = inIdx; inIdx += 1; _v }] - inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
         }
@@ -479,7 +440,7 @@ impl Core {
         // always positive values.
         // Move up the start index if there is not
         // enough initial data.
-        if startIdx < (optInTimePeriod) as usize {
+        if startIdx < ((optInTimePeriod) as usize) {
             startIdx = (optInTimePeriod) as usize;
         }
         // Make sure there is still something to evaluate.
@@ -493,7 +454,7 @@ impl Core {
         //    current value.
         outIdx = 0;
         inIdx = startIdx;
-        trailingIdx = startIdx - (optInTimePeriod) as usize;
+        trailingIdx = startIdx - ((optInTimePeriod) as usize);
         while inIdx <= endIdx {
             outReal[outIdx] = ((inReal[{ let _v = inIdx; inIdx += 1; _v }] - inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }]) as f64);
             outIdx += 1;

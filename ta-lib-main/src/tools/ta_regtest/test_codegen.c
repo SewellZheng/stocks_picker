@@ -14,9 +14,16 @@
 #include <math.h>
 #include <time.h>
 
-/* Display flags set by ta_regtest.c --no-guarded / --no-unguarded */
+/* Display flag set by ta_regtest.c --no-guarded */
 int g_hideGuarded = 0;
-int g_hideUnguarded = 0;
+
+/* Float legs that actually compared values, i.e. where the server acknowledged
+ * "use_float". Asserted non-zero so the leg cannot pass by never running —
+ * but only when a language that HAS a float surface was tested. Rust is
+ * concrete f64 and has none, so a Rust-only run legitimately compares zero
+ * (that is what the dev nightly's debug-profile job does). */
+static long g_floatLegCompared = 0;
+static int  g_floatCapableLangTested = 0;
 #include <limits.h>
 #ifdef __APPLE__
 #include <mach/mach_time.h>
@@ -132,7 +139,6 @@ typedef struct {
     struct {
         int    tested;   /* 0=skipped, 1=pass, -1=fail */
         double avg_ns;
-        double avg_ns_unguarded;
     } langs[NUM_LANGUAGES];
 } FuncTimingResult;
 
@@ -414,8 +420,6 @@ typedef struct {
     long long c_ref_total_ns;
     long long server_total_ns;
     int       timing_count;
-    long long server_unguarded_total_ns;
-    int       timing_unguarded_count;
 } CodegenRangeTestParam;
 
 /* Forward declaration: defined with the sweep further below, used by the
@@ -761,16 +765,23 @@ static void compare_codegen_output_generic(
             double threshold;
             if( p->widenFloatInputs )
             {
-                /* Float leg (TA_S_* single precision): the codegen widens float
-                 * inputs to double, so ~1e-6-relative single-significand noise is
-                 * expected. Unchanged. */
+                /* Float leg: BOTH sides are the same server on the same
+                 * float-widened inputs — its single-precision entry point vs its
+                 * own double one — so equal computation must give equal doubles
+                 * and the only spread is the transport (<1e-11 through %.15g;
+                 * Java and C# serialise shortest-round-trip, i.e. exactly).
+                 *
+                 * The old 1e-6 here dated from when this leg compared against the
+                 * frozen single-precision reference, which computed IN float.
+                 * That rationale is gone, and 1e-6 is useless against the defect
+                 * this leg exists for: one arithmetic op left in float is ~6e-8
+                 * relative (float's own resolution is 2^-23 = 1.19e-7), i.e.
+                 * BELOW the threshold. Use the same 1e-9 the double leg proved
+                 * holds through this transport.
+                 *
+                 * epsilonScale is still honoured so a caller can widen it. */
                 double scale = (p->epsilonScale > 0.0) ? p->epsilonScale : 1.0;
-                threshold = CODEGEN_EPSILON * scale;
-                if( fabs(cVal) > 1.0 )
-                {
-                    double relThreshold = fabs(cVal) * 1e-6 * scale;
-                    if( relThreshold > threshold ) threshold = relThreshold;
-                }
+                threshold = CODEGEN_EPSILON_DOUBLE * fmax(1.0, fabs(cVal)) * scale;
             }
             else
             {
@@ -814,14 +825,6 @@ static void compare_codegen_output_generic(
         fprintf(stderr, "DEBUG no timing_ns for TA_%s: %.120s\n", p->funcInfo->name, p->responseBuf);
     }
 
-    /* Parse server timing_ns_unguarded if present */
-    const char *timingUngVal = json_find_field(p->responseBuf, "timing_ns_unguarded", &len);
-    if( timingUngVal )
-    {
-        long long serverUngNs = strtoll(timingUngVal, NULL, 10);
-        p->server_unguarded_total_ns += serverUngNs;
-        p->timing_unguarded_count++;
-    }
 }
 
 /* ---- Edge-range server sweep ----
@@ -1297,19 +1300,6 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
      * scripts/serve_version.py). Skip it rather than hard-fail on the missing
      * baseline; it stays covered by server_verify, --xlang-hash and its
      * hard-coded tests. Mirrors the --fuzz-064 subset gate. */
-    if( ctx->refFuncList )
-    {
-        char needle[80];
-        snprintf(needle, sizeof(needle), "\"TA_%s\"", funcInfo->name);
-        if( !strstr(ctx->refFuncList, needle) )
-        {
-            if( ctx->nbSkipNames < MAX_FUNCTIONS )
-                strncpy(ctx->skipNames[ctx->nbSkipNames++], funcInfo->name,
-                        sizeof(ctx->skipNames[0]) - 1);
-            ctx->skipped++;
-            return;
-        }
-    }
 
     /* Skip functions with integer inputs (very rare, no test data) */
     unsigned int hasIntegerInput = 0;
@@ -1387,6 +1377,41 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     /* Set up output buffers */
     setup_outputs(&params);
 
+    /* Frozen-reference subset gate, applied HERE rather than on entry.
+     *
+     * The seven functions added after the pinned reference tag (CMF, CMOU, HMA,
+     * NVI, PVI, PVO, VWMA) have no ta_ref_serve baseline, so everything below
+     * that diffs against it must be skipped. The FLOAT leg must not be: it
+     * compares a language's single-precision entry point against that same
+     * language's own double entry point and never touches refCp, so skipping it
+     * here left 14 shipped float entry points (7 in Java, 7 in C#) with no value
+     * verification at all — the hole this leg exists to close. Run it, then skip
+     * the reference-dependent remainder. */
+    if( ctx->refFuncList )
+    {
+        char needle[80];
+        snprintf(needle, sizeof(needle), "\"TA_%s\"", funcInfo->name);
+        if( !strstr(ctx->refFuncList, needle) )
+        {
+            if( strcmp(ctx->lang->name, "rust") != 0 )
+                run_float_leg(&params);
+            if( params.codegenError != TA_TEST_PASS )
+            {
+                printf("CODEGEN FAILED (code=%d)  (TA_%s is post-reference: "
+                       "only the float leg ran)\n",
+                       params.codegenError, funcInfo->name);
+                ctx->failed++;
+                ctx->error = params.codegenError;
+                return;
+            }
+            if( ctx->nbSkipNames < MAX_FUNCTIONS )
+                strncpy(ctx->skipNames[ctx->nbSkipNames++], funcInfo->name,
+                        sizeof(ctx->skipNames[0]) - 1);
+            ctx->skipped++;
+            return;
+        }
+    }
+
     /* ---- Baseline from ta_ref_serve (reference-as-server, task #7) ----
      * The codegen comparison baseline is the reference C library exposed as a
      * JSON-RPC server, NOT an in-process call. ta_ref_serve links the frozen
@@ -1452,17 +1477,23 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     double s_avg_ns = (params.timing_count > 0)
                       ? (double)params.server_total_ns / (double)params.timing_count
                       : 0.0;
-    double s_avg_ns_unguarded = (params.timing_unguarded_count > 0)
-                      ? (double)params.server_unguarded_total_ns / (double)params.timing_unguarded_count
-                      : 0.0;
 
-    /* ---- Float-variant pass (TA_S_) ----
-     * Every function at default params, C server only (the other backends
-     * have no single-precision API): single-precision current vs
-     * single-precision frozen reference. This is the systematic coverage
-     * for the 161 TA_S_ guarded+unguarded pairs.
+    /* ---- Float-variant pass ----
+     * Every function at default params: the language's single-precision entry
+     * point against its OWN double entry point on float-widened inputs. That is
+     * PR #33's contract, it needs no oracle, and it holds per language.
+     *
+     * C, Java and C# all ship a float surface (TA_S_<N>, the float[] overload of
+     * the Java core, the float[] overload of the C# core) — 168 functions each.
+     * Rust is concrete f64 and has none, so it is the only exclusion.
+     *
+     * This ran C-only until the Java and C# servers gained a float path. While
+     * it did, a k-factor defect sat in all three float surfaces and only C's was
+     * reachable by any gate.
      */
-    if( params.codegenError == TA_TEST_PASS && strcmp(ctx->lang->name, "c") == 0 )
+    if( strcmp(ctx->lang->name, "rust") != 0 )
+        g_floatCapableLangTested = 1;
+    if( params.codegenError == TA_TEST_PASS && strcmp(ctx->lang->name, "rust") != 0 )
         run_float_leg(&params);
 
     /* ---- Large-period pass (Task 10) ----
@@ -1570,8 +1601,6 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         {
             g_timingResults[resultIdx].langs[ctx->langIndex].tested  = -1;
             g_timingResults[resultIdx].langs[ctx->langIndex].avg_ns  = s_avg_ns;
-            if( params.timing_unguarded_count > 0 )
-                g_timingResults[resultIdx].langs[ctx->langIndex].avg_ns_unguarded = s_avg_ns_unguarded;
         }
         free_outputs(&params);
         TA_ParamHolderFree(paramHolder);
@@ -1587,8 +1616,6 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         {
             g_timingResults[resultIdx].langs[ctx->langIndex].tested  = -1;
             g_timingResults[resultIdx].langs[ctx->langIndex].avg_ns  = s_avg_ns;
-            if( params.timing_unguarded_count > 0 )
-                g_timingResults[resultIdx].langs[ctx->langIndex].avg_ns_unguarded = s_avg_ns_unguarded;
         }
         free_outputs(&params);
         TA_ParamHolderFree(paramHolder);
@@ -1602,8 +1629,6 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     {
         g_timingResults[resultIdx].langs[ctx->langIndex].tested  = 1;
         g_timingResults[resultIdx].langs[ctx->langIndex].avg_ns  = s_avg_ns;
-        if( params.timing_unguarded_count > 0 )
-            g_timingResults[resultIdx].langs[ctx->langIndex].avg_ns_unguarded = s_avg_ns_unguarded;
     }
 
     /* Print result with timing and speedup ratio */
@@ -1684,13 +1709,10 @@ static int sweep_set_compat(CodegenPipe *pipe, int mode, char *respBuf)
 static TA_Real    sweepGuardedReal[MAX_OUTPUTS][MAX_NB_TEST_ELEMENT];
 static TA_Integer sweepGuardedInt[MAX_OUTPUTS][MAX_NB_TEST_ELEMENT];
 
-/* Compare the in-process GUARDED call against the ta_ref_serve baseline for
- * one sweep variant. The language servers reply with their UNGUARDED result
- * (the server re-runs TA_X_Unguarded over the same buffers), so without this
- * leg the guarded path would only ever be verified at the hand-written pins:
- * server-vs-reference checks unguarded, this checks guarded, closing the
- * guarded/unguarded/reference triangle at every sweep variant. C only — the
- * in-process library IS the C backend. */
+/* Compare the in-process GUARDED call against the ta_ref_serve baseline for one
+ * sweep variant. This is the one sweep check that does not cross the JSON-RPC
+ * boundary, so it cannot be blurred by %.15g. C only — the in-process library IS
+ * the C backend. */
 static void sweep_compare_guarded(CodegenRangeTestParam *p)
 {
     unsigned int i;
@@ -1790,15 +1812,35 @@ static void run_float_leg(CodegenRangeTestParam *p)
     {
         parse_ref_baseline(p);
 
-        /* Single-precision variant on the same inputs — must match bit-for-bit. */
+        /* Single-precision variant on the same inputs. */
         p->useFloat = 1;
         build_json_request(p, 0, p->nbBars - 1);
         if( codegen_pipe_call(p->cp, p->requestBuf, p->responseBuf,
                               JSON_BUF_SIZE) != TA_TEST_PASS )
             p->codegenError = TA_CODEGEN_RETCODE_MISMATCH;
         else
-            for( unsigned int o = 0; o < p->funcInfo->nbOutput; o++ )
-                compare_codegen_output_generic(p, o);
+        {
+            /* The server must SAY it took the float path. Without this the leg
+             * fails open: a server that ignores "use_float" returns the double
+             * result twice, and every comparison below passes trivially — which
+             * is indistinguishable from "the float surface is verified". Every
+             * sibling gate in this file carries a floor like this. */
+            int len = 0;
+            const char *ack = json_find_field(p->responseBuf, "used_float", &len);
+            if( !ack || strtol(ack, NULL, 10) != 1 )
+            {
+                printf("CODEGEN FLOAT LEG NOT TAKEN [TA_%s]: server did not acknowledge "
+                       "use_float — the leg would have passed while comparing the double "
+                       "result against itself\n", p->funcInfo->name);
+                p->codegenError = TA_CODEGEN_OUTPUT_MISMATCH;
+            }
+            else
+            {
+                g_floatLegCompared++;
+                for( unsigned int o = 0; o < p->funcInfo->nbOutput; o++ )
+                    compare_codegen_output_generic(p, o);
+            }
+        }
         if( p->codegenError != TA_TEST_PASS )
             printf("  (mismatch above is the FLOAT (TA_S_) leg: TA_S_ vs TA_ on widened inputs)\n");
     }
@@ -3032,13 +3074,6 @@ static void print_timing_table(const char *languageFilter)
     printf("Codegen Results + Timing (avg ns/call)\n");
     printf("=============================================\n");
 
-    /* Check if any language has unguarded data (and user hasn't hidden it) */
-    int hasUnguarded = 0;
-    if( !g_hideUnguarded )
-        for( int ri = 0; ri < g_numTimingResults && !hasUnguarded; ri++ )
-            for( unsigned int li = 0; li < NUM_LANGUAGES; li++ )
-                if( showLang[li] && g_timingResults[ri].langs[li].avg_ns_unguarded > 0 )
-                { hasUnguarded = 1; break; }
     int showGuarded = !g_hideGuarded;
 
     /* Header */
@@ -3049,8 +3084,6 @@ static void print_timing_table(const char *languageFilter)
         {
             if( showGuarded )
                 printf(" %9s", ALL_LANGUAGES[li].display);
-            if( hasUnguarded )
-                printf(" %9s", showGuarded ? "ung" : ALL_LANGUAGES[li].display);
         }
     }
     printf("\n");
@@ -3068,12 +3101,10 @@ static void print_timing_table(const char *languageFilter)
             if( st == 0 )
             {
                 if( showGuarded ) printf(" %9s", "--");
-                if( hasUnguarded ) printf(" %9s", "--");
             }
             else if( st == -1 )
             {
                 if( showGuarded ) printf(" %9s", "FAIL");
-                if( hasUnguarded ) printf(" %9s", "--");
             }
             else
             {
@@ -3093,21 +3124,6 @@ static void print_timing_table(const char *languageFilter)
                         printf(" %9.0f", r->langs[li].avg_ns);
                 }
 
-                /* Unguarded column: color relative to C-ref */
-                if( hasUnguarded )
-                {
-                    if( r->langs[li].avg_ns_unguarded > 0 )
-                    {
-                        if( r->c_ref_ns > 0 && r->langs[li].avg_ns_unguarded > r->c_ref_ns )
-                            printf(" \033[31m%9.0f\033[0m", r->langs[li].avg_ns_unguarded);
-                        else if( r->c_ref_ns > 0 && r->langs[li].avg_ns_unguarded < r->c_ref_ns )
-                            printf(" \033[32m%9.0f\033[0m", r->langs[li].avg_ns_unguarded);
-                        else
-                            printf(" %9.0f", r->langs[li].avg_ns_unguarded);
-                    }
-                    else
-                        printf(" %9s", "--");
-                }
             }
         }
         printf("\n");
@@ -3155,8 +3171,6 @@ static void write_timing_report(const char *filepath)
                     ALL_LANGUAGES[li].name,
                     (st == 1) ? "pass" : "fail",
                     r->langs[li].avg_ns);
-            if( r->langs[li].avg_ns_unguarded > 0 )
-                fprintf(f, ",\"avg_ns_unguarded\":%.0f", r->langs[li].avg_ns_unguarded);
             fprintf(f, "}");
         }
         fprintf(f, "}}");
@@ -3300,27 +3314,18 @@ static void write_markdown_report(const char *filepath, const char *languageFilt
             "\xe2\x94\x98\n");
     fprintf(f, "```\n\n");
 
-    /* Check if any language has unguarded data */
-    int mdHasUnguarded = 0;
-    for( int ri = 0; ri < g_numTimingResults && !mdHasUnguarded; ri++ )
-        for( unsigned int li = 0; li < NUM_LANGUAGES; li++ )
-            if( showLang[li] && g_timingResults[ri].langs[li].avg_ns_unguarded > 0 )
-            { mdHasUnguarded = 1; break; }
-
     /* Detailed per-function table */
     fprintf(f, "## Results (ns/call)\n\n");
     fprintf(f, "| Function |  C-ref |");
     for( unsigned int li = 0; li < NUM_LANGUAGES; li++ ) {
         if( showLang[li] ) {
             fprintf(f, " %s |", ALL_LANGUAGES[li].display);
-            if( mdHasUnguarded ) fprintf(f, " %s-ung |", ALL_LANGUAGES[li].display);
         }
     }
     fprintf(f, "\n|----------|--------|");
     for( unsigned int li = 0; li < NUM_LANGUAGES; li++ ) {
         if( showLang[li] ) {
             fprintf(f, "--------|");
-            if( mdHasUnguarded ) fprintf(f, "--------|");
         }
     }
     fprintf(f, "\n");
@@ -3333,20 +3338,11 @@ static void write_markdown_report(const char *filepath, const char *languageFilt
             if( !showLang[li] ) continue;
             if( r->langs[li].tested == -1 ) {
                 fprintf(f, " FAIL   |");
-                if( mdHasUnguarded ) fprintf(f, "     \xe2\x80\x94 |");
             } else if( r->langs[li].tested == 1 ) {
                 char t[32]; fmt_ns(t, sizeof(t), r->langs[li].avg_ns);
                 fprintf(f, " %6s |", t);
-                if( mdHasUnguarded ) {
-                    if( r->langs[li].avg_ns_unguarded > 0 ) {
-                        char u[32]; fmt_ns(u, sizeof(u), r->langs[li].avg_ns_unguarded);
-                        fprintf(f, " %6s |", u);
-                    } else
-                        fprintf(f, "     \xe2\x80\x94 |");
-                }
             } else {
                 fprintf(f, "     \xe2\x80\x94 |");
-                if( mdHasUnguarded ) fprintf(f, "     \xe2\x80\x94 |");
             }
         }
         fprintf(f, "\n");
@@ -3371,11 +3367,14 @@ static const char *const argv_064[] = {"./ta_064_serve", NULL};
                              * without this the MAType sweep would truncate
                              * silently (it never reaches the FUZZ_MAX_VEC guard). */
 #define FUZZ_MAX_VEC  80    /* parameter vectors per function. MACDEXT is widest:
-                             * 3 period ranges (~6 candidates each) + 3 MAType
-                             * lists (M-1 each) + 3 contract vectors per range param
-                             * + the defaults vector = ~3*M+25 in the MAType-list
-                             * length M; M=11 today => 58. 80 gives runway to M=18,
-                             * and still matches STREAM_MAX_VEC.
+                             * 3 period ranges (<= 6 candidates + 2 reject + 1
+                             * sentinel each) + 3 MAType lists (M-1 values + 1
+                             * sentinel each, #162) + the defaults vector <= 3*M+28
+                             * in the MAType-list length M. M=11 today => 61 worst
+                             * case, 60 actually built (one of optInSignalPeriod's
+                             * boundary candidates lands on its own default and is
+                             * dropped). 80 gives runway to M=17, and still matches
+                             * STREAM_MAX_VEC.
                              * fuzz_build_vectors reports any overflow (this cap or
                              * the cand cap) and the caller fails the run loudly. */
 #define FUZZ_MIN_PERIOD 2   /* period 1 is out of scope vs 0.6.4 (see CLAUDE.md) */
@@ -3551,11 +3550,12 @@ static void fuzz_add_out_of_range(const TA_OptInputParameterInfo *oi,
 }
 
 /* The "use the default" sentinel for one optional parameter: t3(x, 5, -4e37) must
- * give exactly t3(x, 5, 0.7), as TA_T3 always has. Emitted for every Range param,
- * bounded or not — the five [TA_REAL_MIN, TA_REAL_MAX] reals (BBANDS nbDevUp/Dn,
- * STDDEV/VAR nbDev, SAREXT startValue) get no range check, so this is their only
- * contract. IntegerList is excluded: C substitutes the declared default there and
- * Rust falls through to its `_` arm — tracked in ta_codegen/generator/CLAUDE.md. */
+ * give exactly t3(x, 5, 0.7), as TA_T3 always has. Emitted for EVERY optional
+ * domain, with no exemption — range params bounded or not (the five
+ * [TA_REAL_MIN, TA_REAL_MAX] reals get no range check, so this is their only
+ * contract) and choice lists alike. Excluding IntegerList here is what hid #162.
+ * Java cannot take the choice-list vector at all; it is exempted per SERVER
+ * instead — see xlang_lang_can_pass_enum_sentinel. */
 static void fuzz_add_default_sentinel(const TA_OptInputParameterInfo *oi,
                                       double cand[FUZZ_MAX_CAND],
                                       char candKind[FUZZ_MAX_CAND],
@@ -3563,12 +3563,10 @@ static void fuzz_add_default_sentinel(const TA_OptInputParameterInfo *oi,
 {
     double sentinel;
 
-    if( oi->type == TA_OptInput_IntegerRange )
+    if( oi->type == TA_OptInput_IntegerRange || oi->type == TA_OptInput_IntegerList )
         sentinel = (double)TA_INTEGER_DEFAULT;
-    else if( oi->type == TA_OptInput_RealRange )
-        sentinel = TA_REAL_DEFAULT;
     else
-        return;
+        sentinel = TA_REAL_DEFAULT;   /* RealRange + RealList (none shipped yet) */
 
     if( *nc >= FUZZ_MAX_CAND ) { (*overflow)++; return; }
     candKind[*nc] = FUZZ_VEC_SENTINEL;
@@ -4415,12 +4413,49 @@ typedef struct {
                                    * machine is a claim about that machine.
                                    * Rust stays 0: it reaches the same libm the
                                    * golden does.                             */
+    int                enumSentinel; /* 1 = this language's optional-param surface
+                                   * can CARRY the integer default sentinel on a
+                                   * choice-list parameter, so the #162 sentinel
+                                   * leg is a real assertion there. 0 = it cannot
+                                   * — see xlang_lang_can_pass_enum_sentinel. */
     CodegenPipe        cp;
     int                open;      /* 1 once the subprocess is up              */
     long long          cases;     /* cases compared against the golden        */
     long long          mism;      /* real bitwise/tolerance mismatches        */
     int                restarts;  /* recovered subprocess crashes             */
 } XlangServer;
+
+/* Which languages can be ASKED whether TA_INTEGER_DEFAULT on an enum:MAType
+ * parameter selects the declared default. C, Rust and C# type that parameter as
+ * an integer (a C# enum is an int with names), so the sentinel reaches their
+ * validation and the substitution is what maps it back (#162). Java's MAType is
+ * a real enum and Core takes MAType: the value is unrepresentable rather than
+ * mishandled, its server would die constructing one
+ * (MAType.values()[Integer.MIN_VALUE] throws), and substituting server-side
+ * would only manufacture a green. Withheld vectors are counted and printed. */
+static int xlang_lang_can_pass_enum_sentinel(const char *lang)
+{
+    if( !lang ) return 1;
+    return strcmp(lang, "java") != 0;
+}
+
+/* 1 when this parameter vector puts the default sentinel on a CHOICE-LIST
+ * parameter. Only one parameter is varied per vector and the all-defaults vector
+ * never holds a sentinel, so scanning the vector is exact — and it keeps the
+ * FUZZ_VEC_SENTINEL class single, rather than splitting it into two that every
+ * existing `kind[k] == FUZZ_VEC_SENTINEL` test would have to be taught. */
+static int xlang_sentinel_on_choice_list(const TA_FuncInfo *fi, const double *vals)
+{
+    for( unsigned int i = 0; i < fi->nbOptInput && i < FUZZ_MAX_OPT; i++ )
+    {
+        const TA_OptInputParameterInfo *oi;
+        TA_GetOptInputParameterInfo(fi->handle, i, &oi);
+        if( oi->type == TA_OptInput_IntegerList
+            && (int)vals[i] == TA_INTEGER_DEFAULT )
+            return 1;
+    }
+    return 0;
+}
 
 typedef struct {
     const char  *functionFilter;
@@ -4429,6 +4464,9 @@ typedef struct {
     char        *reqBuf;
     char        *respBuf;
     long long    comparisons;        /* golden cases evaluated                 */
+    long long    funcsSwept;         /* functions past the --function filter — printed
+                                      * in the PASS line so a caller can assert the
+                                      * sweep was not vacuous (synth_gate.py does)   */
     long long    nonEmpty;           /* cases with a non-empty successful output
                                       * (non-vacuity: an empty output hashes the
                                       * same on both sides, so a healthy fraction
@@ -4446,6 +4484,14 @@ typedef struct {
                                       * out of range, so its parity assertion was
                                       * vacuous. Fails the run.                    */
     long long    sentCases;          /* per-server comparisons on a sentinel vector */
+    long long    sentEnumCases;      /* ... of which on a CHOICE-LIST sentinel. Kept
+                                      * apart from sentCases because the range params
+                                      * keep that total large whether this leg runs
+                                      * or not (#162)                               */
+    long long    lbSentEnumCases;    /* ... the same, on the lookback tier          */
+    long long    sentEnumSkipped;    /* choice-list sentinel vectors skipped for a
+                                      * server whose typed enum cannot carry the
+                                      * sentinel (Java) — counted, not silent     */
     long long    sentNotDefault;     /* sentinel vectors where the in-process C
                                       * library did NOT reproduce the explicit
                                       * default's result. Fails the run.           */
@@ -4945,10 +4991,18 @@ static void xlang_lookback_leg(const TA_FuncInfo *funcInfo, XlangCtx *ctx,
 
         xlang_build_lookback_request(ctx->reqBuf, funcInfo, vec[k]);
 
+        /* Derived once per vector, not per server (issue #162). */
+        int enumSent = ( kind[k] == FUZZ_VEC_SENTINEL )
+                       && xlang_sentinel_on_choice_list(funcInfo, vec[k]);
+
         for( int sIdx = 0; sIdx < ctx->nsv; sIdx++ )
         {
             XlangServer *sv = &ctx->sv[sIdx];
             if( !sv->open ) continue;
+            /* The request is never SENT to a server that cannot represent the
+             * value: Java's MAType.values()[Integer.MIN_VALUE] throws out of an
+             * uncaught handler and takes the subprocess with it. */
+            if( enumSent && !sv->enumSentinel ) { ctx->sentEnumSkipped++; continue; }
             if( !xlang_call(sv, ctx->reqBuf, ctx->respBuf) )
             {
                 if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
@@ -4961,6 +5015,7 @@ static void xlang_lookback_leg(const TA_FuncInfo *funcInfo, XlangCtx *ctx,
             ctx->lbCases++;
             if( kind[k] == FUZZ_VEC_REJECT )   ctx->lbOorCases++;
             if( kind[k] == FUZZ_VEC_SENTINEL ) ctx->lbSentCases++;
+            if( enumSent )                     ctx->lbSentEnumCases++;
 
             if( !present )
             {
@@ -4993,10 +5048,8 @@ static void xlang_lookback_leg(const TA_FuncInfo *funcInfo, XlangCtx *ctx,
 }
 
 /* Issue ONE hash-mode call for `optVals` against `sv` and parse the reply
- * (retCode / outBegIdx / outNBElement / out_hash). Hash mode is what makes the
- * server return right after the GUARDED call, so this is also the only safe way
- * to send a parameter the unguarded rerun could not accept. Returns 0 on a pipe
- * failure or a reply with no out_hash (the caller reports and fails). */
+ * (retCode / outBegIdx / outNBElement / out_hash). Returns 0 on a pipe failure
+ * or a reply with no out_hash (the caller reports and fails). */
 static int xlang_hash_call(XlangCtx *ctx, XlangServer *sv, const TA_FuncInfo *fi,
                            const TA_History *hist, int n, int s, int e,
                            int shape, int seed, const double *optVals,
@@ -5028,6 +5081,7 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
     if( ctx->error != TA_TEST_PASS ) return;
     if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) ) return;
+    ctx->funcsSwept++;
 
     /* See fuzz_one_function: a silent skip would remove this function from the
      * cross-language bitwise gate with no trace. Fail loudly instead. */
@@ -5211,6 +5265,10 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
                 ctx->comparisons++;
 
+                /* Derived once per vector, not per server (issue #162). */
+                int enumSent = ( kind[k] == FUZZ_VEC_SENTINEL )
+                               && xlang_sentinel_on_choice_list(funcInfo, vec[k]);
+
                 for( int sIdx = 0; sIdx < ctx->nsv; sIdx++ )
                 {
                     XlangServer *sv = &ctx->sv[sIdx];
@@ -5220,12 +5278,18 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                      * default" is a property of one implementation, so assert it
                      * inside each server: sentinel vs explicit default, bit-for-bit,
                      * no tolerance needed. vec[0] already ties the default's result
-                     * back to the C golden, so the chain closes. Both calls are hash
-                     * mode, which stops before the unguarded rerun (same precondition
-                     * as the reject path below). */
+                     * back to the C golden, so the chain closes. */
                     if( kind[k] == FUZZ_VEC_SENTINEL )
                     {
                         XHashParsed sent, dflt;
+                        /* Not sent to a server whose typed enum cannot carry it
+                         * (issue #162) — the request would kill the subprocess,
+                         * and a server-side substitution would only fake it. */
+                        if( enumSent && !sv->enumSentinel )
+                        {
+                            ctx->sentEnumSkipped++;
+                            continue;
+                        }
                         int okS = xlang_hash_call(ctx, sv, funcInfo, &hist, n, s, e,
                                                   shape, seeds[si], vec[k], &sent);
                         int okD = okS && xlang_hash_call(ctx, sv, funcInfo, &hist, n, s, e,
@@ -5238,6 +5302,7 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                         }
                         sv->cases++;
                         ctx->sentCases++;
+                        if( enumSent ) ctx->sentEnumCases++;
                         if( sent.rc != dflt.rc || sent.begIdx != dflt.begIdx ||
                             sent.nbElement != dflt.nbElement || sent.hash != dflt.hash )
                         {
@@ -5273,12 +5338,10 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                     else
                     {
                         /* A rejected vector stays on the hash path even on a
-                         * transcendental: want_hash returns right after the
-                         * GUARDED call, where the tolerance path continues into
-                         * the server's unguarded rerun. "Every optional parameter
-                         * resolved and in-range" is an unguarded PRECONDITION (see
-                         * the VARIANT gate section of CLAUDE.md) — sending one down
-                         * that path killed the Java server. */
+                         * transcendental: want_hash returns right after the call,
+                         * whereas the tolerance path serialises the outputs, and
+                         * sending a rejected vector down that path killed the Java
+                         * server. */
                         tolPath = sv->tolTranscendental &&
                                   kind[k] != FUZZ_VEC_REJECT &&
                                   codegen_call_is_transcendental(funcInfo->handle, vec[k],
@@ -5393,19 +5456,24 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
      * Every non-transcendental call in both stays bitwise. Rust reaches the
      * same libm as the golden and is bitwise throughout. */
     static XlangServer servers[] = {
-        {"rust",   "Rust", argv_rust,   1, 0, {0}, 0, 0, 0, 0},
-        {"java",   "Java", argv_java,   0, 0, {0}, 0, 0, 0, 0},
-        {"csharp", "C#",   argv_csharp, 0, 0, {0}, 0, 0, 0, 0},
+        {"rust",   "Rust", argv_rust,   1, 0, 0, {0}, 0, 0, 0, 0},
+        {"java",   "Java", argv_java,   0, 0, 0, {0}, 0, 0, 0, 0},
+        {"csharp", "C#",   argv_csharp, 0, 0, 0, {0}, 0, 0, 0, 0},
     };
     int nsv = (int)(sizeof(servers)/sizeof(servers[0]));
 
     /* tolTranscendental is FILLED IN from the shared predicate rather than
      * written per row above: server_verify.c applies the same rule on its own
      * path, and when the two were separate literals they disagreed — C# was
-     * bitwise here and Java-only there. One definition, both gates. */
+     * bitwise here and Java-only there. One definition, both gates.
+     * enumSentinel comes from its own predicate for the same reason. */
     for( int s = 0; s < nsv; s++ )
+    {
         servers[s].tolTranscendental =
             codegen_lang_needs_transcendental_tol(servers[s].name);
+        servers[s].enumSentinel =
+            xlang_lang_can_pass_enum_sentinel(servers[s].name);
+    }
 
     XlangCtx ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -5492,6 +5560,15 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
     printf("param contract (#148): reject %lld batch + %lld lookback, sentinel %lld batch "
            "+ %lld lookback; %lld lookback case(s) total\n",
            ctx.oorCases, ctx.lbOorCases, ctx.sentCases, ctx.lbSentCases, ctx.lbCases);
+    printf("  of the sentinel cases, %lld batch + %lld lookback put it on a CHOICE-LIST "
+           "parameter (#162)%s\n",
+           ctx.sentEnumCases, ctx.lbSentEnumCases,
+           ctx.sentEnumSkipped ? "" : " — none skipped");
+    if( ctx.sentEnumSkipped > 0 )
+        printf("  (%lld more NOT asked of a server whose typed enum cannot carry the "
+               "sentinel — Java: MAType is a real enum and Core takes MAType, so "
+               "(MAType)Integer.MIN_VALUE cannot be constructed. Type safety discharges "
+               "#162 there rather than a check.)\n", ctx.sentEnumSkipped);
 
     free(ctx.reqBuf); free(ctx.respBuf);
 
@@ -5545,12 +5622,30 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
                ctx.oorCases, ctx.lbOorCases, ctx.sentCases, ctx.lbSentCases);
         return TA_CODEGEN_OUTPUT_MISMATCH;
     }
+    /* The choice-list sentinel needs a floor of its OWN. It is a strict subset of
+     * sentCases and the range params alone keep that in the thousands, so with
+     * this leg excluded the guard above stays green — which is how #162 survived.
+     * Requiring an enum-capable server to be open keeps `--language=java`, whose
+     * skip is legitimate, from tripping it. */
+    int enumCapableOpen = 0;
+    for( int s = 0; s < nsv; s++ )
+        if( servers[s].open && servers[s].enumSentinel ) enumCapableOpen = 1;
+    if( !functionFilter && enumCapableOpen && ctx.comparisons > 0 &&
+        (ctx.sentEnumCases == 0 || ctx.lbSentEnumCases == 0) )
+    {
+        printf("FAIL — VACUOUS CHOICE-LIST SENTINEL LEG: %lld batch / %lld lookback case(s) "
+               "put TA_INTEGER_DEFAULT on an enum:MAType parameter. That leg is what gates "
+               "issue #162; with none of it running, a backend can stop substituting the "
+               "declared default and every other count here stays healthy.\n",
+               ctx.sentEnumCases, ctx.lbSentEnumCases);
+        return TA_CODEGEN_OUTPUT_MISMATCH;
+    }
     if( totalMism == 0 && inFails == 0 && ctx.error == TA_TEST_PASS )
     {
-        printf("PASS — every server matches the in-process C library: BIT-IDENTICAL "
-               "(zero tolerance), Java+C# transcendentals within %g "
-               "(current-vs-current, all shapes, period>=2).\n",
-               CODEGEN_TRANSCENDENTAL_TOL);
+        printf("PASS — %lld function(s) swept: every server matches the in-process C "
+               "library: BIT-IDENTICAL (zero tolerance), Java+C# transcendentals "
+               "within %g (current-vs-current, all shapes, period>=2).\n",
+               ctx.funcsSwept, CODEGEN_TRANSCENDENTAL_TOL);
         return TA_TEST_PASS;
     }
     printf("FAIL — %lld output mismatch(es) + %d input-port mismatch(es) across %d function(s).\n",
@@ -5959,8 +6054,24 @@ ErrorNumber test_codegen(const TA_History *history,
 
     print_timing_table(languageFilter);
 
+    /* Non-vacuity for the float leg: it compares a language's single-precision
+     * entry point against its own double one, and a server that silently ignored
+     * "use_float" would compare the double result with itself and pass. The
+     * acknowledgment is checked per call; this is the run-level floor. */
+    if( g_floatCapableLangTested && g_floatLegCompared == 0 )
+    {
+        printf("\nCODEGEN FAILED: the float leg compared nothing — no server "
+               "acknowledged use_float on any function\n");
+        return TA_CODEGEN_OUTPUT_MISMATCH;
+    }
+
     printf("\n=============================================\n");
-    printf("All %d language(s) passed codegen verification\n", langsTested);
+    if( g_floatCapableLangTested )
+        printf("All %d language(s) passed codegen verification (float leg: %ld "
+               "acknowledged comparison(s))\n", langsTested, g_floatLegCompared);
+    else
+        printf("All %d language(s) passed codegen verification (no float leg: "
+               "Rust has no single-precision surface)\n", langsTested);
     printf("=============================================\n");
 
     /* Write report files */

@@ -140,7 +140,6 @@ fn lookback_callees(func: &FuncDef, known: &HashSet<String>) -> (BTreeSet<String
             .filter_map(|raw| {
                 let base = raw
                     .strip_suffix("_lookback")
-                    .or_else(|| raw.strip_suffix("_unguarded"))
                     .or_else(|| raw.strip_suffix("_private"))
                     .unwrap_or(raw);
                 known.contains(base).then(|| base.to_string())
@@ -217,6 +216,7 @@ fn collect_vars(expr: &Expr, out: &mut BTreeSet<String>) {
         }
         Expr::Cast(_, e)
         | Expr::Not(e)
+        | Expr::BitwiseNot(e)
         | Expr::AddressOf(e)
         | Expr::PostIncrement(e)
         | Expr::PostDecrement(e)
@@ -318,6 +318,7 @@ fn walk_expr(expr: &Expr, out: &mut BTreeSet<String>) {
         Expr::ArrayAccess(_, i) => walk_expr(i, out),
         Expr::Cast(_, e)
         | Expr::Not(e)
+        | Expr::BitwiseNot(e)
         | Expr::AddressOf(e)
         | Expr::PostIncrement(e)
         | Expr::PostDecrement(e)

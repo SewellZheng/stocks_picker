@@ -12,8 +12,7 @@
 #include <mach/mach_time.h>
 #endif
 
-#include "ta_func_unguarded.h"
-#include "ta_func/ta_func_private.h"
+#include "ta_func/ta_func_stream_private.h"
 
 #include "ta_common/ta_global.c"
 #include "ta_func/ta_utility.c"
@@ -15819,22 +15818,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ACCBANDS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -15846,15 +15830,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ACCBANDS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -15867,7 +15843,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal2\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf2, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_ACOS", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -15905,31 +15881,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ACOS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_ACOS(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ACOS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -15938,7 +15897,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 5 && strncmp(method, "TA_AD", 5) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -15982,22 +15941,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_AD_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -16010,15 +15954,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_AD_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16027,7 +15963,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_ADD", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16067,20 +16003,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ADD_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -16089,13 +16012,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 g_sinBuf1,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ADD_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16104,7 +16021,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 8 && strncmp(method, "TA_ADOSC", 8) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16152,24 +16069,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ADOSC_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInFastPeriod,
-            optInSlowPeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -16184,17 +16084,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInFastPeriod,
                 optInSlowPeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ADOSC_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInFastPeriod,
-                optInSlowPeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16203,7 +16093,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_ADX", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16248,22 +16138,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ADX_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -16275,15 +16150,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ADX_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16292,7 +16159,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_ADXR", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16336,22 +16203,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ADXR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -16363,15 +16215,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ADXR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16380,7 +16224,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_APO", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16424,22 +16268,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_APO_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInFastPeriod,
-            optInSlowPeriod,
-            optInMAType,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_APO(
@@ -16449,15 +16278,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInSlowPeriod,
                 optInMAType,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_APO_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInFastPeriod,
-                optInSlowPeriod,
-                optInMAType,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16466,7 +16287,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 8 && strncmp(method, "TA_AROON", 8) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16509,21 +16330,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_AROON_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -16533,14 +16340,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#ifndef TA_REF_SERVE
-            rc = TA_S_AROON_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16551,7 +16351,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_AROONOSC", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16593,21 +16393,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_AROONOSC_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -16617,14 +16403,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_AROONOSC_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16633,7 +16412,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_ASIN", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16671,31 +16450,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ASIN_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_ASIN(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ASIN_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16704,7 +16466,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_ATAN", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16742,31 +16504,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ATAN_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_ATAN(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ATAN_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16775,7 +16520,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_ATR", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16820,22 +16565,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ATR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -16847,15 +16577,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ATR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16864,7 +16586,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 9 && strncmp(method, "TA_AVGDEV", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16904,20 +16626,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_AVGDEV_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_AVGDEV(
@@ -16925,13 +16634,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_AVGDEV_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -16940,7 +16643,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_AVGPRICE", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -16984,22 +16687,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_AVGPRICE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17012,15 +16700,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_AVGPRICE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17029,7 +16709,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 9 && strncmp(method, "TA_BBANDS", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17077,23 +16757,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_BBANDS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            optInNbDevUp,
-            optInNbDevDn,
-            optInMAType,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_BBANDS(
@@ -17104,16 +16768,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInNbDevDn,
                 optInMAType,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#ifndef TA_REF_SERVE
-            rc = TA_S_BBANDS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                optInNbDevUp,
-                optInNbDevDn,
-                optInMAType,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17126,7 +16781,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal2\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf2, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_BETA", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17168,21 +16823,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_BETA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17192,14 +16833,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_BETA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17208,7 +16842,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_BOP", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17252,22 +16886,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_BOP_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17280,15 +16899,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_BOP_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17297,7 +16908,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_CCI", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17341,22 +16952,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CCI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17368,15 +16964,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CCI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17385,7 +16973,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 12 && strncmp(method, "TA_CDL2CROWS", 12) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17429,22 +17017,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDL2CROWS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17457,15 +17030,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDL2CROWS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17474,7 +17039,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 17 && strncmp(method, "TA_CDL3BLACKCROWS", 17) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17518,22 +17083,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDL3BLACKCROWS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17546,15 +17096,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDL3BLACKCROWS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17563,7 +17105,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 13 && strncmp(method, "TA_CDL3INSIDE", 13) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17607,22 +17149,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDL3INSIDE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17635,15 +17162,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDL3INSIDE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17652,7 +17171,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 17 && strncmp(method, "TA_CDL3LINESTRIKE", 17) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17696,22 +17215,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDL3LINESTRIKE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17724,15 +17228,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDL3LINESTRIKE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17741,7 +17237,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 14 && strncmp(method, "TA_CDL3OUTSIDE", 14) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17785,22 +17281,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDL3OUTSIDE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17813,15 +17294,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDL3OUTSIDE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17830,7 +17303,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 19 && strncmp(method, "TA_CDL3STARSINSOUTH", 19) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17874,22 +17347,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDL3STARSINSOUTH_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17902,15 +17360,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDL3STARSINSOUTH_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -17919,7 +17369,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 20 && strncmp(method, "TA_CDL3WHITESOLDIERS", 20) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -17963,22 +17413,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDL3WHITESOLDIERS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -17991,15 +17426,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDL3WHITESOLDIERS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18008,7 +17435,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 19 && strncmp(method, "TA_CDLABANDONEDBABY", 19) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18054,23 +17481,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLABANDONEDBABY_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInPenetration,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18084,16 +17495,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf3,
                 optInPenetration,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLABANDONEDBABY_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInPenetration,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18102,7 +17504,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 18 && strncmp(method, "TA_CDLADVANCEBLOCK", 18) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18146,22 +17548,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLADVANCEBLOCK_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18174,15 +17561,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLADVANCEBLOCK_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18191,7 +17570,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 14 && strncmp(method, "TA_CDLBELTHOLD", 14) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18235,22 +17614,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLBELTHOLD_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18263,15 +17627,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLBELTHOLD_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18280,7 +17636,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 15 && strncmp(method, "TA_CDLBREAKAWAY", 15) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18324,22 +17680,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLBREAKAWAY_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18352,15 +17693,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLBREAKAWAY_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18369,7 +17702,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 21 && strncmp(method, "TA_CDLCLOSINGMARUBOZU", 21) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18413,22 +17746,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLCLOSINGMARUBOZU_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18441,15 +17759,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLCLOSINGMARUBOZU_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18458,7 +17768,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 22 && strncmp(method, "TA_CDLCONCEALBABYSWALL", 22) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18502,22 +17812,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLCONCEALBABYSWALL_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18530,15 +17825,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLCONCEALBABYSWALL_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18547,7 +17834,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 19 && strncmp(method, "TA_CDLCOUNTERATTACK", 19) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18591,22 +17878,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLCOUNTERATTACK_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18619,15 +17891,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLCOUNTERATTACK_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18636,7 +17900,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 20 && strncmp(method, "TA_CDLDARKCLOUDCOVER", 20) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18682,23 +17946,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLDARKCLOUDCOVER_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInPenetration,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18712,16 +17960,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf3,
                 optInPenetration,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLDARKCLOUDCOVER_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInPenetration,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18730,7 +17969,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 10 && strncmp(method, "TA_CDLDOJI", 10) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18774,22 +18013,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLDOJI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18802,15 +18026,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLDOJI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18819,7 +18035,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 14 && strncmp(method, "TA_CDLDOJISTAR", 14) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18863,22 +18079,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLDOJISTAR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18891,15 +18092,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLDOJISTAR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18908,7 +18101,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 19 && strncmp(method, "TA_CDLDRAGONFLYDOJI", 19) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -18952,22 +18145,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLDRAGONFLYDOJI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -18980,15 +18158,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLDRAGONFLYDOJI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -18997,7 +18167,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 15 && strncmp(method, "TA_CDLENGULFING", 15) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19041,22 +18211,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLENGULFING_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19069,15 +18224,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLENGULFING_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19086,7 +18233,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 21 && strncmp(method, "TA_CDLEVENINGDOJISTAR", 21) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19132,23 +18279,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLEVENINGDOJISTAR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInPenetration,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19162,16 +18293,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf3,
                 optInPenetration,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLEVENINGDOJISTAR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInPenetration,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19180,7 +18302,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 17 && strncmp(method, "TA_CDLEVENINGSTAR", 17) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19226,23 +18348,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLEVENINGSTAR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInPenetration,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19256,16 +18362,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf3,
                 optInPenetration,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLEVENINGSTAR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInPenetration,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19274,7 +18371,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 22 && strncmp(method, "TA_CDLGAPSIDESIDEWHITE", 22) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19318,22 +18415,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLGAPSIDESIDEWHITE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19346,15 +18428,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLGAPSIDESIDEWHITE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19363,7 +18437,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 20 && strncmp(method, "TA_CDLGRAVESTONEDOJI", 20) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19407,22 +18481,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLGRAVESTONEDOJI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19435,15 +18494,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLGRAVESTONEDOJI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19452,7 +18503,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 12 && strncmp(method, "TA_CDLHAMMER", 12) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19496,22 +18547,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLHAMMER_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19524,15 +18560,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLHAMMER_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19541,7 +18569,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 16 && strncmp(method, "TA_CDLHANGINGMAN", 16) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19585,22 +18613,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLHANGINGMAN_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19613,15 +18626,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLHANGINGMAN_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19630,7 +18635,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 12 && strncmp(method, "TA_CDLHARAMI", 12) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19674,22 +18679,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLHARAMI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19702,15 +18692,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLHARAMI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19719,7 +18701,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 17 && strncmp(method, "TA_CDLHARAMICROSS", 17) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19763,22 +18745,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLHARAMICROSS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19791,15 +18758,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLHARAMICROSS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19808,7 +18767,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 14 && strncmp(method, "TA_CDLHIGHWAVE", 14) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19852,22 +18811,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLHIGHWAVE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19880,15 +18824,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLHIGHWAVE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19897,7 +18833,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 13 && strncmp(method, "TA_CDLHIKKAKE", 13) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -19941,22 +18877,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLHIKKAKE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -19969,15 +18890,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLHIKKAKE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -19986,7 +18899,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 16 && strncmp(method, "TA_CDLHIKKAKEMOD", 16) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20030,22 +18943,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLHIKKAKEMOD_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20058,15 +18956,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLHIKKAKEMOD_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20075,7 +18965,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 18 && strncmp(method, "TA_CDLHOMINGPIGEON", 18) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20119,22 +19009,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLHOMINGPIGEON_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20147,15 +19022,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLHOMINGPIGEON_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20164,7 +19031,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 21 && strncmp(method, "TA_CDLIDENTICAL3CROWS", 21) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20208,22 +19075,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLIDENTICAL3CROWS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20236,15 +19088,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLIDENTICAL3CROWS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20253,7 +19097,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 12 && strncmp(method, "TA_CDLINNECK", 12) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20297,22 +19141,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLINNECK_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20325,15 +19154,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLINNECK_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20342,7 +19163,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 20 && strncmp(method, "TA_CDLINVERTEDHAMMER", 20) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20386,22 +19207,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLINVERTEDHAMMER_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20414,15 +19220,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLINVERTEDHAMMER_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20431,7 +19229,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 13 && strncmp(method, "TA_CDLKICKING", 13) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20475,22 +19273,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLKICKING_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20503,15 +19286,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLKICKING_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20520,7 +19295,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 21 && strncmp(method, "TA_CDLKICKINGBYLENGTH", 21) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20564,22 +19339,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLKICKINGBYLENGTH_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20592,15 +19352,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLKICKINGBYLENGTH_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20609,7 +19361,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 18 && strncmp(method, "TA_CDLLADDERBOTTOM", 18) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20653,22 +19405,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLLADDERBOTTOM_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20681,15 +19418,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLLADDERBOTTOM_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20698,7 +19427,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 20 && strncmp(method, "TA_CDLLONGLEGGEDDOJI", 20) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20742,22 +19471,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLLONGLEGGEDDOJI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20770,15 +19484,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLLONGLEGGEDDOJI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20787,7 +19493,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 14 && strncmp(method, "TA_CDLLONGLINE", 14) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20831,22 +19537,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLLONGLINE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20859,15 +19550,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLLONGLINE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20876,7 +19559,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 14 && strncmp(method, "TA_CDLMARUBOZU", 14) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -20920,22 +19603,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLMARUBOZU_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -20948,15 +19616,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLMARUBOZU_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -20965,7 +19625,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 17 && strncmp(method, "TA_CDLMATCHINGLOW", 17) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21009,22 +19669,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLMATCHINGLOW_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21037,15 +19682,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLMATCHINGLOW_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21054,7 +19691,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 13 && strncmp(method, "TA_CDLMATHOLD", 13) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21100,23 +19737,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLMATHOLD_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInPenetration,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21130,16 +19751,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf3,
                 optInPenetration,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLMATHOLD_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInPenetration,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21148,7 +19760,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 21 && strncmp(method, "TA_CDLMORNINGDOJISTAR", 21) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21194,23 +19806,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLMORNINGDOJISTAR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInPenetration,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21224,16 +19820,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf3,
                 optInPenetration,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLMORNINGDOJISTAR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInPenetration,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21242,7 +19829,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 17 && strncmp(method, "TA_CDLMORNINGSTAR", 17) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21288,23 +19875,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLMORNINGSTAR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInPenetration,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21318,16 +19889,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf3,
                 optInPenetration,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLMORNINGSTAR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInPenetration,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21336,7 +19898,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 12 && strncmp(method, "TA_CDLONNECK", 12) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21380,22 +19942,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLONNECK_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21408,15 +19955,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLONNECK_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21425,7 +19964,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 14 && strncmp(method, "TA_CDLPIERCING", 14) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21469,22 +20008,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLPIERCING_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21497,15 +20021,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLPIERCING_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21514,7 +20030,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 17 && strncmp(method, "TA_CDLRICKSHAWMAN", 17) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21558,22 +20074,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLRICKSHAWMAN_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21586,15 +20087,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLRICKSHAWMAN_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21603,7 +20096,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 22 && strncmp(method, "TA_CDLRISEFALL3METHODS", 22) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21647,22 +20140,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLRISEFALL3METHODS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21675,15 +20153,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLRISEFALL3METHODS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21692,7 +20162,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 21 && strncmp(method, "TA_CDLSEPARATINGLINES", 21) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21736,22 +20206,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLSEPARATINGLINES_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21764,15 +20219,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLSEPARATINGLINES_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21781,7 +20228,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 18 && strncmp(method, "TA_CDLSHOOTINGSTAR", 18) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21825,22 +20272,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLSHOOTINGSTAR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21853,15 +20285,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLSHOOTINGSTAR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21870,7 +20294,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 15 && strncmp(method, "TA_CDLSHORTLINE", 15) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -21914,22 +20338,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLSHORTLINE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -21942,15 +20351,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLSHORTLINE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -21959,7 +20360,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 17 && strncmp(method, "TA_CDLSPINNINGTOP", 17) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22003,22 +20404,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLSPINNINGTOP_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22031,15 +20417,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLSPINNINGTOP_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22048,7 +20426,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 20 && strncmp(method, "TA_CDLSTALLEDPATTERN", 20) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22092,22 +20470,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLSTALLEDPATTERN_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22120,15 +20483,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLSTALLEDPATTERN_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22137,7 +20492,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 19 && strncmp(method, "TA_CDLSTICKSANDWICH", 19) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22181,22 +20536,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLSTICKSANDWICH_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22209,15 +20549,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLSTICKSANDWICH_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22226,7 +20558,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 12 && strncmp(method, "TA_CDLTAKURI", 12) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22270,22 +20602,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLTAKURI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22298,15 +20615,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLTAKURI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22315,7 +20624,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 15 && strncmp(method, "TA_CDLTASUKIGAP", 15) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22359,22 +20668,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLTASUKIGAP_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22387,15 +20681,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLTASUKIGAP_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22404,7 +20690,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 15 && strncmp(method, "TA_CDLTHRUSTING", 15) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22448,22 +20734,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLTHRUSTING_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22476,15 +20747,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLTHRUSTING_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22493,7 +20756,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 13 && strncmp(method, "TA_CDLTRISTAR", 13) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22537,22 +20800,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLTRISTAR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22565,15 +20813,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLTRISTAR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22582,7 +20822,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 18 && strncmp(method, "TA_CDLUNIQUE3RIVER", 18) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22626,22 +20866,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLUNIQUE3RIVER_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22654,15 +20879,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLUNIQUE3RIVER_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22671,7 +20888,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 21 && strncmp(method, "TA_CDLUPSIDEGAP2CROWS", 21) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22715,22 +20932,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLUPSIDEGAP2CROWS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22743,15 +20945,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLUPSIDEGAP2CROWS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22760,7 +20954,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 22 && strncmp(method, "TA_CDLXSIDEGAP3METHODS", 22) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22804,22 +20998,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CDLXSIDEGAP3METHODS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22832,15 +21011,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 g_sinBuf3,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CDLXSIDEGAP3METHODS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22849,7 +21020,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_CEIL", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22887,31 +21058,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CEIL_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_CEIL(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CEIL_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -22920,7 +21074,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_CMF", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -22966,23 +21120,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CMF_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -22996,16 +21134,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf3,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CMF_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23014,7 +21143,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_CMO", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23055,20 +21184,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CMO_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_CMO(
@@ -23076,13 +21192,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CMO_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23091,7 +21201,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_CMOU", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23131,20 +21241,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CMOU_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_CMOU(
@@ -23152,13 +21249,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CMOU_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23167,7 +21258,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 9 && strncmp(method, "TA_CORREL", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23209,21 +21300,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_CORREL_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -23233,14 +21310,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_CORREL_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23249,7 +21319,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_COS", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23287,31 +21357,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_COS_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_COS(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_COS_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23320,7 +21373,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_COSH", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23358,31 +21411,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_COSH_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_COSH(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_COSH_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23391,7 +21427,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_DEMA", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23431,20 +21467,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_DEMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_DEMA(
@@ -23452,13 +21475,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_DEMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23467,7 +21484,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_DIV", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23507,20 +21524,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_DIV_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -23529,13 +21533,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 g_sinBuf1,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_DIV_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23544,7 +21542,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 5 && strncmp(method, "TA_DX", 5) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23589,22 +21587,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_DX_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -23616,15 +21599,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_DX_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23633,7 +21608,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_EMA", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23674,20 +21649,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_EMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_EMA(
@@ -23695,13 +21657,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_EMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23710,7 +21666,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_EXP", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23748,31 +21704,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_EXP_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_EXP(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_EXP_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23781,7 +21720,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 8 && strncmp(method, "TA_FLOOR", 8) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23819,31 +21758,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_FLOOR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_FLOOR(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_FLOOR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23852,7 +21774,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_HMA", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23892,20 +21814,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_HMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_HMA(
@@ -23913,13 +21822,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_HMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -23928,7 +21831,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 14 && strncmp(method, "TA_HT_DCPERIOD", 14) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -23967,31 +21870,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_HT_DCPERIOD_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_HT_DCPERIOD(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_HT_DCPERIOD_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24000,7 +21886,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 13 && strncmp(method, "TA_HT_DCPHASE", 13) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24039,31 +21925,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_HT_DCPHASE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_HT_DCPHASE(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_HT_DCPHASE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24072,7 +21941,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 12 && strncmp(method, "TA_HT_PHASOR", 12) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24112,31 +21981,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_HT_PHASOR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_HT_PHASOR(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#ifndef TA_REF_SERVE
-            rc = TA_S_HT_PHASOR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24147,7 +21999,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 10 && strncmp(method, "TA_HT_SINE", 10) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24187,31 +22039,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_HT_SINE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_HT_SINE(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#ifndef TA_REF_SERVE
-            rc = TA_S_HT_SINE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24222,7 +22057,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 15 && strncmp(method, "TA_HT_TRENDLINE", 15) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24261,31 +22096,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_HT_TRENDLINE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_HT_TRENDLINE(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_HT_TRENDLINE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24294,7 +22112,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 15 && strncmp(method, "TA_HT_TRENDMODE", 15) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24333,31 +22151,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_HT_TRENDMODE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_HT_TRENDMODE(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_HT_TRENDMODE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24366,7 +22167,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_IMI", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24408,21 +22209,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_IMI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -24432,14 +22219,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_IMI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24448,7 +22228,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_KAMA", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24489,20 +22269,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_KAMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_KAMA(
@@ -24510,13 +22277,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_KAMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24525,7 +22286,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 12 && strncmp(method, "TA_LINEARREG", 12) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24565,20 +22326,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_LINEARREG_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_LINEARREG(
@@ -24586,13 +22334,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_LINEARREG_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24601,7 +22343,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 18 && strncmp(method, "TA_LINEARREG_ANGLE", 18) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24641,20 +22383,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_LINEARREG_ANGLE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_LINEARREG_ANGLE(
@@ -24662,13 +22391,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_LINEARREG_ANGLE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24677,7 +22400,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 22 && strncmp(method, "TA_LINEARREG_INTERCEPT", 22) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24717,20 +22440,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_LINEARREG_INTERCEPT_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_LINEARREG_INTERCEPT(
@@ -24738,13 +22448,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_LINEARREG_INTERCEPT_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24753,7 +22457,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 18 && strncmp(method, "TA_LINEARREG_SLOPE", 18) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24793,20 +22497,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_LINEARREG_SLOPE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_LINEARREG_SLOPE(
@@ -24814,13 +22505,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_LINEARREG_SLOPE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24829,7 +22514,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 5 && strncmp(method, "TA_LN", 5) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24867,31 +22552,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_LN_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_LN(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_LN_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24900,7 +22568,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 8 && strncmp(method, "TA_LOG10", 8) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -24938,31 +22606,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_LOG10_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_LOG10(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_LOG10_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -24971,7 +22622,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 5 && strncmp(method, "TA_MA", 5) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25013,21 +22664,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            optInMAType,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MA(
@@ -25036,14 +22673,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInTimePeriod,
                 optInMAType,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                optInMAType,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25052,7 +22682,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_MACD", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25098,22 +22728,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MACD_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInFastPeriod,
-            optInSlowPeriod,
-            optInSignalPeriod,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MACD(
@@ -25123,15 +22738,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInSlowPeriod,
                 optInSignalPeriod,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MACD_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInFastPeriod,
-                optInSlowPeriod,
-                optInSignalPeriod,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25144,7 +22751,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal2\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf2, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 10 && strncmp(method, "TA_MACDEXT", 10) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25196,25 +22803,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MACDEXT_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInFastPeriod,
-            optInFastMAType,
-            optInSlowPeriod,
-            optInSlowMAType,
-            optInSignalPeriod,
-            optInSignalMAType,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MACDEXT(
@@ -25227,18 +22816,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInSignalPeriod,
                 optInSignalMAType,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MACDEXT_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInFastPeriod,
-                optInFastMAType,
-                optInSlowPeriod,
-                optInSlowMAType,
-                optInSignalPeriod,
-                optInSignalMAType,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25251,7 +22829,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal2\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf2, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 10 && strncmp(method, "TA_MACDFIX", 10) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25293,20 +22871,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MACDFIX_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInSignalPeriod,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MACDFIX(
@@ -25314,13 +22879,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInSignalPeriod,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MACDFIX_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInSignalPeriod,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25333,7 +22892,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal2\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf2, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_MAMA", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25377,21 +22936,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MAMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInFastLimit,
-            optInSlowLimit,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MAMA(
@@ -25400,14 +22945,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInFastLimit,
                 optInSlowLimit,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MAMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInFastLimit,
-                optInSlowLimit,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25418,7 +22956,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_MAVP", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25464,23 +23002,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MAVP_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInMinPeriod,
-            optInMaxPeriod,
-            optInMAType,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -25492,16 +23014,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInMaxPeriod,
                 optInMAType,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MAVP_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInMinPeriod,
-                optInMaxPeriod,
-                optInMAType,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25510,7 +23023,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_MAX", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25550,20 +23063,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MAX_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MAX(
@@ -25571,13 +23071,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MAX_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25586,7 +23080,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_MAXINDEX", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25626,20 +23120,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MAXINDEX_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MAXINDEX(
@@ -25647,13 +23128,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MAXINDEX_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25662,7 +23137,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_MEDPRICE", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25702,20 +23177,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MEDPRICE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -25724,13 +23186,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 g_sinBuf1,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MEDPRICE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25739,7 +23195,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_MFI", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25785,23 +23241,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MFI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            g_inBuf3,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -25815,16 +23255,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf3,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MFI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                g_sinBuf3,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25833,7 +23264,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_MIDPOINT", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25873,20 +23304,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MIDPOINT_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MIDPOINT(
@@ -25894,13 +23312,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MIDPOINT_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25909,7 +23321,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_MIDPRICE", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -25951,21 +23363,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MIDPRICE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -25975,14 +23373,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MIDPRICE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -25991,7 +23382,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_MIN", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26031,20 +23422,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MIN_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MIN(
@@ -26052,13 +23430,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MIN_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26067,7 +23439,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_MININDEX", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26107,20 +23479,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MININDEX_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outIntBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MININDEX(
@@ -26128,13 +23487,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outIntBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MININDEX_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outIntBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26143,7 +23496,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 9 && strncmp(method, "TA_MINMAX", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26184,20 +23537,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MINMAX_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MINMAX(
@@ -26205,13 +23545,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MINMAX_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26222,7 +23556,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 14 && strncmp(method, "TA_MINMAXINDEX", 14) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26263,20 +23597,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MINMAXINDEX_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outIntBuf0, g_outIntBuf1);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MINMAXINDEX(
@@ -26284,13 +23605,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outIntBuf0, g_outIntBuf1);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MINMAXINDEX_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outIntBuf0, g_outIntBuf1);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26301,7 +23616,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger1\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf1, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_MINUS_DI", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26346,22 +23661,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MINUS_DI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -26373,15 +23673,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MINUS_DI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26390,7 +23682,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_MINUS_DM", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26433,21 +23725,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MINUS_DM_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -26457,14 +23735,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MINUS_DM_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26473,7 +23744,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_MOM", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26513,20 +23784,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MOM_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_MOM(
@@ -26534,13 +23792,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MOM_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26549,7 +23801,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_MULT", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26589,20 +23841,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_MULT_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -26611,13 +23850,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 g_sinBuf1,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_MULT_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26626,7 +23859,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_NATR", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26671,22 +23904,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_NATR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -26698,15 +23916,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_NATR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26715,7 +23925,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_NVI", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26755,20 +23965,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_NVI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -26777,13 +23974,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 g_sinBuf1,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_NVI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26792,7 +23983,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_OBV", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26832,20 +24023,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_OBV_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -26854,13 +24032,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 g_sinBuf1,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_OBV_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26869,7 +24041,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 10 && strncmp(method, "TA_PLUS_DI", 10) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -26914,22 +24086,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_PLUS_DI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -26941,15 +24098,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_PLUS_DI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -26958,7 +24107,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 10 && strncmp(method, "TA_PLUS_DM", 10) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27001,21 +24150,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_PLUS_DM_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -27025,14 +24160,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_PLUS_DM_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27041,7 +24169,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_PPO", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27085,22 +24213,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_PPO_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInFastPeriod,
-            optInSlowPeriod,
-            optInMAType,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_PPO(
@@ -27110,15 +24223,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInSlowPeriod,
                 optInMAType,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_PPO_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInFastPeriod,
-                optInSlowPeriod,
-                optInMAType,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27127,7 +24232,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_PVI", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27167,20 +24272,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_PVI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -27189,13 +24281,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 g_sinBuf1,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_PVI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27204,7 +24290,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_PVO", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27248,22 +24334,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_PVO_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInFastPeriod,
-            optInSlowPeriod,
-            optInMAType,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_PVO(
@@ -27273,15 +24344,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInSlowPeriod,
                 optInMAType,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_PVO_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInFastPeriod,
-                optInSlowPeriod,
-                optInMAType,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27290,7 +24353,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_ROC", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27330,20 +24393,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ROC_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_ROC(
@@ -27351,13 +24401,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ROC_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27366,7 +24410,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_ROCP", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27406,20 +24450,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ROCP_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_ROCP(
@@ -27427,13 +24458,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ROCP_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27442,7 +24467,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_ROCR", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27482,20 +24507,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ROCR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_ROCR(
@@ -27503,13 +24515,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ROCR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27518,7 +24524,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 10 && strncmp(method, "TA_ROCR100", 10) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27558,20 +24564,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ROCR100_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_ROCR100(
@@ -27579,13 +24572,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ROCR100_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27594,7 +24581,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_RSI", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27635,20 +24622,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_RSI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_RSI(
@@ -27656,13 +24630,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_RSI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27671,7 +24639,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_SAR", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27715,22 +24683,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_SAR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInAcceleration,
-            optInMaximum,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -27741,15 +24694,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInAcceleration,
                 optInMaximum,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_SAR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInAcceleration,
-                optInMaximum,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27758,7 +24703,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 9 && strncmp(method, "TA_SAREXT", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27814,28 +24759,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_SAREXT_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInStartValue,
-            optInOffsetOnReverse,
-            optInAccelerationInitLong,
-            optInAccelerationLong,
-            optInAccelerationMaxLong,
-            optInAccelerationInitShort,
-            optInAccelerationShort,
-            optInAccelerationMaxShort,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -27852,21 +24776,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInAccelerationShort,
                 optInAccelerationMaxShort,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_SAREXT_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInStartValue,
-                optInOffsetOnReverse,
-                optInAccelerationInitLong,
-                optInAccelerationLong,
-                optInAccelerationMaxLong,
-                optInAccelerationInitShort,
-                optInAccelerationShort,
-                optInAccelerationMaxShort,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27875,7 +24785,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_SIN", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27913,31 +24823,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_SIN_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_SIN(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_SIN_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -27946,7 +24839,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_SINH", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -27984,31 +24877,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_SINH_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_SINH(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_SINH_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28017,7 +24893,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_SMA", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28057,20 +24933,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_SMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_SMA(
@@ -28078,13 +24941,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_SMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28093,7 +24950,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_SQRT", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28131,31 +24988,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_SQRT_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_SQRT(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_SQRT_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28164,7 +25004,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 9 && strncmp(method, "TA_STDDEV", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28206,21 +25046,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_STDDEV_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            optInNbDev,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_STDDEV(
@@ -28229,14 +25055,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInTimePeriod,
                 optInNbDev,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_STDDEV_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                optInNbDev,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28245,7 +25064,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 8 && strncmp(method, "TA_STOCH", 8) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28298,26 +25117,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_STOCH_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInFastK_Period,
-            optInSlowK_Period,
-            optInSlowK_MAType,
-            optInSlowD_Period,
-            optInSlowD_MAType,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -28333,19 +25133,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInSlowD_Period,
                 optInSlowD_MAType,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#ifndef TA_REF_SERVE
-            rc = TA_S_STOCH_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInFastK_Period,
-                optInSlowK_Period,
-                optInSlowK_MAType,
-                optInSlowD_Period,
-                optInSlowD_MAType,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28356,7 +25144,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 9 && strncmp(method, "TA_STOCHF", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28405,24 +25193,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_STOCHF_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInFastK_Period,
-            optInFastD_Period,
-            optInFastD_MAType,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -28436,17 +25207,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInFastD_Period,
                 optInFastD_MAType,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#ifndef TA_REF_SERVE
-            rc = TA_S_STOCHF_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInFastK_Period,
-                optInFastD_Period,
-                optInFastD_MAType,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28457,7 +25218,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_STOCHRSI", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28504,23 +25265,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_STOCHRSI_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            optInFastK_Period,
-            optInFastD_Period,
-            optInFastD_MAType,
-            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_STOCHRSI(
@@ -28531,16 +25276,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInFastD_Period,
                 optInFastD_MAType,
                 &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#ifndef TA_REF_SERVE
-            rc = TA_S_STOCHRSI_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                optInFastK_Period,
-                optInFastD_Period,
-                optInFastD_MAType,
-                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28551,7 +25287,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_SUB", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28591,20 +25327,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_SUB_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -28613,13 +25336,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 g_sinBuf1,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_SUB_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28628,7 +25345,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_SUM", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28668,20 +25385,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_SUM_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_SUM(
@@ -28689,13 +25393,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_SUM_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28704,7 +25402,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 5 && strncmp(method, "TA_T3", 5) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28747,21 +25445,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_T3_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            optInVFactor,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_T3(
@@ -28770,14 +25454,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInTimePeriod,
                 optInVFactor,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_T3_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                optInVFactor,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28786,7 +25463,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_TAN", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28824,31 +25501,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_TAN_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_TAN(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_TAN_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28857,7 +25517,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_TANH", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28895,31 +25555,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_TANH_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_TANH(
                 startIdx, endIdx,
                 g_sinBuf0,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_TANH_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -28928,7 +25571,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_TEMA", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -28968,20 +25611,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_TEMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_TEMA(
@@ -28989,13 +25619,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_TEMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29004,7 +25628,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 9 && strncmp(method, "TA_TRANGE", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29046,21 +25670,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_TRANGE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -29071,14 +25681,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 g_sinBuf2,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_TRANGE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29087,7 +25690,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 8 && strncmp(method, "TA_TRIMA", 8) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29127,20 +25730,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_TRIMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_TRIMA(
@@ -29148,13 +25738,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_TRIMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29163,7 +25747,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_TRIX", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29203,20 +25787,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_TRIX_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_TRIX(
@@ -29224,13 +25795,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_TRIX_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29239,7 +25804,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_TSF", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29279,20 +25844,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_TSF_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_TSF(
@@ -29300,13 +25852,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_TSF_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29315,7 +25861,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_TYPPRICE", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29357,21 +25903,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_TYPPRICE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -29382,14 +25914,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 g_sinBuf2,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_TYPPRICE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29398,7 +25923,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 9 && strncmp(method, "TA_ULTOSC", 9) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29446,24 +25971,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_ULTOSC_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod1,
-            optInTimePeriod2,
-            optInTimePeriod3,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -29477,17 +25985,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInTimePeriod2,
                 optInTimePeriod3,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_ULTOSC_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod1,
-                optInTimePeriod2,
-                optInTimePeriod3,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29496,7 +25994,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_VAR", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29538,21 +26036,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_VAR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            optInNbDev,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_VAR(
@@ -29561,14 +26045,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 optInTimePeriod,
                 optInNbDev,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_VAR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                optInNbDev,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29577,7 +26054,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 7 && strncmp(method, "TA_VWMA", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29619,21 +26096,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_VWMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -29643,14 +26106,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_VWMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29659,7 +26115,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 11 && strncmp(method, "TA_WCLPRICE", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29701,21 +26157,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_WCLPRICE_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -29726,14 +26168,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf1,
                 g_sinBuf2,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_WCLPRICE_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29742,7 +26177,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 8 && strncmp(method, "TA_WILLR", 8) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29786,22 +26221,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_WILLR_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            g_inBuf1,
-            g_inBuf2,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
@@ -29813,15 +26233,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf2,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_WILLR_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                g_sinBuf1,
-                g_sinBuf2,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29830,7 +26242,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 6 && strncmp(method, "TA_WMA", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
@@ -29870,20 +26282,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             return;
         }
 #endif /* TA_REF_SERVE */
-#ifndef TA_REF_SERVE
-        long _t0_ung = 0;
-        for( int _biu = 0; _biu <= bench_iters; _biu++ ) {
-        if( _biu == 1 ) _t0_ung = get_nanotime();
-        rc = TA_WMA_Unguarded(
-            startIdx, endIdx,
-            g_inBuf0,
-            optInTimePeriod,
-            &outBegIdx, &outNBElement, g_outBuf0);
-        }
-        long elapsed_ns_ung = (get_nanotime() - _t0_ung) / bench_iters;
-#else
-        long elapsed_ns_ung = 0;
-#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
         if( json_find_int(json, "use_float") ) {
             for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
             rc = TA_S_WMA(
@@ -29891,13 +26290,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
                 g_sinBuf0,
                 optInTimePeriod,
                 &outBegIdx, &outNBElement, g_outBuf0);
-#ifndef TA_REF_SERVE
-            rc = TA_S_WMA_Unguarded(
-                startIdx, endIdx,
-                g_sinBuf0,
-                optInTimePeriod,
-                &outBegIdx, &outNBElement, g_outBuf0);
-#endif /* TA_REF_SERVE */
+            usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
             "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
@@ -29906,7 +26299,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
-        pos = json_appendf(resp, resp_size, pos, ",\"timing_ns_unguarded\":%ld}", elapsed_ns_ung);
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
     else if ( methodLen == 20 && strncmp(method, "TA_ACCBANDS_Lookback", 20) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");

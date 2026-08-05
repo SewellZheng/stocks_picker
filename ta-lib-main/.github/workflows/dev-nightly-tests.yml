@@ -241,6 +241,52 @@ jobs:
           # Benchmarks are skipped: CI timing is noise.
           python3 scripts/regtest.py --no-perftest --no-direct-bench --codegen-only
 
+  # Synthetic-function gate. The cross-language job above verifies the SHIPPED
+  # functions; this one verifies generator surface no shipped function uses
+  # (bitwise operators, integer truthiness, do-while, switch-on-expression, ...).
+  # scripts/synth_gate.py copies the committed template functions from
+  # ta_codegen/generator/input_synth/ into ta_codegen/input/ inside a throwaway git
+  # worktree, regenerates ALL backends there, and runs the usual gates scoped
+  # to the SYNTH family: --codegen-only (stream_verify / OpenAndFill,
+  # batch-vs-stream bitwise in all four servers) and --xlang-hash (batch
+  # parity, Rust/Java/C# vs the in-process C golden, bitwise). The script
+  # asserts the SYNTH functions were actually swept in every leg, so a
+  # refactor that silently stops enumerating them fails instead of passing an
+  # empty run. Nothing synthetic ever lands in the shipped tree.
+  synth-gate:
+    name: "synth-gate: unshipped generator surface, all langs"
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+          fetch-depth: 0 # ta_ref_serve builds from the pinned reference tag
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install JDK
+        shell: bash
+        run: |
+          sudo apt update
+          sudo apt install -y openjdk-21-jdk
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Run the synthetic cross-language gate
+        shell: bash
+        run: |
+          # Rust toolchain and cmake are preinstalled on ubuntu-latest.
+          python3 scripts/synth_gate.py
+
   # Debug-profile Rust codegen gate. The release cross-language job above wraps a
   # usize overflow silently (the wrapped value is dead), so it cannot see the
   # IMI/APO/PPO-class arithmetic-overflow bugs: those only manifest as a debug
@@ -248,6 +294,11 @@ jobs:
   # checks on) and runs the codegen edge-range sweep (test_codegen.c
   # run_edge_range_sweep) against it, so any such overflow becomes a hard
   # failure. Rust-only (no JDK/.NET), gated on the C hero job.
+  #
+  # The BATCH tier is what the sweep covers; the second step extends the same
+  # debug binary to the STREAM tier (Open/Update/Peek/Close, rings, sub-handles),
+  # which the sweep never calls. Same cargo invocation, so the build is already
+  # warm — it costs one extra pipe, not a second job.
   cross-language-rust-debug:
     name: Rust tests (debug profile — overflow gate)
     needs: test
@@ -265,6 +316,10 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Install PyYAML
+        shell: bash
+        run: pip install pyyaml
+
       - name: Build debug Rust server and run codegen overflow gate
         shell: bash
         run: |
@@ -272,6 +327,10 @@ jobs:
           # (Rust-only). --rust-debug builds the server with overflow checks on so the
           # edge-range sweep traps arithmetic overflow instead of wrapping it away.
           python3 scripts/regtest.py --no-perftest --no-direct-bench --codegen-only --language=rust --rust-debug
+
+      - name: Drive the streaming API against the same debug server
+        shell: bash
+        run: python3 scripts/rust_stream_debug.py
 
   # Clippy lint gate for the Rust code: the generator tool and the generated crate.
   # The tool enforces #![deny(clippy::pedantic)] on itself, but nothing in CI ever
@@ -555,7 +614,8 @@ jobs:
   # no ifunc; a guard wrongly widened to __linux__ would fail the compile here), so
   # a musl build must emit ZERO ifunc and still compute correctly. Checkout on the
   # ubuntu host (Alpine lacks Node for actions/checkout); build + test in an Alpine
-  # container. Pinned to `dev`; pre-merge use scripts/verify-musl-fma.sh.
+  # container. Pinned to `dev`. For a pre-merge local run, paste the `docker run`
+  # block below — it needs only Docker and the repo root as $PWD.
   musl-build:
     name: musllinux build (FMA dispatch correctly excluded)
     needs: test
@@ -764,7 +824,15 @@ jobs:
           (cd ta_codegen/generator && cargo run --release -- generate-servers)
           status="$(git status --porcelain)"
           if [ -n "$status" ]; then
-            echo "::error::ta_codegen output is out of date. Run 'scripts/build.py generate' and commit the regenerated files."
+            echo "::error::ta_codegen output is out of date. Regenerate with the command that owns the drifted path (see log) and commit."
+            echo "Three separate generators feed this gate. 'scripts/build.py generate'"
+            echo "writes NEITHER the servers NOR the benches, so it alone cannot"
+            echo "reproduce or fix a drift in those:"
+            echo "  src/ta_func/**, ta_codegen/output/**  -> scripts/build.py generate"
+            echo "  **/TaCodegenServe.*                   -> scripts/build.py servers"
+            echo "                                           (no JDK/.NET needed just to write them:"
+            echo "                                            cd ta_codegen/generator && cargo run --release -- generate-servers)"
+            echo "  ta_bench_cg.c, ta_bench_stream.c      -> cd ta_codegen/generator && cargo run --release -- generate-bench --backend=c"
             echo "$status"
             echo "----- git diff -----"
             git --no-pager diff
