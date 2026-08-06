@@ -2515,59 +2515,144 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         s.push_str("    }\n\n");
     }
 
-    // ta_abstract dynamic dispatch (issue #114): abstract_get_lookback + abstract_call.
-    // computeLookback parses a function's opt params (same JSON keys as the per-function
-    // handler) and calls its guarded <name>Lookback; abstract_call reroutes to the
-    // existing per-function handler and prepends the `lookback` the C ta_abstract path returns.
-    s.push_str("    static int computeLookback(String funcName, String json) {\n");
-    s.push_str("        switch (funcName) {\n");
-    for func in funcs {
-        let func_lower = to_java_method_name(&func.name, func.camel_case.as_deref());
-        s.push_str(&format!("        case \"{}\": {{\n", func.name));
-        for opt in &func.optional_inputs {
-            match &opt.param_type {
-                ParamType::Real => s.push_str(&format!(
-                    "            double {} = jsonDouble(json, \"{}\");\n",
-                    opt.name, opt.name
-                )),
-                ParamType::Enum(enum_name) => s.push_str(&format!(
-                    "            {} {} = {}.values()[jsonInt(json, \"{}\")];\n",
-                    enum_name, opt.name, enum_name, opt.name
-                )),
-                _ => s.push_str(&format!(
-                    "            int {} = jsonInt(json, \"{}\");\n",
-                    opt.name, opt.name
-                )),
+    // ta_abstract dynamic dispatch. Both RPCs bind through the SHIPPED registry
+    // (io.github.talib.metadata) rather than a server-private switch, so
+    // test_abstract.c exercises the artifact that ships. Fully-qualified names
+    // throughout: this file carries its own default-package Core/MAType/RetCode
+    // twins, and importing the shipped ones would be ambiguous.
+    //
+    // Java's public API is exception-based -- Core returns OutRange and throws --
+    // so the retCode C reports is reconstituted at this boundary. That is a
+    // spelling difference the contract tolerates; what must match, and does, is
+    // WHICH calls are rejected.
+    s.push_str(r#"    static int computeLookback(String funcName, String json) {
+        io.github.talib.metadata.FunctionInfo f = io.github.talib.metadata.Functions.byName(funcName);
+        if (f == null) return -1;
+        try {
+            return absBind(f, json, null).lookback();
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
+    /* Binds every declared parameter of `f` from the request. `outs` receives the
+       output arrays when the caller needs them back; pass null for the lookback
+       tier, which binds none. */
+    static io.github.talib.metadata.ParamHolder absBind(
+            io.github.talib.metadata.FunctionInfo f, String json, Object[] outs) {
+        io.github.talib.metadata.ParamHolder h = f.newCall();
+        int startIdx = jsonInt(json, "startIdx");
+        int endIdx = jsonInt(json, "endIdx");
+        int n = endIdx - startIdx + 1;
+        if (n < 1) n = 1;
+
+        for (int i = 0; i < f.inputs().size(); i++) {
+            io.github.talib.metadata.InputInfo in = f.inputs().get(i);
+            switch (in.type()) {
+                case PRICE -> h.setPriceInput(i,
+                    jsonDoubleArray(json, "inOpen"), jsonDoubleArray(json, "inHigh"),
+                    jsonDoubleArray(json, "inLow"), jsonDoubleArray(json, "inClose"),
+                    jsonDoubleArray(json, "inVolume"), jsonDoubleArray(json, "inOpenInterest"));
+                case REAL -> h.setInput(i, absRealInput(json, f, i));
+                case INTEGER -> {
+                    double[] raw = absRealInput(json, f, i);
+                    int[] ints = new int[raw.length];
+                    for (int k = 0; k < raw.length; k++) ints[k] = (int) raw[k];
+                    h.setInput(i, ints);
+                }
             }
         }
-        let args: Vec<&str> = func.optional_inputs.iter().map(|o| o.name.as_str()).collect();
-        s.push_str(&format!(
-            "            return core.{}Lookback({});\n",
-            func_lower,
-            args.join(", ")
-        ));
-        s.push_str("        }\n");
-    }
-    s.push_str("        default: return -1;\n");
-    s.push_str("        }\n");
-    s.push_str("    }\n\n");
 
-    s.push_str("    static String handleAbstractCall(String json) {\n");
-    s.push_str("        String fn = jsonString(json, \"funcName\");\n");
-    s.push_str("        String resp;\n");
-    s.push_str("        switch (fn) {\n");
-    for func in funcs {
-        s.push_str(&format!(
-            "        case \"{}\": resp = handle_{}(json); break;\n",
-            func.name, func.name
-        ));
+        for (int i = 0; i < f.optInputs().size(); i++) {
+            io.github.talib.metadata.OptInputInfo o = f.optInputs().get(i);
+            switch (o.type()) {
+                case REAL_RANGE, REAL_LIST -> h.setOptInput(i, jsonDouble(json, o.paramName()));
+                default -> h.setOptInput(i, jsonInt(json, o.paramName()));
+            }
+        }
+
+        if (outs != null) {
+            for (int k = 0; k < f.outputs().size(); k++) {
+                if (f.outputs().get(k).type() == io.github.talib.metadata.OutputType.REAL) {
+                    double[] a = new double[n];
+                    outs[k] = a;
+                    h.setOutput(k, a);
+                } else {
+                    int[] a = new int[n];
+                    outs[k] = a;
+                    h.setOutput(k, a);
+                }
+            }
+        }
+        return h;
     }
-    s.push_str("        default: return \"{\\\"error\\\":\\\"Unknown function\\\"}\";\n");
-    s.push_str("        }\n");
-    s.push_str("        int lb = computeLookback(fn, json);\n");
-    // The per-function response starts with '{'; splice "lookback" in as the first key.
-    s.push_str("        return \"{\\\"lookback\\\":\" + lb + \",\" + resp.substring(1);\n");
-    s.push_str("    }\n\n");
+
+    /* inReal / inReal0 / inReal1, matching the driver's key scheme. */
+    static double[] absRealInput(String json, io.github.talib.metadata.FunctionInfo f, int slot) {
+        int generic = 0;
+        for (int i = 0; i < slot; i++) {
+            if (f.inputs().get(i).type() != io.github.talib.metadata.InputType.PRICE) generic++;
+        }
+        int total = 0;
+        for (int i = 0; i < f.inputs().size(); i++) {
+            if (f.inputs().get(i).type() != io.github.talib.metadata.InputType.PRICE) total++;
+        }
+        return jsonDoubleArray(json, total == 1 ? "inReal" : ("inReal" + generic));
+    }
+
+    static String handleAbstractCall(String json) {
+        String fn = jsonString(json, "funcName");
+        io.github.talib.metadata.FunctionInfo f = io.github.talib.metadata.Functions.byName(fn);
+        if (f == null) return "{\"error\":\"Unknown function\"}";
+
+        Object[] outs = new Object[f.outputs().size()];
+        int lb;
+        int rc = 0;
+        int beg = 0;
+        int nb = 0;
+        try {
+            io.github.talib.metadata.ParamHolder h = absBind(f, json, outs);
+            lb = h.lookback();
+            io.github.talib.OutRange r = h.call(jsonInt(json, "startIdx"), jsonInt(json, "endIdx"));
+            beg = r.begIdx();
+            nb = r.count();
+        } catch (RuntimeException e) {
+            /* The shipped binder signals a rejected call by throwing; C's
+               TA_CallFunc returns TA_BAD_PARAM for the same conditions. */
+            lb = -1;
+            rc = 2;
+        }
+
+        StringBuilder b = new StringBuilder();
+        b.append("{\"lookback\":").append(lb)
+         .append(",\"retCode\":").append(rc)
+         .append(",\"outBegIdx\":").append(beg)
+         .append(",\"outNBElement\":").append(nb);
+        /* Real and integer outputs are numbered INDEPENDENTLY, each from its own
+           counter -- MINMAXINDEX has two integer outputs, so one shared "outInteger"
+           key made the second overwrite the first. Matches the driver's scheme in
+           test_abstract.c. */
+        int realIdx = 0;
+        int intIdx = 0;
+        for (int k = 0; k < f.outputs().size(); k++) {
+            boolean isReal = f.outputs().get(k).type() == io.github.talib.metadata.OutputType.REAL;
+            String key;
+            if (isReal) {
+                key = realIdx == 0 ? "outReal" : ("outReal" + realIdx);
+                realIdx++;
+            } else {
+                key = intIdx == 0 ? "outInteger" : ("outInteger" + intIdx);
+                intIdx++;
+            }
+            b.append(",\"").append(key).append("\":");
+            if (isReal) b.append(doubleArrayToJson((double[]) outs[k], nb));
+            else b.append(intArrayToJson((int[]) outs[k], nb));
+        }
+        b.append('}');
+        return b.toString();
+    }
+
+"#);
 
     // stream_verify: Java stream vs Java batch, bitwise (drives the ta_regtest
     // stream pass the moment the capability probe sees "not_streamable").
@@ -2581,7 +2666,16 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        String line;\n");
     s.push_str("        while ((line = reader.readLine()) != null) {\n");
     s.push_str("            if (line.trim().isEmpty()) continue;\n");
-    s.push_str("            System.out.println(handleRequest(line));\n");
+    // An escaping exception kills the JVM, and the driver then reports a
+    // pipe-read failure for every REMAINING function instead of naming the one
+    // request that broke. That is exactly how MAType.values()[Integer.MIN_VALUE]
+    // presented (issue #164): a dead pipe, not a diagnosable answer.
+    s.push_str("            String reply;\n");
+    s.push_str("            try { reply = handleRequest(line); }\n");
+    s.push_str("            catch (Throwable t) {\n");
+    s.push_str("                reply = \"{\\\"error\\\":\" + absStr(t.getClass().getName() + \": \" + t.getMessage()) + \"}\";\n");
+    s.push_str("            }\n");
+    s.push_str("            System.out.println(reply);\n");
     s.push_str("            System.out.flush();\n");
     s.push_str("        }\n");
     s.push_str("    }\n");
@@ -2870,16 +2964,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
 
     // The ta_abstract handlers. Fixed source: they read the shipped catalogue,
     // so there is no per-function generated code here at all.
-    {
-        let xml = crate::backends::func_api_xml::generate_string(funcs);
-        let xml_len = xml.len();
-        let xml_checksum: u64 = xml.bytes().map(u64::from).sum();
-        s.push_str(&format!(
-            "    const int ABSTRACT_XML_LENGTH = {xml_len};\n\
-             \x20   const ulong ABSTRACT_XML_CHECKSUM = {xml_checksum}UL;\n\n"
-        ));
-        s.push_str(CSHARP_ABSTRACT_HANDLERS);
-    }
+    s.push_str(CSHARP_ABSTRACT_HANDLERS);
 
     // ComputeLookback: parse a function's opt params (same JSON keys and 0/0.0
     // absent-field fallbacks as the per-function handlers) and call its guarded
@@ -3118,12 +3203,22 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
         s.push_str("    }\n\n");
     }
 
-    // Main
+    // Main. The handler is wrapped because an escaping exception kills the
+    // process, and the driver then reports a pipe-read failure for every
+    // REMAINING function rather than naming the one request that broke -- the
+    // failure mode that made the Java server's MAType decode so hard to place
+    // (issue #164). A thrown request now answers with an error object and the
+    // server stays up for the next one.
     s.push_str("    static void Main(string[] args) {\n");
     s.push_str("        string? line;\n");
     s.push_str("        while ((line = Console.ReadLine()) != null) {\n");
     s.push_str("            if (string.IsNullOrWhiteSpace(line)) continue;\n");
-    s.push_str("            Console.WriteLine(HandleRequest(line));\n");
+    s.push_str("            string reply;\n");
+    s.push_str("            try { reply = HandleRequest(line); }\n");
+    s.push_str("            catch (Exception e) {\n");
+    s.push_str("                reply = \"{\\\"error\\\":\" + AbsStr(e.GetType().Name + \": \" + e.Message) + \"}\";\n");
+    s.push_str("            }\n");
+    s.push_str("            Console.WriteLine(reply);\n");
     s.push_str("            Console.Out.Flush();\n");
     s.push_str("        }\n");
     s.push_str("    }\n");
@@ -3755,8 +3850,8 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // Abstract dynamic-dispatch handlers (abstract_call, abstract_get_lookback,
     // abstract_for_each_func) + TA_FunctionDescriptionXML. Completes the Rust mirror
     // of C's ta_abstract serve path so the full test_abstract() drives the Rust
-    // server (numeric output comparison, not just metadata). abstract_call reroutes
-    // through dispatch(); abstract_get_lookback uses the generated abstract_lookback().
+    // server (numeric output comparison, not just metadata). Both dynamic arms
+    // bind through the SHIPPED abstract_api::ParamHolder -- see RUST_ABSTRACT_BINDER.
     s.push_str(RUST_ABSTRACT_DYNAMIC_HANDLERS);
 
     // Unknown method
@@ -3768,48 +3863,10 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    }\n");
     s.push_str("}\n\n");
 
-    // abstract_lookback — generic lookback dispatcher used by the abstract_get_lookback
-    // RPC (funcName + opt params -> Core::<fn>_lookback). Opt-param parsing mirrors the
-    // per-function arm exactly (same defaults/types), so the lookback matches c-ref's
-    // TA_GetLookback for the same parameters. Returns None for an unknown funcName.
-    s.push_str("fn abstract_lookback(core: &Core, func_name: &str, params: &Value) -> Option<usize> {\n");
-    s.push_str("    match func_name {\n");
-    for func in funcs {
-        let fn_name = func.name.to_lowercase();
-        s.push_str(&format!("        \"{}\" => {{\n", func.name));
-        for opt in &func.optional_inputs {
-            let default_val = opt.default.unwrap_or(0.0);
-            if opt.param_type == ParamType::Real {
-                s.push_str(&format!(
-                    "            let {} = params[\"{}\"].as_f64().unwrap_or({}) as f64;\n",
-                    opt.name,
-                    opt.name,
-                    format_default_f64(default_val)
-                ));
-            } else {
-                #[allow(clippy::cast_possible_truncation)]
-                let default_i = default_val as i64;
-                s.push_str(&format!(
-                    "            let {} = params[\"{}\"].as_i64().unwrap_or({}) as i32;\n",
-                    opt.name, opt.name, default_i
-                ));
-            }
-        }
-        let lb_args: Vec<String> = func
-            .optional_inputs
-            .iter()
-            .map(|o| o.name.clone())
-            .collect();
-        s.push_str(&format!(
-            "            Some(core.{}_lookback({}))\n",
-            fn_name,
-            lb_args.join(", ")
-        ));
-        s.push_str("        }\n");
-    }
-    s.push_str("        _ => None,\n");
-    s.push_str("    }\n");
-    s.push_str("}\n\n");
+    // The dynamic tier binds through the SHIPPED abstract_api::ParamHolder, so
+    // test_abstract.c drives the surface that ships rather than a copy that only
+    // exists in this file (issue #164 — the same correction D1 made for Java).
+    s.push_str(RUST_ABSTRACT_BINDER);
 
     // Main function
     s.push_str("fn main() {\n");
@@ -3954,6 +4011,184 @@ const RUST_ABSTRACT_METADATA_HANDLERS: &str = r#"        "TA_GetFuncInfo" => {
         }
 "#;
 
+/// The Rust server's ta_abstract dynamic tier, bound through the SHIPPED
+/// `abstract_api::ParamHolder` rather than a server-local dispatch.
+///
+/// Before this, `abstract_call` rerouted to the per-function handler and
+/// `abstract_get_lookback` used a generated 168-arm match reading JSON — so
+/// `test_abstract.c` proved the Rust *metadata* and nothing about a shipped
+/// binder, because there wasn't one. Now the gate drives what ships, which is the
+/// same correction D1 made for Java (issue #164).
+const RUST_ABSTRACT_BINDER: &str = r#"
+/// One input array. Delegates to `parse_f64_array` rather than reimplementing the
+/// number-array half: that function also decodes the lossless hex-of-IEEE-bits
+/// encoding (issue #115), which the per-function handlers accept and which the
+/// reroute this replaced therefore accepted too. Handling only decimals here would
+/// answer an empty slice for a hex payload, and an empty input slice reaches the
+/// guarded body's bounds assert and panics the process.
+fn abs_f64s(params: &Value, key: &str) -> Vec<f64> {
+    parse_f64_array(&params[key])
+}
+
+/// `None` for an absent component, so `set_price_input` sees exactly what the
+/// request carried — a component the function does not consume is accepted and
+/// ignored, as in C and the other binders.
+fn abs_opt(v: &[f64]) -> Option<&[f64]> {
+    if v.is_empty() { None } else { Some(v) }
+}
+
+/// Bind every declared parameter from the request and run the call, through the
+/// shipped binder. Answers the same shape the C server's ta_abstract path does.
+fn abs_call(core: &Core, params: &Value) -> String {
+    let fname = params["funcName"].as_str().unwrap_or("");
+    let Some(id) = abstract_api::get_func_handle(fname) else {
+        return format!("{{\"error\":\"Unknown function: {fname}\"}}");
+    };
+    let info = id.info();
+    // C answers TA_OUT_OF_RANGE_START_INDEX / _END_INDEX for these rather than
+    // clamping, and the driver compares retCodes.
+    let raw_start = params["startIdx"].as_i64().unwrap_or(0);
+    let raw_end = params["endIdx"].as_i64().unwrap_or(0);
+    if raw_start < 0 {
+        return format!("{{\"binder\":1,\"lookback\":-1,\"retCode\":{},\"outBegIdx\":0,\"outNBElement\":0}}",
+                       retcode_to_int(RetCode::OutOfRangeStartIndex));
+    }
+    if raw_end < 0 || raw_end < raw_start {
+        return format!("{{\"binder\":1,\"lookback\":-1,\"retCode\":{},\"outBegIdx\":0,\"outNBElement\":0}}",
+                       retcode_to_int(RetCode::OutOfRangeEndIndex));
+    }
+    let start = raw_start as usize;
+    let end = raw_end as usize;
+    let n = end - start + 1;
+
+    // Declared before the holder so they outlive the borrows it takes.
+    let po = abs_f64s(params, "inOpen");
+    let ph = abs_f64s(params, "inHigh");
+    let pl = abs_f64s(params, "inLow");
+    let pc = abs_f64s(params, "inClose");
+    let pv = abs_f64s(params, "inVolume");
+    let pi = abs_f64s(params, "inOpenInterest");
+
+    let generic_total = info.inputs.iter().filter(|i| i.kind != InputType::Price).count();
+    let mut reals: Vec<Vec<f64>> = Vec::new();
+    for k in 0..generic_total {
+        let key = if generic_total == 1 { "inReal".to_string() } else { format!("inReal{k}") };
+        reals.push(abs_f64s(params, &key));
+    }
+    // No shipped function declares an integer input; carried so the arm is total.
+    let ints: Vec<Vec<i32>> = (0..generic_total).map(|_| Vec::new()).collect();
+
+    let mut rbuf: Vec<Vec<f64>> = (0..info.outputs.len()).map(|_| vec![0.0; n]).collect();
+    let mut ibuf: Vec<Vec<i32>> = (0..info.outputs.len()).map(|_| vec![0; n]).collect();
+
+    let (rc, lb, beg, nb) = {
+        let mut h = id.new_call(core);
+        // The first bind failure is ANSWERED, not swallowed. A discarded Err
+        // leaves the parameter at its constructor sentinel, which every function
+        // maps to that parameter's documented default -- and the only vectors that
+        // drive this path bind the defaults, so a binder that REJECTED the bind
+        // would have produced byte-identical output and a green gate.
+        let mut bind_err: Option<RetCode> = None;
+        let mut note = |r: Result<&mut abstract_api::ParamHolder<'_>, RetCode>| {
+            if let Err(e) = r { if bind_err.is_none() { bind_err = Some(e); } }
+        };
+        let mut gi = 0usize;
+        for (slot, inp) in info.inputs.iter().enumerate() {
+            match inp.kind {
+                InputType::Price => {
+                    note(h.set_price_input(slot, abs_opt(&po), abs_opt(&ph), abs_opt(&pl),
+                                           abs_opt(&pc), abs_opt(&pv), abs_opt(&pi)));
+                }
+                InputType::Real => { note(h.set_input(slot, &reals[gi])); gi += 1; }
+                InputType::Integer => { note(h.set_int_input(slot, &ints[gi])); gi += 1; }
+            }
+        }
+        for (k, opt) in info.opt_inputs.iter().enumerate() {
+            match opt.domain {
+                OptDomain::RealRange { .. } | OptDomain::RealList { .. } => {
+                    if let Some(v) = params[opt.param_name].as_f64() { note(h.set_opt(k, v)); }
+                }
+                _ => {
+                    if let Some(v) = params[opt.param_name].as_i64() {
+                        note(h.set_opt(k, v as i32));
+                    }
+                }
+            }
+        }
+        for (k, buf) in rbuf.iter_mut().enumerate() {
+            if info.outputs[k].kind == OutputType::Real { note(h.set_output(k, buf)); }
+        }
+        for (k, buf) in ibuf.iter_mut().enumerate() {
+            if info.outputs[k].kind == OutputType::Integer { note(h.set_int_output(k, buf)); }
+        }
+
+        let lb = h.lookback().map_or(-1i64, |v| v as i64);
+        if let Some(e) = bind_err {
+            (retcode_to_int(e), lb, 0usize, 0usize)
+        } else {
+            match h.call(start, end) {
+                Ok(r) => (0i32, lb, r.beg_idx, r.nb_element),
+                Err(e) => (retcode_to_int(e), lb, 0usize, 0usize),
+            }
+        }
+    };
+
+    // `binder:1` says this reply came from the SHIPPED ParamHolder. The transport
+    // split below is chosen by sniffing request flags, so without a positive
+    // marker, adding want_hash to the driver would silently move the whole sweep
+    // back onto the per-function handler with every assertion still passing --
+    // the same vacuity shape the choice-list floor exists to catch, pointing the
+    // other way. test_abstract.c requires it of the Rust server.
+    let mut out = format!(
+        "{{\"binder\":1,\"lookback\":{lb},\"retCode\":{rc},\"outBegIdx\":{beg},\"outNBElement\":{nb}"
+    );
+    // Real and integer outputs are numbered from INDEPENDENT counters, matching
+    // the driver: MINMAXINDEX has two integer outputs, and one shared key would
+    // make the second overwrite the first.
+    let mut ri = 0usize;
+    let mut ii = 0usize;
+    for (k, o) in info.outputs.iter().enumerate() {
+        let is_real = o.kind == OutputType::Real;
+        let key = if is_real {
+            let s = if ri == 0 { "outReal".to_string() } else { format!("outReal{ri}") };
+            ri += 1;
+            s
+        } else {
+            let s = if ii == 0 { "outInteger".to_string() } else { format!("outInteger{ii}") };
+            ii += 1;
+            s
+        };
+        out.push_str(&format!(",\"{key}\":"));
+        if is_real {
+            out.push_str(&json_f64_array(&rbuf[k][..nb]));
+        } else {
+            let items: Vec<String> = ibuf[k][..nb].iter().map(ToString::to_string).collect();
+            out.push_str(&format!("[{}]", items.join(",")));
+        }
+    }
+    out.push('}');
+    out
+}
+
+/// The lookback tier, through the same binder.
+fn abs_lookback(core: &Core, params: &Value) -> Option<i64> {
+    let fname = params["funcName"].as_str().unwrap_or("");
+    let id = abstract_api::get_func_handle(fname)?;
+    let mut h = id.new_call(core);
+    for (k, opt) in id.info().opt_inputs.iter().enumerate() {
+        match opt.domain {
+            OptDomain::RealRange { .. } | OptDomain::RealList { .. } => {
+                if let Some(v) = params[opt.param_name].as_f64() { let _ = h.set_opt(k, v); }
+            }
+            _ => {
+                if let Some(v) = params[opt.param_name].as_i64() { let _ = h.set_opt(k, v as i32); }
+            }
+        }
+    }
+    Some(h.lookback().map_or(-1i64, |v| v as i64))
+}
+"#;
+
 /// Rust server match arms for the abstract dynamic-dispatch RPCs. Mirrors C's
 /// `ta_abstract_serve.c` (`handle_abstract_call`, `handle_abstract_get_lookback`,
 /// `handle_abstract_for_each_func`) plus `TA_FunctionDescriptionXML`, so the same
@@ -3971,12 +4206,24 @@ const RUST_ABSTRACT_DYNAMIC_HANDLERS: &str = r#"        "abstract_call" => {
             if fname.is_empty() {
                 return "{\"error\":\"Missing funcName\"}".to_string();
             }
-            let rerouted = format!("TA_{}", fname);
-            dispatch(core, ref_data, &rerouted, params)
+            // Two callers, two contracts. test_abstract.c drives the BINDER and
+            // wants values back; --xlang-hash drives the same RPC as its seed
+            // transport and wants the per-function handler's fuzz-generated
+            // inputs and out_hash, which is a statement about the FUNCTION, not
+            // about a binder. Route by what the request carries.
+            if params["gen_present"].as_i64().unwrap_or(0) != 0
+                || params["want_hash"].as_i64().unwrap_or(0) != 0
+            {
+                let rerouted = format!("TA_{}", fname);
+                dispatch(core, ref_data, &rerouted, params)
+            } else {
+                let _ = ref_data;
+                abs_call(core, params)
+            }
         }
         "abstract_get_lookback" => {
             let fname = params["funcName"].as_str().unwrap_or("");
-            match abstract_lookback(core, fname, params) {
+            match abs_lookback(core, params) {
                 Some(lb) => format!("{{\"lookback\":{}}}", lb),
                 None => format!("{{\"error\":\"Unknown function: {}\"}}", fname),
             }
@@ -4973,8 +5220,25 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         if (v is null) return "\"\"";
         var b = new System.Text.StringBuilder("\"");
         foreach (char c in v) {
-            if (c == '"' || c == '\\') b.Append('\\');
-            b.Append(c);
+            /* The full JSON string grammar, not just quote and backslash. The
+               transport is NEWLINE-FRAMED (codegen_pipe reads to the next '\n'),
+               so an unescaped control character in an error message would split
+               one reply into two lines and hand the second to the NEXT request --
+               desynchronising the stream permanently, which is worse than the
+               crash the surrounding try/catch replaces. */
+            switch (c) {
+                case '"':  b.Append("\\\""); break;
+                case '\\': b.Append("\\\\"); break;
+                case '\b': b.Append("\\b"); break;
+                case '\f': b.Append("\\f"); break;
+                case '\n': b.Append("\\n"); break;
+                case '\r': b.Append("\\r"); break;
+                case '\t': b.Append("\\t"); break;
+                default:
+                    if (c < 0x20) b.Append("\\u").Append(((int)c).ToString("x4"));
+                    else b.Append(c);
+                    break;
+            }
         }
         b.Append('"');
         return b.ToString();
@@ -5069,8 +5333,17 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         return b.ToString();
     }
 
-    static string AbsDescriptionXml() =>
-        $"{{\"length\":{ABSTRACT_XML_LENGTH},\"checksum\":{ABSTRACT_XML_CHECKSUM}}}";
+    /* Measured at RUN TIME from the SHIPPED FunctionDescription. Baking the two
+       numbers at generation time made this leg unfailable: it compared C's real
+       bytes against constants derived from the same string C's own table is
+       built from (#164). Now both sides are real bytes. */
+    static string AbsDescriptionXml()
+    {
+        string xml = TALib.Metadata.FunctionDescription.Xml;
+        ulong checksum = 0;
+        foreach (char c in xml) checksum += (ulong)(c & 0xFF);
+        return $"{{\"length\":{xml.Length},\"checksum\":{checksum}}}";
+    }
 
     /* The JSON key the driver sends a required input under. Price bundles are
        sent one component per set bit; a lone real input keeps its own name,

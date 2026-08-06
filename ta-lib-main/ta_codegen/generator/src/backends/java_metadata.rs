@@ -98,6 +98,52 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, lib_src: &P
 
     let rows = rows(funcs, enums);
 
+    // ParamHolder binds a choice list through `MAType.values()[value]`, i.e. it
+    // treats the declared VALUE as an enum ordinal, and range-checks against
+    // `MAType.values().length`. So the assumption is not merely "dense from zero"
+    // — a dense SUBSET of MAType would still let setOptInput(idx, 7) bind a member
+    // the list never declared. Assert the whole invariant (same length, same
+    // members, same order, and a default among its own choices) and fail the build
+    // where the fix is obvious. C# guards the equivalent assumption; Java did not,
+    // so a list with a gap silently bound the wrong member (issue #164).
+    let matype: Vec<&str> = enums
+        .get("MAType")
+        .map(|e| e.variants.iter().map(|v| v.short_name.as_str()).collect())
+        .unwrap_or_default();
+    for f in &rows {
+        for opt in &f.opt_inputs {
+            if let OptDomain::IntegerList { values, default } = &opt.domain {
+                assert_eq!(
+                    values.len(),
+                    matype.len(),
+                    "{}.{}: choice list has {} entries but MAType has {}. ParamHolder \
+                     resolves these through MAType.values()[value]; teach it the declared \
+                     values before shipping a list that is not MAType.",
+                    f.name, opt.param_name, values.len(), matype.len()
+                );
+                for (i, (v, name)) in values.iter().enumerate() {
+                    assert_eq!(
+                        *v, i64::try_from(i).unwrap(),
+                        "{}.{}: choice list is not dense from zero ({name} = {v} at position {i}).",
+                        f.name, opt.param_name
+                    );
+                    assert_eq!(
+                        name.as_str(), matype[i],
+                        "{}.{}: choice list entry {i} is {name}, MAType's is {}. The binder \
+                         maps value -> MAType ordinal, so the two must agree member for member.",
+                        f.name, opt.param_name, matype[i]
+                    );
+                }
+                assert!(
+                    values.iter().any(|(v, _)| v == default),
+                    "{}.{}: declared default {default} is not one of its own choices — \
+                     MAType.values()[{default}] would be an out-of-bounds bind.",
+                    f.name, opt.param_name
+                );
+            }
+        }
+    }
+
     write(&dir, "InputType.java", &input_type_enum());
     write(&dir, "OptInputType.java", &opt_input_type_enum());
     write(&dir, "OutputType.java", &output_type_enum());
@@ -112,8 +158,81 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, lib_src: &P
     write(&dir, "Functions.java", &functions_registry(&rows));
     write(&dir, "ParamHolder.java", &param_holder_class());
     write(&dir, "Dispatch.java", &dispatch_class(&rows));
+    write(&dir, "FunctionDescription.java", &function_description_class(funcs));
 
     println!("  java metadata registry -> {} ({} functions)", dir.display(), rows.len());
+}
+
+/// `TA_FunctionDescriptionXML`'s analog, carrying the real XML.
+///
+/// The server used to answer the XML RPC with a `(length, checksum)` pair the
+/// generator baked at generation time. `test_abstract.c` compares those two
+/// numbers against C's actual bytes — but comparing a constant the generator
+/// computed from the same string C's table is built from is the generator
+/// agreeing with itself, and could not fail. Java now ships the XML the way
+/// Rust does, so the gate compares two real copies (#164).
+///
+/// Split across parts because a `CONSTANT_Utf8` entry is length-prefixed with a
+/// `u2`: one 195 KB literal does not fit in a class file. They are joined at
+/// runtime rather than with `+`, which javac would fold straight back into the
+/// single oversized constant.
+fn function_description_class(funcs: &[FuncDef]) -> String {
+    const CHUNK: usize = 50_000;
+    let xml = super::func_api_xml::generate_string(funcs);
+    let bytes: Vec<u8> = xml.bytes().collect();
+    assert!(bytes.is_ascii(), "ta_func_api.xml is no longer ASCII; the chunking below splits on bytes");
+
+    let mut s = header("MF,CC");
+    s.push_str(
+        "/**\n\
+         \x20* The machine-readable description of every function, as XML.\n\
+         \x20*\n\
+         \x20* <p>The Java analog of C's {@code TA_FunctionDescriptionXML()}. Same bytes:\n\
+         \x20* both are emitted by one generator from one set of definitions.\n\
+         \x20*/\n\
+         public final class FunctionDescription {\n\
+         \x20   private FunctionDescription() {\n\
+         \x20   }\n\n",
+    );
+
+    let parts: Vec<&[u8]> = bytes.chunks(CHUNK).collect();
+    for (i, part) in parts.iter().enumerate() {
+        let _ = write!(s, "    private static final String P{i} = \"");
+        for &b in *part {
+            match b {
+                b'"' => s.push_str("\\\""),
+                b'\\' => s.push_str("\\\\"),
+                b'\n' => s.push_str("\\n"),
+                b'\r' => s.push_str("\\r"),
+                b'\t' => s.push_str("\\t"),
+                _ => s.push(b as char),
+            }
+        }
+        s.push_str("\";\n\n");
+    }
+
+    let _ = writeln!(s, "    private static final String[] PARTS = {{");
+    for i in 0..parts.len() {
+        let _ = writeln!(s, "        P{i},");
+    }
+    s.push_str("    };\n\n");
+    s.push_str(
+        "    /**\n\
+         \x20    * The full XML description of every function.\n\
+         \x20    *\n\
+         \x20    * @return the XML document, identical to what C's\n\
+         \x20    *         {@code TA_FunctionDescriptionXML()} returns\n\
+         \x20    */\n\
+         \x20   public static String xml() {\n\
+         \x20       StringBuilder sb = new StringBuilder();\n\
+         \x20       for (String p : PARTS) {\n\
+         \x20           sb.append(p);\n\
+         \x20       }\n\
+         \x20       return sb.toString();\n\
+         \x20   }\n\
+         }\n",
+    );
+    s
 }
 
 fn write(dir: &Path, name: &str, body: &str) {
@@ -781,11 +900,23 @@ public final class ParamHolder {
       intOpts[idx] = value;
       if (info.optInputs().get(idx).type() == OptInputType.INTEGER_LIST) {
          MAType[] all = MAType.values();
-         if (value < 0 || value >= all.length) {
+         /* Setting a parameter to its documented default THROUGH the abstract
+            interface is part of the ABI: C's TA_SetOptInputParamInteger accepts
+            TA_INTEGER_DEFAULT and the function substitutes the declared default.
+            Java cannot carry the sentinel any further than here -- Core takes a
+            real MAType -- so it resolves at this boundary, which is exactly where
+            an UNSET choice list already resolves (see the constructor). Leaving
+            the two to disagree was issue #164's first finding. */
+         if (value == Core.TA_INTEGER_DEFAULT) {
+            int declared = (int) info.optInputs().get(idx).defaultValue();
+            maTypeOpts[idx] = all[declared];
+            intOpts[idx] = declared;
+         } else if (value < 0 || value >= all.length) {
             throw new IllegalArgumentException(
                info.name() + " optInput " + idx + ": " + value + " is not a valid MAType ordinal");
+         } else {
+            maTypeOpts[idx] = all[value];
          }
-         maTypeOpts[idx] = all[value];
       }
       optSet[idx] = true;
       return this;
@@ -837,6 +968,22 @@ public final class ParamHolder {
    }
 
    /**
+    * The first index at which this function produces output, for the optional
+    * parameters bound so far.
+    *
+    * <p>The counterpart of C's {@code TA_GetLookback} and C#'s
+    * {@code FunctionCall.Lookback()}. Inputs and outputs need not be bound --
+    * a lookback depends only on the optional parameters, which is what makes it
+    * useful for sizing the output arrays before binding them.
+    *
+    * @return the lookback, or {@code -1} if a parameter is out of range
+    */
+   public int lookback() {
+      resolveUnsetOptInputs();
+      return Dispatch.lookback(this);
+   }
+
+   /**
     * Calls the function over {@code [startIdx, endIdx]}.
     *
     * <p>Unbound parameters that carry a documented default are filled in with it;
@@ -864,8 +1011,16 @@ public final class ParamHolder {
                info.name() + ": output " + i + " (" + info.outputs().get(i).paramName() + ") not set");
          }
       }
-      // Unset optional parameters take the cross-language default sentinel, which
-      // every generated function maps to its documented default.
+      resolveUnsetOptInputs();
+      return Dispatch.call(this, startIdx, endIdx);
+   }
+
+   /* Unset optional parameters take the cross-language default sentinel, which
+      every generated function maps to its documented default. Shared by call()
+      and lookback(): it used to live inside call(), so a lookback taken before
+      the first call read zero-initialised slots and came back -1 for every
+      function with an optional parameter. */
+   private void resolveUnsetOptInputs() {
       for (int i = 0; i < info.optInputs().size(); i++) {
          if (optSet[i]) {
             continue;
@@ -873,10 +1028,17 @@ public final class ParamHolder {
          switch (info.optInputs().get(i).type()) {
             case REAL_RANGE, REAL_LIST -> realOpts[i] = -4e37;
             case INTEGER_RANGE -> intOpts[i] = Integer.MIN_VALUE;
-            case INTEGER_LIST -> maTypeOpts[i] = MAType.values()[(int) info.optInputs().get(i).defaultValue()];
+            /* Both slots, not just maTypeOpts: setOptInput's sentinel branch keeps
+               them in step, and leaving unset to record intOpts=0 while recording
+               maTypeOpts=Ema (APO/PPO/PVO default to 1) would reintroduce the very
+               unset-vs-sentinel divergence this pair of methods exists to remove. */
+            case INTEGER_LIST -> {
+               int declared = (int) info.optInputs().get(i).defaultValue();
+               maTypeOpts[i] = MAType.values()[declared];
+               intOpts[i] = declared;
+            }
          }
       }
-      return Dispatch.call(this, startIdx, endIdx);
    }
 
    private static <T> T require(T v, String what) {
@@ -977,6 +1139,37 @@ fn dispatch_class(rows: &[FuncRow]) -> String {
         let _ = writeln!(s, "         case {}:", js(&f.name));
         let _ = writeln!(s, "            return core.{camel}(");
         let _ = writeln!(s, "               {});", args.join(", "));
+    }
+
+    s.push_str(
+        r#"         default:
+            throw new IllegalArgumentException("no such function: " + h.info().name());
+      }
+   }
+
+   /* The lookback tier. Separate from call() because it takes only the optional
+      parameters -- no inputs, no outputs, no range -- so a caller can size its
+      output arrays before binding them, exactly as TA_GetLookback allows. */
+   static int lookback(ParamHolder h) {
+      Core core = h.core();
+      switch (h.info().name()) {
+"#,
+    );
+
+    for f in rows {
+        let camel = super::java::to_java_method_name(&f.name, f.camel_case.as_deref());
+        let mut args: Vec<String> = Vec::new();
+        for (k, opt) in f.opt_inputs.iter().enumerate() {
+            match &opt.domain {
+                OptDomain::RealRange { .. } | OptDomain::RealList { .. } => {
+                    args.push(format!("h.realOpt({k})"));
+                }
+                OptDomain::IntegerList { .. } => args.push(format!("h.maTypeOpt({k})")),
+                OptDomain::IntegerRange { .. } => args.push(format!("h.intOpt({k})")),
+            }
+        }
+        let _ = writeln!(s, "         case {}:", js(&f.name));
+        let _ = writeln!(s, "            return core.{camel}Lookback({});", args.join(", "));
     }
 
     s.push_str(

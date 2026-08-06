@@ -56,10 +56,14 @@ See `ta_codegen/generator/CLAUDE.md` for ta_codegen internals and
 No hand-coded string literals for type definitions or scaffolding in the codegen.
 Do not hand-edit **generated** files under `ta_codegen/output/` — they are
 overwritten on the next `generate`. Note some hand-written library source now
-lives under `output/` too (the Java shared types and tests under
-`output/java/library/src/io/github/talib/` — `CoreBuilder`, `OutRange`,
-`CandleSetting`, the `test/` suites, and `Core.java`'s scaffolding outside the
-GENCODE markers); the generator preserves those and never overwrites them.
+lives under `output/` too (the Java shared types under
+`output/java/library/src/main/java/io/github/talib/` — `CoreBuilder`, `OutRange`,
+`CandleSetting`, and `Core.java`'s scaffolding outside the GENCODE markers; the
+suites under `src/test/java/`; and `output/java/library/pom.xml`, hand-written
+like the C# `TALib.csproj`); the generator preserves those and never overwrites
+them. The Java tree is in Maven standard layout because `pom.xml` publishes it to
+Maven Central — the split source roots are what keep the test package out of the
+jar, the sources jar and the javadoc.
 
 ## Quick Reference Commands
 
@@ -368,7 +372,7 @@ ta-lib/
 ├── ta_codegen/output/        # Generated per-language products, each split library/ (shipped) + tools/ (server/bench)
 │   ├── c/tools/              # C server + bench (the C library ships from src/ — the backcompat exception)
 │   ├── rust/{library,tools}/ # library/ = ta-lib crate; tools/ = server/bench (a Cargo workspace)
-│   ├── java/{library,tools}/ # library/ = shipped io.github.talib package + generated metadata registry; tools/ = JSON-RPC server
+│   ├── java/{library,tools,fragments}/ # library/ = shipped io.github.talib package + generated metadata registry (the Maven project); tools/ = JSON-RPC server; fragments/ = per-function method bodies, a generator intermediate that ships nowhere
 │   └── csharp/{library,tools}/ # library/ = shipped TALib package (src/ generated incl. the TALib.Metadata registry, scaffolding hand-written); tools/ = managed JSON-RPC server
 ├── ta_codegen/generator/         # The Rust code generator (see its CLAUDE.md)
 ├── src/

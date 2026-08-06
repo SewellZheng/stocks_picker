@@ -670,15 +670,29 @@ public class TaCodegenServe {
             }
     }
 
-    const int ABSTRACT_XML_LENGTH = 195183;
-    const ulong ABSTRACT_XML_CHECKSUM = 15640089UL;
-
     static string AbsStr(string? v) {
         if (v is null) return "\"\"";
         var b = new System.Text.StringBuilder("\"");
         foreach (char c in v) {
-            if (c == '"' || c == '\\') b.Append('\\');
-            b.Append(c);
+            /* The full JSON string grammar, not just quote and backslash. The
+               transport is NEWLINE-FRAMED (codegen_pipe reads to the next '\n'),
+               so an unescaped control character in an error message would split
+               one reply into two lines and hand the second to the NEXT request --
+               desynchronising the stream permanently, which is worse than the
+               crash the surrounding try/catch replaces. */
+            switch (c) {
+                case '"':  b.Append("\\\""); break;
+                case '\\': b.Append("\\\\"); break;
+                case '\b': b.Append("\\b"); break;
+                case '\f': b.Append("\\f"); break;
+                case '\n': b.Append("\\n"); break;
+                case '\r': b.Append("\\r"); break;
+                case '\t': b.Append("\\t"); break;
+                default:
+                    if (c < 0x20) b.Append("\\u").Append(((int)c).ToString("x4"));
+                    else b.Append(c);
+                    break;
+            }
         }
         b.Append('"');
         return b.ToString();
@@ -773,8 +787,17 @@ public class TaCodegenServe {
         return b.ToString();
     }
 
-    static string AbsDescriptionXml() =>
-        $"{{\"length\":{ABSTRACT_XML_LENGTH},\"checksum\":{ABSTRACT_XML_CHECKSUM}}}";
+    /* Measured at RUN TIME from the SHIPPED FunctionDescription. Baking the two
+       numbers at generation time made this leg unfailable: it compared C's real
+       bytes against constants derived from the same string C's own table is
+       built from (#164). Now both sides are real bytes. */
+    static string AbsDescriptionXml()
+    {
+        string xml = TALib.Metadata.FunctionDescription.Xml;
+        ulong checksum = 0;
+        foreach (char c in xml) checksum += (ulong)(c & 0xFF);
+        return $"{{\"length\":{xml.Length},\"checksum\":{checksum}}}";
+    }
 
     /* The JSON key the driver sends a required input under. Price bundles are
        sent one component per set bit; a lone real input keeps its own name,
@@ -10705,7 +10728,12 @@ public class TaCodegenServe {
         string? line;
         while ((line = Console.ReadLine()) != null) {
             if (string.IsNullOrWhiteSpace(line)) continue;
-            Console.WriteLine(HandleRequest(line));
+            string reply;
+            try { reply = HandleRequest(line); }
+            catch (Exception e) {
+                reply = "{\"error\":" + AbsStr(e.GetType().Name + ": " + e.Message) + "}";
+            }
+            Console.WriteLine(reply);
             Console.Out.Flush();
         }
     }

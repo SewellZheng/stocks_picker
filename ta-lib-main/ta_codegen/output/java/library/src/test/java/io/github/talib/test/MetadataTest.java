@@ -51,6 +51,7 @@ import io.github.talib.Core;
 import io.github.talib.MAType;
 import io.github.talib.OutRange;
 import io.github.talib.metadata.FuncFlags;
+import io.github.talib.metadata.FunctionDescription;
 import io.github.talib.metadata.FunctionInfo;
 import io.github.talib.metadata.Functions;
 import io.github.talib.metadata.InputFlags;
@@ -139,11 +140,35 @@ public class MetadataTest {
     /* ------------------------------------------------------------- registry */
 
     static void registryIsComplete() {
-        check(Functions.all().size() >= 160,
-              "registry lists every function (" + Functions.all().size() + ")");
+        // No `>= 160` threshold here: against 168 it would let eight functions
+        // disappear without a word. The EXACT set is pinned against C by
+        // abstract_for_each_func in test_abstract.c, which fails naming the
+        // missing function; what this suite owes is internal coherence, and
+        // every assertion below is per-row, so it cannot be satisfied by a
+        // shortened registry the way a floor can. (#164)
+        check(!Functions.all().isEmpty(), "registry is populated");
         check(Functions.byName("SMA") != null, "byName(SMA)");
         check(Functions.byName("NOSUCHFUNC") == null, "byName of an unknown name is null");
         check(!Functions.groups().isEmpty(), "groups() is populated");
+
+        // groups() and the rows are two views of one thing; they cannot drift
+        // apart without this failing. Counting per group and summing also means
+        // a row whose group() is absent from groups() is unreachable from the
+        // group view and shows up as a shortfall.
+        int inGroups = 0;
+        for (String g : Functions.groups()) {
+            int n = 0;
+            for (FunctionInfo f : Functions.all()) {
+                if (f.group().equals(g)) {
+                    n++;
+                }
+            }
+            check(n > 0, "group '" + g + "' is not empty");
+            inGroups += n;
+        }
+        check(inGroups == Functions.all().size(),
+              "every function's group is listed by groups() (" + inGroups + "/"
+              + Functions.all().size() + ")");
 
         // Every row must be internally coherent.
         for (FunctionInfo f : Functions.all()) {
@@ -299,7 +324,11 @@ public class MetadataTest {
                 check(same, f.name() + " output " + k + ": call-by-name is bit-identical");
             }
         }
-        check(compared >= 160, "compared nearly every function (" + compared + ")");
+        // Exact, not a floor: `>= 160` against 168 let eight functions drop out
+        // of the comparison silently, and a function whose typed overload cannot
+        // be reached is exactly the defect this test exists to find (#164).
+        check(compared == Functions.all().size(),
+              "compared every function (" + compared + "/" + Functions.all().size() + ")");
         check(nonEmpty >= compared - 5,
               "almost every comparison produced values (" + nonEmpty + "/" + compared
               + ") — an all-empty run would compare nothing");
@@ -449,6 +478,168 @@ public class MetadataTest {
             () -> Functions.byName("SMA").outputs().add(null), "outputs() is unmodifiable");
     }
 
+    /* ------------------------------------------- the choice-list default (#164) */
+
+    /**
+     * Setting a parameter to its documented default THROUGH the abstract interface
+     * is part of the ABI: C's {@code TA_SetOptInputParamInteger} takes
+     * {@code TA_INTEGER_DEFAULT} and the function substitutes the declared default.
+     *
+     * <p>Java cannot carry the sentinel past the holder -- {@code Core} takes a real
+     * {@code MAType} -- so it must resolve there, and must land on exactly what an
+     * UNSET parameter lands on. Those two disagreed: unset resolved to the declared
+     * default while an explicit sentinel threw "not a valid MAType ordinal".
+     *
+     * <p>Asserted on outputs, range AND lookback, for every choice-list parameter
+     * of every function.
+     */
+    private static void choiceListSentinelMatchesTheDefault() {
+        int covered = 0;
+        for (FunctionInfo f : Functions.all()) {
+            for (int p = 0; p < f.optInputs().size(); p++) {
+                if (f.optInputs().get(p).type() != OptInputType.INTEGER_LIST) {
+                    continue;
+                }
+                int declared = (int) f.optInputs().get(p).defaultValue();
+
+                double[][] oU = newReal(f); int[][] iU = newInt(f);
+                double[][] oS = newReal(f); int[][] iS = newInt(f);
+                double[][] oE = newReal(f); int[][] iE = newInt(f);
+
+                ParamHolder unset = bind(f, oU, iU);
+                ParamHolder sent  = bind(f, oS, iS);
+                ParamHolder expl  = bind(f, oE, iE);
+                sent.setOptInput(p, Core.TA_INTEGER_DEFAULT);
+                expl.setOptInput(p, declared);
+
+                OutRange rU = unset.call(0, N - 1);
+                OutRange rS = sent.call(0, N - 1);
+                OutRange rE = expl.call(0, N - 1);
+                covered++;
+
+                check(rS.equals(rE) && rU.equals(rE),
+                    f.name() + "." + f.optInputs().get(p).paramName()
+                    + ": sentinel and unset both give the declared default's range");
+                check(sent.lookback() == expl.lookback() && unset.lookback() == expl.lookback(),
+                    f.name() + "." + f.optInputs().get(p).paramName()
+                    + ": and the same lookback (" + sent.lookback() + "/" + expl.lookback() + ")");
+
+                boolean same = true;
+                for (int k = 0; k < f.outputs().size(); k++) {
+                    for (int j = 0; j < rE.count(); j++) {
+                        same &= f.outputs().get(k).type() == OutputType.REAL
+                            ? Double.doubleToRawLongBits(oS[k][j]) == Double.doubleToRawLongBits(oE[k][j])
+                              && Double.doubleToRawLongBits(oU[k][j]) == Double.doubleToRawLongBits(oE[k][j])
+                            : iS[k][j] == iE[k][j] && iU[k][j] == iE[k][j];
+                    }
+                }
+                check(same, f.name() + "." + f.optInputs().get(p).paramName()
+                    + ": and bit-identical output values");
+            }
+        }
+        check(covered >= 13, "covered every choice-list parameter (" + covered + ")");
+    }
+
+    /**
+     * The holder's lookback must agree with what the call actually produces.
+     *
+     * <p>{@code Dispatch.lookback} is a SECOND, independent copy of the
+     * opt-slot-to-argument mapping across all 168 functions, and most of those pass
+     * two or more same-typed arguments — so a swapped or duplicated slot still
+     * compiles. This is the only gate on it, which is why the parameters are bound
+     * to DISTINCT non-default values: with every slot carrying the same number, a
+     * transposition is undetectable. {@code Dispatch.call} carries its own separate
+     * arg list, so comparing the lookback against the range the call reports pits
+     * the two mappings against each other.
+     */
+    private static void holderLookbackMatchesTheTypedApi() {
+        int compared = 0;
+        int withDistinct = 0;
+        for (FunctionInfo f : Functions.all()) {
+            ParamHolder h = bind(f, newReal(f), newInt(f));
+
+            /* Distinct, in-range, non-default where the domain allows it. */
+            boolean distinct = false;
+            for (int p = 0; p < f.optInputs().size(); p++) {
+                OptInputInfo o = f.optInputs().get(p);
+                switch (o.type()) {
+                    case INTEGER_RANGE -> {
+                        int v = Math.min(o.intMin() + 2 + p, o.intMax());
+                        h.setOptInput(p, v);
+                        distinct = true;
+                    }
+                    /* MAType.Disabled short-circuits to a zero lookback and would
+                       mask a mis-mapped slot, so stay inside the real algorithms. */
+                    case INTEGER_LIST -> h.setOptInput(p, MAType.values()[p % 3]);
+                    default -> { }
+                }
+            }
+            if (distinct) {
+                withDistinct++;
+            }
+
+            int viaHolder = h.lookback();
+            OutRange r = h.call(0, N - 1);
+            /* `==`, not `>=`. The inequality reads safer and is worthless here: a
+               duplicated slot makes the lookback too SMALL, which `>=` accepts.
+               Sabotage-proven — emitting adOscLookback(intOpt(0), intOpt(0))
+               passes under `>=` and fails under `==` with "lookback 3 == outBegIdx
+               4". If a function ever legitimately reports outBegIdx > lookback
+               (issue #99 raised that for BBANDS), carve THAT function out by name
+               rather than relaxing the operator for all 168. */
+            check(viaHolder >= 0 && r.begIdx() == viaHolder,
+                f.name() + ": holder lookback " + viaHolder + " == outBegIdx " + r.begIdx());
+            compared++;
+        }
+        check(compared == Functions.all().size(), "checked every function (" + compared + ")");
+        /* 69 of the 168 declare an INTEGER_RANGE parameter; the rest take only
+           reals, only a choice list, or nothing, and cannot carry a distinct
+           period. Floor it so the discriminating half cannot quietly shrink. */
+        check(withDistinct >= 65,
+            "the functions with a period were driven with distinct non-default ones ("
+            + withDistinct + ")");
+    }
+
+    /**
+     * The shipped XML describes every registered function.
+     *
+     * <p>test_abstract.c compares its length and byte-sum against C's, which
+     * catches corruption but says nothing about what is inside. This says the
+     * document actually mentions each function, so a well-formed XML missing a
+     * whole entry fails here rather than only when its checksum happens to move.
+     */
+    static void functionDescriptionXmlDescribesEveryFunction() {
+        String xml = FunctionDescription.xml();
+        check(xml.startsWith("<?xml"), "the XML description is an XML document");
+        check(xml.contains("</FinancialFunctions>"), "the XML description is complete");
+        int found = 0;
+        for (FunctionInfo f : Functions.all()) {
+            if (xml.contains("<Abbreviation>" + f.name() + "</Abbreviation>")) {
+                found++;
+            } else {
+                check(false, "XML describes " + f.name());
+            }
+        }
+        check(found == Functions.all().size(),
+              "XML describes every function (" + found + "/" + Functions.all().size() + ")");
+    }
+
+    private static double[][] newReal(FunctionInfo f) {
+        double[][] a = new double[f.outputs().size()][];
+        for (int i = 0; i < a.length; i++) {
+            a[i] = new double[N];
+        }
+        return a;
+    }
+
+    private static int[][] newInt(FunctionInfo f) {
+        int[][] a = new int[f.outputs().size()][];
+        for (int i = 0; i < a.length; i++) {
+            a[i] = new int[N];
+        }
+        return a;
+    }
+
     public static void main(String[] args) throws Exception {
         registryIsComplete();
         hintsArePopulated();
@@ -456,6 +647,9 @@ public class MetadataTest {
         callByNameMatchesTheTypedApi();
         holderRejectsMisuse();
         explicitParametersReachTheFunction();
+        choiceListSentinelMatchesTheDefault();
+        holderLookbackMatchesTheTypedApi();
+        functionDescriptionXmlDescribesEveryFunction();
         registryIsImmutable();
 
         if (failures == 0) {

@@ -82,6 +82,22 @@ extern int doExtensiveProfiling;
 #include "codegen_pipe.h"
 #include "ta_abstract.h"
 static CodegenPipe *g_abstractPipe = NULL;
+/* Which language the attached server is ("c"/"rust"/"java"/"csharp"), so a
+ * per-backend carve-out can name its backend instead of applying to all four. */
+static const char *g_abstractLang = NULL;
+
+/* How many optional-parameter vectors were driven through a binder, and how many
+ * of each contract class, across the whole run. */
+static long long g_d2Vectors = 0;
+static long long g_d2NonDefault = 0;
+static long long g_d2Sentinel = 0;
+static long long g_d2Reject = 0;
+/* Self-checks, mirroring --xlang-hash's oorNotRejected / sentNotDefault. Both
+ * classes assert only "C and the server agree" on their own; if C stopped
+ * rejecting, or stopped substituting, the two tiers would be wrong TOGETHER and
+ * the leg would pass while asserting nothing. */
+static long long g_d2OorNotRejected = 0;
+static long long g_d2SentNotDefault = 0;
 static char        *g_abstractReqBuf = NULL;
 static char        *g_abstractRespBuf = NULL;
 #define ABSTRACT_JSON_BUF_SIZE (512 * 1024)
@@ -140,8 +156,13 @@ static int    output_int[10][2000];
 
 /* Set the optional codegen server pipe for abstract verification.
  * When set, callWithDefaults() will also call the server and compare. */
-void test_abstract_set_server(CodegenPipe *cp)
+void test_abstract_set_server(CodegenPipe *cp, const char *lang)
 {
+   g_abstractLang = lang;
+   /* Per-server, so the summary line reports the server it names rather than a
+      running total across every server tested so far. */
+   g_d2Vectors = g_d2NonDefault = g_d2Sentinel = g_d2Reject = 0;
+   g_d2OorNotRejected = g_d2SentNotDefault = 0;
    if( cp )
    {
       g_abstractPipe = cp;
@@ -204,6 +225,105 @@ static const double *abstract_volume_view( const double *input, unsigned int siz
     return volBuf;
 }
 
+/* Every price slot used to receive the SAME array, which made the whole
+ * component axis untestable: with inOpen == inHigh == inLow == inClose bit for
+ * bit, any permutation of them is bit-identical, so a binder that transposed two
+ * components — or indexed the wrong input slot — produced identical output and no
+ * gate could see it. The C# server's own comment cites transposition-detection as
+ * the reason its abstract_call is an independent implementation; that detection
+ * only exists once the components actually differ.
+ *
+ * The components are built as a COHERENT bar — low <= min(open,close) <=
+ * max(open,close) <= high — from neighbouring samples of the base series, so the
+ * geometry varies bar to bar. Scaling each component by a constant factor instead
+ * is the obvious approach and is wrong: every bar then has identical proportions,
+ * so a candlestick's "body vs the average body over the period" comparison sits
+ * exactly ON its threshold, and the residual ~1e-13 operation-ordering difference
+ * between the C reference and a backend flips the whole 0/100 output. Deriving
+ * from different indices keeps the comparisons away from their boundaries.
+ *
+ * Sign- and zero-preserving by construction (min/max pick real samples and the
+ * padding uses magnitudes), so it stays meaningful on every dataset here: a ]0,1[
+ * ramp, negatives, and the +/-epsilon noise. Close keeps the identity so
+ * single-input and close-only functions see exactly what they did. Volume is
+ * excluded — it has its own magnitude view for a separate reason.
+ *
+ * Both the in-process call and the JSON request must use this same view, or the
+ * two sides diverge for reasons that have nothing to do with the function. */
+/* The views must be able to buffer the LARGEST dataset, or they silently fall
+ * back to handing every component the same array — reinstating exactly the
+ * symmetry they exist to break, with every test still green. Tie the capacity to
+ * the datasets so enlarging one is a compile error rather than a silent
+ * un-gating. */
+#define ABSTRACT_VIEW_MAX (sizeof(inputRandomData)/sizeof(double))
+typedef char abstract_view_fits_largest_dataset[
+    ABSTRACT_VIEW_MAX >= sizeof(inputNegData)/sizeof(double) ? 1 : -1];
+
+static const double *abstract_price_view( const double *input, unsigned int size,
+                                          TA_InputFlags component )
+{
+    static double openBuf[ABSTRACT_VIEW_MAX], highBuf[ABSTRACT_VIEW_MAX],
+                  lowBuf[ABSTRACT_VIEW_MAX], oiBuf[ABSTRACT_VIEW_MAX];
+    unsigned int i;
+
+    if( size == 0 || size > (unsigned int)ABSTRACT_VIEW_MAX )
+        return input;   /* unreachable: the static assert above sizes for every dataset */
+
+    switch( component )
+    {
+    case TA_IN_PRICE_OPEN:
+        for( i = 0; i < size; i++ ) openBuf[i] = input[(i+1) % size];
+        return openBuf;
+
+    case TA_IN_PRICE_HIGH:
+        for( i = 0; i < size; i++ )
+        {
+            double c = input[i], o = input[(i+1) % size], pad = input[(i+2) % size];
+            double top = c > o ? c : o;
+            highBuf[i] = top + (pad < 0.0 ? -pad : pad) * 0.25;
+        }
+        return highBuf;
+
+    case TA_IN_PRICE_LOW:
+        for( i = 0; i < size; i++ )
+        {
+            double c = input[i], o = input[(i+1) % size], pad = input[(i+3) % size];
+            double bottom = c < o ? c : o;
+            lowBuf[i] = bottom - (pad < 0.0 ? -pad : pad) * 0.25;
+        }
+        return lowBuf;
+
+    case TA_IN_PRICE_OPENINTEREST:
+        for( i = 0; i < size; i++ ) oiBuf[i] = input[(i+2) % size];
+        return oiBuf;
+
+    case TA_IN_PRICE_CLOSE:        /* the identity — see above */
+    default:                       return input;
+    }
+}
+
+/* Same symmetry problem on the generic real inputs: a function taking inReal0 and
+ * inReal1 (CORREL, BETA, the vector arithmetic) received one array in both slots,
+ * so swapping them was invisible. Slot 0 keeps the identity. */
+#define ABSTRACT_REAL_SLOTS 4
+static const double *abstract_real_view( const double *input, unsigned int size,
+                                         int slot )
+{
+    static double slotBuf[ABSTRACT_REAL_SLOTS][ABSTRACT_VIEW_MAX];
+    unsigned int i;
+
+    /* Slot 0 keeps the identity. Every other slot gets its OWN buffer and its own
+     * factor — one shared buffer would alias slot 2 onto slot 1 and quietly
+     * restore the invisible-swap hole for a three-input function. The tables top
+     * out at Real0/Real1 today, so the upper slots are headroom, not dead code
+     * waiting to be wrong. */
+    if( slot <= 0 || slot >= ABSTRACT_REAL_SLOTS ) return input;
+    if( size == 0 || size > (unsigned int)ABSTRACT_VIEW_MAX ) return input;
+    for( i = 0; i < size; i++ )
+        slotBuf[slot][i] = input[i] * (1.0 - 0.07 * (double)slot);
+    return slotBuf[slot];
+}
+
 static int abstract_json_write_double_array(char *buf, int buf_size, int pos,
                                             const double *data, int count)
 {
@@ -211,7 +331,14 @@ static int abstract_json_write_double_array(char *buf, int buf_size, int pos,
     for( int i = 0; i < count; i++ )
     {
         if( i > 0 ) pos = codegen_appendc(buf, buf_size, pos, ',');
-        pos = codegen_appendf(buf, buf_size, pos, "%.15g", data[i]);
+        /* %.17g, not %.15g: 17 significant digits is what round-trips a double.
+         * At 15 the server computed on subtly different inputs from the C arm,
+         * which is invisible while every price component carries the SAME array
+         * (both sides round identically and the degenerate high==low comparisons
+         * hold either way) and becomes a false mismatch the moment they differ —
+         * a threshold function like a CDL* pattern flips its whole output on one
+         * ULP. Value parity here is a claim about the code, not about printf. */
+        pos = codegen_appendf(buf, buf_size, pos, "%.17g", data[i]);
     }
     return codegen_appendc(buf, buf_size, pos, ']');
 }
@@ -304,6 +431,7 @@ static int g_optExtendedCompared = 0;
  * Calls TA_GetFuncInfo, TA_GetInputParameterInfo, TA_GetOptInputParameterInfo,
  * TA_GetOutputParameterInfo on both C and server, compares results.
  */
+
 static ErrorNumber abstract_verify_func_metadata(
     const char *funcName,
     const TA_FuncHandle *handle,
@@ -559,6 +687,17 @@ static ErrorNumber abstract_verify_func_metadata(
                            funcName, i, crefList, srvList);
                     return TA_ABSTRACT_CALL_MISMATCH;
                 }
+            } else {
+                /* The counter above was already incremented, so an unhandled
+                 * domain would report itself as compared while comparing
+                 * nothing -- exactly the vacuity g_optExtendedCompared exists to
+                 * catch. TA_OptInput_RealList is the only type that lands here
+                 * and no shipped function declares one; the day one does, this
+                 * says so instead of passing silently (#164). */
+                printf("  ABSTRACT ERROR [%s]: TA_GetOptInputParameterInfo[%u] domain type %d "
+                       "has no comparison arm -- it would be counted as compared\n",
+                       funcName, i, (int)crefOpt->type);
+                return TA_ABSTRACT_CALL_MISMATCH;
             }
         }
     }
@@ -901,7 +1040,10 @@ static ErrorNumber abstract_verify_server_call(
     TA_RetCode crefRetCode,
     int crefBegIdx, int crefNbElement, int crefLookback,
     double crefOutReal[][2000], int crefOutInt[][2000],
-    int relaxValues)
+    int relaxValues,
+    /* Optional-parameter values to send, one per declared slot, or NULL for the
+     * declared defaults. Everything but the D2 vector sweep passes NULL. */
+    const double *optVals)
 {
     if( !g_abstractPipe ) return TA_TEST_PASS;
 
@@ -916,7 +1058,7 @@ static ErrorNumber abstract_verify_server_call(
         ",\"startIdx\":%d,\"endIdx\":%d",
         funcName, startIdx, endIdx);
 
-    /* Input params — all slots use the same array (mirrors callWithDefaults) */
+    /* Input params — one view per component, identical to callWithDefaults(). */
     int totalRealInputs = 0;
     for( unsigned int i = 0; i < funcInfo->nbInput; i++ )
     {
@@ -938,19 +1080,23 @@ static ErrorNumber abstract_verify_server_call(
             TA_InputFlags flags = inputInfo->flags;
             if( flags & TA_IN_PRICE_OPEN ) {
                 pos = codegen_appendf(buf, bufSize, pos, ",\"inOpen\":");
-                pos = abstract_json_write_double_array(buf, bufSize, pos, input, size);
+                pos = abstract_json_write_double_array(buf, bufSize, pos,
+                        abstract_price_view(input, (unsigned int)size, TA_IN_PRICE_OPEN), size);
             }
             if( flags & TA_IN_PRICE_HIGH ) {
                 pos = codegen_appendf(buf, bufSize, pos, ",\"inHigh\":");
-                pos = abstract_json_write_double_array(buf, bufSize, pos, input, size);
+                pos = abstract_json_write_double_array(buf, bufSize, pos,
+                        abstract_price_view(input, (unsigned int)size, TA_IN_PRICE_HIGH), size);
             }
             if( flags & TA_IN_PRICE_LOW ) {
                 pos = codegen_appendf(buf, bufSize, pos, ",\"inLow\":");
-                pos = abstract_json_write_double_array(buf, bufSize, pos, input, size);
+                pos = abstract_json_write_double_array(buf, bufSize, pos,
+                        abstract_price_view(input, (unsigned int)size, TA_IN_PRICE_LOW), size);
             }
             if( flags & TA_IN_PRICE_CLOSE ) {
                 pos = codegen_appendf(buf, bufSize, pos, ",\"inClose\":");
-                pos = abstract_json_write_double_array(buf, bufSize, pos, input, size);
+                pos = abstract_json_write_double_array(buf, bufSize, pos,
+                        abstract_price_view(input, (unsigned int)size, TA_IN_PRICE_CLOSE), size);
             }
             if( flags & TA_IN_PRICE_VOLUME ) {
                 pos = codegen_appendf(buf, bufSize, pos, ",\"inVolume\":");
@@ -958,7 +1104,8 @@ static ErrorNumber abstract_verify_server_call(
             }
             if( flags & TA_IN_PRICE_OPENINTEREST ) {
                 pos = codegen_appendf(buf, bufSize, pos, ",\"inOpenInterest\":");
-                pos = abstract_json_write_double_array(buf, bufSize, pos, input, size);
+                pos = abstract_json_write_double_array(buf, bufSize, pos,
+                        abstract_price_view(input, (unsigned int)size, TA_IN_PRICE_OPENINTEREST), size);
             }
             break;
         }
@@ -967,11 +1114,20 @@ static ErrorNumber abstract_verify_server_call(
                 pos = codegen_appendf(buf, bufSize, pos, ",\"inReal\":");
             else
                 pos = codegen_appendf(buf, bufSize, pos, ",\"inReal%d\":", realInputCount);
-            pos = abstract_json_write_double_array(buf, bufSize, pos, input, size);
+            pos = abstract_json_write_double_array(buf, bufSize, pos,
+                    abstract_real_view(input, (unsigned int)size, realInputCount), size);
             realInputCount++;
             break;
         case TA_Input_Integer:
-            break;
+            /* Silently omitted, which would leave the server's slot unbound
+             * while C's is bound -- the two binders would then be compared on
+             * different inputs and could agree by accident. No shipped function
+             * declares an integer input, so this is unreachable today; say so
+             * rather than let the first one that does slip through (#164). */
+            printf("  ABSTRACT ERROR [%s]: integer input '%s' is not sent by "
+                   "abstract_call -- the request builder needs an arm for it\n",
+                   funcInfo->name, inputInfo->paramName);
+            return TA_ABSTRACT_CALL_MISMATCH;
         }
     }
 
@@ -987,11 +1143,14 @@ static ErrorNumber abstract_verify_server_call(
         {
         case TA_OptInput_RealRange:
         case TA_OptInput_RealList:
-            pos = codegen_appendf(buf, bufSize, pos, "%.15g", optInfo->defaultValue);
+            /* %.17g for the same round-trip reason as the input arrays. */
+            pos = codegen_appendf(buf, bufSize, pos, "%.17g",
+                                  optVals ? optVals[i] : optInfo->defaultValue);
             break;
         case TA_OptInput_IntegerRange:
         case TA_OptInput_IntegerList:
-            pos = codegen_appendf(buf, bufSize, pos, "%d", (int)optInfo->defaultValue);
+            pos = codegen_appendf(buf, bufSize, pos, "%d",
+                                  (int)(optVals ? optVals[i] : optInfo->defaultValue));
             break;
         }
     }
@@ -1011,6 +1170,24 @@ static ErrorNumber abstract_verify_server_call(
     {
         printf("  ABSTRACT SERVER error [%s]\n", funcName);
         return TA_ABSTRACT_SERVER_ERROR;
+    }
+
+    /* The Rust server answers abstract_call two ways: through the SHIPPED
+     * abstract_api::ParamHolder, or -- when the request carries gen_present /
+     * want_hash, which is --xlang-hash's seed transport -- by rerouting to the
+     * per-function handler. That selector is a payload heuristic, and both
+     * replies carry the same fields, so nothing would notice if this sweep drifted
+     * onto the reroute and stopped exercising the binder at all. Requiring the
+     * marker makes the binder path positively observable instead of merely
+     * probable. The other three servers have a single implementation and cannot
+     * drift this way. */
+    if( g_abstractLang && strcmp(g_abstractLang, "rust") == 0
+        && abstract_json_get_int(g_abstractRespBuf, "binder") != 1 )
+    {
+        printf("  ABSTRACT ERROR [%s]: reply did not come from the shipped Rust binder "
+               "(no \"binder\":1) — the transport split has drifted and this sweep is "
+               "testing the per-function handler instead\n", funcName);
+        return TA_ABSTRACT_CALL_MISMATCH;
     }
 
     /* Compare structural results */
@@ -1135,6 +1312,282 @@ static ErrorNumber abstract_verify_server_call(
         }
     }
 
+    return TA_TEST_PASS;
+}
+
+/* ---- D2: drive the binders off their defaults (issue #164) -----------------
+ *
+ * Every dynamic-dispatch comparison in this file bound optional parameters at
+ * their declared defaults, so the binders were only ever exercised at one point
+ * in their domain. Three things were therefore untested through a binder: a
+ * NON-DEFAULT value (a transposed opt slot produces identical output when every
+ * slot carries the same number), the DEFAULT SENTINEL (which must resolve to the
+ * declared default -- issue #162, and the reason Java's binder shipped a version
+ * that threw), and an OUT-OF-RANGE value (which both tiers must reject).
+ *
+ * The C golden and the server are driven with the SAME vector, so this compares
+ * two binders rather than a binder against an oracle of its own making.
+ *
+ * Counted, and asserted non-zero by the caller: a sweep that silently stopped
+ * building vectors would otherwise read exactly like a passing one. */
+
+
+#define D2_MAX_OPT 16
+
+/* An in-range value that is NOT the declared default. `slot` offsets it so two
+ * parameters of one function that share a default do not end up sharing a value
+ * too -- 18 slots across 5 functions do (MACDEXT's three periods, STOCH's, ...),
+ * and a swap between same-valued slots is invisible. */
+static double d2_non_default( const TA_OptInputParameterInfo *oi, unsigned int slot )
+{
+    switch( oi->type )
+    {
+    case TA_OptInput_IntegerRange:
+    {
+        const TA_IntegerRange *r = (const TA_IntegerRange *)oi->dataSet;
+        if( !r ) return oi->defaultValue;
+        int def = (int)oi->defaultValue;
+        int step = (int)slot + 1;
+        if( def + step <= r->max ) return (double)(def + step);
+        if( def - step >= r->min ) return (double)(def - step);
+        if( def + 1 <= r->max ) return (double)(def + 1);
+        if( def - 1 >= r->min ) return (double)(def - 1);
+        return oi->defaultValue;
+    }
+    case TA_OptInput_RealRange:
+    {
+        const TA_RealRange *r = (const TA_RealRange *)oi->dataSet;
+        if( !r ) return oi->defaultValue;
+        double span = (r->max > r->min) ? (r->max - r->min) : 0.0;
+        double step = (span > 0.0 && span < 1e30) ? span * 1e-3 * (double)(slot + 1)
+                                                  : 0.125 * (double)(slot + 1);
+        if( oi->defaultValue + step <= r->max ) return oi->defaultValue + step;
+        if( oi->defaultValue - step >= r->min ) return oi->defaultValue - step;
+        return oi->defaultValue;
+    }
+    case TA_OptInput_IntegerList:
+    {
+        const TA_IntegerList *l = (const TA_IntegerList *)oi->dataSet;
+        if( !l || l->nbElement == 0 ) return oi->defaultValue;
+        /* Rotate by slot so sibling MAType parameters differ from each other. */
+        for( unsigned int n = 0; n < l->nbElement; n++ )
+        {
+            unsigned int e = (n + slot + 1) % l->nbElement;
+            if( l->data[e].value != (int)oi->defaultValue )
+                return (double)l->data[e].value;
+        }
+        return oi->defaultValue;
+    }
+    default:
+        return oi->defaultValue;
+    }
+}
+
+/* Values outside the declared range. BOTH bounds, not the first that fits: every
+ * shipped integer range is [1,100000] or [2,100000], so returning on the first
+ * branch probed only `min-1` and a backend that dropped `|| value > max` passed
+ * for all 79 functions. Reals are included too -- #148 was the Rust backend
+ * emitting NO validation for real params, so skipping them omits exactly the
+ * class the historical defect lived in. Returns how many probes were written. */
+static int d2_out_of_range( const TA_OptInputParameterInfo *oi, double out[2] )
+{
+    int n = 0;
+    if( oi->type == TA_OptInput_IntegerRange )
+    {
+        const TA_IntegerRange *r = (const TA_IntegerRange *)oi->dataSet;
+        if( !r ) return 0;
+        if( (long long)r->min - 1 >= (long long)TA_INTEGER_MIN )
+            out[n++] = (double)((long long)r->min - 1);
+        if( (long long)r->max + 1 <= (long long)TA_INTEGER_MAX )
+            out[n++] = (double)((long long)r->max + 1);
+    }
+    else if( oi->type == TA_OptInput_RealRange )
+    {
+        const TA_RealRange *r = (const TA_RealRange *)oi->dataSet;
+        if( !r ) return 0;
+        /* +/-1.0 is absorbed at TA_REAL_MIN/MAX magnitude, so fall back to a
+         * multiple of the widest legal bound -- the same escape fuzz_add_out_of_range
+         * uses, and neither value can collide with TA_REAL_DEFAULT. */
+        out[n++] = (r->min - 1.0 < r->min) ? r->min - 1.0 : 2.0 * TA_REAL_MIN;
+        out[n++] = (r->max + 1.0 > r->max) ? r->max + 1.0 : 2.0 * TA_REAL_MAX;
+    }
+    return n;
+}
+
+/* Load one vector into the C paramHolder. */
+static void d2_set_opts( TA_ParamHolder *paramHolder, const TA_FuncHandle *handle,
+                         const TA_FuncInfo *funcInfo, const double *vec )
+{
+    for( unsigned int k = 0; k < funcInfo->nbOptInput && k < D2_MAX_OPT; k++ )
+    {
+        const TA_OptInputParameterInfo *oi;
+        TA_GetOptInputParameterInfo(handle, k, &oi);
+        if( oi->type == TA_OptInput_RealRange || oi->type == TA_OptInput_RealList )
+            TA_SetOptInputParamReal(paramHolder, k, vec[k]);
+        else
+            TA_SetOptInputParamInteger(paramHolder, k, (int)vec[k]);
+    }
+}
+
+/* Drive one vector through BOTH binders and compare. `paramHolder` already has
+ * this function's inputs and outputs bound by the caller. */
+#define D2_CLASS_NON_DEFAULT 0
+#define D2_CLASS_SENTINEL     1
+#define D2_CLASS_REJECT       2
+
+/* The all-defaults C result, captured before the sweep so the sentinel class can
+ * assert what it exists to assert. */
+typedef struct { TA_RetCode rc; TA_Integer beg, nb, lookback; unsigned long long sum; } D2Baseline;
+
+/* A cheap order-sensitive digest of the output buffers actually written. */
+static unsigned long long d2_digest( const TA_FuncInfo *funcInfo, const TA_FuncHandle *handle,
+                                     TA_Integer nb )
+{
+    unsigned long long h = 1469598103934665603ULL;
+    for( unsigned int o = 0; o < funcInfo->nbOutput; o++ )
+    {
+        const TA_OutputParameterInfo *oinfo;
+        TA_GetOutputParameterInfo(handle, o, &oinfo);
+        for( TA_Integer j = 0; j < nb && j < 2000; j++ )
+        {
+            unsigned long long bits;
+            if( oinfo->type == TA_Output_Real ) memcpy(&bits, &output[o][j], sizeof(bits));
+            else                                bits = (unsigned long long)(unsigned)output_int[o][j];
+            h = (h ^ bits) * 1099511628211ULL;
+        }
+    }
+    return h;
+}
+
+static ErrorNumber d2_drive( const char *funcName, const TA_FuncHandle *handle,
+                             const TA_FuncInfo *funcInfo, TA_ParamHolder *paramHolder,
+                             const double *input, int size, const double *vec,
+                             const char *what, int relaxValues,
+                             int vecClass, const D2Baseline *base )
+{
+    TA_RetCode rc;
+    TA_Integer beg = 0, nb = 0, lookback = -1;
+
+    d2_set_opts(paramHolder, handle, funcInfo, vec);
+    rc = TA_CallFunc(paramHolder, 0, size - 1, &beg, &nb);
+    if( TA_GetLookback(paramHolder, &lookback) != TA_SUCCESS ) lookback = -1;
+
+    /* An out-of-range probe the C library ACCEPTS is not out of range, and the
+     * retCode parity asserted on it below is then vacuous. */
+    if( vecClass == D2_CLASS_REJECT && rc != TA_BAD_PARAM )
+    {
+        g_d2OorNotRejected++;
+        printf("  ABSTRACT ERROR [%s]: an out-of-range parameter was ACCEPTED by C "
+               "(rc=%d) — the probe is not out of range and its parity is vacuous\n",
+               funcName, (int)rc);
+        return TA_ABSTRACT_CALL_MISMATCH;
+    }
+
+    /* The sentinel must resolve to the DECLARED DEFAULT. Comparing C-with-sentinel
+     * against server-with-sentinel only proves the two agree; if C stopped
+     * substituting, both would be wrong together. Compare against the
+     * all-defaults result C produced before the sweep. */
+    if( vecClass == D2_CLASS_SENTINEL && base )
+    {
+        unsigned long long dig = (rc == TA_SUCCESS) ? d2_digest(funcInfo, handle, nb) : 0;
+        if( rc != base->rc || beg != base->beg || nb != base->nb
+            || lookback != base->lookback || dig != base->sum )
+        {
+            g_d2SentNotDefault++;
+            printf("  ABSTRACT ERROR [%s]: the default sentinel did not reproduce the "
+                   "declared default in C (rc %d/%d beg %d/%d nb %d/%d lb %d/%d)\n",
+                   funcName, (int)rc, (int)base->rc, beg, base->beg, nb, base->nb,
+                   lookback, base->lookback);
+            return TA_ABSTRACT_CALL_MISMATCH;
+        }
+    }
+
+    g_d2Vectors++;
+
+    ErrorNumber e = abstract_verify_server_call(
+        funcName, handle, funcInfo, input, size, 0, size - 1,
+        rc, beg, nb, lookback, output, output_int, relaxValues, vec);
+    if( e != TA_TEST_PASS )
+        printf("  ABSTRACT ERROR [%s]: the %s vector diverged\n", funcName, what);
+    return e;
+}
+
+/* The whole sweep for one function. */
+static ErrorNumber d2_param_vectors( const char *funcName, const TA_FuncHandle *handle,
+                                     const TA_FuncInfo *funcInfo,
+                                     TA_ParamHolder *paramHolder,
+                                     const double *input, int size, int relaxValues )
+{
+    if( !g_abstractPipe || funcInfo->nbOptInput == 0 ) return TA_TEST_PASS;
+    if( funcInfo->nbOptInput > D2_MAX_OPT )
+    {
+        printf("  ABSTRACT ERROR [%s]: %u optional parameters exceeds D2_MAX_OPT (%d) — "
+               "the parameter-contract sweep would skip this function silently\n",
+               funcName, funcInfo->nbOptInput, D2_MAX_OPT);
+        return TA_ABSTRACT_CALL_MISMATCH;
+    }
+
+    double base[D2_MAX_OPT], vec[D2_MAX_OPT];
+    const TA_OptInputParameterInfo *oi;
+    unsigned int k, j;
+
+    for( k = 0; k < funcInfo->nbOptInput; k++ )
+    {
+        TA_GetOptInputParameterInfo(handle, k, &oi);
+        base[k] = oi->defaultValue;
+    }
+
+    /* The all-defaults C result the sentinel class is asserted against. The caller
+     * has just made exactly this call, but recompute it here so this function does
+     * not depend on the caller's buffers being untouched. */
+    D2Baseline baseline;
+    d2_set_opts(paramHolder, handle, funcInfo, base);
+    baseline.rc = TA_CallFunc(paramHolder, 0, size - 1, &baseline.beg, &baseline.nb);
+    if( TA_GetLookback(paramHolder, &baseline.lookback) != TA_SUCCESS ) baseline.lookback = -1;
+    baseline.sum = (baseline.rc == TA_SUCCESS) ? d2_digest(funcInfo, handle, baseline.nb) : 0;
+
+    /* 1. Every parameter at a DISTINCT non-default in-range value at once, so a
+     *    transposed slot changes the answer even between same-default siblings. */
+    for( k = 0; k < funcInfo->nbOptInput; k++ )
+    {
+        TA_GetOptInputParameterInfo(handle, k, &oi);
+        vec[k] = d2_non_default(oi, k);
+    }
+    g_d2NonDefault++;
+    ErrorNumber e = d2_drive(funcName, handle, funcInfo, paramHolder, input, size,
+                             vec, "non-default", relaxValues, D2_CLASS_NON_DEFAULT, NULL);
+    if( e != TA_TEST_PASS ) return e;
+
+    /* 2. and 3., one parameter at a time so a failure names the slot. */
+    for( k = 0; k < funcInfo->nbOptInput; k++ )
+    {
+        TA_GetOptInputParameterInfo(handle, k, &oi);
+        for( j = 0; j < funcInfo->nbOptInput; j++ ) vec[j] = base[j];
+
+        vec[k] = ( oi->type == TA_OptInput_RealRange || oi->type == TA_OptInput_RealList )
+                 ? TA_REAL_DEFAULT : (double)TA_INTEGER_DEFAULT;
+        g_d2Sentinel++;
+        e = d2_drive(funcName, handle, funcInfo, paramHolder, input, size,
+                     vec, "default-sentinel", relaxValues, D2_CLASS_SENTINEL, &baseline);
+        if( e != TA_TEST_PASS ) return e;
+
+        /* BOTH bounds. A choice list has no expressible outside -- that is a
+         * different contract this sweep does not claim. */
+        double bad[2];
+        int nbad = d2_out_of_range(oi, bad);
+        for( int b = 0; b < nbad; b++ )
+        {
+            for( j = 0; j < funcInfo->nbOptInput; j++ ) vec[j] = base[j];
+            vec[k] = bad[b];
+            g_d2Reject++;
+            e = d2_drive(funcName, handle, funcInfo, paramHolder, input, size,
+                         vec, "out-of-range", relaxValues, D2_CLASS_REJECT, NULL);
+            if( e != TA_TEST_PASS ) return e;
+        }
+    }
+
+    /* Leave the holder as the caller had it. */
+    d2_set_opts(paramHolder, handle, funcInfo, base);
     return TA_TEST_PASS;
 }
 
@@ -1265,6 +1718,36 @@ ErrorNumber test_abstract( void )
    if( g_abstractPipe )
    {
       printf( "  Abstract server verification: all calls match C\n" );
+      printf( "  Binder parameter contract (#164): %lld vector(s) driven through both "
+              "binders — %lld non-default, %lld default-sentinel, %lld out-of-range "
+              "(both bounds, integer and real)\n",
+              g_d2Vectors, g_d2NonDefault, g_d2Sentinel, g_d2Reject );
+
+      /* Every count is asserted, not merely printed. The whole sweep is built
+       * from the declared domains, so a metadata change (a range collapsing, a
+       * domain retyped) can stop it producing vectors — and a sweep that quietly
+       * built none reads exactly like a passing one. Each class is what it is:
+       * non-default and sentinel exist for every function with a parameter,
+       * out-of-range only for the integer ranges (a choice list has no
+       * expressible outside, which is a different contract). */
+      /* The two self-checks fail the run where they fire, so reaching here with a
+         non-zero count would mean one was counted but not acted on. */
+      if( g_d2OorNotRejected != 0 || g_d2SentNotDefault != 0 )
+      {
+         printf( "  ABSTRACT ERROR: %lld out-of-range probe(s) accepted by C and %lld "
+                 "sentinel(s) that did not reproduce the declared default\n",
+                 g_d2OorNotRejected, g_d2SentNotDefault );
+         return TA_ABSTRACT_CALL_MISMATCH;
+      }
+
+      if( g_d2Vectors == 0 || g_d2NonDefault == 0 || g_d2Sentinel == 0 || g_d2Reject == 0 )
+      {
+         printf( "  ABSTRACT ERROR: the binder parameter-contract sweep produced no "
+                 "vectors of some class (%lld/%lld/%lld/%lld) — the binders are back "
+                 "to being tested only at their declared defaults\n",
+                 g_d2Vectors, g_d2NonDefault, g_d2Sentinel, g_d2Reject );
+         return TA_ABSTRACT_CALL_MISMATCH;
+      }
    }
 
    return TA_TEST_PASS; /* Succcess. */
@@ -1516,16 +1999,32 @@ static ErrorNumber callWithDefaults( const char *funcName, const double *input, 
     *     that phase-wrap or flip their integer trend mode; and
     *   - CCI — whose `(lastValue-theAverage) != 0` guard flips between the 0.015
     *     division and a hard 0 when the mean and last value cancel to the last bit.
-    * These only surface on the two NON-deterministic inputs (random ]0,1[ values,
-    * and random-sign ±DBL_EPSILON), where the data is noise rather than a price
-    * series, so exact value parity is not meaningful. Structural parity
+    * These only surface on the NON-deterministic inputs (random ]0,1[ values, and
+    * the two random-sign epsilon sets), where the data is noise rather than a
+    * price series, so exact value parity is not meaningful. Structural parity
     * (retCode/outBegIdx/outNBElement/lookback) stays strict for every function on
     * every dataset; value parity stays strict on the deterministic datasets
-    * (monotonic ramp, zeros) and — on real price data — in test_codegen. */
-   int relaxValues = ( strncmp(funcName, "HT_", 3) == 0 || strcmp(funcName, "CCI") == 0 )
-                     && ( datasetName != NULL )
-                     && ( strcmp(datasetName, "inputRandomData") == 0
-                          || strcmp(datasetName, "inputRandFltEpsilon") == 0 );
+    * (monotonic ramp, zeros) and — on real price data — in test_codegen.
+    * Both epsilon sets are listed: until the initialisation was fixed the Flt
+    * array actually carried the DBL_EPSILON values, so naming one covered both.
+    *
+    * CDL* against the Rust server on these sets used to be excluded too, for a
+    * defect that turned out to be in the TEST SERVER, not the library: serde_json
+    * parsed 2.7755575615628914e-16 one ULP low, so the Rust server alone computed
+    * on different inputs than C/Java/C#. CDLLONGLINE exposed it because
+    * `upperShadow` and `candleaverage(ShadowShort)` are EXACTLY equal there, so
+    * one ULP flips the verdict. Fixed at the parser (tools/Cargo.toml enables
+    * serde_json's arbitrary_precision); the exclusion is gone and CDL* is held to
+    * the same strict value parity as everything else. */
+   int isEpsilonSet = ( datasetName != NULL )
+                      && ( strcmp(datasetName, "inputRandFltEpsilon") == 0
+                           || strcmp(datasetName, "inputRandDblEpsilon") == 0 );
+   int isNoiseSet   = isEpsilonSet
+                      || ( datasetName != NULL
+                           && strcmp(datasetName, "inputRandomData") == 0 );
+
+   int relaxValues =
+         ( ( strncmp(funcName, "HT_", 3) == 0 || strcmp(funcName, "CCI") == 0 ) && isNoiseSet );
 
    retCode = TA_GetFuncHandle( funcName, &handle );
    if( retCode != TA_SUCCESS )
@@ -1543,23 +2042,45 @@ static ErrorNumber callWithDefaults( const char *funcName, const double *input, 
 
    TA_GetFuncInfo( handle, &funcInfo );
 
+   /* Counts only the generic real slots, so inReal0/inReal1 get the same views
+    * the JSON builder gives them (which counts them the same way). */
+   int realSlot = 0;
+
    for( i=0; i < funcInfo->nbInput; i++ )
    {
       TA_GetInputParameterInfo( handle, i, &inputInfo );
 	  switch(inputInfo->type)
 	  {
 	  case TA_Input_Price:
-         /* Volume gets the magnitude only -- see abstract_volume_view(). The
-          * JSON request builder applies the identical view. */
-         TA_SetInputParamPricePtr( paramHolder, i,
-			 inputInfo->flags&TA_IN_PRICE_OPEN?input:NULL,
-			 inputInfo->flags&TA_IN_PRICE_HIGH?input:NULL,
-			 inputInfo->flags&TA_IN_PRICE_LOW?input:NULL,
-			 inputInfo->flags&TA_IN_PRICE_CLOSE?input:NULL,
-			 inputInfo->flags&TA_IN_PRICE_VOLUME?abstract_volume_view(input,(unsigned int)size):NULL, NULL );
+         /* One view per component -- see abstract_price_view(); volume gets the
+          * magnitude only -- see abstract_volume_view(). The JSON request builder
+          * applies the identical views. */
+         /* openInterest is bound symmetrically with the JSON builder rather than
+          * hardcoded NULL. No shipped function declares it, so this is dormant —
+          * but a flagged component passed NULL is TA_BAD_PARAM from
+          * SET_PARAM_INFO, so the asymmetry would have been a silent bind failure
+          * on one arm the day a function did declare it. The rc is checked for
+          * the same reason: it was being discarded. */
+         {
+            TA_RetCode bindRc = TA_SetInputParamPricePtr( paramHolder, i,
+			 inputInfo->flags&TA_IN_PRICE_OPEN?abstract_price_view(input,(unsigned int)size,TA_IN_PRICE_OPEN):NULL,
+			 inputInfo->flags&TA_IN_PRICE_HIGH?abstract_price_view(input,(unsigned int)size,TA_IN_PRICE_HIGH):NULL,
+			 inputInfo->flags&TA_IN_PRICE_LOW?abstract_price_view(input,(unsigned int)size,TA_IN_PRICE_LOW):NULL,
+			 inputInfo->flags&TA_IN_PRICE_CLOSE?abstract_price_view(input,(unsigned int)size,TA_IN_PRICE_CLOSE):NULL,
+			 inputInfo->flags&TA_IN_PRICE_VOLUME?abstract_volume_view(input,(unsigned int)size):NULL,
+			 inputInfo->flags&TA_IN_PRICE_OPENINTEREST?abstract_price_view(input,(unsigned int)size,TA_IN_PRICE_OPENINTEREST):NULL );
+            if( bindRc != TA_SUCCESS )
+            {
+               printf( "  ABSTRACT ERROR [%s]: TA_SetInputParamPricePtr[%u] rc=%d\n",
+                       funcName, i, (int)bindRc );
+               TA_ParamHolderFree( paramHolder );
+               return TA_ABS_TST_FAIL_CALLFUNC;
+            }
+         }
 		 break;
 	  case TA_Input_Real:
-         TA_SetInputParamRealPtr( paramHolder, i, input );
+         TA_SetInputParamRealPtr( paramHolder, i,
+             abstract_real_view(input,(unsigned int)size,realSlot++) );
 		 break;
 	  case TA_Input_Integer:
          TA_SetInputParamIntegerPtr( paramHolder, i, input_int );
@@ -1627,7 +2148,7 @@ static ErrorNumber callWithDefaults( const char *funcName, const double *input, 
              ",\"%s\":", oi->paramName);
          if( oi->type == TA_OptInput_RealRange || oi->type == TA_OptInput_RealList )
             pos = codegen_appendf(g_abstractReqBuf, ABSTRACT_JSON_BUF_SIZE, pos,
-                "%.15g", oi->defaultValue);
+                "%.17g", oi->defaultValue);
          else
             pos = codegen_appendf(g_abstractReqBuf, ABSTRACT_JSON_BUF_SIZE, pos,
                 "%d", (int)oi->defaultValue);
@@ -1660,11 +2181,26 @@ static ErrorNumber callWithDefaults( const char *funcName, const double *input, 
           funcName, handle, funcInfo, input, size,
           0, size-1,
           TA_SUCCESS, outBegIdx, outNbElement, lookback,
-          output, output_int, relaxValues);
+          output, output_int, relaxValues, NULL);
       if( srvErr != TA_TEST_PASS )
       {
          TA_ParamHolderFree( paramHolder );
          return srvErr;
+      }
+
+      /* D2: the same binder, off its defaults. Bounded to ONE dataset on purpose
+       * -- the contract being asserted is about parameter VALUES, not about the
+       * data, so running it on all five would multiply the cost without adding a
+       * claim. inputRandomData is the one with real dynamic range. */
+      if( datasetName && strcmp(datasetName, "inputRandomData") == 0 )
+      {
+         srvErr = d2_param_vectors( funcName, handle, funcInfo, paramHolder,
+                                    input, size, relaxValues );
+         if( srvErr != TA_TEST_PASS )
+         {
+            TA_ParamHolderFree( paramHolder );
+            return srvErr;
+         }
       }
    }
 
@@ -1713,7 +2249,7 @@ static ErrorNumber callWithDefaults( const char *funcName, const double *input, 
           funcName, handle, funcInfo, input, size,
           0, 0,
           retCode, outBegIdx, outNbElement, lookback,
-          output, output_int, relaxValues);
+          output, output_int, relaxValues, NULL);
       if( srvErr != TA_TEST_PASS )
       {
          TA_ParamHolderFree( paramHolder );
@@ -2114,6 +2650,231 @@ static void testInPlaceAlias( const TA_FuncInfo *funcInfo, void *opaqueData )
       *errorNumber = err;
 }
 
+/* ---- The ParamHolder ERROR contract (issue #164) ---------------------------
+ *
+ * Everything else in this file drives the holder down its success path. The
+ * four RetCodes that exist only in the dynamic tier -- TA_INVALID_PARAM_HOLDER_TYPE,
+ * TA_INPUT_NOT_ALL_INITIALIZE, TA_OUTPUT_NOT_ALL_INITIALIZE and the
+ * paramIndex/NULL TA_BAD_PARAM -- had their VALUES pinned by test_internals.c
+ * and were otherwise never produced by anything, so no test could tell a
+ * correct rejection from a silent accept. That matters more than it looks:
+ * the managed backends signal these same conditions by throwing, and their
+ * tests assert the throw, which left C the only backend whose refusals were
+ * unasserted.
+ *
+ * Driven over every function ta_abstract reports, exercising whichever slots
+ * each function's descriptors admit, so new functions are covered without a
+ * roster. Counted per class and floored below -- a sweep that stopped
+ * constructing cases would otherwise read exactly like a passing one. */
+static long long g_holderTypeErr = 0;   /* TA_INVALID_PARAM_HOLDER_TYPE  */
+static long long g_holderIndexErr = 0;  /* paramIndex out of range       */
+static long long g_holderNullErr = 0;   /* NULL value pointer            */
+static long long g_holderInputErr = 0;  /* TA_INPUT_NOT_ALL_INITIALIZE   */
+static long long g_holderOutputErr = 0; /* TA_OUTPUT_NOT_ALL_INITIALIZE  */
+
+/* Report a wrong RetCode from a call that had to be refused. */
+static int holder_expect( const char *funcName, const char *what,
+                          TA_RetCode got, TA_RetCode want )
+{
+   if( got == want )
+      return 1;
+   printf( "  HOLDER CONTRACT [%s]: %s returned %d, expected %d\n",
+           funcName, what, (int)got, (int)want );
+   return 0;
+}
+
+static ErrorNumber checkHolderErrorContract( const TA_FuncInfo *funcInfo )
+{
+   const TA_FuncHandle *handle = funcInfo->handle;
+   const TA_InputParameterInfo *inputInfo;
+   const TA_OptInputParameterInfo *optInfo;
+   const TA_OutputParameterInfo *outInfo;
+   TA_ParamHolder *paramHolder;
+   TA_RetCode retCode;
+   unsigned int i;
+   int ok = 1;
+   int outBegIdx, outNbElement;
+   /* One buffer PER OUTPUT SLOT, not one shared: binding every output to the
+    * same array is the aliasing #108 rejects, and it only stays invisible here
+    * because TA_CallFunc answers NULL/unbound before it dispatches. Relying on
+    * that ordering would make this test's meaning depend on an unrelated one. */
+   #define HOLDER_MAX_OUT 8
+   static double dummyReal[HOLDER_MAX_OUT][252];
+   static int    dummyInt[HOLDER_MAX_OUT][252];
+
+   if( funcInfo->nbOutput > HOLDER_MAX_OUT )
+   {
+      printf( "  HOLDER CONTRACT [%s]: %u outputs exceeds HOLDER_MAX_OUT (%d)\n",
+              funcInfo->name, funcInfo->nbOutput, HOLDER_MAX_OUT );
+      return TA_ABS_TST_FAIL_HOLDER_CONTRACT;
+   }
+
+   retCode = TA_ParamHolderAlloc( handle, &paramHolder );
+   if( retCode != TA_SUCCESS )
+      return TA_ABS_TST_FAIL_PARAMHOLDERALLOC;
+
+   /* 1. paramIndex out of range on all six setters. */
+   ok &= holder_expect( funcInfo->name, "SetInputParamRealPtr past nbInput",
+            TA_SetInputParamRealPtr( paramHolder, funcInfo->nbInput, dummyReal[0] ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "SetInputParamIntegerPtr past nbInput",
+            TA_SetInputParamIntegerPtr( paramHolder, funcInfo->nbInput, dummyInt[0] ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "SetInputParamPricePtr past nbInput",
+            TA_SetInputParamPricePtr( paramHolder, funcInfo->nbInput, dummyReal[0], dummyReal[0],
+                                      dummyReal[0], dummyReal[0], dummyReal[0], dummyReal[0] ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "SetOptInputParamInteger past nbOptInput",
+            TA_SetOptInputParamInteger( paramHolder, funcInfo->nbOptInput, 1 ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "SetOptInputParamReal past nbOptInput",
+            TA_SetOptInputParamReal( paramHolder, funcInfo->nbOptInput, 1.0 ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "SetOutputParamRealPtr past nbOutput",
+            TA_SetOutputParamRealPtr( paramHolder, funcInfo->nbOutput, dummyReal[0] ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "SetOutputParamIntegerPtr past nbOutput",
+            TA_SetOutputParamIntegerPtr( paramHolder, funcInfo->nbOutput, dummyInt[0] ), TA_BAD_PARAM );
+   g_holderIndexErr += 7;
+
+   /* 2. NULL value pointer on a slot that DOES exist -- otherwise the
+    *    paramIndex check above would answer first and this would prove nothing. */
+   ok &= holder_expect( funcInfo->name, "SetInputParamRealPtr(NULL)",
+            TA_SetInputParamRealPtr( paramHolder, 0, NULL ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "SetInputParamIntegerPtr(NULL)",
+            TA_SetInputParamIntegerPtr( paramHolder, 0, NULL ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "SetOutputParamRealPtr(NULL)",
+            TA_SetOutputParamRealPtr( paramHolder, 0, NULL ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "SetOutputParamIntegerPtr(NULL)",
+            TA_SetOutputParamIntegerPtr( paramHolder, 0, NULL ), TA_BAD_PARAM );
+   g_holderNullErr += 4;
+
+   /* 3. Type mismatch: offer each slot the setter its declared type forbids. */
+   for( i = 0; i < funcInfo->nbInput; i++ )
+   {
+      TA_GetInputParameterInfo( handle, i, &inputInfo );
+      if( inputInfo->type == TA_Input_Real )
+      {
+         ok &= holder_expect( funcInfo->name, "real input via SetInputParamIntegerPtr",
+                  TA_SetInputParamIntegerPtr( paramHolder, i, dummyInt[0] ),
+                  TA_INVALID_PARAM_HOLDER_TYPE );
+         ok &= holder_expect( funcInfo->name, "real input via SetInputParamPricePtr",
+                  TA_SetInputParamPricePtr( paramHolder, i, dummyReal[0], dummyReal[0], dummyReal[0],
+                                            dummyReal[0], dummyReal[0], dummyReal[0] ),
+                  TA_INVALID_PARAM_HOLDER_TYPE );
+         g_holderTypeErr += 2;
+      }
+      else if( inputInfo->type == TA_Input_Price )
+      {
+         ok &= holder_expect( funcInfo->name, "price input via SetInputParamRealPtr",
+                  TA_SetInputParamRealPtr( paramHolder, i, dummyReal[0] ),
+                  TA_INVALID_PARAM_HOLDER_TYPE );
+         ok &= holder_expect( funcInfo->name, "price input via SetInputParamIntegerPtr",
+                  TA_SetInputParamIntegerPtr( paramHolder, i, dummyInt[0] ),
+                  TA_INVALID_PARAM_HOLDER_TYPE );
+         g_holderTypeErr += 2;
+      }
+   }
+
+   for( i = 0; i < funcInfo->nbOptInput; i++ )
+   {
+      TA_GetOptInputParameterInfo( handle, i, &optInfo );
+      if( optInfo->type == TA_OptInput_IntegerRange || optInfo->type == TA_OptInput_IntegerList )
+      {
+         ok &= holder_expect( funcInfo->name, "integer opt via SetOptInputParamReal",
+                  TA_SetOptInputParamReal( paramHolder, i, 1.0 ),
+                  TA_INVALID_PARAM_HOLDER_TYPE );
+         g_holderTypeErr++;
+      }
+      else
+      {
+         ok &= holder_expect( funcInfo->name, "real opt via SetOptInputParamInteger",
+                  TA_SetOptInputParamInteger( paramHolder, i, 1 ),
+                  TA_INVALID_PARAM_HOLDER_TYPE );
+         g_holderTypeErr++;
+      }
+   }
+
+   for( i = 0; i < funcInfo->nbOutput; i++ )
+   {
+      TA_GetOutputParameterInfo( handle, i, &outInfo );
+      if( outInfo->type == TA_Output_Real )
+      {
+         ok &= holder_expect( funcInfo->name, "real output via SetOutputParamIntegerPtr",
+                  TA_SetOutputParamIntegerPtr( paramHolder, i, dummyInt[i] ),
+                  TA_INVALID_PARAM_HOLDER_TYPE );
+      }
+      else
+      {
+         ok &= holder_expect( funcInfo->name, "integer output via SetOutputParamRealPtr",
+                  TA_SetOutputParamRealPtr( paramHolder, i, dummyReal[i] ),
+                  TA_INVALID_PARAM_HOLDER_TYPE );
+      }
+      g_holderTypeErr++;
+   }
+
+   /* 4. Outputs bound, inputs not: TA_CallFunc must refuse. The input test runs
+    *    FIRST in TA_CallFunc, so this order is the only one that can observe it. */
+   for( i = 0; i < funcInfo->nbOutput; i++ )
+   {
+      TA_GetOutputParameterInfo( handle, i, &outInfo );
+      if( outInfo->type == TA_Output_Real )
+         TA_SetOutputParamRealPtr( paramHolder, i, dummyReal[i] );
+      else
+         TA_SetOutputParamIntegerPtr( paramHolder, i, dummyInt[i] );
+   }
+   ok &= holder_expect( funcInfo->name, "CallFunc with no input bound",
+            TA_CallFunc( paramHolder, 0, 251, &outBegIdx, &outNbElement ),
+            TA_INPUT_NOT_ALL_INITIALIZE );
+   g_holderInputErr++;
+
+   TA_ParamHolderFree( paramHolder );
+
+   /* 5. Inputs bound, outputs not. A fresh holder, because the bitmaps only
+    *    ever clear -- there is no unbind. */
+   retCode = TA_ParamHolderAlloc( handle, &paramHolder );
+   if( retCode != TA_SUCCESS )
+      return TA_ABS_TST_FAIL_PARAMHOLDERALLOC;
+
+   for( i = 0; i < funcInfo->nbInput; i++ )
+   {
+      TA_GetInputParameterInfo( handle, i, &inputInfo );
+      if( inputInfo->type == TA_Input_Real )
+         TA_SetInputParamRealPtr( paramHolder, i, dummyReal[0] );
+      else if( inputInfo->type == TA_Input_Integer )
+         TA_SetInputParamIntegerPtr( paramHolder, i, dummyInt[0] );
+      else
+         TA_SetInputParamPricePtr( paramHolder, i, dummyReal[0], dummyReal[0], dummyReal[0],
+                                   dummyReal[0], dummyReal[0], dummyReal[0] );
+   }
+   ok &= holder_expect( funcInfo->name, "CallFunc with no output bound",
+            TA_CallFunc( paramHolder, 0, 251, &outBegIdx, &outNbElement ),
+            TA_OUTPUT_NOT_ALL_INITIALIZE );
+   g_holderOutputErr++;
+
+   /* 6. Fully bound, but NULL out-params: still TA_BAD_PARAM. */
+   for( i = 0; i < funcInfo->nbOutput; i++ )
+   {
+      TA_GetOutputParameterInfo( handle, i, &outInfo );
+      if( outInfo->type == TA_Output_Real )
+         TA_SetOutputParamRealPtr( paramHolder, i, dummyReal[i] );
+      else
+         TA_SetOutputParamIntegerPtr( paramHolder, i, dummyInt[i] );
+   }
+   ok &= holder_expect( funcInfo->name, "CallFunc(outBegIdx=NULL)",
+            TA_CallFunc( paramHolder, 0, 251, NULL, &outNbElement ), TA_BAD_PARAM );
+   ok &= holder_expect( funcInfo->name, "CallFunc(outNbElement=NULL)",
+            TA_CallFunc( paramHolder, 0, 251, &outBegIdx, NULL ), TA_BAD_PARAM );
+   g_holderNullErr += 2;
+
+   TA_ParamHolderFree( paramHolder );
+
+   return ok ? TA_TEST_PASS : TA_ABS_TST_FAIL_HOLDER_CONTRACT;
+}
+
+static void testHolderErrorContract( const TA_FuncInfo *funcInfo, void *opaqueData )
+{
+   ErrorNumber *errorNumber = (ErrorNumber *)opaqueData;
+   ErrorNumber err = checkHolderErrorContract( funcInfo );
+   /* Keep enumerating on failure so one run reports every offender. */
+   if( err != TA_TEST_PASS && *errorNumber == TA_TEST_PASS )
+      *errorNumber = err;
+}
+
 static ErrorNumber test_default_calls(void)
 {
    ErrorNumber errNumber;
@@ -2147,6 +2908,11 @@ static ErrorNumber test_default_calls(void)
       inputRandomData_int[i] = (int)inputRandomData[i];
    }
 
+   /* Two DISTINCT epsilon datasets. Both loops used to write the Flt array, so
+    * the second silently destroyed the first: FLT_EPSILON never reached a test,
+    * and inputRandDblEpsilon — declared, and passed to CALL() below — was never
+    * written at all, leaving it zero-filled and bit-identical to inputZeroData.
+    * The advertised five-dataset sweep was four, one of them a duplicate. */
    for( i=0; i < sizeof(inputRandFltEpsilon)/sizeof(double); i++ )
    {
        sign= (unsigned int)rand()%2;
@@ -2154,11 +2920,11 @@ static ErrorNumber test_default_calls(void)
        inputRandFltEpsilon_int[i] = sign?TA_INTEGER_MIN:TA_INTEGER_MAX;
    }
 
-   for( i=0; i < sizeof(inputRandFltEpsilon)/sizeof(double); i++ )
+   for( i=0; i < sizeof(inputRandDblEpsilon)/sizeof(double); i++ )
    {
        sign= (unsigned int)rand()%2;
-       inputRandFltEpsilon[i] = (sign?1.0:-1.0)*(DBL_EPSILON);
-       inputRandFltEpsilon_int[i] = sign?1:-1;
+       inputRandDblEpsilon[i] = (sign?1.0:-1.0)*(DBL_EPSILON);
+       inputRandDblEpsilon_int[i] = sign?1:-1;
    }
 
    if( doExtensiveProfiling )
@@ -2194,6 +2960,36 @@ static ErrorNumber test_default_calls(void)
       if( errNumber == TA_TEST_PASS )
          printf( "In-place alias gate: %d (input,output) pairs bitwise-verified\n",
                  ioAliasNbChecked );
+   }
+
+   /* The ParamHolder error contract -- the refusals, not the successes (#164). */
+   if( errNumber == TA_TEST_PASS )
+   {
+      g_holderTypeErr = g_holderIndexErr = g_holderNullErr = 0;
+      g_holderInputErr = g_holderOutputErr = 0;
+      TA_ForEachFunc( testHolderErrorContract, &errNumber );
+
+      /* Each class must have been reached. Every function contributes to every
+       * one of these, so a zero means the sweep stopped building cases, not
+       * that the corpus lacks them. */
+      if( errNumber == TA_TEST_PASS &&
+          ( g_holderTypeErr == 0 || g_holderIndexErr == 0 || g_holderNullErr == 0 ||
+            g_holderInputErr == 0 || g_holderOutputErr == 0 ) )
+      {
+         printf( "Failed: ParamHolder error-contract gate vacuous "
+                 "(type=%lld index=%lld null=%lld input=%lld output=%lld)\n",
+                 g_holderTypeErr, g_holderIndexErr, g_holderNullErr,
+                 g_holderInputErr, g_holderOutputErr );
+         errNumber = TA_ABS_TST_FAIL_HOLDER_CONTRACT_VACUOUS;
+      }
+      if( errNumber == TA_TEST_PASS )
+         printf( "ParamHolder error contract: %lld refusals asserted "
+                 "(%lld wrong-type, %lld bad-index, %lld NULL, %lld unbound-input, "
+                 "%lld unbound-output)\n",
+                 g_holderTypeErr + g_holderIndexErr + g_holderNullErr +
+                 g_holderInputErr + g_holderOutputErr,
+                 g_holderTypeErr, g_holderIndexErr, g_holderNullErr,
+                 g_holderInputErr, g_holderOutputErr );
    }
 
    return errNumber;

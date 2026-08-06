@@ -56,6 +56,24 @@ jobs:
         run: |
           echo "PYTHON=python3" >> $GITHUB_ENV
 
+      # Restore the packages referenced by dist/digests/ BEFORE package.py runs.
+      # The packages are no longer committed, so a fresh checkout has none of them,
+      # and package.py needs them on disk for two separate reasons:
+      #   1. is_build_skipping_allowed() hashes the local file. With no file there is
+      #      no skip, so main would REBUILD instead of reusing the artifact dev built
+      #      and tested -- silently breaking the property this whole design protects.
+      #   2. the compare_*_files helpers diff against the previous package to decide
+      #      whether anything actually changed. With no baseline every asset looks new
+      #      and churns on every run.
+      # --allow-missing: a pool miss here is self-healing (package.py rebuilds and the
+      # push step re-uploads), so it must not turn a recoverable state into a red build.
+      - name: Fetch dist packages from the asset pool (Linux)
+        if: runner.os == 'Linux'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: $PYTHON $GITHUB_WORKSPACE/scripts/dist-pool.py pull --allow-missing
+
       - name: Build dist assets (Linux)
         if: runner.os == 'Linux'
         env:
@@ -106,6 +124,14 @@ jobs:
         shell: cmd
         run: wix extension add --global WixToolset.UI.wixext/7.0.0 && wix extension list --global
 
+      # See the Linux fetch step above for why this must precede package.py.
+      - name: Fetch dist packages from the asset pool (Windows x64)
+        if: runner.os == 'Windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: cmd
+        run: '%PYTHON% %GITHUB_WORKSPACE%\scripts\dist-pool.py pull --allow-missing'
+
       - name: Build dist assets (Windows x64)
         if: runner.os == 'Windows'
         env:
@@ -119,6 +145,31 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: cmd
         run: '%PYTHON% %GITHUB_WORKSPACE%\scripts\test-dist.py'
+
+      # Upload the freshly built packages into the content-addressed asset pool.
+      #
+      # ORDER IS LOAD-BEARING: this runs BEFORE the digests that reference the
+      # packages are committed. The reverse order can commit a digest naming a
+      # package that was never uploaded, and that state is not recoverable by
+      # retry -- the only way out is a full rebuild + re-test. For the same
+      # reason this step must never be continue-on-error: a failed upload has to
+      # stop the run before anything is committed.
+      #
+      # Idempotent: assets are named by content hash, so re-running uploads
+      # nothing new, and a race with the other matrix leg resolves to success.
+      - name: Push dist packages to the asset pool (Linux)
+        if: runner.os == 'Linux'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: $PYTHON $GITHUB_WORKSPACE/scripts/dist-pool.py push
+
+      - name: Push dist packages to the asset pool (Windows x64)
+        if: runner.os == 'Windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: cmd
+        run: '%PYTHON% %GITHUB_WORKSPACE%\scripts\dist-pool.py push'
 
       - name: Check for changes and commit if any
         env:
@@ -228,7 +279,7 @@ jobs:
           sudo apt install -y openjdk-21-jdk
 
       - name: Install .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -277,7 +328,7 @@ jobs:
           sudo apt install -y openjdk-21-jdk
 
       - name: Install .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -554,7 +605,7 @@ jobs:
           fi
 
       - name: Install .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -601,7 +652,7 @@ jobs:
           sudo apt install -y openjdk-21-jdk
 
       - name: Install .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 

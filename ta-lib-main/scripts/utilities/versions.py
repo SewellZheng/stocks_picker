@@ -340,6 +340,64 @@ def set_version_string_cargo(root_dir: str, new_version: str):
         with open(cargo_file_path, 'w') as cargo_file:
             cargo_file.writelines(lines)
 
+def get_version_string_pom(root_dir: str) -> str:
+    """
+    Parse the shipped Java library manifest
+    ta_codegen/output/java/library/pom.xml to get the project version. Example:
+      <version>0.6.4</version>
+
+    Anchored on the two-space indent, which is the project-level coordinate: the
+    plugin <version> tags are nested far deeper. Matching the first <version>
+    anywhere would work today only because the coordinate happens to come first.
+    """
+    pom_path = path_join(root_dir, "ta_codegen/output", "java", "library", "pom.xml")
+
+    if not os.path.exists(pom_path):
+        print(f"Error: pom.xml not found at {pom_path}")
+        sys.exit(1)
+
+    version_pattern = re.compile(r'^  <version>(\d+\.\d+\.\d+)</version>')
+
+    try:
+        with open(pom_path, 'r') as pom_file:
+            for line in pom_file:
+                match = version_pattern.search(line)
+                if match:
+                    return match.group(1)
+
+        print(f"Error: Project version not found in {pom_path}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error reading pom.xml file: {e}")
+        sys.exit(1)
+
+def set_version_string_pom(root_dir: str, new_version: str):
+    """
+    Update the project version in the shipped Java library's pom.xml.
+    """
+    if get_version_string_pom(root_dir) == new_version:
+        return  # No changes needed. The version is already up to date.
+
+    pom_path = path_join(root_dir, "ta_codegen/output", "java", "library", "pom.xml")
+    version_pattern = re.compile(r'^  <version>(\d+\.\d+\.\d+)</version>')
+
+    with open(pom_path, 'r') as pom_file:
+        lines = pom_file.readlines()
+
+    updated = False
+    for i, line in enumerate(lines):
+        if version_pattern.search(line):
+            lines[i] = f'  <version>{new_version}</version>\n'
+            updated = True
+            break
+
+    if not updated:
+        print(f"Error: Project version line not found in {pom_path}")
+        sys.exit(1)
+
+    with open(pom_path, 'w') as pom_file:
+        pom_file.writelines(lines)
+
 def get_version_string_conanfile(root_dir: str) -> str:
     """
     Parse the file conanfile.py to get the version string. Example:
@@ -434,6 +492,7 @@ def sync_versions(root_dir: str) -> Tuple[bool,str]:
     Synchronize the version between:
           src/ta_common/ta_version.c
           ta_codegen/output/rust/library/Cargo.toml
+          ta_codegen/output/java/library/pom.xml
           CMakeLists.txt (root of repos)
           VERSION file (root of repos)
           conanfile.py (root of repos)
@@ -451,6 +510,7 @@ def sync_versions(root_dir: str) -> Tuple[bool,str]:
     version_cmake = get_version_string_cmake(root_dir)
     version_spec_in = get_version_string_spec_in(root_dir)
     version_cargo = get_version_string_cargo(root_dir)
+    version_pom = get_version_string_pom(root_dir)
     version_conanfile = get_version_string_conanfile(root_dir)
 
     # Identify the highest version among all sources.
@@ -464,6 +524,8 @@ def sync_versions(root_dir: str) -> Tuple[bool,str]:
         highest_version = version_spec_in
     if compare_version(highest_version, version_cargo) < 0:
         highest_version = version_cargo
+    if compare_version(highest_version, version_pom) < 0:
+        highest_version = version_pom
     if compare_version(highest_version, version_conanfile) < 0:
         highest_version = version_conanfile
 
@@ -499,6 +561,12 @@ def sync_versions(root_dir: str) -> Tuple[bool,str]:
         set_version_string_cargo(root_dir, highest_version)
         is_updated = True
 
+    compare_result: int = compare_version(highest_version, version_pom)
+    if compare_result > 0:
+        print(f"Updating pom.xml to [{highest_version}]")
+        set_version_string_pom(root_dir, highest_version)
+        is_updated = True
+
     compare_result: int = compare_version(highest_version, version_conanfile)
     if compare_result > 0:
         print(f"Updating conanfile.py to [{highest_version}]")
@@ -522,6 +590,11 @@ def check_versions(root_dir: str) -> str:
     version_cmake = get_version_string_cmake(root_dir)
     version_spec_in = get_version_string_spec_in(root_dir)
     version_conanfile = get_version_string_conanfile(root_dir)
+    # Cargo.toml and pom.xml matter most here even though sync_versions() would
+    # already have fixed them: crates.io and Maven Central are immutable, so a
+    # version published from a stale manifest cannot be withdrawn.
+    version_cargo = get_version_string_cargo(root_dir)
+    version_pom = get_version_string_pom(root_dir)
 
     if version_file != version_c:
         print(f"Error: VERSION [{version_file}] does not match ta_version.c [{version_c}]")
@@ -537,6 +610,14 @@ def check_versions(root_dir: str) -> str:
 
     if version_file != version_conanfile:
         print(f"Error: VERSION [{version_file}] does not match conanfile.py [{version_conanfile}]")
+        return None
+
+    if version_file != version_cargo:
+        print(f"Error: VERSION [{version_file}] does not match Cargo.toml [{version_cargo}]")
+        return None
+
+    if version_file != version_pom:
+        print(f"Error: VERSION [{version_file}] does not match pom.xml [{version_pom}]")
         return None
 
     return version_file
@@ -612,10 +693,33 @@ def calculate_sources_digest(root_dir: str, silent: bool = False) -> str:
         "*.am",
         "ta_func_api.xml",
         "ta_func_list.txt",
-        "ta_codegen/output/java/library/src/**/*.java",
-        "ta_codegen/output/csharp/library/*.cs",
-        "ta_codegen/output/csharp/library/*.csproj",
-        "ta_codegen/output/csharp/library/src/**/*.cs",
+        # NOTE: the Java and C# library sources are deliberately NOT listed.
+        #
+        # This digest exists to trigger repackaging of the assets in
+        # get_release_assets() -- and not one of them contains a byte of Java or C#.
+        # Verified against the built artifacts: src.tar.gz is autotools + include/ +
+        # src/ (319 entries, zero .java/.cs), the .deb is 5 headers plus
+        # libta-lib.{a,so}, and the Windows .zip is ta-lib.dll + 2 .lib + 5 headers.
+        # Java ships via Maven and C# via NuGet, on their own release paths.
+        #
+        # Listing them meant every ta_codegen Java/C# regeneration bumped this digest
+        # and forced a rebuild + repack + commit of all 8 C packages -- ~15 MB of
+        # non-deltable bytes each time, for a change that cannot reach any of them.
+        # Only re-add a binding here if a release asset actually starts carrying it.
+        #
+        # The packaging scripts decide package CONTENT, so a change to them must
+        # invalidate the digest exactly like a source change does. get_src_generated_files()
+        # literally defines what lands in src.tar.gz, and package.py picks the CPack
+        # generator and assembles the zip/tarball.
+        #
+        # Without these, editing the packaging and then cutting a release ships a stale
+        # package with a green digest: scheduled nightlies always rebuild and would
+        # self-correct within a day, but the release path is a MANUAL dispatch
+        # (README-DEVS.md step 6), which takes the build-SKIP branch of
+        # is_build_skipping_allowed().
+        "scripts/package.py",
+        "scripts/utilities/common.py",
+        "scripts/utilities/files.py",
         "LICENSE",
         "VERSION",
     ]
