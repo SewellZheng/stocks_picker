@@ -1,9 +1,7 @@
 ---
-title: CCI
-description: "Commodity Channel Index: measures the current typical price relative to its simple moving average, scaled by mean absolute deviation. Momentum oscillator flagging overbought/oversold extremes. CCI > +100 overbought; CCI < -100 oversold."
+title: "Commodity Channel Index (CCI)"
+description: "Commodity Channel Index: measures the current typical price relative to its simple moving average, scaled by mean absolute deviation."
 ---
-
-# CCI
 
 ## Summary
 
@@ -34,7 +32,7 @@ CCI = (TP_last - SMA) / (0.015 * meanDev)
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -52,7 +50,7 @@ TA-Lib Definition: [`cci.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`cci.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cci.rs) |
 | Java | [`Core_CCI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CCI.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -60,7 +58,7 @@ Commodity Channel Index
 
 ## See Also
 
-[TYPPRICE](/functions/typprice) · [SMA](/functions/sma)
+[TYPPRICE](/functions/typprice.md) · [SMA](/functions/sma.md)
 
 ## References
 

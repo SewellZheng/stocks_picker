@@ -1,9 +1,7 @@
 ---
-title: MAXINDEX
+title: "Index of highest value over a specified period (MAXINDEX)"
 description: "Returns the index of the highest input value within a rolling window of optInTimePeriod bars. Same as MAX but outputs the location instead of the value."
 ---
-
-# MAXINDEX
 
 ## Summary
 
@@ -33,7 +31,7 @@ outInteger[i] = argmax_{j in [i-optInTimePeriod+1, i]} inReal[j]
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -51,7 +49,7 @@ TA-Lib Definition: [`maxindex.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`maxindex.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/maxindex.rs) |
 | Java | [`Core_MAXINDEX.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MAXINDEX.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -59,4 +57,4 @@ Index of Highest Value, Highest Value Index, argmax
 
 ## See Also
 
-[MAX](/functions/max) · [MININDEX](/functions/minindex) · [MIN](/functions/min) · [MINMAXINDEX](/functions/minmaxindex)
+[MAX](/functions/max.md) · [MININDEX](/functions/minindex.md) · [MIN](/functions/min.md) · [MINMAXINDEX](/functions/minmaxindex.md)

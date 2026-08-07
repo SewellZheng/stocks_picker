@@ -1,9 +1,7 @@
 ---
-title: CDLMATHOLD
-description: "A five-candle bullish continuation pattern: a long white candle, an upside real-body-gapped small black candle, two more small falling candles that hold within the first body, and a final white candle closing above the reaction days' highs. Signals continuation of the prior uptrend. Hit = bullish continuation of the existing uptrend."
+title: "Mat Hold (CDLMATHOLD)"
+description: "A five-candle bullish continuation pattern: a long white candle, an upside real-body-gapped small black candle, two more small falling candles that hold…"
 ---
-
-# CDLMATHOLD
 
 ## Summary
 
@@ -33,7 +31,7 @@ A five-candle bullish continuation pattern: a long white candle, an upside real-
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -51,7 +49,7 @@ TA-Lib Definition: [`cdlmathold.c`](https://github.com/TA-Lib/ta-lib/blob/main/t
 | Rust | [`cdlmathold.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlmathold.rs) |
 | Java | [`Core_CDLMATHOLD.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLMATHOLD.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -59,4 +57,4 @@ Mat Hold
 
 ## See Also
 
-[CDLRISEFALL3METHODS](/functions/cdlrisefall3methods) · [CDLXSIDEGAP3METHODS](/functions/cdlxsidegap3methods)
+[CDLRISEFALL3METHODS](/functions/cdlrisefall3methods.md) · [CDLXSIDEGAP3METHODS](/functions/cdlxsidegap3methods.md)

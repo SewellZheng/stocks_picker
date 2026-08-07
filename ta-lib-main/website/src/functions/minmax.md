@@ -1,9 +1,7 @@
 ---
-title: MINMAX
-description: "Returns both the lowest and highest values of the input over a rolling window of the last optInTimePeriod bars. An overlap-study companion to MIN and MAX that computes both extrema in one pass."
+title: "Lowest and highest values over a specified period (MINMAX)"
+description: "Returns both the lowest and highest values of the input over a rolling window of the last optInTimePeriod bars."
 ---
-
-# MINMAX
 
 ## Summary
 
@@ -26,7 +24,7 @@ Returns both the lowest and highest values of the input over a rolling window of
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`minmax.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_co
 | Rust | [`minmax.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/minmax.rs) |
 | Java | [`Core_MINMAX.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MINMAX.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Highest Lowest
 
 ## See Also
 
-[MIN](/functions/min) · [MAX](/functions/max) · [MINMAXINDEX](/functions/minmaxindex) · [MININDEX](/functions/minindex) · [MAXINDEX](/functions/maxindex)
+[MIN](/functions/min.md) · [MAX](/functions/max.md) · [MINMAXINDEX](/functions/minmaxindex.md) · [MININDEX](/functions/minindex.md) · [MAXINDEX](/functions/maxindex.md)

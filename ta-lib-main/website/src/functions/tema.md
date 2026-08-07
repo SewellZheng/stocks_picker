@@ -1,9 +1,7 @@
 ---
-title: TEMA
-description: "Triple Exponential Moving Average: a smoothed price overlay built from three successively-applied EMAs to reduce lag versus a plain EMA. Distinct from EMA3, also called \"triple EMA\" in the literature."
+title: "Triple Exponential Moving Average (TEMA)"
+description: "Triple Exponential Moving Average: a smoothed price overlay built from three successively-applied EMAs to reduce lag versus a plain EMA."
 ---
-
-# TEMA
 
 ## Summary
 
@@ -33,7 +31,7 @@ EMA1=EMA(t,period); EMA2=EMA(EMA1,period); EMA3=EMA(EMA2,period); TEMA = 3*EMA1 
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period) — Inherited from EMA, which TEMA computes internally; tunable via EMA's unstable period.
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period) — Inherited from EMA, which TEMA computes internally; tunable via EMA's unstable period.
 
 | Display<br>Flags |
 | :-- |
@@ -51,7 +49,7 @@ TA-Lib Definition: [`tema.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`tema.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/tema.rs) |
 | Java | [`Core_TEMA.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_TEMA.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -59,7 +57,7 @@ Triple Exponential Moving Average
 
 ## See Also
 
-[EMA](/functions/ema) · [DEMA](/functions/dema) · [T3](/functions/t3)
+[EMA](/functions/ema.md) · [DEMA](/functions/dema.md) · [T3](/functions/t3.md)
 
 ## References
 

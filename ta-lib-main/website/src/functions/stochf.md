@@ -1,9 +1,7 @@
 ---
-title: STOCHF
-description: "Fast Stochastic Oscillator: the raw %K line and its moving-average-smoothed %D line. Unlike STOCH (which slows both lines), STOCHF returns the unsmoothed FastK and FastD. Oscillates 0-100; >80 overbought, <20 oversold."
+title: "Stochastic Fast (STOCHF)"
+description: "Fast Stochastic Oscillator: the raw %K line and its moving-average-smoothed %D line."
 ---
-
-# STOCHF
 
 ## Summary
 
@@ -41,7 +39,7 @@ FastD = MA(FastK, FastD_Period, FastD_MAType)
 
 ## Properties
 
-**Numerical Stability:** [Depends on MA Type](/functions/stability#depends-on-ma-type) — This function's default, SMA, is start-independent.
+**Numerical Stability:** [Depends on MA Type](/functions/stability.md#depends-on-ma-type) — This function's default, SMA, is start-independent.
 
 | Display<br>Flags |
 | :-- |
@@ -59,7 +57,7 @@ TA-Lib Definition: [`stochf.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_co
 | Rust | [`stochf.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/stochf.rs) |
 | Java | [`Core_STOCHF.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_STOCHF.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -67,4 +65,4 @@ Stochastic Fast, Fast Stochastic Oscillator
 
 ## See Also
 
-[STOCH](/functions/stoch) · [STOCHRSI](/functions/stochrsi) · [MA](/functions/ma)
+[STOCH](/functions/stoch.md) · [STOCHRSI](/functions/stochrsi.md) · [MA](/functions/ma.md)

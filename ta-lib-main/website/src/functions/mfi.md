@@ -1,9 +1,7 @@
 ---
-title: MFI
-description: "Money Flow Index: a volume-weighted momentum oscillator (0-100) comparing positive vs negative money flow over a period. A volume-based analog of RSI. >80 overbought, <20 oversold."
+title: "Money Flow Index (MFI)"
+description: "Money Flow Index: a volume-weighted momentum oscillator (0-100) comparing positive vs negative money flow over a period."
 ---
-
-# MFI
 
 ## Summary
 
@@ -36,7 +34,7 @@ TP = (High+Low+Close)/3; MF = TP*Volume, classed positive if TP>prevTP, negative
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -54,7 +52,7 @@ TA-Lib Definition: [`mfi.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`mfi.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/mfi.rs) |
 | Java | [`Core_MFI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MFI.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -62,7 +60,7 @@ Money Flow Index
 
 ## See Also
 
-[RSI](/functions/rsi) · [AD](/functions/ad) · [ADOSC](/functions/adosc)
+[RSI](/functions/rsi.md) · [AD](/functions/ad.md) · [ADOSC](/functions/adosc.md)
 
 ## References
 

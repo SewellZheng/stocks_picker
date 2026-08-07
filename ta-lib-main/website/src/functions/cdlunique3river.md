@@ -1,9 +1,7 @@
 ---
-title: CDLUNIQUE3RIVER
-description: "A three-candle bullish reversal pattern: a long black candle, then a black harami candle that makes a lower low, then a small white candle. Signals a potential bullish reversal, ideally in a downtrend (trend not checked by the code). A hit (+100) marks a bullish reversal; significant in a downtrend, which the function does not verify."
+title: "Unique 3 River (CDLUNIQUE3RIVER)"
+description: "A three-candle bullish reversal pattern: a long black candle, then a black harami candle that makes a lower low, then a small white candle."
 ---
-
-# CDLUNIQUE3RIVER
 
 ## Summary
 
@@ -22,7 +20,7 @@ A three-candle bullish reversal pattern: a long black candle, then a black haram
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -40,7 +38,7 @@ TA-Lib Definition: [`cdlunique3river.c`](https://github.com/TA-Lib/ta-lib/blob/m
 | Rust | [`cdlunique3river.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlunique3river.rs) |
 | Java | [`Core_CDLUNIQUE3RIVER.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLUNIQUE3RIVER.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -48,4 +46,4 @@ Unique 3 River, Unique Three River Bottom
 
 ## See Also
 
-[CDLHARAMI](/functions/cdlharami) · [CDLHOMINGPIGEON](/functions/cdlhomingpigeon) · [CDL3INSIDE](/functions/cdl3inside)
+[CDLHARAMI](/functions/cdlharami.md) · [CDLHOMINGPIGEON](/functions/cdlhomingpigeon.md) · [CDL3INSIDE](/functions/cdl3inside.md)

@@ -1,9 +1,7 @@
 ---
-title: CDLUPSIDEGAP2CROWS
-description: "A three-candle bearish reversal pattern: a long white candle, then a small black candle gapping up (a gap between the real bodies), then a black candle that engulfs the second candle's real body but still closes above the first candle's close. Signals a bearish reversal. A hit (-100) is a bearish reversal signal, most meaningful in an uptrend."
+title: "Upside Gap Two Crows (CDLUPSIDEGAP2CROWS)"
+description: "A three-candle bearish reversal pattern: a long white candle, then a small black candle gapping up (a gap between the real bodies), then a black candle…"
 ---
-
-# CDLUPSIDEGAP2CROWS
 
 ## Summary
 
@@ -26,7 +24,7 @@ A three-candle bearish reversal pattern: a long white candle, then a small black
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdlupsidegap2crows.c`](https://github.com/TA-Lib/ta-lib/blo
 | Rust | [`cdlupsidegap2crows.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlupsidegap2crows.rs) |
 | Java | [`Core_CDLUPSIDEGAP2CROWS.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLUPSIDEGAP2CROWS.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Upside Gap Two Crows
 
 ## See Also
 
-[CDL2CROWS](/functions/cdl2crows) · [CDLGAPSIDESIDEWHITE](/functions/cdlgapsidesidewhite)
+[CDL2CROWS](/functions/cdl2crows.md) · [CDLGAPSIDESIDEWHITE](/functions/cdlgapsidesidewhite.md)

@@ -1,9 +1,7 @@
 ---
-title: SUB
+title: "Vector Arithmetic Subtraction (SUB)"
 description: "Element-wise vector subtraction of two input series. Outputs inReal0 minus inReal1 at each index."
 ---
-
-# SUB
 
 ## Summary
 
@@ -24,7 +22,7 @@ outReal[i] = inReal0[i] - inReal1[i]
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -42,7 +40,7 @@ TA-Lib Definition: [`sub.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`sub.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/sub.rs) |
 | Java | [`Core_SUB.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_SUB.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -50,4 +48,4 @@ Subtract, Vector Subtraction
 
 ## See Also
 
-[ADD](/functions/add) · [MULT](/functions/mult) · [DIV](/functions/div)
+[ADD](/functions/add.md) · [MULT](/functions/mult.md) · [DIV](/functions/div.md)

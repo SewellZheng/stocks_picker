@@ -1,9 +1,7 @@
 ---
-title: MINUS_DM
-description: "Minus Directional Movement, the downward component of Wilder's directional movement system. Measures Wilder-smoothed downward price motion over the period. Higher -DM indicates stronger downward directional movement."
+title: "Minus Directional Movement (MINUS_DM)"
+description: "Minus Directional Movement, the downward component of Wilder's directional movement system. Measures Wilder-smoothed downward price motion over the period."
 ---
-
-# MINUS_DM
 
 ## Summary
 
@@ -34,7 +32,7 @@ period>1: seed = sum of first (period-1) -DM1; then Wilder smooth each bar:
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period)
 
 | Display<br>Flags |
 | :-- |
@@ -52,7 +50,7 @@ TA-Lib Definition: [`minus_dm.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`minus_dm.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/minus_dm.rs) |
 | Java | [`Core_MINUS_DM.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MINUS_DM.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -60,7 +58,7 @@ Minus Directional Movement, -DM
 
 ## See Also
 
-[PLUS_DM](/functions/plus_dm) · [MINUS_DI](/functions/minus_di) · [PLUS_DI](/functions/plus_di) · [DX](/functions/dx) · [ADX](/functions/adx) · [ADXR](/functions/adxr)
+[PLUS_DM](/functions/plus_dm.md) · [MINUS_DI](/functions/minus_di.md) · [PLUS_DI](/functions/plus_di.md) · [DX](/functions/dx.md) · [ADX](/functions/adx.md) · [ADXR](/functions/adxr.md)
 
 ## References
 

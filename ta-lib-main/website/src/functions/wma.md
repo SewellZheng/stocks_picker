@@ -1,9 +1,7 @@
 ---
-title: WMA
-description: "Linearly weighted moving average: each of the last N prices is weighted by its position, oldest getting weight 1 and newest weight N. Smooths price while emphasizing recent bars."
+title: "Weighted Moving Average (WMA)"
+description: "Linearly weighted moving average: each of the last N prices is weighted by its position, oldest getting weight 1 and newest weight N."
 ---
-
-# WMA
 
 ## Summary
 
@@ -33,7 +31,7 @@ WMA = ( sum_{k=1..N} k * P_k ) / (N(N+1)/2), where P_N is the most recent bar
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -51,7 +49,7 @@ TA-Lib Definition: [`wma.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`wma.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/wma.rs) |
 | Java | [`Core_WMA.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_WMA.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -59,4 +57,4 @@ Weighted Moving Average, Linearly Weighted Moving Average, LWMA
 
 ## See Also
 
-[SMA](/functions/sma) · [EMA](/functions/ema) · [MA](/functions/ma) · [DEMA](/functions/dema) · [TEMA](/functions/tema)
+[SMA](/functions/sma.md) · [EMA](/functions/ema.md) · [MA](/functions/ma.md) · [DEMA](/functions/dema.md) · [TEMA](/functions/tema.md)

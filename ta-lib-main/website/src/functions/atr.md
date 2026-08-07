@@ -1,9 +1,7 @@
 ---
-title: ATR
-description: "Wilder-smoothed average of the True Range over a period, measuring price volatility regardless of direction. Higher ATR means greater volatility; no directional bias."
+title: "Average True Range (ATR)"
+description: "Wilder-smoothed average of the True Range over a period, measuring price volatility regardless of direction."
 ---
-
-# ATR
 
 ## Summary
 
@@ -33,7 +31,7 @@ ATR_t = (ATR_{t-1} * (period-1) + TR_t) / period
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period)
 
 | Display<br>Flags |
 | :-- |
@@ -51,7 +49,7 @@ TA-Lib Definition: [`atr.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`atr.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/atr.rs) |
 | Java | [`Core_ATR.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ATR.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -59,7 +57,7 @@ Average True Range
 
 ## See Also
 
-[TRANGE](/functions/trange) · [NATR](/functions/natr) · [SMA](/functions/sma) · [EMA](/functions/ema)
+[TRANGE](/functions/trange.md) · [NATR](/functions/natr.md) · [SMA](/functions/sma.md) · [EMA](/functions/ema.md)
 
 ## References
 

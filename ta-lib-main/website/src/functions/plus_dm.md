@@ -1,9 +1,7 @@
 ---
-title: PLUS_DM
-description: "Plus Directional Movement: the Wilder-smoothed accumulation of upward directional movement (+DM1). A component of the Directional Movement System used to build +DI/DX/ADX."
+title: "Plus Directional Movement (PLUS_DM)"
+description: "Plus Directional Movement: the Wilder-smoothed accumulation of upward directional movement (+DM1)."
 ---
-
-# PLUS_DM
 
 ## Summary
 
@@ -33,7 +31,7 @@ period>1: seed = sum of first (period-1) +DM1; then Wilder smoothing:
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period)
 
 | Display<br>Flags |
 | :-- |
@@ -51,7 +49,7 @@ TA-Lib Definition: [`plus_dm.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_c
 | Rust | [`plus_dm.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/plus_dm.rs) |
 | Java | [`Core_PLUS_DM.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_PLUS_DM.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -59,7 +57,7 @@ TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib
 
 ## See Also
 
-[MINUS_DM](/functions/minus_dm) · [PLUS_DI](/functions/plus_di) · [MINUS_DI](/functions/minus_di) · [DX](/functions/dx) · [ADX](/functions/adx) · [ADXR](/functions/adxr)
+[MINUS_DM](/functions/minus_dm.md) · [PLUS_DI](/functions/plus_di.md) · [MINUS_DI](/functions/minus_di.md) · [DX](/functions/dx.md) · [ADX](/functions/adx.md) · [ADXR](/functions/adxr.md)
 
 ## References
 

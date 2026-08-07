@@ -1,9 +1,7 @@
 ---
-title: CDLTASUKIGAP
-description: "A three-candle pattern: a real-body-gapping candle followed by an opposite-color candle that opens inside its body and closes back into the gap without filling it. An upside gap is a bullish continuation signal; a downside gap is a bearish continuation signal. Hit signals trend continuation: +100 bullish (in an uptrend), -100 bearish (in a downtrend)."
+title: "Tasuki Gap (CDLTASUKIGAP)"
+description: "A three-candle pattern: a real-body-gapping candle followed by an opposite-color candle that opens inside its body and closes back into the gap without…"
 ---
-
-# CDLTASUKIGAP
 
 ## Summary
 
@@ -26,7 +24,7 @@ A three-candle pattern: a real-body-gapping candle followed by an opposite-color
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdltasukigap.c`](https://github.com/TA-Lib/ta-lib/blob/main
 | Rust | [`cdltasukigap.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdltasukigap.rs) |
 | Java | [`Core_CDLTASUKIGAP.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLTASUKIGAP.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Tasuki Gap, Upside/Downside Tasuki Gap
 
 ## See Also
 
-[CDLGAPSIDESIDEWHITE](/functions/cdlgapsidesidewhite) · [CDLXSIDEGAP3METHODS](/functions/cdlxsidegap3methods)
+[CDLGAPSIDESIDEWHITE](/functions/cdlgapsidesidewhite.md) · [CDLXSIDEGAP3METHODS](/functions/cdlxsidegap3methods.md)

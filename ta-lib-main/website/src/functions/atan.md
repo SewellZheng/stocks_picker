@@ -1,9 +1,7 @@
 ---
-title: ATAN
+title: "Vector Trigonometric ATan (ATAN)"
 description: "Vector trigonometric arc tangent: applies atan element-wise to each input. Pure math transform with no lookback."
 ---
-
-# ATAN
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = atan(inReal[i])  (radians, range (-pi/2, pi/2))
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`atan.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`atan.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/atan.rs) |
 | Java | [`Core_ATAN.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ATAN.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ arctangent, arctan, inverse tangent
 
 ## See Also
 
-[TAN](/functions/tan) · [ACOS](/functions/acos) · [ASIN](/functions/asin)
+[TAN](/functions/tan.md) · [ACOS](/functions/acos.md) · [ASIN](/functions/asin.md)

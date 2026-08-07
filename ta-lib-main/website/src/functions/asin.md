@@ -1,9 +1,7 @@
 ---
-title: ASIN
+title: "Vector Trigonometric ASin (ASIN)"
 description: "Element-wise arcsine (inverse sine) of each input value. A vector math transform, not a market indicator."
 ---
-
-# ASIN
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = asin(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`asin.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`asin.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/asin.rs) |
 | Java | [`Core_ASIN.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ASIN.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ arcsine, inverse sine
 
 ## See Also
 
-[ACOS](/functions/acos) · [ATAN](/functions/atan) · [SIN](/functions/sin) · [COS](/functions/cos)
+[ACOS](/functions/acos.md) · [ATAN](/functions/atan.md) · [SIN](/functions/sin.md) · [COS](/functions/cos.md)

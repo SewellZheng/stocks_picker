@@ -1,9 +1,7 @@
 ---
-title: CDLHARAMICROSS
-description: "A two-candle reversal pattern: a long real body followed by a doji whose real body is contained within the first candle's real body (the doji variant of the Harami). Bullish after a black first candle, bearish after a white first candle. A hit signals a potential reversal: +100/+80 bullish (black first candle), -100/-80 bearish (white first candle)."
+title: "Harami Cross Pattern (CDLHARAMICROSS)"
+description: "A two-candle reversal pattern: a long real body followed by a doji whose real body is contained within the first candle's real body (the doji variant of…"
 ---
-
-# CDLHARAMICROSS
 
 ## Summary
 
@@ -26,7 +24,7 @@ A two-candle reversal pattern: a long real body followed by a doji whose real bo
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdlharamicross.c`](https://github.com/TA-Lib/ta-lib/blob/ma
 | Rust | [`cdlharamicross.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlharamicross.rs) |
 | Java | [`Core_CDLHARAMICROSS.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLHARAMICROSS.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Harami Cross
 
 ## See Also
 
-[CDLHARAMI](/functions/cdlharami) · [CDLDOJI](/functions/cdldoji)
+[CDLHARAMI](/functions/cdlharami.md) · [CDLDOJI](/functions/cdldoji.md)

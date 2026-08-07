@@ -1,9 +1,7 @@
 ---
-title: CDLGAPSIDESIDEWHITE
-description: "A three-candle pattern: a first candle followed by two white candles of similar body size that both gap the same direction (up or down) from the first candle's real body and open at about the same level. It is a continuation signal whose sign reports the gap direction; the code does not verify a prior trend. A hit signals continuation in the gap's direction: +100 with an upside gap is bullish, -100 with a downside gap is bearish."
+title: "Up/Down-gap side-by-side white lines (CDLGAPSIDESIDEWHITE)"
+description: "A three-candle pattern: a first candle followed by two white candles of similar body size that both gap the same direction (up or down) from the first…"
 ---
-
-# CDLGAPSIDESIDEWHITE
 
 ## Summary
 
@@ -26,7 +24,7 @@ A three-candle pattern: a first candle followed by two white candles of similar 
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdlgapsidesidewhite.c`](https://github.com/TA-Lib/ta-lib/bl
 | Rust | [`cdlgapsidesidewhite.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlgapsidesidewhite.rs) |
 | Java | [`Core_CDLGAPSIDESIDEWHITE.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLGAPSIDESIDEWHITE.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Up/Down-gap side-by-side white lines, Gapping side-by-side white lines
 
 ## See Also
 
-[CDLTASUKIGAP](/functions/cdltasukigap) · [CDLXSIDEGAP3METHODS](/functions/cdlxsidegap3methods)
+[CDLTASUKIGAP](/functions/cdltasukigap.md) · [CDLXSIDEGAP3METHODS](/functions/cdlxsidegap3methods.md)

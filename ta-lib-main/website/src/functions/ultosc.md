@@ -1,9 +1,7 @@
 ---
-title: ULTOSC
-description: "Ultimate Oscillator: momentum indicator combining buying-pressure/true-range ratios over three time periods into one 0-100 weighted average. Blends short-, medium-, and long-term momentum to damp single-period noise. Ranges 0-100; conventionally >70 overbought, <30 oversold."
+title: "Ultimate Oscillator (ULTOSC)"
+description: "Ultimate Oscillator: momentum indicator combining buying-pressure/true-range ratios over three time periods into one 0-100 weighted average."
 ---
-
-# ULTOSC
 
 ## Summary
 
@@ -40,7 +38,7 @@ ULTOSC = 100 * (4*avg_short + 2*avg_mid + avg_long) / 7
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -58,7 +56,7 @@ TA-Lib Definition: [`ultosc.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_co
 | Rust | [`ultosc.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/ultosc.rs) |
 | Java | [`Core_ULTOSC.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ULTOSC.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -66,7 +64,7 @@ Ultimate Oscillator, UO
 
 ## See Also
 
-[ATR](/functions/atr) · [TRANGE](/functions/trange) · [RSI](/functions/rsi)
+[ATR](/functions/atr.md) · [TRANGE](/functions/trange.md) · [RSI](/functions/rsi.md)
 
 ## References
 

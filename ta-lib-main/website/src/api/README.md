@@ -33,10 +33,10 @@ toc: false
   <li>The lifecycle of the library (<a href="#init">TA_Initialize / TA_Shutdown</a>).</li>
   <li>The global settings (e.g. <a href="/api/unstable-period/">TA_SetUnstablePeriod</a>, <a href="/api/candle-settings/">TA_SetCandleSettings</a>).</li>
   <li>Every <a href="#ta_func">TA function</a>, each processing a whole array of data at once.</li>
-  <li>An <a href="#abstract">abstraction layer</a> for calling those functions dynamically.</li>
+  <li>An optional <a href="#abstract">abstraction layer</a> for calling those functions dynamically.</li>
 </ul>
 <p>To process a live feed one bar at a time instead, see the companion <a href="/api/stream/">C/C++ Streaming API</a>.</p>
-<p>You must first <a href="/install/">install TA-Lib</a>, which will provide all the shared/static libraries and headers needed to compile and link your program.</p>
+<p>You must first <a href="/install/c/">install the C/C++ library</a>, which will provide all the shared/static libraries and headers needed to compile and link your program.</p>
 
 ## 2.0 How to add TA-Lib to your app {#build}
 
@@ -83,27 +83,27 @@ TA_RetCode TA_Shutdown( void );</pre>
 <p>Every function follows the same simple pattern: it reads its inputs from arrays you pass in and writes its results to buffers you allocate.</p>
 <p>A function never writes more elements than you request, so the buffers only need to cover the startIdx-to-endIdx range.</p>
 <p>As an example, let's walk through TA_MA, a function to calculate a moving average.</p>
-<pre>TA_RetCode TA_MA( <span style="background-color: #66FFFF; color: #000">int          startIdx,</span>
-                  <span style="background-color: #66FFFF; color: #000">int          endIdx,</span>
-                  <span style="background-color: #00FF00; color: #000">const double inReal[],</span>
-                  <span style="background-color: #C0C0C0; color: #000">int          optInTimePeriod,</span>
-                  <span style="background-color: #C0C0C0; color: #000">int          optInMAType,</span>
-                  <span style="background-color: #FFFF00; color: #000">int         *outBegIdx,</span>
-                  <span style="background-color: #FFFF00; color: #000">int         *outNBElement,</span>
-                  <span style="background-color: #FFFF00; color: #000">double       outReal[]</span>   )
+<pre>TA_RetCode TA_MA( <span class="ta-arg-range">int          startIdx,</span>
+                  <span class="ta-arg-range">int          endIdx,</span>
+                  <span class="ta-arg-in">const double inReal[],</span>
+                  <span class="ta-arg-opt">int          optInTimePeriod,</span>
+                  <span class="ta-arg-opt">int          optInMAType,</span>
+                  <span class="ta-arg-out">int         *outBegIdx,</span>
+                  <span class="ta-arg-out">int         *outNBElement,</span>
+                  <span class="ta-arg-out">double       outReal[]</span>   )
 </pre>
 
 <p>All TA functions use the same calling pattern, divided into four groups:</p>
 <ul>
 <li>
-<span style="background-color: #66FFFF; color: #000">The output will be calculated only for the range specified by startIdx and endIdx. These are zero-based indices into the input arrays.</span></li>
+<span class="ta-arg-range">The output will be calculated only for the range specified by startIdx and endIdx. These are zero-based indices into the input arrays.</span></li>
 <li>
-<span style="background-color: #00FF00; color: #000">One or more input arrays are then specified. Typically, these are the "price" data. In this example there is only one input. All input parameter names start with &quot;in&quot;.</span>
+<span class="ta-arg-in">One or more input arrays are then specified. Typically, these are the "price" data. In this example there is only one input. All input parameter names start with &quot;in&quot;.</span>
 </li>
-<li><span style="background-color: #C0C0C0; color: #000">Zero or more optional inputs are then specified. In this example there are two optional inputs. These parameters give finer control specific to each function. If you do not care about a particular optIn, just specify TA_INTEGER_DEFAULT or TA_REAL_DEFAULT (depending on the type).</span>
+<li><span class="ta-arg-opt">Zero or more optional inputs are then specified. In this example there are two optional inputs. These parameters give finer control specific to each function. If you do not care about a particular optIn, just specify TA_INTEGER_DEFAULT or TA_REAL_DEFAULT (depending on the type).</span>
 </li>
 <li>
-<span style="background-color: #FFFF00; color: #000">One or more output arrays come last. In this example there is only one output (outReal). The parameters outBegIdx and outNBElement always come just before the output arrays.</span>
+<span class="ta-arg-out">One or more output arrays come last. In this example there is only one output (outReal). The parameters outBegIdx and outNBElement always come just before the output arrays.</span>
 </li>
 </ul>
 <p>This calling pattern takes some getting used to, but it lets your app spend time and memory only on the data it actually needs.
@@ -114,10 +114,10 @@ TA_Real    out[400];
 TA_Integer outBeg;
 TA_Integer outNBElement;</pre>
 <pre>/* ... initialize your closing price here... */</pre>
-<pre>retCode = TA_MA( <span style="background-color: #66FFFF; color: #000">0</span>, <span style="background-color: #66FFFF; color: #000">399</span>,
-                 <span style="background-color: #00FF00; color: #000">&amp;closePrice[0]</span>,
-                 <span style="background-color: #C0C0C0; color: #000">30</span>, <span style="background-color: #C0C0C0; color: #000">TA_MAType_SMA</span>,
-                 <span style="background-color: #FFFF00; color: #000">&amp;outBeg</span>, <span style="background-color: #FFFF00; color: #000">&amp;outNBElement</span>, <span style="background-color: #FFFF00; color: #000">&amp;out[0]</span> );</pre>
+<pre>retCode = TA_MA( <span class="ta-arg-range">0</span>, <span class="ta-arg-range">399</span>,
+                 <span class="ta-arg-in">&amp;closePrice[0]</span>,
+                 <span class="ta-arg-opt">30</span>, <span class="ta-arg-opt">TA_MAType_SMA</span>,
+                 <span class="ta-arg-out">&amp;outBeg</span>, <span class="ta-arg-out">&amp;outNBElement</span>, <span class="ta-arg-out">&amp;out[0]</span> );</pre>
 <pre>/* The output is displayed here */
 for( i=0; i &lt; outNBElement; i++ )
    printf( &quot;Day %d = %f\n&quot;, outBeg+i, out[i] );
@@ -136,20 +136,20 @@ TA_Real    out;
 TA_Integer outBeg;
 TA_Integer outNBElement;</pre>
 <pre>/* ... initialize your closing price here... */</pre>
-<pre>retCode = TA_MA( <span style="background-color: #66FFFF; color: #000">299</span>, <span style="background-color: #66FFFF; color: #000">299</span>,
-                 <span style="background-color: #00FF00; color: #000">&amp;closePrice[0]</span>,
-                 <span style="background-color: #C0C0C0; color: #000">14</span>, <span style="background-color: #C0C0C0; color: #000">TA_MAType_EMA</span>,
-                 <span style="background-color: #FFFF00; color: #000">&amp;outBeg</span>, <span style="background-color: #FFFF00; color: #000">&amp;outNBElement</span>, <span style="background-color: #FFFF00; color: #000">&amp;out</span> );</pre>
+<pre>retCode = TA_MA( <span class="ta-arg-range">299</span>, <span class="ta-arg-range">299</span>,
+                 <span class="ta-arg-in">&amp;closePrice[0]</span>,
+                 <span class="ta-arg-opt">14</span>, <span class="ta-arg-opt">TA_MAType_EMA</span>,
+                 <span class="ta-arg-out">&amp;outBeg</span>, <span class="ta-arg-out">&amp;outNBElement</span>, <span class="ta-arg-out">&amp;out</span> );</pre>
 <p>In this example, outBeg will be 299, outNBElement will be 1, and only one value is written into out.</p>
 <p>If you do not provide enough data to calculate even one value, outNBElement will be 0 and outBeg should be ignored.</p>
 <p>If the input and output of a TA function are of the same type, the caller can reuse the input buffer to store <b>one of the outputs</b>. The following example works:</p>
 <pre>#define BUFFER_SIZE 100
 TA_Real buffer[BUFFER_SIZE];
 ...
-retCode = TA_MA( <span style="background-color: #66FFFF; color: #000">0</span>, <span style="background-color: #66FFFF; color: #000">BUFFER_SIZE-1</span>,
-                 <span style="background-color: #00FF00; color: #000">&amp;buffer[0]</span>,
-                 <span style="background-color: #C0C0C0; color: #000">30</span>, <span style="background-color: #C0C0C0; color: #000">TA_MAType_SMA</span>,
-                 <span style="background-color: #FFFF00; color: #000">&amp;outBeg</span>, <span style="background-color: #FFFF00; color: #000">&amp;outNBElement</span>, <span style="background-color: #FFFF00; color: #000">&amp;buffer[0]</span> );</pre>
+retCode = TA_MA( <span class="ta-arg-range">0</span>, <span class="ta-arg-range">BUFFER_SIZE-1</span>,
+                 <span class="ta-arg-in">&amp;buffer[0]</span>,
+                 <span class="ta-arg-opt">30</span>, <span class="ta-arg-opt">TA_MAType_SMA</span>,
+                 <span class="ta-arg-out">&amp;outBeg</span>, <span class="ta-arg-out">&amp;outNBElement</span>, <span class="ta-arg-out">&amp;buffer[0]</span> );</pre>
 <p>Of course, the input is overwritten, but this avoids allocating a temporary buffer. All TA functions support this.</p>
 
 ### 3.3 Output Size {#output_size}
@@ -217,7 +217,7 @@ Error 1(TA_LIB_NOT_INITIALIZE): TA_Initialize was not successfully called
 
 <a id="unstable_period"></a>
 <p>Take one bar and compute an indicator for it twice: once with a year of history before it, once with a decade. Do you get the same value? For many functions, always — they read a fixed number of bars and ignore everything older. Others are recursive, so their earliest values depend on how much history precedes them, converging as more bars are supplied — the Exponential Moving Average is the classic example. A few accumulate from the very first bar and never converge at all.</p>
-<p>Each function's documentation specifies which of the four <a href="/functions/stability">numerical-stability categories</a> applies to it.</p>
+<p>Each function's documentation specifies which of the four <a href="/functions/stability.html">numerical-stability categories</a> applies to it.</p>
 <p>See the <a href="/api/unstable-period/">Unstable Period</a> page for how to configure this.</p>
 
 ### 4.3 Candlestick Settings {#candle_settings}

@@ -1,9 +1,7 @@
 ---
-title: CDLLONGLEGGEDDOJI
-description: "Single-candle doji (open ~ close) with at least one long shadow. Signals market indecision, not a directional bias. Marks indecision/uncertainty; not inherently bullish or bearish despite the positive sign."
+title: "Long Legged Doji (CDLLONGLEGGEDDOJI)"
+description: "Single-candle doji (open ~ close) with at least one long shadow. Signals market indecision, not a directional bias."
 ---
-
-# CDLLONGLEGGEDDOJI
 
 ## Summary
 
@@ -30,7 +28,7 @@ One candle. Hit when: real body <= BodyDoji average (doji body) AND (lower shado
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -48,7 +46,7 @@ TA-Lib Definition: [`cdllongleggeddoji.c`](https://github.com/TA-Lib/ta-lib/blob
 | Rust | [`cdllongleggeddoji.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdllongleggeddoji.rs) |
 | Java | [`Core_CDLLONGLEGGEDDOJI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLLONGLEGGEDDOJI.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -56,4 +54,4 @@ Long Legged Doji
 
 ## See Also
 
-[CDLDOJI](/functions/cdldoji) · [CDLGRAVESTONEDOJI](/functions/cdlgravestonedoji) · [CDLDRAGONFLYDOJI](/functions/cdldragonflydoji) · [CDLRICKSHAWMAN](/functions/cdlrickshawman)
+[CDLDOJI](/functions/cdldoji.md) · [CDLGRAVESTONEDOJI](/functions/cdlgravestonedoji.md) · [CDLDRAGONFLYDOJI](/functions/cdldragonflydoji.md) · [CDLRICKSHAWMAN](/functions/cdlrickshawman.md)

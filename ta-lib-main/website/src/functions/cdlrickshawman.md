@@ -1,9 +1,7 @@
 ---
-title: CDLRICKSHAWMAN
-description: "Single-candle doji with two long shadows whose body sits near the midpoint of the high-low range. It is a neutral indecision signal, not a directional (bullish/bearish) reversal. A hit marks market indecision/uncertainty; neutral, neither bullish nor bearish."
+title: "Rickshaw Man (CDLRICKSHAWMAN)"
+description: "Single-candle doji with two long shadows whose body sits near the midpoint of the high-low range."
 ---
-
-# CDLRICKSHAWMAN
 
 ## Summary
 
@@ -22,7 +20,7 @@ Single-candle doji with two long shadows whose body sits near the midpoint of th
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -40,7 +38,7 @@ TA-Lib Definition: [`cdlrickshawman.c`](https://github.com/TA-Lib/ta-lib/blob/ma
 | Rust | [`cdlrickshawman.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlrickshawman.rs) |
 | Java | [`Core_CDLRICKSHAWMAN.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLRICKSHAWMAN.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -48,4 +46,4 @@ Rickshaw Man
 
 ## See Also
 
-[CDLLONGLEGGEDDOJI](/functions/cdllongleggeddoji) · [CDLDOJI](/functions/cdldoji) · [CDLHIGHWAVE](/functions/cdlhighwave)
+[CDLLONGLEGGEDDOJI](/functions/cdllongleggeddoji.md) · [CDLDOJI](/functions/cdldoji.md) · [CDLHIGHWAVE](/functions/cdlhighwave.md)

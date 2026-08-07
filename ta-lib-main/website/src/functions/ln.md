@@ -1,9 +1,7 @@
 ---
-title: LN
+title: "Vector Log Natural (LN)"
 description: "Vector natural logarithm: applies the natural log (base e) elementwise to the input series."
 ---
-
-# LN
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = log(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`ln.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codege
 | Rust | [`ln.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/ln.rs) |
 | Java | [`Core_LN.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_LN.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ Natural Log, Vector Log Natural, Log
 
 ## See Also
 
-[LOG10](/functions/log10) · [EXP](/functions/exp) · [SQRT](/functions/sqrt)
+[LOG10](/functions/log10.md) · [EXP](/functions/exp.md) · [SQRT](/functions/sqrt.md)

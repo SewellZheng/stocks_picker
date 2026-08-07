@@ -1,9 +1,7 @@
 ---
-title: PPO
-description: "Percentage Price Oscillator: the difference between a fast and slow moving average expressed as a percentage of the slow MA. A normalized (scale-invariant) variant of APO. Positive when the fast MA is above the slow MA (upward momentum), negative otherwise; magnitude is the % deviation."
+title: "Percentage Price Oscillator (PPO)"
+description: "Percentage Price Oscillator: the difference between a fast and slow moving average expressed as a percentage of the slow MA."
 ---
-
-# PPO
 
 ## Summary
 
@@ -35,7 +33,7 @@ The standard form is exponential with periods 12 and 26 — ((12-day EMA - 26-da
 
 ## Properties
 
-**Numerical Stability:** [Depends on MA Type](/functions/stability#depends-on-ma-type) — This function's default, EMA, has an initial unstable period.
+**Numerical Stability:** [Depends on MA Type](/functions/stability.md#depends-on-ma-type) — This function's default, EMA, has an initial unstable period.
 
 | Display<br>Flags |
 | :-- |
@@ -53,7 +51,7 @@ TA-Lib Definition: [`ppo.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`ppo.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/ppo.rs) |
 | Java | [`Core_PPO.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_PPO.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -61,7 +59,7 @@ Percentage Price Oscillator
 
 ## See Also
 
-[APO](/functions/apo) · [MACD](/functions/macd) · [MA](/functions/ma)
+[APO](/functions/apo.md) · [MACD](/functions/macd.md) · [MA](/functions/ma.md)
 
 ## References
 

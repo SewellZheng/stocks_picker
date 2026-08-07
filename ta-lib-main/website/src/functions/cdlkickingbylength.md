@@ -1,9 +1,7 @@
 ---
-title: CDLKICKINGBYLENGTH
-description: "A two-candle pattern of two opposite-color marubozu (long body, very short shadows on both ends) separated by a gap. A strong directional/reversal signal whose bull/bear bias is set by the longer of the two marubozu. A hit signals a strong directional move; +100 bullish / -100 bearish per the color of the longer marubozu."
+title: "Kicking - bull/bear determined by the longer marubozu (CDLKICKINGBYLENGTH)"
+description: "A two-candle pattern of two opposite-color marubozu (long body, very short shadows on both ends) separated by a gap."
 ---
-
-# CDLKICKINGBYLENGTH
 
 ## Summary
 
@@ -22,7 +20,7 @@ A two-candle pattern of two opposite-color marubozu (long body, very short shado
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -40,7 +38,7 @@ TA-Lib Definition: [`cdlkickingbylength.c`](https://github.com/TA-Lib/ta-lib/blo
 | Rust | [`cdlkickingbylength.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlkickingbylength.rs) |
 | Java | [`Core_CDLKICKINGBYLENGTH.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLKICKINGBYLENGTH.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -48,4 +46,4 @@ Kicking by Length, Kicking - bull/bear decided by the longer marubozu
 
 ## See Also
 
-[CDLKICKING](/functions/cdlkicking) · [CDLMARUBOZU](/functions/cdlmarubozu) · [CDLGAPSIDESIDEWHITE](/functions/cdlgapsidesidewhite)
+[CDLKICKING](/functions/cdlkicking.md) · [CDLMARUBOZU](/functions/cdlmarubozu.md) · [CDLGAPSIDESIDEWHITE](/functions/cdlgapsidesidewhite.md)

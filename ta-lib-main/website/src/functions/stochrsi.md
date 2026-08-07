@@ -1,9 +1,7 @@
 ---
-title: STOCHRSI
-description: "Applies the Fast Stochastic (STOCHF) oscillator to an RSI series instead of price, measuring where RSI sits within its recent min/max range. Oscillates 0-100; high = RSI near its recent top, low = near its recent bottom."
+title: "Stochastic Relative Strength Index (STOCHRSI)"
+description: "Applies the Fast Stochastic (STOCHF) oscillator to an RSI series instead of price, measuring where RSI sits within its recent min/max range."
 ---
-
-# STOCHRSI
 
 ## Summary
 
@@ -42,7 +40,7 @@ FastD = MA(FastK, FastD_Period, FastD_MAType)
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period) — Inherited from RSI, which STOCHRSI computes internally; tunable via RSI's unstable period. The MA type selected may add one of its own.
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period) — Inherited from RSI, which STOCHRSI computes internally; tunable via RSI's unstable period. The MA type selected may add one of its own.
 
 | Display<br>Flags |
 | :-- |
@@ -60,7 +58,7 @@ TA-Lib Definition: [`stochrsi.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`stochrsi.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/stochrsi.rs) |
 | Java | [`Core_STOCHRSI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_STOCHRSI.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -68,7 +66,7 @@ Stochastic RSI
 
 ## See Also
 
-[RSI](/functions/rsi) · [STOCHF](/functions/stochf) · [STOCH](/functions/stoch) · [MA](/functions/ma)
+[RSI](/functions/rsi.md) · [STOCHF](/functions/stochf.md) · [STOCH](/functions/stoch.md) · [MA](/functions/ma.md)
 
 ## References
 

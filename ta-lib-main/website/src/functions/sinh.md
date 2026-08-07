@@ -1,9 +1,7 @@
 ---
-title: SINH
+title: "Vector Trigonometric Sinh (SINH)"
 description: "Element-wise hyperbolic sine of the input series. A vector math transform applying sinh() to each value."
 ---
-
-# SINH
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = sinh(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`sinh.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`sinh.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/sinh.rs) |
 | Java | [`Core_SINH.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_SINH.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ Hyperbolic Sine
 
 ## See Also
 
-[COSH](/functions/cosh) · [TANH](/functions/tanh)
+[COSH](/functions/cosh.md) · [TANH](/functions/tanh.md)

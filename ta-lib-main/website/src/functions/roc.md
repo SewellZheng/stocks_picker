@@ -1,9 +1,7 @@
 ---
-title: ROC
-description: "Rate-of-change momentum oscillator: the percent change of price versus the price optInTimePeriod bars earlier. Centered at zero with positive and negative values. Positive when price rose over the period, negative when it fell; magnitude scales the move."
+title: "Rate of change : ((price/prevPrice)-1)*100 (ROC)"
+description: "Rate-of-change momentum oscillator: the percent change of price versus the price optInTimePeriod bars earlier."
 ---
-
-# ROC
 
 ## Summary
 
@@ -29,7 +27,7 @@ ROC = ((price / prevPrice) - 1) * 100, where prevPrice = inReal[i - optInTimePer
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -47,7 +45,7 @@ TA-Lib Definition: [`roc.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`roc.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/roc.rs) |
 | Java | [`Core_ROC.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ROC.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -55,4 +53,4 @@ Rate of Change, Price Rate of Change
 
 ## See Also
 
-[MOM](/functions/mom) · [ROCP](/functions/rocp) · [ROCR](/functions/rocr) · [ROCR100](/functions/rocr100)
+[MOM](/functions/mom.md) · [ROCP](/functions/rocp.md) · [ROCR](/functions/rocr.md) · [ROCR100](/functions/rocr100.md)

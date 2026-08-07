@@ -1,9 +1,7 @@
 ---
-title: CDLHOMINGPIGEON
-description: "Two-candle pattern: a long black candle followed by a small black candle whose real body sits inside the prior body. Bullish reversal signal. A hit signals a bullish reversal (meaningful in a downtrend, which the code does not verify)."
+title: "Homing Pigeon (CDLHOMINGPIGEON)"
+description: "Two-candle pattern: a long black candle followed by a small black candle whose real body sits inside the prior body. Bullish reversal signal."
 ---
-
-# CDLHOMINGPIGEON
 
 ## Summary
 
@@ -30,7 +28,7 @@ Two candles at i-1 and i. Both black: close[i-1] < open[i-1] and close[i] < open
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -48,7 +46,7 @@ TA-Lib Definition: [`cdlhomingpigeon.c`](https://github.com/TA-Lib/ta-lib/blob/m
 | Rust | [`cdlhomingpigeon.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlhomingpigeon.rs) |
 | Java | [`Core_CDLHOMINGPIGEON.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLHOMINGPIGEON.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -56,4 +54,4 @@ Homing Pigeon
 
 ## See Also
 
-[CDLHARAMI](/functions/cdlharami) · [CDLMATCHINGLOW](/functions/cdlmatchinglow)
+[CDLHARAMI](/functions/cdlharami.md) · [CDLMATCHINGLOW](/functions/cdlmatchinglow.md)

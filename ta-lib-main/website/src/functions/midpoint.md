@@ -1,9 +1,7 @@
 ---
-title: MIDPOINT
-description: "Midpoint over a period: the average of the highest and lowest input values within the lookback window. A single-series overlap smoother (use MIDPRICE for separate high/low price bars)."
+title: "MidPoint over period (MIDPOINT)"
+description: "Midpoint over a period: the average of the highest and lowest input values within the lookback window."
 ---
-
-# MIDPOINT
 
 ## Summary
 
@@ -29,7 +27,7 @@ MIDPOINT = (Highest(inReal, period) + Lowest(inReal, period)) / 2
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -47,8 +45,8 @@ TA-Lib Definition: [`midpoint.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`midpoint.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/midpoint.rs) |
 | Java | [`Core_MIDPOINT.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MIDPOINT.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## See Also
 
-[MIDPRICE](/functions/midprice) · [MAX](/functions/max) · [MIN](/functions/min)
+[MIDPRICE](/functions/midprice.md) · [MAX](/functions/max.md) · [MIN](/functions/min.md)

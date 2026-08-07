@@ -1,9 +1,7 @@
 ---
-title: COS
+title: "Vector Trigonometric Cos (COS)"
 description: "Element-wise trigonometric cosine of the input series. Applies the C library cos() to each sample."
 ---
-
-# COS
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = cos(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`cos.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`cos.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cos.rs) |
 | Java | [`Core_COS.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_COS.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ Cosine, Vector Trigonometric Cos
 
 ## See Also
 
-[ACOS](/functions/acos) · [SIN](/functions/sin) · [TAN](/functions/tan) · [COSH](/functions/cosh)
+[ACOS](/functions/acos.md) · [SIN](/functions/sin.md) · [TAN](/functions/tan.md) · [COSH](/functions/cosh.md)

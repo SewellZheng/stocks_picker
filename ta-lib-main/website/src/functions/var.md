@@ -1,9 +1,7 @@
 ---
-title: VAR
-description: "Rolling population variance of a real series over a given period. Measures dispersion of values around their mean. Higher values indicate greater dispersion; 0 means constant input."
+title: "Variance (VAR)"
+description: "Rolling population variance of a real series over a given period. Measures dispersion of values around their mean."
 ---
-
-# VAR
 
 ## Summary
 
@@ -35,7 +33,7 @@ $\mathrm{VAR} = \frac{1}{n}\sum x_i^2 - \left(\frac{1}{n}\sum x_i\right)^2$, ove
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -53,7 +51,7 @@ TA-Lib Definition: [`var.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`var.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/var.rs) |
 | Java | [`Core_VAR.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_VAR.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -61,4 +59,4 @@ Variance
 
 ## See Also
 
-[STDDEV](/functions/stddev)
+[STDDEV](/functions/stddev.md)

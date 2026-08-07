@@ -1,9 +1,7 @@
 ---
-title: CDLSTALLEDPATTERN
-description: "A three-candle pattern of three white candles with consecutively higher closes where the third loses momentum (a small body riding on the shoulder of the second's long body). It is a bearish reversal signal of a stalling advance. A hit (-100) is bearish: the uptrend is stalling and may reverse."
+title: "Stalled Pattern (CDLSTALLEDPATTERN)"
+description: "A three-candle pattern of three white candles with consecutively higher closes where the third loses momentum (a small body riding on the shoulder of the…"
 ---
-
-# CDLSTALLEDPATTERN
 
 ## Summary
 
@@ -26,7 +24,7 @@ A three-candle pattern of three white candles with consecutively higher closes w
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdlstalledpattern.c`](https://github.com/TA-Lib/ta-lib/blob
 | Rust | [`cdlstalledpattern.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlstalledpattern.rs) |
 | Java | [`Core_CDLSTALLEDPATTERN.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLSTALLEDPATTERN.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Stalled Pattern, Deliberation Pattern
 
 ## See Also
 
-[CDLADVANCEBLOCK](/functions/cdladvanceblock) · [CDL3WHITESOLDIERS](/functions/cdl3whitesoldiers) · [CDLXSIDEGAP3METHODS](/functions/cdlxsidegap3methods)
+[CDLADVANCEBLOCK](/functions/cdladvanceblock.md) · [CDL3WHITESOLDIERS](/functions/cdl3whitesoldiers.md) · [CDLXSIDEGAP3METHODS](/functions/cdlxsidegap3methods.md)

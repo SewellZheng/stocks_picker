@@ -1,9 +1,7 @@
 ---
-title: CDLSEPARATINGLINES
-description: "A two-candle continuation pattern: the second candle opposes the first in color, opens at the same price as the first, and is a long-bodied belt hold. Bullish (white second candle) or bearish (black second candle) continuation signal. Trend continuation: +100 = bullish (white belt hold), -100 = bearish (black belt hold)."
+title: "Separating Lines (CDLSEPARATINGLINES)"
+description: "A two-candle continuation pattern: the second candle opposes the first in color, opens at the same price as the first, and is a long-bodied belt hold."
 ---
-
-# CDLSEPARATINGLINES
 
 ## Summary
 
@@ -30,7 +28,7 @@ Two consecutive candles i-1, i: (1) opposite colors: color(i-1) == -color(i); (2
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -48,7 +46,7 @@ TA-Lib Definition: [`cdlseparatinglines.c`](https://github.com/TA-Lib/ta-lib/blo
 | Rust | [`cdlseparatinglines.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlseparatinglines.rs) |
 | Java | [`Core_CDLSEPARATINGLINES.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLSEPARATINGLINES.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -56,4 +54,4 @@ Separating Lines
 
 ## See Also
 
-[CDLBELTHOLD](/functions/cdlbelthold) · CDLMEETINGLINES
+[CDLBELTHOLD](/functions/cdlbelthold.md) · CDLMEETINGLINES

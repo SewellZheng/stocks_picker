@@ -1,9 +1,7 @@
 ---
-title: MULT
+title: "Vector Arithmetic Mult (MULT)"
 description: "Element-wise multiplication of two input series. Produces outReal[i] = inReal0[i] * inReal1[i]."
 ---
-
-# MULT
 
 ## Summary
 
@@ -24,7 +22,7 @@ outReal[i] = inReal0[i] * inReal1[i]
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -42,7 +40,7 @@ TA-Lib Definition: [`mult.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`mult.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/mult.rs) |
 | Java | [`Core_MULT.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MULT.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -50,4 +48,4 @@ Vector Multiply, Vector Arithmetic Mult, Element-wise Product
 
 ## See Also
 
-[ADD](/functions/add) · [SUB](/functions/sub) · [DIV](/functions/div)
+[ADD](/functions/add.md) · [SUB](/functions/sub.md) · [DIV](/functions/div.md)

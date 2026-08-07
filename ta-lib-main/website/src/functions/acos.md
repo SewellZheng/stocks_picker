@@ -1,9 +1,7 @@
 ---
-title: ACOS
+title: "Vector Trigonometric ACos (ACOS)"
 description: "Vector trigonometric arc cosine: applies acos() to each input value. A Math Transform passthrough with zero lookback."
 ---
-
-# ACOS
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = acos(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`acos.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`acos.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/acos.rs) |
 | Java | [`Core_ACOS.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ACOS.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ Arc Cosine, Inverse Cosine, arccos
 
 ## See Also
 
-[COS](/functions/cos) · [ASIN](/functions/asin) · [ATAN](/functions/atan)
+[COS](/functions/cos.md) · [ASIN](/functions/asin.md) · [ATAN](/functions/atan.md)

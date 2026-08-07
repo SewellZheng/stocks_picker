@@ -1,9 +1,7 @@
 ---
-title: CDLDOJI
-description: "Single-candle Doji recognizer: fires when the real body (|close-open|) is at or below the BodyDoji threshold. Returns 100 on a match, 0 otherwise. Market indecision; neither bullish nor bearish on its own."
+title: "Doji (CDLDOJI)"
+description: "Single-candle Doji recognizer: fires when the real body (|close-open|) is at or below the BodyDoji threshold. Returns 100 on a match, 0 otherwise."
 ---
-
-# CDLDOJI
 
 ## Summary
 
@@ -26,7 +24,7 @@ match if $|close-open| \le \text{CandleAverage(BodyDoji)}$
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdldoji.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_c
 | Rust | [`cdldoji.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdldoji.rs) |
 | Java | [`Core_CDLDOJI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLDOJI.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Doji
 
 ## See Also
 
-[CDLDOJISTAR](/functions/cdldojistar) · [CDLDRAGONFLYDOJI](/functions/cdldragonflydoji) · [CDLGRAVESTONEDOJI](/functions/cdlgravestonedoji) · [CDLLONGLEGGEDDOJI](/functions/cdllongleggeddoji)
+[CDLDOJISTAR](/functions/cdldojistar.md) · [CDLDRAGONFLYDOJI](/functions/cdldragonflydoji.md) · [CDLGRAVESTONEDOJI](/functions/cdlgravestonedoji.md) · [CDLLONGLEGGEDDOJI](/functions/cdllongleggeddoji.md)

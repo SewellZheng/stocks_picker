@@ -1,9 +1,7 @@
 ---
-title: ADOSC
-description: "Chaikin A/D Oscillator: the difference between a fast and a slow EMA of the Accumulation/Distribution line. Highlights momentum in accumulation/distribution volume flow. Positive/rising suggests accumulation; negative/falling suggests distribution."
+title: "Chaikin A/D Oscillator (ADOSC)"
+description: "Chaikin A/D Oscillator: the difference between a fast and a slow EMA of the Accumulation/Distribution line."
 ---
-
-# ADOSC
 
 ## Summary
 
@@ -36,7 +34,7 @@ ADOSC = fastEMA - slowEMA
 
 ## Properties
 
-**Numerical Stability:** [Path-Dependent](/functions/stability#path-dependent) — It also computes EMA internally, so EMA's unstable period governs how many leading values are discarded.
+**Numerical Stability:** [Path-Dependent](/functions/stability.md#path-dependent) — It also computes EMA internally, so EMA's unstable period governs how many leading values are discarded.
 
 | Display<br>Flags |
 | :-- |
@@ -54,7 +52,7 @@ TA-Lib Definition: [`adosc.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_cod
 | Rust | [`adosc.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/adosc.rs) |
 | Java | [`Core_ADOSC.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ADOSC.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -62,7 +60,7 @@ Chaikin A/D Oscillator, Chaikin Oscillator
 
 ## See Also
 
-[AD](/functions/ad) · [EMA](/functions/ema)
+[AD](/functions/ad.md) · [EMA](/functions/ema.md)
 
 ## References
 

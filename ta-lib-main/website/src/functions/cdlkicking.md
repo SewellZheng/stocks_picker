@@ -1,9 +1,7 @@
 ---
-title: CDLKICKING
-description: "Two-candle pattern of two opposite-color marubozu (long bodies with very short shadows) separated by a price gap. A reversal signal whose direction is set by the second candle's color. Hit signals a reversal in the direction of the second candle: +100 bullish, -100 bearish."
+title: "Kicking (CDLKICKING)"
+description: "Two-candle pattern of two opposite-color marubozu (long bodies with very short shadows) separated by a price gap."
 ---
-
-# CDLKICKING
 
 ## Summary
 
@@ -22,7 +20,7 @@ Two-candle pattern of two opposite-color marubozu (long bodies with very short s
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -40,7 +38,7 @@ TA-Lib Definition: [`cdlkicking.c`](https://github.com/TA-Lib/ta-lib/blob/main/t
 | Rust | [`cdlkicking.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlkicking.rs) |
 | Java | [`Core_CDLKICKING.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLKICKING.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -48,4 +46,4 @@ Kicking
 
 ## See Also
 
-[CDLKICKINGBYLENGTH](/functions/cdlkickingbylength) · [CDLMARUBOZU](/functions/cdlmarubozu) · [CDLGAPSIDESIDEWHITE](/functions/cdlgapsidesidewhite)
+[CDLKICKINGBYLENGTH](/functions/cdlkickingbylength.md) · [CDLMARUBOZU](/functions/cdlmarubozu.md) · [CDLGAPSIDESIDEWHITE](/functions/cdlgapsidesidewhite.md)

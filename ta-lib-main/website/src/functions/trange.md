@@ -1,9 +1,7 @@
 ---
-title: TRANGE
-description: "True Range: the greatest of today's high-low span and the two gaps between yesterday's close and today's high/low. Base volatility measure used to build ATR/NATR. Larger values mean wider or gappier bars (higher volatility)."
+title: "True Range (TRANGE)"
+description: "True Range: the greatest of today's high-low span and the two gaps between yesterday's close and today's high/low."
 ---
-
-# TRANGE
 
 ## Summary
 
@@ -29,7 +27,7 @@ TR = max( high - low, |prevClose - high|, |prevClose - low| )
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -47,7 +45,7 @@ TA-Lib Definition: [`trange.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_co
 | Rust | [`trange.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/trange.rs) |
 | Java | [`Core_TRANGE.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_TRANGE.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -55,7 +53,7 @@ True Range, TR
 
 ## See Also
 
-[ATR](/functions/atr) · [NATR](/functions/natr)
+[ATR](/functions/atr.md) · [NATR](/functions/natr.md)
 
 ## References
 

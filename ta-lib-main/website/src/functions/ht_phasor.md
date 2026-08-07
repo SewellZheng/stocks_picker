@@ -1,9 +1,7 @@
 ---
-title: HT_PHASOR
-description: "Hilbert Transform indicator that decomposes the price series into its in-phase (I) and quadrature (Q) phasor components. Shares the same detrend/Hilbert machinery as the other HT_* cycle functions."
+title: "Hilbert Transform - Phasor Components (HT_PHASOR)"
+description: "Hilbert Transform indicator that decomposes the price series into its in-phase (I) and quadrature (Q) phasor components."
 ---
-
-# HT_PHASOR
 
 ## Summary
 
@@ -24,7 +22,7 @@ Smooth price with a 4-bar WMA (weights 1,2,3,4 /10). Apply the Hilbert Transform
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period)
 
 | Display<br>Flags |
 | :-- |
@@ -42,7 +40,7 @@ TA-Lib Definition: [`ht_phasor.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta
 | Rust | [`ht_phasor.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/ht_phasor.rs) |
 | Java | [`Core_HT_PHASOR.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_HT_PHASOR.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -50,7 +48,7 @@ Hilbert Transform Phasor, InPhase Quadrature
 
 ## See Also
 
-[HT_DCPERIOD](/functions/ht_dcperiod) · [HT_DCPHASE](/functions/ht_dcphase) · [HT_SINE](/functions/ht_sine) · [HT_TRENDMODE](/functions/ht_trendmode) · [MAMA](/functions/mama) · [WMA](/functions/wma)
+[HT_DCPERIOD](/functions/ht_dcperiod.md) · [HT_DCPHASE](/functions/ht_dcphase.md) · [HT_SINE](/functions/ht_sine.md) · [HT_TRENDMODE](/functions/ht_trendmode.md) · [MAMA](/functions/mama.md) · [WMA](/functions/wma.md)
 
 ## References
 

@@ -1,9 +1,7 @@
 ---
-title: SIN
+title: "Vector Trigonometric Sin (SIN)"
 description: "Vector trigonometric sine: applies sin() element-wise to each input value. Part of the Math Transform group."
 ---
-
-# SIN
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = sin(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`sin.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`sin.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/sin.rs) |
 | Java | [`Core_SIN.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_SIN.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ sine
 
 ## See Also
 
-[COS](/functions/cos) · [TAN](/functions/tan) · [ASIN](/functions/asin)
+[COS](/functions/cos.md) · [TAN](/functions/tan.md) · [ASIN](/functions/asin.md)

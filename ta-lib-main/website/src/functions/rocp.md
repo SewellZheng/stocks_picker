@@ -1,9 +1,7 @@
 ---
-title: ROCP
-description: "Rate of change expressed as a fraction of the price optInTimePeriod bars ago. Normalized and centered at zero (positive or negative). >0 rising vs N bars ago, <0 falling; equals ROC/100."
+title: "Rate of change Percentage: (price-prevPrice)/prevPrice (ROCP)"
+description: "Rate of change expressed as a fraction of the price optInTimePeriod bars ago."
 ---
-
-# ROCP
 
 ## Summary
 
@@ -29,7 +27,7 @@ ROCP = (price - prevPrice) / prevPrice, prevPrice = inReal[i - optInTimePeriod]
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -47,7 +45,7 @@ TA-Lib Definition: [`rocp.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`rocp.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/rocp.rs) |
 | Java | [`Core_ROCP.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ROCP.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -55,4 +53,4 @@ Rate of Change Percentage, Percent Change
 
 ## See Also
 
-[ROC](/functions/roc) · [ROCR](/functions/rocr) · [ROCR100](/functions/rocr100) · [MOM](/functions/mom)
+[ROC](/functions/roc.md) · [ROCR](/functions/rocr.md) · [ROCR100](/functions/rocr100.md) · [MOM](/functions/mom.md)

@@ -1,9 +1,7 @@
 ---
-title: MININDEX
-description: "Returns the absolute index of the lowest value within a rolling window of the given period. Same scan as MIN but outputs the position of the minimum rather than its value."
+title: "Index of lowest value over a specified period (MININDEX)"
+description: "Returns the absolute index of the lowest value within a rolling window of the given period."
 ---
-
-# MININDEX
 
 ## Summary
 
@@ -33,7 +31,7 @@ outInteger[t] = argmin_{t-period+1 <= i <= t} inReal[i]  (absolute index into in
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -51,7 +49,7 @@ TA-Lib Definition: [`minindex.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`minindex.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/minindex.rs) |
 | Java | [`Core_MININDEX.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MININDEX.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -59,4 +57,4 @@ Index of Lowest Value, Lowest Value Index, Rolling Argmin
 
 ## See Also
 
-[MIN](/functions/min) · [MAXINDEX](/functions/maxindex) · [MINMAXINDEX](/functions/minmaxindex) · [MINMAX](/functions/minmax)
+[MIN](/functions/min.md) · [MAXINDEX](/functions/maxindex.md) · [MINMAXINDEX](/functions/minmaxindex.md) · [MINMAX](/functions/minmax.md)

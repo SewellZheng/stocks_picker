@@ -1,9 +1,7 @@
 ---
-title: MINUS_DI
-description: "Wilder's Minus Directional Indicator: the Wilder-smoothed downward directional movement (-DM) normalized by smoothed True Range. Measures the strength of downward price movement. Higher -DI indicates a stronger downtrend; compared against +DI to gauge directional dominance."
+title: "Minus Directional Indicator (MINUS_DI)"
+description: "Wilder's Minus Directional Indicator: the Wilder-smoothed downward directional movement (-DM) normalized by smoothed True Range."
 ---
-
-# MINUS_DI
 
 ## Summary
 
@@ -35,7 +33,7 @@ Wilder's Minus Directional Indicator: the Wilder-smoothed downward directional m
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period)
 
 | Display<br>Flags |
 | :-- |
@@ -53,7 +51,7 @@ TA-Lib Definition: [`minus_di.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`minus_di.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/minus_di.rs) |
 | Java | [`Core_MINUS_DI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MINUS_DI.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -61,7 +59,7 @@ TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib
 
 ## See Also
 
-[PLUS_DI](/functions/plus_di) · [MINUS_DM](/functions/minus_dm) · [DX](/functions/dx) · [ADX](/functions/adx) · [ADXR](/functions/adxr) · [TRANGE](/functions/trange)
+[PLUS_DI](/functions/plus_di.md) · [MINUS_DM](/functions/minus_dm.md) · [DX](/functions/dx.md) · [ADX](/functions/adx.md) · [ADXR](/functions/adxr.md) · [TRANGE](/functions/trange.md)
 
 ## References
 

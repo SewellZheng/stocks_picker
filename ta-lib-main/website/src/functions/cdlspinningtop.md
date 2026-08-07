@@ -1,9 +1,7 @@
 ---
-title: CDLSPINNINGTOP
-description: "Single-candle pattern: a small real body with both an upper and a lower shadow longer than the body. Signals indecision; the code does not classify it as bullish or bearish. A hit marks indecision (small body, both shadows long); the sign only reports candle color, not direction."
+title: "Spinning Top (CDLSPINNINGTOP)"
+description: "Single-candle pattern: a small real body with both an upper and a lower shadow longer than the body."
 ---
-
-# CDLSPINNINGTOP
 
 ## Summary
 
@@ -26,7 +24,7 @@ One candle where: upper shadow > real body AND lower shadow > real body AND real
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdlspinningtop.c`](https://github.com/TA-Lib/ta-lib/blob/ma
 | Rust | [`cdlspinningtop.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlspinningtop.rs) |
 | Java | [`Core_CDLSPINNINGTOP.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLSPINNINGTOP.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Spinning Top
 
 ## See Also
 
-[CDLDOJI](/functions/cdldoji) · [CDLHIGHWAVE](/functions/cdlhighwave) · [CDLLONGLEGGEDDOJI](/functions/cdllongleggeddoji)
+[CDLDOJI](/functions/cdldoji.md) · [CDLHIGHWAVE](/functions/cdlhighwave.md) · [CDLLONGLEGGEDDOJI](/functions/cdllongleggeddoji.md)

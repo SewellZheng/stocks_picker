@@ -1,9 +1,7 @@
 ---
-title: TANH
+title: "Vector Trigonometric Tanh (TANH)"
 description: "Vector hyperbolic tangent: applies tanh element-wise to the input series."
 ---
-
-# TANH
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = tanh(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`tanh.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`tanh.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/tanh.rs) |
 | Java | [`Core_TANH.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_TANH.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ Hyperbolic Tangent
 
 ## See Also
 
-[SINH](/functions/sinh) · [COSH](/functions/cosh) · [TAN](/functions/tan)
+[SINH](/functions/sinh.md) · [COSH](/functions/cosh.md) · [TAN](/functions/tan.md)

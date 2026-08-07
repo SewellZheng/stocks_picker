@@ -1,9 +1,7 @@
 ---
-title: CDLDOJISTAR
-description: "A two-candle reversal pattern: a long real body followed by a doji whose real body gaps away from it (up after a white body, down after a black body). Signals a potential reversal of the prevailing trend. A hit flags a likely trend reversal; true direction depends on the prevailing trend (bullish in a downtrend, bearish in an uptrend), which the code does not itself verify."
+title: "Doji Star (CDLDOJISTAR)"
+description: "A two-candle reversal pattern: a long real body followed by a doji whose real body gaps away from it (up after a white body, down after a black body)."
 ---
-
-# CDLDOJISTAR
 
 ## Summary
 
@@ -30,7 +28,7 @@ Two candles. Candle 1: long real body (realbody > BodyLong average). Candle 2: d
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -48,7 +46,7 @@ TA-Lib Definition: [`cdldojistar.c`](https://github.com/TA-Lib/ta-lib/blob/main/
 | Rust | [`cdldojistar.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdldojistar.rs) |
 | Java | [`Core_CDLDOJISTAR.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLDOJISTAR.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -56,4 +54,4 @@ Doji Star
 
 ## See Also
 
-[CDLMORNINGDOJISTAR](/functions/cdlmorningdojistar) · [CDLEVENINGDOJISTAR](/functions/cdleveningdojistar) · [CDLDOJI](/functions/cdldoji) · [CDLMORNINGSTAR](/functions/cdlmorningstar) · [CDLEVENINGSTAR](/functions/cdleveningstar)
+[CDLMORNINGDOJISTAR](/functions/cdlmorningdojistar.md) · [CDLEVENINGDOJISTAR](/functions/cdleveningdojistar.md) · [CDLDOJI](/functions/cdldoji.md) · [CDLMORNINGSTAR](/functions/cdlmorningstar.md) · [CDLEVENINGSTAR](/functions/cdleveningstar.md)

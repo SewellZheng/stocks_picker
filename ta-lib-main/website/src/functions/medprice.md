@@ -1,9 +1,7 @@
 ---
-title: MEDPRICE
+title: "Median Price (MEDPRICE)"
 description: "Median Price: the midpoint of each bar's high and low. A price-transform overlay."
 ---
-
-# MEDPRICE
 
 ## Summary
 
@@ -24,7 +22,7 @@ $MEDPRICE_i = (High_i + Low_i) / 2$
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -42,7 +40,7 @@ TA-Lib Definition: [`medprice.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`medprice.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/medprice.rs) |
 | Java | [`Core_MEDPRICE.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MEDPRICE.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -50,4 +48,4 @@ Median Price
 
 ## See Also
 
-[MIDPRICE](/functions/midprice) · [AVGPRICE](/functions/avgprice) · [TYPPRICE](/functions/typprice) · [WCLPRICE](/functions/wclprice)
+[MIDPRICE](/functions/midprice.md) · [AVGPRICE](/functions/avgprice.md) · [TYPPRICE](/functions/typprice.md) · [WCLPRICE](/functions/wclprice.md)

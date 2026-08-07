@@ -1,9 +1,7 @@
 ---
-title: SUM
+title: "Summation (SUM)"
 description: "Rolling sum of the input over a fixed period. Each output is the sum of the most recent optInTimePeriod input values."
 ---
-
-# SUM
 
 ## Summary
 
@@ -29,7 +27,7 @@ $out_i = \sum_{j=i-(N-1)}^{i} inReal_j$, N = optInTimePeriod
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -47,7 +45,7 @@ TA-Lib Definition: [`sum.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`sum.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/sum.rs) |
 | Java | [`Core_SUM.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_SUM.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -55,4 +53,4 @@ Summation, Rolling Sum, Moving Sum
 
 ## See Also
 
-[SMA](/functions/sma)
+[SMA](/functions/sma.md)

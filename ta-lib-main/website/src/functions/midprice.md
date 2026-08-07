@@ -1,9 +1,7 @@
 ---
-title: MIDPRICE
-description: "Midpoint of the price range over a rolling window: the average of the highest high and lowest low across the last optInTimePeriod bars. An overlap-study line plotted on price."
+title: "Midpoint Price over period (MIDPRICE)"
+description: "Midpoint of the price range over a rolling window: the average of the highest high and lowest low across the last optInTimePeriod bars."
 ---
-
-# MIDPRICE
 
 ## Summary
 
@@ -30,7 +28,7 @@ MIDPRICE = (Highest(High, N) + Lowest(Low, N)) / 2, over the N=optInTimePeriod b
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -48,7 +46,7 @@ TA-Lib Definition: [`midprice.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`midprice.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/midprice.rs) |
 | Java | [`Core_MIDPRICE.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MIDPRICE.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -56,4 +54,4 @@ Midpoint Price
 
 ## See Also
 
-[MIDPOINT](/functions/midpoint) · [MEDPRICE](/functions/medprice)
+[MIDPOINT](/functions/midpoint.md) · [MEDPRICE](/functions/medprice.md)

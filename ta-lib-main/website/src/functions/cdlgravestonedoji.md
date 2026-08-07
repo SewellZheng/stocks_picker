@@ -1,9 +1,7 @@
 ---
-title: CDLGRAVESTONEDOJI
-description: "Single-candle doji whose open and close sit at the low of the day, leaving a long upper shadow and no lower shadow. A doji variant whose bullish/bearish meaning depends on the surrounding trend, which the code does not judge. A hit marks a gravestone doji; its bullish vs bearish reversal meaning must be read against the prevailing trend, which this function does not check."
+title: "Gravestone Doji (CDLGRAVESTONEDOJI)"
+description: "Single-candle doji whose open and close sit at the low of the day, leaving a long upper shadow and no lower shadow."
 ---
-
-# CDLGRAVESTONEDOJI
 
 ## Summary
 
@@ -30,7 +28,7 @@ One candle. Detected when all hold: (1) doji body: realbody |close-open| <= Body
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -48,7 +46,7 @@ TA-Lib Definition: [`cdlgravestonedoji.c`](https://github.com/TA-Lib/ta-lib/blob
 | Rust | [`cdlgravestonedoji.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlgravestonedoji.rs) |
 | Java | [`Core_CDLGRAVESTONEDOJI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLGRAVESTONEDOJI.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -56,4 +54,4 @@ Gravestone Doji
 
 ## See Also
 
-[CDLDOJI](/functions/cdldoji) · [CDLDRAGONFLYDOJI](/functions/cdldragonflydoji) · [CDLLONGLEGGEDDOJI](/functions/cdllongleggeddoji) · [CDLDOJISTAR](/functions/cdldojistar)
+[CDLDOJI](/functions/cdldoji.md) · [CDLDRAGONFLYDOJI](/functions/cdldragonflydoji.md) · [CDLLONGLEGGEDDOJI](/functions/cdllongleggeddoji.md) · [CDLDOJISTAR](/functions/cdldojistar.md)

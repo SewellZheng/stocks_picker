@@ -1,12 +1,10 @@
 ---
 title: About Us
-description: "Who builds TA-Lib - the maintainers, contributors and wrapper authors behind the library, and how the open community around it works."
+description: "Who builds TA-Lib: the administrators, feature contributors, wrapper authors and issue reporters credited across two decades of the project."
 # This page is a dense list of contributor/wrapper GitHub links; the external-link
 # arrow on every one is distracting. Disable it here only — other pages keep it.
 externalLinkIcon: false
 ---
-
-# About Us
 
 TA-Lib has been built and refined by an open community of traders, engineers and researchers for more than two decades.
 

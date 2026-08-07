@@ -1,9 +1,7 @@
 ---
-title: ADXR
-description: "Smoothed variant of ADX: the average of the current ADX value and the ADX value from (period-1) bars earlier. Further damps ADX to gauge trend strength. Higher values mean a stronger trend; smoother and more lagging than ADX."
+title: "Average Directional Movement Index Rating (ADXR)"
+description: "Smoothed variant of ADX: the average of the current ADX value and the ADX value from (period-1) bars earlier. Further damps ADX to gauge trend strength."
 ---
-
-# ADXR
 
 ## Summary
 
@@ -35,7 +33,7 @@ ADXR[i] = (ADX[i] + ADX[i-(period-1)]) / 2
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period) — Inherited from ADX, which ADXR computes internally; tunable via ADX's unstable period.
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period) — Inherited from ADX, which ADXR computes internally; tunable via ADX's unstable period.
 
 | Display<br>Flags |
 | :-- |
@@ -53,7 +51,7 @@ TA-Lib Definition: [`adxr.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`adxr.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/adxr.rs) |
 | Java | [`Core_ADXR.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ADXR.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -61,7 +59,7 @@ Average Directional Movement Index Rating
 
 ## See Also
 
-[ADX](/functions/adx) · [DX](/functions/dx) · [PLUS_DI](/functions/plus_di) · [MINUS_DI](/functions/minus_di)
+[ADX](/functions/adx.md) · [DX](/functions/dx.md) · [PLUS_DI](/functions/plus_di.md) · [MINUS_DI](/functions/minus_di.md)
 
 ## References
 

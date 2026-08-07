@@ -1,9 +1,7 @@
 ---
-title: CDLIDENTICAL3CROWS
-description: "A three-candle bearish reversal pattern: three consecutive declining black candles, each with a very short (or no) lower shadow, where each candle after the first opens at or very near the prior candle's close. A hit signals a bearish reversal (pattern is always bearish)."
+title: "Identical Three Crows (CDLIDENTICAL3CROWS)"
+description: "A three-candle bearish reversal pattern: three consecutive declining black candles, each with a very short (or no) lower shadow, where each candle after…"
 ---
-
-# CDLIDENTICAL3CROWS
 
 ## Summary
 
@@ -27,7 +25,7 @@ A three-candle bearish reversal pattern: three consecutive declining black candl
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -45,7 +43,7 @@ TA-Lib Definition: [`cdlidentical3crows.c`](https://github.com/TA-Lib/ta-lib/blo
 | Rust | [`cdlidentical3crows.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlidentical3crows.rs) |
 | Java | [`Core_CDLIDENTICAL3CROWS.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLIDENTICAL3CROWS.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -53,4 +51,4 @@ Identical Three Crows
 
 ## See Also
 
-[CDL3BLACKCROWS](/functions/cdl3blackcrows) · [CDL2CROWS](/functions/cdl2crows)
+[CDL3BLACKCROWS](/functions/cdl3blackcrows.md) · [CDL2CROWS](/functions/cdl2crows.md)

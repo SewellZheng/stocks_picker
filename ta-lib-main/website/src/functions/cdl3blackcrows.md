@@ -1,9 +1,7 @@
 ---
-title: CDL3BLACKCROWS
-description: "A four-bar pattern: a white candle followed by three consecutive black (down) candles with successively lower closes, each opening inside the prior black's real body. It is a bearish reversal signal. A hit (-100) signals a bearish reversal."
+title: "Three Black Crows (CDL3BLACKCROWS)"
+description: "A four-bar pattern: a white candle followed by three consecutive black (down) candles with successively lower closes, each opening inside the prior…"
 ---
-
-# CDL3BLACKCROWS
 
 ## Summary
 
@@ -26,7 +24,7 @@ A four-bar pattern: a white candle followed by three consecutive black (down) ca
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdl3blackcrows.c`](https://github.com/TA-Lib/ta-lib/blob/ma
 | Rust | [`cdl3blackcrows.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdl3blackcrows.rs) |
 | Java | [`Core_CDL3BLACKCROWS.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDL3BLACKCROWS.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Three Black Crows, 3 Black Crows
 
 ## See Also
 
-[CDL3WHITESOLDIERS](/functions/cdl3whitesoldiers) · [CDLIDENTICAL3CROWS](/functions/cdlidentical3crows) · [CDLADVANCEBLOCK](/functions/cdladvanceblock)
+[CDL3WHITESOLDIERS](/functions/cdl3whitesoldiers.md) · [CDLIDENTICAL3CROWS](/functions/cdlidentical3crows.md) · [CDLADVANCEBLOCK](/functions/cdladvanceblock.md)

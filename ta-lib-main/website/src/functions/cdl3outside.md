@@ -1,9 +1,7 @@
 ---
-title: CDL3OUTSIDE
-description: "A three-candle pattern: an engulfing pair (candle 2's body fully engulfs candle 1's body) followed by a third candle that confirms in the engulfing direction. Signals a bullish reversal (Three Outside Up) or bearish reversal (Three Outside Down). +100 = bullish reversal (Three Outside Up); -100 = bearish reversal (Three Outside Down)."
+title: "Three Outside Up/Down (CDL3OUTSIDE)"
+description: "A three-candle pattern: an engulfing pair (candle 2's body fully engulfs candle 1's body) followed by a third candle that confirms in the engulfing…"
 ---
-
-# CDL3OUTSIDE
 
 ## Summary
 
@@ -26,7 +24,7 @@ A three-candle pattern: an engulfing pair (candle 2's body fully engulfs candle 
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdl3outside.c`](https://github.com/TA-Lib/ta-lib/blob/main/
 | Rust | [`cdl3outside.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdl3outside.rs) |
 | Java | [`Core_CDL3OUTSIDE.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDL3OUTSIDE.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Three Outside Up/Down, Three Outside
 
 ## See Also
 
-[CDL3INSIDE](/functions/cdl3inside) · [CDLENGULFING](/functions/cdlengulfing) · [CDL3LINESTRIKE](/functions/cdl3linestrike)
+[CDL3INSIDE](/functions/cdl3inside.md) · [CDLENGULFING](/functions/cdlengulfing.md) · [CDL3LINESTRIKE](/functions/cdl3linestrike.md)

@@ -1,9 +1,7 @@
 ---
-title: CDLADVANCEBLOCK
-description: "Three-candle bearish reversal pattern: three white candles with consecutively higher closes whose advance weakens (progressively smaller bodies and/or lengthening upper shadows). Signals that an uptrend's advance is being blocked. A hit (-100) is bearish: the advance is stalling/blocked; meaningful mainly within an existing uptrend."
+title: "Advance Block (CDLADVANCEBLOCK)"
+description: "Three-candle bearish reversal pattern: three white candles with consecutively higher closes whose advance weakens (progressively smaller bodies and/or…"
 ---
-
-# CDLADVANCEBLOCK
 
 ## Summary
 
@@ -26,7 +24,7 @@ Three-candle bearish reversal pattern: three white candles with consecutively hi
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdladvanceblock.c`](https://github.com/TA-Lib/ta-lib/blob/m
 | Rust | [`cdladvanceblock.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdladvanceblock.rs) |
 | Java | [`Core_CDLADVANCEBLOCK.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLADVANCEBLOCK.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Advance Block
 
 ## See Also
 
-[CDL3WHITESOLDIERS](/functions/cdl3whitesoldiers) · CDLDELIBERATION · [CDLSTALLEDPATTERN](/functions/cdlstalledpattern)
+[CDL3WHITESOLDIERS](/functions/cdl3whitesoldiers.md) · CDLDELIBERATION · [CDLSTALLEDPATTERN](/functions/cdlstalledpattern.md)

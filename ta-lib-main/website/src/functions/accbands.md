@@ -1,9 +1,7 @@
 ---
-title: ACCBANDS
-description: "Acceleration Bands: three overlap lines around price. The middle band is an SMA of the close; the upper/lower bands are SMAs of the high/low scaled by an intraday-range factor."
+title: "Acceleration Bands (ACCBANDS)"
+description: "Acceleration Bands: three overlap lines around price."
 ---
-
-# ACCBANDS
 
 ## Summary
 
@@ -35,7 +33,7 @@ Upper = SMA(upperRaw, N), Middle = SMA(Close, N), Lower = SMA(lowerRaw, N)
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -53,7 +51,7 @@ TA-Lib Definition: [`accbands.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`accbands.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/accbands.rs) |
 | Java | [`Core_ACCBANDS.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_ACCBANDS.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -61,4 +59,4 @@ Acceleration Bands
 
 ## See Also
 
-[SMA](/functions/sma) · [BBANDS](/functions/bbands)
+[SMA](/functions/sma.md) · [BBANDS](/functions/bbands.md)

@@ -1,9 +1,7 @@
 ---
-title: CDLSTICKSANDWICH
-description: "A three-candle bullish reversal pattern: two black candles (1st and 3rd) sandwiching a white candle, where the 3rd black candle closes at the same level as the 1st (the \"bread\"). A hit signals a bullish reversal (code comment notes it is significant in a downtrend, which the function does not verify)."
+title: "Stick Sandwich (CDLSTICKSANDWICH)"
+description: "A three-candle bullish reversal pattern: two black candles (1st and 3rd) sandwiching a white candle, where the 3rd black candle closes at the same level…"
 ---
-
-# CDLSTICKSANDWICH
 
 ## Summary
 
@@ -22,7 +20,7 @@ A three-candle bullish reversal pattern: two black candles (1st and 3rd) sandwic
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -40,7 +38,7 @@ TA-Lib Definition: [`cdlsticksandwich.c`](https://github.com/TA-Lib/ta-lib/blob/
 | Rust | [`cdlsticksandwich.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlsticksandwich.rs) |
 | Java | [`Core_CDLSTICKSANDWICH.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLSTICKSANDWICH.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -48,4 +46,4 @@ Stick Sandwich
 
 ## See Also
 
-[CDLMATCHINGLOW](/functions/cdlmatchinglow) · [CDLHOMINGPIGEON](/functions/cdlhomingpigeon)
+[CDLMATCHINGLOW](/functions/cdlmatchinglow.md) · [CDLHOMINGPIGEON](/functions/cdlhomingpigeon.md)

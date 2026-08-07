@@ -1,9 +1,7 @@
 ---
-title: CDLINVERTEDHAMMER
-description: "Single-candle pattern: a small real body with a long upper shadow and little-to-no lower shadow that gaps down from the prior candle. Bullish reversal signal. A hit (+100) flags a potential bullish reversal."
+title: "Inverted Hammer (CDLINVERTEDHAMMER)"
+description: "Single-candle pattern: a small real body with a long upper shadow and little-to-no lower shadow that gaps down from the prior candle."
 ---
-
-# CDLINVERTEDHAMMER
 
 ## Summary
 
@@ -26,7 +24,7 @@ Single-candle pattern: a small real body with a long upper shadow and little-to-
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdlinvertedhammer.c`](https://github.com/TA-Lib/ta-lib/blob
 | Rust | [`cdlinvertedhammer.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlinvertedhammer.rs) |
 | Java | [`Core_CDLINVERTEDHAMMER.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLINVERTEDHAMMER.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Inverted Hammer
 
 ## See Also
 
-[CDLHAMMER](/functions/cdlhammer) · [CDLSHOOTINGSTAR](/functions/cdlshootingstar) · [CDLHANGINGMAN](/functions/cdlhangingman)
+[CDLHAMMER](/functions/cdlhammer.md) · [CDLSHOOTINGSTAR](/functions/cdlshootingstar.md) · [CDLHANGINGMAN](/functions/cdlhangingman.md)

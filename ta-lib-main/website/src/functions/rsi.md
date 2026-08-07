@@ -1,9 +1,7 @@
 ---
-title: RSI
-description: "Wilder's Relative Strength Index, a momentum oscillator bounded 0-100 from the ratio of average gains to average losses over the period. Used to gauge overbought/oversold conditions. >70 overbought, <30 oversold."
+title: "Relative Strength Index (RSI)"
+description: "Wilder's Relative Strength Index, a momentum oscillator bounded 0-100 from the ratio of average gains to average losses over the period."
 ---
-
-# RSI
 
 ## Summary
 
@@ -46,7 +44,7 @@ where $X$ is the input series and $n$ the period.
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period)
 
 | Display<br>Flags |
 | :-- |
@@ -64,7 +62,7 @@ TA-Lib Definition: [`rsi.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`rsi.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/rsi.rs) |
 | Java | [`Core_RSI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_RSI.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -72,7 +70,7 @@ relative strength index
 
 ## See Also
 
-[CMO](/functions/cmo) · [STOCHRSI](/functions/stochrsi)
+[CMO](/functions/cmo.md) · [STOCHRSI](/functions/stochrsi.md)
 
 ## References
 

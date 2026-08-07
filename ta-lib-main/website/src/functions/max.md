@@ -1,9 +1,7 @@
 ---
-title: MAX
+title: "Highest value over a specified period (MAX)"
 description: "Highest input value over a rolling window of the last optInTimePeriod bars. A moving-window maximum."
 ---
-
-# MAX
 
 ## Summary
 
@@ -29,7 +27,7 @@ outReal[i] = max(inReal[i-optInTimePeriod+1 .. i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -47,7 +45,7 @@ TA-Lib Definition: [`max.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`max.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/max.rs) |
 | Java | [`Core_MAX.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MAX.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -55,4 +53,4 @@ Highest, Highest High, Rolling Maximum
 
 ## See Also
 
-[MIN](/functions/min) · [MAXINDEX](/functions/maxindex) · [MINMAX](/functions/minmax)
+[MIN](/functions/min.md) · [MAXINDEX](/functions/maxindex.md) · [MINMAX](/functions/minmax.md)

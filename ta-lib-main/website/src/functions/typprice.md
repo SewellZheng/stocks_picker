@@ -1,9 +1,7 @@
 ---
-title: TYPPRICE
+title: "Typical Price (TYPPRICE)"
 description: "Typical Price: the average of the high, low, and close of each bar. A single representative price per period."
 ---
-
-# TYPPRICE
 
 ## Summary
 
@@ -25,7 +23,7 @@ out[i] = (High[i] + Low[i] + Close[i]) / 3
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -43,7 +41,7 @@ TA-Lib Definition: [`typprice.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`typprice.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/typprice.rs) |
 | Java | [`Core_TYPPRICE.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_TYPPRICE.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -51,4 +49,4 @@ Typical Price
 
 ## See Also
 
-[MEDPRICE](/functions/medprice) · [WCLPRICE](/functions/wclprice) · [AVGPRICE](/functions/avgprice)
+[MEDPRICE](/functions/medprice.md) · [WCLPRICE](/functions/wclprice.md) · [AVGPRICE](/functions/avgprice.md)

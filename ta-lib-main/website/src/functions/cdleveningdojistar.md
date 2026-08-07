@@ -1,9 +1,7 @@
 ---
-title: CDLEVENINGDOJISTAR
-description: "A three-candle bearish reversal pattern: a long white candle, a doji that gaps up (the star), then a black candle closing well down into the first candle's body. A stricter Evening Star whose middle candle must be a doji. Hit (-100) signals a bearish top reversal."
+title: "Evening Doji Star (CDLEVENINGDOJISTAR)"
+description: "A three-candle bearish reversal pattern: a long white candle, a doji that gaps up (the star), then a black candle closing well down into the first…"
 ---
-
-# CDLEVENINGDOJISTAR
 
 ## Summary
 
@@ -32,7 +30,7 @@ A three-candle bearish reversal pattern: a long white candle, a doji that gaps u
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -50,7 +48,7 @@ TA-Lib Definition: [`cdleveningdojistar.c`](https://github.com/TA-Lib/ta-lib/blo
 | Rust | [`cdleveningdojistar.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdleveningdojistar.rs) |
 | Java | [`Core_CDLEVENINGDOJISTAR.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLEVENINGDOJISTAR.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -58,4 +56,4 @@ Evening Doji Star
 
 ## See Also
 
-[CDLEVENINGSTAR](/functions/cdleveningstar) · [CDLMORNINGDOJISTAR](/functions/cdlmorningdojistar) · [CDLDOJISTAR](/functions/cdldojistar) · [CDLABANDONEDBABY](/functions/cdlabandonedbaby)
+[CDLEVENINGSTAR](/functions/cdleveningstar.md) · [CDLMORNINGDOJISTAR](/functions/cdlmorningdojistar.md) · [CDLDOJISTAR](/functions/cdldojistar.md) · [CDLABANDONEDBABY](/functions/cdlabandonedbaby.md)

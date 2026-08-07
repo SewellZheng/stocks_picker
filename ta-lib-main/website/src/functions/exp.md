@@ -1,9 +1,7 @@
 ---
-title: EXP
+title: "Vector Arithmetic Exp (EXP)"
 description: "Vector arithmetic exponential: applies the base-e exponential to each input value. Element-wise math transform."
 ---
-
-# EXP
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = exp(inReal[i]) = e^{inReal[i]}
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`exp.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`exp.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/exp.rs) |
 | Java | [`Core_EXP.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_EXP.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ exponential, e^x
 
 ## See Also
 
-[LN](/functions/ln) · [SQRT](/functions/sqrt)
+[LN](/functions/ln.md) · [SQRT](/functions/sqrt.md)

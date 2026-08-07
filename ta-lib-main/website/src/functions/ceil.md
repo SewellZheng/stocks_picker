@@ -1,9 +1,7 @@
 ---
-title: CEIL
+title: "Vector Ceil (CEIL)"
 description: "Vector ceiling: element-wise ceiling of each input value (smallest integer >= input)."
 ---
-
-# CEIL
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = ceil(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`ceil.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | Rust | [`ceil.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/ceil.rs) |
 | Java | [`Core_CEIL.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CEIL.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ Vector Ceil, Ceiling
 
 ## See Also
 
-[FLOOR](/functions/floor)
+[FLOOR](/functions/floor.md)

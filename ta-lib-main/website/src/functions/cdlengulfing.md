@@ -1,9 +1,7 @@
 ---
-title: CDLENGULFING
-description: "A two-candle reversal pattern where the second candle's real body engulfs the first candle's opposite-colored real body. Bullish (white engulfs black) or bearish (black engulfs white) reversal signal. Bullish reversal at +100/+80, bearish at -100/-80; ideally after a downtrend (bullish) or uptrend (bearish), which the code does not verify."
+title: "Engulfing Pattern (CDLENGULFING)"
+description: "A two-candle reversal pattern where the second candle's real body engulfs the first candle's opposite-colored real body."
 ---
-
-# CDLENGULFING
 
 ## Summary
 
@@ -26,7 +24,7 @@ A two-candle reversal pattern where the second candle's real body engulfs the fi
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdlengulfing.c`](https://github.com/TA-Lib/ta-lib/blob/main
 | Rust | [`cdlengulfing.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlengulfing.rs) |
 | Java | [`Core_CDLENGULFING.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLENGULFING.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Engulfing Pattern, Engulfing, Bullish/Bearish Engulfing
 
 ## See Also
 
-[CDLHARAMI](/functions/cdlharami) · [CDLCOUNTERATTACK](/functions/cdlcounterattack) · [CDLHARAMICROSS](/functions/cdlharamicross)
+[CDLHARAMI](/functions/cdlharami.md) · [CDLCOUNTERATTACK](/functions/cdlcounterattack.md) · [CDLHARAMICROSS](/functions/cdlharamicross.md)

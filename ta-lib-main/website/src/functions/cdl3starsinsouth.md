@@ -1,9 +1,7 @@
 ---
-title: CDL3STARSINSOUTH
-description: "A three-candle bullish reversal pattern of three consecutive black candles that progressively shrink and stabilize: a long black candle with a long lower shadow, a smaller black candle probing lower, then a small black marubozu contained within the second candle's range. A hit (+100) signals a bullish reversal; per the code comment it is meaningful in a downtrend, but the function does not verify prior trend."
+title: "Three Stars In The South (CDL3STARSINSOUTH)"
+description: "A three-candle bullish reversal pattern of three consecutive black candles that progressively shrink and stabilize: a long black candle with a long lower…"
 ---
-
-# CDL3STARSINSOUTH
 
 ## Summary
 
@@ -26,7 +24,7 @@ A three-candle bullish reversal pattern of three consecutive black candles that 
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdl3starsinsouth.c`](https://github.com/TA-Lib/ta-lib/blob/
 | Rust | [`cdl3starsinsouth.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdl3starsinsouth.rs) |
 | Java | [`Core_CDL3STARSINSOUTH.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDL3STARSINSOUTH.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Three Stars In The South
 
 ## See Also
 
-[CDL3BLACKCROWS](/functions/cdl3blackcrows) · [CDLIDENTICAL3CROWS](/functions/cdlidentical3crows) · [CDL3WHITESOLDIERS](/functions/cdl3whitesoldiers)
+[CDL3BLACKCROWS](/functions/cdl3blackcrows.md) · [CDLIDENTICAL3CROWS](/functions/cdlidentical3crows.md) · [CDL3WHITESOLDIERS](/functions/cdl3whitesoldiers.md)

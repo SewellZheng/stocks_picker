@@ -1,9 +1,7 @@
 ---
-title: CORREL
-description: "Pearson's correlation coefficient (r) between two input series over a rolling window of optInTimePeriod bars. Measures how linearly the two series move together. r near +1: strong positive co-movement; near -1: strong inverse; near 0: no linear relationship."
+title: "Pearson's Correlation Coefficient (r) (CORREL)"
+description: "Pearson's correlation coefficient (r) between two input series over a rolling window of optInTimePeriod bars."
 ---
-
-# CORREL
 
 ## Summary
 
@@ -34,7 +32,7 @@ r = (sumXY - sumX*sumY/n) / sqrt((sumX2 - sumX^2/n) * (sumY2 - sumY^2/n)),  n = 
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -52,7 +50,7 @@ TA-Lib Definition: [`correl.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_co
 | Rust | [`correl.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/correl.rs) |
 | Java | [`Core_CORREL.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CORREL.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -60,7 +58,7 @@ Pearson Correlation, Correlation Coefficient, r
 
 ## See Also
 
-[BETA](/functions/beta) · [STDDEV](/functions/stddev) · [VAR](/functions/var)
+[BETA](/functions/beta.md) · [STDDEV](/functions/stddev.md) · [VAR](/functions/var.md)
 
 ## References
 

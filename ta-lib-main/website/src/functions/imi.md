@@ -1,9 +1,7 @@
 ---
-title: IMI
-description: "Intraday Momentum Index: an RSI-like 0-100 oscillator built from the open-to-close body of each bar. Over a rolling window it ratios cumulative up-body moves against total up+down body moves."
+title: "Intraday Momentum Index (IMI)"
+description: "Intraday Momentum Index: an RSI-like 0-100 oscillator built from the open-to-close body of each bar."
 ---
-
-# IMI
 
 ## Summary
 
@@ -30,7 +28,7 @@ upsum = Σ(close-open) for bars with close>open; downsum = Σ(open-close) for ba
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -48,7 +46,7 @@ TA-Lib Definition: [`imi.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`imi.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/imi.rs) |
 | Java | [`Core_IMI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_IMI.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -56,4 +54,4 @@ Intraday Momentum Index
 
 ## See Also
 
-[RSI](/functions/rsi)
+[RSI](/functions/rsi.md)

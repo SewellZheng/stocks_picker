@@ -1,9 +1,7 @@
 ---
-title: LOG10
+title: "Vector Log10 (LOG10)"
 description: "Vector base-10 logarithm. Applies log10 element-wise over each input value."
 ---
-
-# LOG10
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = log10(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,7 +39,7 @@ TA-Lib Definition: [`log10.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_cod
 | Rust | [`log10.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/log10.rs) |
 | Java | [`Core_LOG10.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_LOG10.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -49,4 +47,4 @@ Log Base 10, Common Logarithm
 
 ## See Also
 
-[LN](/functions/ln) · [EXP](/functions/exp)
+[LN](/functions/ln.md) · [EXP](/functions/exp.md)

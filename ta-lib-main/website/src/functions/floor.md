@@ -1,9 +1,7 @@
 ---
-title: FLOOR
+title: "Vector Floor (FLOOR)"
 description: "Vector floor: rounds each input value down to the nearest integer. Element-wise math transform."
 ---
-
-# FLOOR
 
 ## Summary
 
@@ -23,7 +21,7 @@ outReal[i] = floor(inReal[i])
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -41,8 +39,8 @@ TA-Lib Definition: [`floor.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_cod
 | Rust | [`floor.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/floor.rs) |
 | Java | [`Core_FLOOR.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_FLOOR.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## See Also
 
-[CEIL](/functions/ceil)
+[CEIL](/functions/ceil.md)

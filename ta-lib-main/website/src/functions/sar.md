@@ -1,9 +1,7 @@
 ---
-title: SAR
-description: "Wilder's Parabolic SAR (Stop And Reverse): a trailing stop/reverse level that accelerates toward price via an acceleration factor. Signals trend direction and trailing exit points. SAR below price = uptrend (long); SAR above price = downtrend (short). Price crossing SAR flips direction."
+title: "Parabolic SAR (SAR)"
+description: "Wilder's Parabolic SAR (Stop And Reverse): a trailing stop/reverse level that accelerates toward price via an acceleration factor."
 ---
-
-# SAR
 
 ## Summary
 
@@ -33,7 +31,7 @@ On penetration: reverse, SAR := prior EP, reset af = Acceleration. SAR clamped e
 
 ## Properties
 
-**Numerical Stability:** [Path-Dependent](/functions/stability#path-dependent)
+**Numerical Stability:** [Path-Dependent](/functions/stability.md#path-dependent)
 
 | Display<br>Flags |
 | :-- |
@@ -51,7 +49,7 @@ TA-Lib Definition: [`sar.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`sar.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/sar.rs) |
 | Java | [`Core_SAR.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_SAR.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -59,7 +57,7 @@ Parabolic SAR, PSAR, Stop and Reverse
 
 ## See Also
 
-[SAREXT](/functions/sarext) · [MINUS_DM](/functions/minus_dm) · [PLUS_DM](/functions/plus_dm)
+[SAREXT](/functions/sarext.md) · [MINUS_DM](/functions/minus_dm.md) · [PLUS_DM](/functions/plus_dm.md)
 
 ## References
 

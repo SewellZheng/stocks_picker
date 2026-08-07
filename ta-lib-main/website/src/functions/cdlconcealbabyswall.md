@@ -1,9 +1,7 @@
 ---
-title: CDLCONCEALBABYSWALL
-description: "A four-candle pattern: two black marubozus, then a black candle that gaps down but pokes its upper shadow into the prior body, then a larger black candle fully engulfing the third. Bullish reversal signal. A hit signals a bullish reversal."
+title: "Concealing Baby Swallow (CDLCONCEALBABYSWALL)"
+description: "A four-candle pattern: two black marubozus, then a black candle that gaps down but pokes its upper shadow into the prior body, then a larger black candle…"
 ---
-
-# CDLCONCEALBABYSWALL
 
 ## Summary
 
@@ -26,7 +24,7 @@ A four-candle pattern: two black marubozus, then a black candle that gaps down b
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -44,7 +42,7 @@ TA-Lib Definition: [`cdlconcealbabyswall.c`](https://github.com/TA-Lib/ta-lib/bl
 | Rust | [`cdlconcealbabyswall.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlconcealbabyswall.rs) |
 | Java | [`Core_CDLCONCEALBABYSWALL.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLCONCEALBABYSWALL.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -52,4 +50,4 @@ Concealing Baby Swallow
 
 ## See Also
 
-[CDLMARUBOZU](/functions/cdlmarubozu) · [CDLENGULFING](/functions/cdlengulfing)
+[CDLMARUBOZU](/functions/cdlmarubozu.md) · [CDLENGULFING](/functions/cdlengulfing.md)

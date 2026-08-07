@@ -1,9 +1,7 @@
 ---
-title: CDLBELTHOLD
-description: "Single-candle pattern with a long real body that opens at (or near) its extreme. A bullish belt-hold is a long white candle with no/very short lower shadow; a bearish belt-hold is a long black candle with no/very short upper shadow. A white hit is bullish (opens at the low, closes strong); a black hit is bearish (opens at the high, closes weak)."
+title: "Belt-hold (CDLBELTHOLD)"
+description: "Single-candle pattern with a long real body that opens at (or near) its extreme."
 ---
-
-# CDLBELTHOLD
 
 ## Summary
 
@@ -30,7 +28,7 @@ One candle. Requires real body > BodyLong average (long body), then either: whit
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -48,7 +46,7 @@ TA-Lib Definition: [`cdlbelthold.c`](https://github.com/TA-Lib/ta-lib/blob/main/
 | Rust | [`cdlbelthold.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cdlbelthold.rs) |
 | Java | [`Core_CDLBELTHOLD.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CDLBELTHOLD.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -56,4 +54,4 @@ Belt-hold, Belt Hold Line
 
 ## See Also
 
-[CDLCLOSINGMARUBOZU](/functions/cdlclosingmarubozu) · [CDLMARUBOZU](/functions/cdlmarubozu) · [CDLLONGLINE](/functions/cdllongline)
+[CDLCLOSINGMARUBOZU](/functions/cdlclosingmarubozu.md) · [CDLMARUBOZU](/functions/cdlmarubozu.md) · [CDLLONGLINE](/functions/cdllongline.md)

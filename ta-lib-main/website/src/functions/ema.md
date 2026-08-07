@@ -1,9 +1,7 @@
 ---
-title: EMA
-description: "Exponential moving average that weights recent prices more heavily via a recursive smoothing factor. A core building block seeding or composing many other indicators. Reacts faster than SMA; price above/below EMA suggests up/down trend."
+title: "Exponential Moving Average (EMA)"
+description: "Exponential moving average that weights recent prices more heavily via a recursive smoothing factor."
 ---
-
-# EMA
 
 ## Summary
 
@@ -33,7 +31,7 @@ k = 2 / (period + 1); EMA_t = (price_t - EMA_{t-1}) * k + EMA_{t-1}. Seed: EMA =
 
 ## Properties
 
-**Numerical Stability:** [Initial Unstable Period](/functions/stability#initial-unstable-period)
+**Numerical Stability:** [Initial Unstable Period](/functions/stability.md#initial-unstable-period)
 
 | Display<br>Flags |
 | :-- |
@@ -51,7 +49,7 @@ TA-Lib Definition: [`ema.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | Rust | [`ema.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/ema.rs) |
 | Java | [`Core_EMA.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_EMA.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -59,4 +57,4 @@ Exponential Moving Average, Exponentially Weighted Moving Average, EWMA
 
 ## See Also
 
-[SMA](/functions/sma) · [DEMA](/functions/dema) · [TEMA](/functions/tema) · [MA](/functions/ma) · [MACD](/functions/macd) · [T3](/functions/t3)
+[SMA](/functions/sma.md) · [DEMA](/functions/dema.md) · [TEMA](/functions/tema.md) · [MA](/functions/ma.md) · [MACD](/functions/macd.md) · [T3](/functions/t3.md)

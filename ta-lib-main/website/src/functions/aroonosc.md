@@ -1,9 +1,7 @@
 ---
-title: AROONOSC
-description: "Aroon Oscillator: AroonUp minus AroonDown over a lookback window. Measures trend direction and strength on a -100..+100 scale. Positive when the high is more recent than the low (up-trend); negative when the low is more recent (down-trend)."
+title: "Aroon Oscillator (AROONOSC)"
+description: "Aroon Oscillator: AroonUp minus AroonDown over a lookback window. Measures trend direction and strength on a -100..+100 scale."
 ---
-
-# AROONOSC
 
 ## Summary
 
@@ -34,7 +32,7 @@ highestIdx/lowestIdx = bar index of the highest high / lowest low in the last (p
 
 ## Properties
 
-**Numerical Stability:** [Start-Independent](/functions/stability#start-independent)
+**Numerical Stability:** [Start-Independent](/functions/stability.md#start-independent)
 
 | Display<br>Flags |
 | :-- |
@@ -52,7 +50,7 @@ TA-Lib Definition: [`aroonosc.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_
 | Rust | [`aroonosc.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/aroonosc.rs) |
 | Java | [`Core_AROONOSC.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_AROONOSC.java) |
 
-TA-Lib is also available for Python, R and more using a [wrapper](https://ta-lib.org/wrappers/).
+TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
 ## Aliases
 
@@ -60,7 +58,7 @@ Aroon Oscillator
 
 ## See Also
 
-[AROON](/functions/aroon) · [MINMAX](/functions/minmax)
+[AROON](/functions/aroon.md) · [MINMAX](/functions/minmax.md)
 
 ## References
 
