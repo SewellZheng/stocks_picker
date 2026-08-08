@@ -102,6 +102,95 @@ pub(crate) struct CsRenderCtx<'a> {
     pub(crate) matype_map: HashMap<String, String>,
 }
 
+/// Words this backend cannot render as an identifier (see [`crate::naming`]):
+/// the C# reserved keywords. `@base` would escape them, but the generator never
+/// emits an escaped identifier — a name that needs one is a name the input
+/// should not have used.
+///
+/// The contextual keywords (`var`, `value`, `record`, `async`, `await`, `nameof`,
+/// the LINQ query words, ...) are deliberately absent: they are legal
+/// identifiers, and several of them (`value`, `from`, `on`) are plausible
+/// indicator variable names that this list must not reject.
+pub(crate) const RESERVED_WORDS: &[&str] = &[
+    "abstract",
+    "as",
+    "base",
+    "bool",
+    "break",
+    "byte",
+    "case",
+    "catch",
+    "char",
+    "checked",
+    "class",
+    "const",
+    "continue",
+    "decimal",
+    "default",
+    "delegate",
+    "do",
+    "double",
+    "else",
+    "enum",
+    "event",
+    "explicit",
+    "extern",
+    "false",
+    "finally",
+    "fixed",
+    "float",
+    "for",
+    "foreach",
+    "goto",
+    "if",
+    "implicit",
+    "in",
+    "int",
+    "interface",
+    "internal",
+    "is",
+    "lock",
+    "long",
+    "namespace",
+    "new",
+    "null",
+    "object",
+    "operator",
+    "out",
+    "override",
+    "params",
+    "private",
+    "protected",
+    "public",
+    "readonly",
+    "ref",
+    "return",
+    "sbyte",
+    "sealed",
+    "short",
+    "sizeof",
+    "stackalloc",
+    "static",
+    "string",
+    "struct",
+    "switch",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typeof",
+    "uint",
+    "ulong",
+    "unchecked",
+    "unsafe",
+    "ushort",
+    "using",
+    "virtual",
+    "void",
+    "volatile",
+    "while",
+];
+
 /// C# type name for a scalar or pointer `VarType`.
 pub(crate) fn cs_type_str(var_type: &VarType) -> &'static str {
     match var_type {
@@ -911,8 +1000,9 @@ impl StatementEmitter for CsStmt<'_> {
             CircBuf::Init { id, layout, size } => {
                 let sz = render_expr(size, self.ctx, self.registry, self.helpers);
                 let mut s = String::new();
-                // Parity with the pre-cutover reference's CIRCBUF_INIT guard.
-                s.push_str(&format!("{pad}if( {sz} < 1 ) return RetCode.AllocErr;\n"));
+                // The size is derived, so < 1 is a logic defect rather than an allocation
+                // failure: same code as C's TA_INTERNAL_ERROR(137) (#178).
+                s.push_str(&format!("{pad}if( {sz} < 1 ) return RetCode.InternalError;\n"));
                 for (arr, t) in circbuf_arrays(id, layout) {
                     s.push_str(&format!("{pad}{arr} = new {}[{sz}];\n", cs_circbuf_elem(&t)));
                 }

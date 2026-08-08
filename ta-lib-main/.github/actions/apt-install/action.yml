@@ -1,0 +1,56 @@
+name: apt-install
+description: >-
+  Install Debian packages on a hosted runner, hardened against the ways apt
+  stalls there. Every nightly job that needs a toolchain goes through this, so
+  the hardening lives in one place instead of being re-typed per job.
+
+inputs:
+  packages:
+    description: >-
+      Packages to install, ONE apt-get install PER LINE (whitespace-separated
+      within a line). The split is deliberate, not cosmetic: resolving several
+      toolchain metapackages in a single call asks apt for one consistent set
+      across all of them, which fails where sequential calls succeed --
+      installing gcc-multilib, gcc-i686-linux-gnu and gcc-aarch64-linux-gnu
+      together reports gcc-13-*-linux-gnu as "not installable". Keep a caller's
+      grouping unless you have re-tested it.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        # No tty on a runner: a package that prompts would block until the job
+        # timeout rather than fail.
+        DEBIAN_FRONTEND: noninteractive
+        # Via env, not ${{ }} inside run: keeps the package list out of the
+        # script text that the shell parses.
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+
+        # The image's own unattended-upgrades run holds /var/lib/dpkg/lock-frontend
+        # for the first minutes after boot. Stopping the timers is best-effort --
+        # DPkg::Lock::Timeout below is what actually bounds the wait.
+        sudo systemctl stop apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+        sudo systemctl stop unattended-upgrades.service 2>/dev/null || true
+
+        # apt-get, not apt: apt has no stable CLI for scripts and says so on stderr.
+        # Acquire::Retries    - a stalled Azure mirror retries instead of hanging.
+        # DPkg::Lock::Timeout - wait for a held lock, then FAIL; the default is to
+        #                       wait forever, which is how a 12-minute job becomes
+        #                       a 6-hour one.
+        APT_OPTS=(-o Acquire::Retries=3 -o DPkg::Lock::Timeout=600)
+
+        sudo apt-get update "${APT_OPTS[@]}"
+
+        # One call per line -- see the `packages` input docs for why these are
+        # not merged. No --no-install-recommends either: the toolchain
+        # metapackages here were only ever tested with recommends on.
+        while IFS= read -r group; do
+          [ -n "${group//[[:space:]]/}" ] || continue
+          # Unquoted on purpose: a line is a list of packages to word-split.
+          # shellcheck disable=SC2086
+          sudo apt-get install -y "${APT_OPTS[@]}" $group
+        done <<< "$PACKAGES"

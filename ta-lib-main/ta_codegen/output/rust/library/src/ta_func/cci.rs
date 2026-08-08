@@ -201,7 +201,9 @@ impl Core {
         let mut j: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        let mut circBuffer: Vec<f64> = Vec::new();
+        let mut local_circBuffer: [f64; 30] = [0.0_f64; 30];
+        let mut heap_circBuffer: Vec<f64> = Vec::new();
+        let mut circBuffer: &mut [f64] = &mut [];
         let mut circBuffer_Idx: usize = 0;
         let mut maxIdx_circBuffer: usize = 29;
         // This ptr will points on a circular buffer of
@@ -222,8 +224,13 @@ impl Core {
         }
         // Allocate a circular buffer equal to the requested
         // period.
-        if optInTimePeriod < 1 { return RetCode::AllocErr; }
-        circBuffer = vec![0.0_f64; (optInTimePeriod) as usize];
+        if optInTimePeriod < 1 { return RetCode::InternalError; }
+        if (optInTimePeriod) as usize <= 30usize {
+            circBuffer = &mut local_circBuffer;
+        } else {
+            heap_circBuffer = vec![0.0_f64; (optInTimePeriod) as usize];
+            circBuffer = &mut heap_circBuffer;
+        }
         maxIdx_circBuffer = ((optInTimePeriod) as usize) - 1;
         circBuffer_Idx = 0;
         // Do the MA calculation using tight loops.
@@ -405,7 +412,7 @@ impl Core {
         }
         // Allocate a circular buffer equal to the requested
         // period.
-        if optInTimePeriod < 1 { return Err(RetCode::AllocErr); }
+        if optInTimePeriod < 1 { return Err(RetCode::InternalError); }
         circBuffer = vec![0.0_f64; (optInTimePeriod) as usize];
         maxIdx_circBuffer = ((optInTimePeriod) as usize) - 1;
         circBuffer_Idx = 0;
@@ -562,7 +569,7 @@ impl Core {
         }
         // Allocate a circular buffer equal to the requested
         // period.
-        if optInTimePeriod < 1 { return Err(RetCode::AllocErr); }
+        if optInTimePeriod < 1 { return Err(RetCode::InternalError); }
         circBuffer = vec![0.0_f64; (optInTimePeriod) as usize];
         maxIdx_circBuffer = ((optInTimePeriod) as usize) - 1;
         circBuffer_Idx = 0;

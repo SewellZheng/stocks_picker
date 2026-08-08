@@ -35,7 +35,7 @@ use crate::streaming::{self, StreamModel, StreamPlan};
 use super::rust_doc::{series_def, unit_domain, CLOSE_SERIES, UNIT_SERIES, VOLUME_SERIES};
 use super::rust_lang::{
     build_matype_map, collect_for_loop_vars, collect_sentinel_vars, collect_signed_int_vars,
-    collect_var_types, emit_circbuf_prolog_rust, expr_is_untyped_integer,
+    collect_var_types, emit_circbuf_prolog_rust, expr_is_untyped_integer, CircBufTier,
     gen_opt_param_validation_with, render_expr, render_hoisted_blocks, render_statement,
     to_pascal_case, RustRenderCtx,
 };
@@ -245,6 +245,7 @@ fn build_typing_from(func: &FuncDef, body: &[Statement], models: &[&StreamModel]
             // Stream bodies dispatch MA-type structurally (case labels /
             // sub-opens), never via `== TA_MAType_*`, so no map is needed.
             matype_map: HashMap::new(),
+            circbuf_hybrid_static: HashMap::new(),
         },
         extrema_i32,
     }
@@ -1141,7 +1142,7 @@ fn emit_open_region(
     // Declarations (hoisted; always `mut` — the crate allows unused_mut).
     for stmt in body {
         if let Statement::CircBuf(CircBuf::Prolog { id, layout, static_size }) = stmt {
-            o.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size));
+            o.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size, CircBufTier::StreamVec));
             continue;
         }
         if let Statement::VarDecl { var_type, name, .. } = stmt {
@@ -2038,6 +2039,7 @@ fn plan_ctx(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> RustRenderCtx {
         // The dispatch identity guard can compare `optInMAType == TA_MAType_*`
         // (TA_MAType_DISABLED, #93); resolve those to their ordinal like batch.
         matype_map: build_matype_map(enums),
+        circbuf_hybrid_static: HashMap::new(),
     }
 }
 
@@ -3170,7 +3172,7 @@ fn emit_composed_region(
 
     for stmt in body {
         if let Statement::CircBuf(CircBuf::Prolog { id, layout, static_size }) = stmt {
-            o.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size));
+            o.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size, CircBufTier::StreamVec));
             continue;
         }
         if let Statement::VarDecl { var_type, name, .. } = stmt {

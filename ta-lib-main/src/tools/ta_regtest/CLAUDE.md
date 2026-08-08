@@ -14,7 +14,6 @@ ta_regtest validates TA-Lib indicator implementations. It has two modes:
 |------|-------------|
 | `--function=CSV` | Substring filter — matched against the **group tag** in `DO_TEST`, not the function name. A function absent from its group's tag is unreachable by this filter (that is why the composite group is tagged `PVO,VWMA,COMPOSITE`). |
 | `--codegen` | Run codegen verification after C reference tests |
-| `--codegen-only` | Run only codegen verification, skip C reference tests |
 | `--language=CSV` | Filter languages for codegen verification (e.g., `c,rust,java`) |
 | `-p` | Profile mode |
 
@@ -22,7 +21,6 @@ Examples:
 ```bash
 ./ta_regtest                                           # C reference tests only
 ./ta_regtest --codegen                                 # C tests + all-language codegen
-./ta_regtest --codegen-only                            # Codegen only (all languages)
 ./ta_regtest --codegen --language=c,rust               # Codegen for C and Rust only
 ./ta_regtest --codegen --function=RSI,SMA              # Filter to specific functions
 ```
@@ -31,7 +29,7 @@ Examples:
 
 | File | Purpose |
 |------|---------|
-| `ta_regtest.c` | Main entry point. CLI flags: `--function=CSV`, `--codegen`, `--codegen-only`, `--language=CSV`, `-p` |
+| `ta_regtest.c` | Main entry point. CLI flags: `--function=CSV`, `--codegen`, `--language=CSV`, `-p` |
 | `test_codegen.c` | Codegen verification: spawns servers, sends JSON-RPC, compares results |
 | `test_codegen.h` | API: `test_codegen(history, languageFilter, functionFilter)` |
 | `codegen_pipe.c/h` | Subprocess pipe abstraction for JSON-RPC over stdin/stdout |
@@ -244,7 +242,7 @@ YAML-derived value, so this is one of the few metadata checks that is not a
 generator comparing against itself.
 
 Where this runs: **one** nightly job — dev-nightly's `xlang` step, which is the
-only one invoking `regtest.py --codegen-only` unfiltered. The other `--codegen`
+only one invoking `regtest.py --codegen` unfiltered. The other `--codegen`
 jobs narrow to `rust` or `c,rust`, and `main-nightly` runs `--xlang-hash`, which
 reaches `abstract_get_lookback` and no other abstract RPC. So every gate in this
 section has a single point of failure in CI. That is deliberate rather than
@@ -284,6 +282,60 @@ silently doing nothing. The counter that matters is `nbOutputCmp`, incremented
 **at the memcmp itself** — a counter bumped before the comparisons and
 independently of them lets a deleted comparison leave the summary printing
 byte-identical numbers while the gate checks strictly less.
+
+## The float leg — the same contract, in Java and C# (issue #170)
+
+`test_variants.c` covers `TA_S_` == `TA_` in-process, which is C only. The
+**float leg** (`run_float_leg`, `test_codegen.c`) is the cross-language form: it
+sends one function twice to the *same* server — once normally, once with
+`"use_float":1` — on float-widened inputs, and requires the two to agree. That
+covers the other two float surfaces: Java's `float[]` Core overloads and C#'s,
+168 functions each. Rust has no single-precision surface and is the only
+exclusion. Each call must come back with `"used_float":1`; a server that ignored
+the flag would return its double result twice and pass while verifying nothing.
+
+The leg runs **two parameter vectors**. The resolved defaults, and — since #170
+— the **default sentinel** (`TA_INTEGER_DEFAULT` / `TA_REAL_DEFAULT` in every
+optional slot, sent to *both* halves, so the property is "each tier substitutes
+the same declared default" and needs no oracle). The sentinel vector is not a
+refinement: it is the one that exposed the `TA_S_EMA` k-factor defect fixed in
+`2e9767397`, where the float body derived `k` from the raw sentinel because its
+initialiser ran before the prologue substituted it. The same defect was live in
+Java's float `emaInternal` and C#'s float `Ema`, and reaching only resolved
+defaults, no gate could see it there. Sabotage-proven both ways: reintroducing
+it in the Java and C# float bodies fails the sentinel pass on both, and with the
+sentinel pass switched off the identical sabotage passes clean.
+
+Not asserted: `float(sentinel) == float(default)`. A body that mishandles the
+sentinel either diverges from its own double tier (the pair check) or is
+rejected outright (an error response where the resolved-default request
+succeeded is a hard failure, not a skip), and the double tier's own
+sentinel-selects-the-default contract belongs to `--xlang-hash` (#148).
+
+Two exclusions, both counted and printed:
+
+* **Choice-list slots on Java.** `Core` takes a real `MAType` enum, so
+  `Integer.MIN_VALUE` is unrepresentable and the generated Java server dies
+  constructing one (#162). That slot alone stays at its explicit default — the
+  function's other parameters still ride the sentinel, which beats skipping the
+  function. `codegen_lang_can_pass_enum_sentinel` is the single definition,
+  shared with `--xlang-hash`.
+* **Functions with no optional parameter**, where the pass would re-send the
+  request just made.
+
+The floor is **per language** and counts comparisons *that diffed output
+elements*: a total would stay green while one server answered every sentinel
+request with an error, and one server silently opting out is the exact shape of
+the hole this closes. `eligible` (functions that reached the pass with a
+sentinel-able parameter) is what the floor tests against, so a `--function=`
+filter naming only parameterless functions is a legitimate zero.
+
+`run_float_leg` snapshots and restores everything it touches in
+`CodegenRangeTestParam` — the `parse_ref_baseline` fields, `optOverride[]`, the
+request-shaping flags, the timing accumulators. Before #170 it was safe only
+because it happened to be the last statement of `sweep_run_variant`, and the
+first attempt at a second pass produced `SWEEP GUARDED MISMATCH [TA_ACCBANDS]`
+(the guarded call at the swept period against a baseline left at the default).
 
 ## Transport
 
@@ -449,10 +501,31 @@ Architecture (see `fuzz_data.h`, the Rust port in
   its own in-process generation, so a `fuzz_gen`-port bug surfaces as an INPUT
   mismatch, not a fake indicator-output bug. Hex servers (Java) send the driver's
   exact arrays, so they have no port to self-check and are skipped here.
+- **Unstable-period axis (#116).** The 20 functions carrying
+  `TA_FUNC_FLG_UNST_PER` run the whole sweep a second time at unstable period
+  `XLANG_UNST_PERIOD` (3), with the in-process golden set through
+  `TA_SetUnstablePeriod` and the servers through the per-call field. 0 runs last,
+  so each function leaves the servers where the next one expects them. Only
+  `FUZZ_VEC_NORMAL` vectors repeat: the reject/sentinel classes assert parameter
+  *validation*, which runs before any unstable-period logic. Before this the gate
+  pinned `unstablePeriod: 0` everywhere and the axis was covered **only** by the
+  ref differential sweep, i.e. only by the frozen `ta_ref_serve` — the last thing
+  blocking its retirement.
+  - **A non-zero period cannot ride the seed transport.** `abstract_call` carries
+    a `funcUnstId` that no driver has ever sent, so it reads 0
+    (`TA_FUNC_UNST_ADX`): the C handler would apply the period to ADX whatever
+    function was called, and the Rust handler ignores the field outright. The
+    per-function `TA_<name>` handler hardcodes the right id, so the unstable legs
+    force the hex transport on every server, Rust included.
+  - Non-vacuity is checked per function *before* the leg runs: the lookback must
+    move between unstable 0 and 3. A flat lookback means the flag is lying and
+    fails the run rather than banking a leg that compares nothing. A `unstCases`
+    floor catches the axis going quiet wholesale.
 - **Coverage:** every function × 9 shapes × 3 seeds × 3 sizes × parameter
-  vectors × 3 subranges ≈ 182k comparisons **per server**, ~94% with non-empty
-  output (a non-vacuity guard fails the run if nothing produced output — an empty
-  output hashes the same on both sides).
+  vectors × 3 subranges ≈ 237k comparisons **per server** (of which ~76k at a
+  non-zero unstable period), ~94% with non-empty output (a non-vacuity guard
+  fails the run if nothing produced output — an empty output hashes the same on
+  both sides).
 
 Scope rules (deliberate):
 - **No 0.6.4, no waivers; one tolerance and two skips.** This is

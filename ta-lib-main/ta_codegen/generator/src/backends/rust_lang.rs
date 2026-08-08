@@ -10,6 +10,71 @@ use crate::ir::{
 use crate::parser::enums::lookup_variant;
 use crate::registry::Registry;
 use super::common::{contains_alloc_err_return, expr_directly_contains_candle_call, find_sizeof_type};
+
+/// Words this backend cannot render as an identifier (see [`crate::naming`]):
+/// the strict keywords of every edition through 2024, plus the set reserved for
+/// future use. Raw identifiers (`r#loop`) would sidestep most of these, but the
+/// generator never emits one — a name that needs escaping to compile is a name
+/// the input should not have used.
+///
+/// The weak keywords (`union`, `macro_rules`, `'static`, `dyn` pre-2018, and the
+/// 2024 `safe`) are deliberately absent: they are legal identifiers.
+pub(crate) const RESERVED_WORDS: &[&str] = &[
+    // --- strict keywords ---
+    "as",
+    "async",
+    "await",
+    "break",
+    "const",
+    "continue",
+    "crate",
+    "dyn",
+    "else",
+    "enum",
+    "extern",
+    "false",
+    "fn",
+    "for",
+    "if",
+    "impl",
+    "in",
+    "let",
+    "loop",
+    "match",
+    "mod",
+    "move",
+    "mut",
+    "pub",
+    "ref",
+    "return",
+    "self",
+    "static",
+    "struct",
+    "super",
+    "trait",
+    "true",
+    "type",
+    "unsafe",
+    "use",
+    "where",
+    "while",
+    "Self",
+    // --- reserved for future use ---
+    "abstract",
+    "become",
+    "box",
+    "do",
+    "final",
+    "gen",
+    "macro",
+    "override",
+    "priv",
+    "try",
+    "typeof",
+    "unsized",
+    "virtual",
+    "yield",
+];
 use super::builtins::{MathFn, SpecialBuiltin, StdlibFn};
 use super::expr_walk::{is_int_bitwise, ExprEmitter};
 use super::fma::{self, is_i32_opt_in_param, is_integer_returning_helper, FmaCtx};
@@ -59,6 +124,12 @@ pub struct RustRenderCtx {
     /// empty. Empty ⇒ the constant renders literally (unresolved), which a
     /// build catches immediately.
     pub matype_map: std::collections::HashMap<String, String>,
+    /// CIRCBUF ids rendered with the C-style hybrid storage (stack array up to
+    /// the PROLOG static size, heap `Vec` above it), mapped to that static
+    /// size. Populated for batch bodies only; stream bodies leave it empty and
+    /// keep pure-`Vec` storage, whose ownership the open path moves into the
+    /// stream state struct.
+    pub circbuf_hybrid_static: std::collections::HashMap<String, i64>,
 }
 
 /// Build the `TA_MAType_*` → value-string map the [`ExprEmitter::var`] hook uses
@@ -110,6 +181,7 @@ impl RustRenderCtx {
             sentinel_vars: std::collections::HashSet::new(),
             result_error_returns: false,
             matype_map: std::collections::HashMap::new(),
+            circbuf_hybrid_static: std::collections::HashMap::new(),
         }
     }
 
@@ -471,6 +543,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         sentinel_vars,
         result_error_returns: false,
         matype_map: build_matype_map(enums),
+        circbuf_hybrid_static: collect_circbuf_static(&func.body),
     };
 
     // `_private` holds the algorithm for the functions that declare one (Rust has
@@ -648,6 +721,7 @@ fn gen_guarded_func(
             sentinel_vars: g_sentinel_vars,
             result_error_returns: false,
             matype_map: build_matype_map(enums),
+            circbuf_hybrid_static: collect_circbuf_static(&func.body),
         };
         let g_for_loop_vars = collect_for_loop_vars(&func.body);
         let g_var_inits: std::collections::HashMap<String, &Expr> = func
@@ -675,7 +749,7 @@ fn gen_guarded_func(
                 static_size,
             }) = stmt
             {
-                out.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size));
+                out.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size, batch_circbuf_tier(&func.body, id)));
                 continue;
             }
             if let Statement::VarDecl { var_type, name, init } = stmt {
@@ -743,6 +817,7 @@ fn gen_guarded_func(
             sentinel_vars: g_sentinel_vars,
             result_error_returns: false,
             matype_map: build_matype_map(enums),
+            circbuf_hybrid_static: collect_circbuf_static(&func.body),
         };
 
         // Use the same full rendering as the `_private` body
@@ -773,7 +848,7 @@ fn gen_guarded_func(
                 static_size,
             }) = stmt
             {
-                out.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size));
+                out.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size, batch_circbuf_tier(&func.body, id)));
                 continue;
             }
             if let Statement::VarDecl { var_type, name, .. } = stmt {
@@ -1029,7 +1104,7 @@ fn gen_private_func_inner(
             static_size,
         }) = stmt
         {
-            out.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size));
+            out.push_str(&emit_circbuf_prolog_rust(id, layout, *static_size, batch_circbuf_tier(&func.body, id)));
             continue;
         }
         if let Statement::VarDecl { var_type, name, .. } = stmt {
@@ -1305,21 +1380,59 @@ fn circbuf_storage(id: &str, layout: &CircBufLayout) -> Vec<(String, VarType)> {
     }
 }
 
-/// Emit the function-top declarations for a CIRCBUF prolog: an empty `Vec` per
-/// field-split storage, the `usize` rotation index, and the `usize` bound. The bound
-/// is seeded to `static_size - 1` (NOT 0) so the `INIT_LOCAL_ONLY` path (HT functions)
-/// sizes its buffer correctly before any `INIT` runs. Indent is the 8-space body level.
-pub(crate) fn emit_circbuf_prolog_rust(id: &str, layout: &CircBufLayout, static_size: i64) -> String {
+/// Which tier a CIRCBUF prolog is being emitted for, and so which storage shape
+/// it gets. The two are not interchangeable: [`Self::StreamVec`] is forced by
+/// ownership, not chosen — the open path moves the storage into the stream state
+/// struct, which outlives the frame, so a `&mut` slice into a stack array would
+/// dangle. Only the batch tier can take the hybrid, and only it needs to.
+#[derive(Clone, Copy)]
+pub(crate) enum CircBufTier {
+    /// Stream: an owning `Vec` per field-split storage.
+    StreamVec,
+    /// Batch: C's hybrid — a zeroed stack array at the static size, a heap `Vec`
+    /// behind it, and a `&mut` slice the body indexes through. The heap `Vec` is
+    /// declared only when a runtime `CIRCBUF_INIT` exists to reach it
+    /// (`INIT_LOCAL_ONLY` never leaves the stack array).
+    BatchHybrid { has_runtime_init: bool },
+}
+
+/// Emit the function-top declarations for a CIRCBUF prolog, plus the `usize`
+/// rotation index and bound. The bound is seeded to `static_size - 1` (NOT 0)
+/// so the `INIT_LOCAL_ONLY` path (HT functions) sizes its buffer correctly
+/// before any `INIT` runs. Indent is the 8-space body level.
+pub(crate) fn emit_circbuf_prolog_rust(
+    id: &str,
+    layout: &CircBufLayout,
+    static_size: i64,
+    tier: CircBufTier,
+) -> String {
     let mut s = String::new();
     for (storage, t) in circbuf_storage(id, layout) {
-        let vt = if matches!(t, VarType::Integer) {
-            "i32"
+        let (vt, zero) = if matches!(t, VarType::Integer) {
+            ("i32", "0i32")
         } else {
-            "f64"
+            ("f64", "0.0_f64")
         };
-        s.push_str(&format!(
-            "        let mut {storage}: Vec<{vt}> = Vec::new();\n"
-        ));
+        match tier {
+            CircBufTier::StreamVec => {
+                s.push_str(&format!(
+                    "        let mut {storage}: Vec<{vt}> = Vec::new();\n"
+                ));
+            }
+            CircBufTier::BatchHybrid { has_runtime_init } => {
+                s.push_str(&format!(
+                    "        let mut local_{storage}: [{vt}; {static_size}] = [{zero}; {static_size}];\n"
+                ));
+                if has_runtime_init {
+                    s.push_str(&format!(
+                        "        let mut heap_{storage}: Vec<{vt}> = Vec::new();\n"
+                    ));
+                }
+                s.push_str(&format!(
+                    "        let mut {storage}: &mut [{vt}] = &mut [];\n"
+                ));
+            }
+        }
     }
     s.push_str(&format!("        let mut {id}_Idx: usize = 0;\n"));
     s.push_str(&format!(
@@ -1327,6 +1440,47 @@ pub(crate) fn emit_circbuf_prolog_rust(id: &str, layout: &CircBufLayout, static_
         static_size - 1
     ));
     s
+}
+
+/// CIRCBUF prologs in `body` as `id → static size` — the batch tier's
+/// hybrid-storage map ([`RustRenderCtx::circbuf_hybrid_static`]). Prologs are
+/// declarations, so only the top level of `body` is scanned.
+pub(crate) fn collect_circbuf_static(body: &[Statement]) -> std::collections::HashMap<String, i64> {
+    body.iter()
+        .filter_map(|s| match s {
+            Statement::CircBuf(CircBuf::Prolog { id, static_size, .. }) => {
+                Some((id.clone(), *static_size))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The batch tier's storage shape for `id` in `body`. The heap `Vec` is declared
+/// only when a runtime `CIRCBUF_INIT` can reach it.
+pub(crate) fn batch_circbuf_tier(body: &[Statement], id: &str) -> CircBufTier {
+    CircBufTier::BatchHybrid { has_runtime_init: circbuf_has_runtime_init(body, id) }
+}
+
+/// Whether a runtime-sized `CIRCBUF_INIT` for `id` appears anywhere in `body`
+/// (as opposed to `INIT_LOCAL_ONLY`, which never needs the heap fallback).
+pub(crate) fn circbuf_has_runtime_init(body: &[Statement], id: &str) -> bool {
+    body.iter().any(|stmt| match stmt {
+        Statement::CircBuf(CircBuf::Init { id: init_id, .. }) => init_id == id,
+        Statement::If { then_body, else_body, .. } => {
+            circbuf_has_runtime_init(then_body, id) || circbuf_has_runtime_init(else_body, id)
+        }
+        Statement::While { body: b, .. }
+        | Statement::DoWhile { body: b, .. }
+        | Statement::For { body: b, .. }
+        | Statement::ForC { body: b, .. }
+        | Statement::Block { body: b } => circbuf_has_runtime_init(b, id),
+        Statement::Switch { cases, default, .. } => {
+            cases.iter().any(|(_, cb)| circbuf_has_runtime_init(cb, id))
+                || circbuf_has_runtime_init(default, id)
+        }
+        _ => false,
+    })
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2139,7 +2293,11 @@ impl StatementEmitter for RustStmt<'_, '_> {
             CircBuf::Next { id } => {
                 format!("{pad}{id}_Idx += 1;\n{pad}if {id}_Idx > maxIdx_{id} {{ {id}_Idx = 0; }}\n")
             }
-            // Runtime-sized: (re)allocate each storage Vec to `size` (always heap).
+            // Runtime-sized. Batch tier (id present in circbuf_hybrid_static):
+            // C-style hybrid — bind the slices to the prolog's stack arrays when
+            // the runtime size fits the static capacity, heap-allocate otherwise.
+            // Stream tier: (re)allocate each storage Vec to `size` (always heap;
+            // the open path moves the Vecs into the stream state struct).
             CircBuf::Init { id, layout, size } => {
                 let sz = render_expr(
                     size,
@@ -2149,42 +2307,78 @@ impl StatementEmitter for RustStmt<'_, '_> {
                     self.helpers,
                 );
                 let mut s = String::new();
-                // Parity with the pre-cutover reference's CIRCBUF_INIT _RUST guard;
-                // also prevents the `(sz as usize) - 1` underflow.
-                let alloc_fail = if self.ctx.result_error_returns {
-                    "return Err(RetCode::AllocErr);"
+                // The size is derived, so < 1 is a logic defect rather than an
+                // allocation failure: same code as C's TA_INTERNAL_ERROR(137)
+                // (#178). Also prevents the `(sz as usize) - 1` underflow.
+                let size_defect = if self.ctx.result_error_returns {
+                    "return Err(RetCode::InternalError);"
                 } else {
-                    "return RetCode::AllocErr;"
+                    "return RetCode::InternalError;"
                 };
                 s.push_str(&format!(
-                    "{pad}if {sz} < 1 {{ {alloc_fail} }}\n"
+                    "{pad}if {sz} < 1 {{ {size_defect} }}\n"
                 ));
-                for (storage, t) in circbuf_storage(id, layout) {
-                    let zero = if matches!(t, VarType::Integer) {
-                        "0i32"
-                    } else {
-                        "0.0_f64"
-                    };
+                if let Some(static_size) = self.ctx.circbuf_hybrid_static.get(id) {
                     s.push_str(&format!(
-                        "{pad}{storage} = vec![{zero}; ({sz}) as usize];\n"
+                        "{pad}if ({sz}) as usize <= {static_size}usize {{\n"
                     ));
+                    for (storage, _) in circbuf_storage(id, layout) {
+                        s.push_str(&format!(
+                            "{pad}    {storage} = &mut local_{storage};\n"
+                        ));
+                    }
+                    s.push_str(&format!("{pad}}} else {{\n"));
+                    for (storage, t) in circbuf_storage(id, layout) {
+                        let zero = if matches!(t, VarType::Integer) {
+                            "0i32"
+                        } else {
+                            "0.0_f64"
+                        };
+                        s.push_str(&format!(
+                            "{pad}    heap_{storage} = vec![{zero}; ({sz}) as usize];\n"
+                        ));
+                        s.push_str(&format!(
+                            "{pad}    {storage} = &mut heap_{storage};\n"
+                        ));
+                    }
+                    s.push_str(&format!("{pad}}}\n"));
+                } else {
+                    for (storage, t) in circbuf_storage(id, layout) {
+                        let zero = if matches!(t, VarType::Integer) {
+                            "0i32"
+                        } else {
+                            "0.0_f64"
+                        };
+                        s.push_str(&format!(
+                            "{pad}{storage} = vec![{zero}; ({sz}) as usize];\n"
+                        ));
+                    }
                 }
                 s.push_str(&format!("{pad}maxIdx_{id} = (({sz}) as usize) - 1;\n"));
                 s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
                 s
             }
             // Always the static capacity; bound was seeded in the prolog (maxIdx + 1).
+            // Batch tier: bind to the prolog's zeroed stack arrays — no allocation.
             CircBuf::InitLocalOnly { id, layout } => {
                 let mut s = String::new();
-                for (storage, t) in circbuf_storage(id, layout) {
-                    let zero = if matches!(t, VarType::Integer) {
-                        "0i32"
-                    } else {
-                        "0.0_f64"
-                    };
-                    s.push_str(&format!(
-                        "{pad}{storage} = vec![{zero}; maxIdx_{id} + 1];\n"
-                    ));
+                if self.ctx.circbuf_hybrid_static.contains_key(id) {
+                    for (storage, _) in circbuf_storage(id, layout) {
+                        s.push_str(&format!(
+                            "{pad}{storage} = &mut local_{storage};\n"
+                        ));
+                    }
+                } else {
+                    for (storage, t) in circbuf_storage(id, layout) {
+                        let zero = if matches!(t, VarType::Integer) {
+                            "0i32"
+                        } else {
+                            "0.0_f64"
+                        };
+                        s.push_str(&format!(
+                            "{pad}{storage} = vec![{zero}; maxIdx_{id} + 1];\n"
+                        ));
+                    }
                 }
                 s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
                 s
