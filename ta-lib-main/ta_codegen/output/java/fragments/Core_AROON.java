@@ -15,7 +15,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#aroon} consumes before it can
+    * Number of leading input bars {@link Core#AROON} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -25,7 +25,7 @@
     *        2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int aroonLookback( int optInTimePeriod )
+   public int AROON_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -35,15 +35,15 @@
       return optInTimePeriod ;
 
    }
-   RetCode aroonInternal( int startIdx,
-                          int endIdx,
-                          double inHigh[],
-                          double inLow[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outAroonDown[],
-                          double outAroonUp[] )
+   RetCode AROON_Internal( int startIdx,
+                           int endIdx,
+                           double inHigh[],
+                           double inLow[],
+                           int optInTimePeriod,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outAroonDown[],
+                           double outAroonUp[] )
    {
       double lowest = 0;
       double highest = 0;
@@ -55,10 +55,10 @@
       int highestIdx = 0;
       int today = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -150,15 +150,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode aroonInternal( int startIdx,
-                          int endIdx,
-                          float inHigh[],
-                          float inLow[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outAroonDown[],
-                          double outAroonUp[] )
+   RetCode AROON_Internal( int startIdx,
+                           int endIdx,
+                           float inHigh[],
+                           float inLow[],
+                           int optInTimePeriod,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outAroonDown[],
+                           double outAroonUp[] )
    {
       double lowest = 0;
       double highest = 0;
@@ -170,10 +170,10 @@
       int highestIdx = 0;
       int today = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -256,7 +256,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#aroonLookback} is a <b>success with
+    * valid range shorter than {@link Core#AROON_Lookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -274,17 +274,17 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#aroonOsc
-    * @see Core#minMaxIndex
-    * @see Core#min
-    * @see Core#max
+    * @see Core#AROONOSC
+    * @see Core#MINMAXINDEX
+    * @see Core#MIN
+    * @see Core#MAX
     */
-   public OutRange aroon( int startIdx,
+   public OutRange AROON( int startIdx,
                           int endIdx,
                           double inHigh[],
                           double inLow[],
@@ -294,7 +294,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = aroonInternal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp);
+      RetCode retCode = AROON_Internal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp);
       if( retCode != RetCode.Success ) {
          throw failure("AROON", retCode);
       }
@@ -316,7 +316,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#aroonLookback} is a <b>success with
+    * valid range shorter than {@link Core#AROON_Lookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -334,17 +334,17 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#aroonOsc
-    * @see Core#minMaxIndex
-    * @see Core#min
-    * @see Core#max
+    * @see Core#AROONOSC
+    * @see Core#MINMAXINDEX
+    * @see Core#MIN
+    * @see Core#MAX
     */
-   public OutRange aroon( int startIdx,
+   public OutRange AROON( int startIdx,
                           int endIdx,
                           float inHigh[],
                           float inLow[],
@@ -354,7 +354,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = aroonInternal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp);
+      RetCode retCode = AROON_Internal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp);
       if( retCode != RetCode.Success ) {
          throw failure("AROON", retCode);
       }
@@ -364,20 +364,19 @@
 
    /**
     * A live AROON stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#aroon} over the same series.
-    * Open with {@link Core#aroonOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#AROON} over the same series.
+    * Open with {@link Core#AROON_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class AroonStream {
+   public static final class AROON_Stream {
       final Core core;
       int optInTimePeriod;
       double lowest;
@@ -394,17 +393,20 @@
       double cur_outAroonDown;
       double cur_outAroonUp;
       Value cachedValue;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      AroonStream( Core core ) { this.core = core; }
+      AROON_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#aroonOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#AROON_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      AroonStream( AroonStream other ) {
+      AROON_Stream( AROON_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.lowest = other.lowest;
@@ -424,36 +426,25 @@
          this.fillRange = other.fillRange;
       }
 
-      /** One output set, in batch output order. Immutable. */
-      public static final class Value {
-         public final double aroonDown;
-         public final double aroonUp;
-         Value( double aroonDown, double aroonUp ) {
-            this.aroonDown = aroonDown;
-            this.aroonUp = aroonUp;
-         }
-         @Override public String toString() {
-            return "Value[" + "aroonDown=" + aroonDown + ", " + "aroonUp=" + aroonUp + "]";
-         }
-         @Override public boolean equals( Object o ) {
-            if( !(o instanceof Value) ) return false;
-            Value v = (Value) o;
-            return Double.doubleToLongBits(this.aroonDown) == Double.doubleToLongBits(v.aroonDown) && Double.doubleToLongBits(this.aroonUp) == Double.doubleToLongBits(v.aroonUp);
-         }
-         @Override public int hashCode() {
-            int h = 17;
-            h = 31 * h + Double.hashCode(aroonDown);
-            h = 31 * h + Double.hashCode(aroonUp);
-            return h;
-         }
-      }
+      /**
+       * One output set, in batch output order. Immutable.
+       *
+       * <p>{@code equals} compares every component bitwise, so {@code NaN}
+       * equals {@code NaN} and {@code 0.0} does not equal {@code -0.0}.
+       * {@code hashCode} is consistent with it but its exact value is
+       * unspecified — do not persist it or compare it across JVM versions.
+       *
+       * @param aroonDown Recency of the lowest low (100 = it is the current bar, decaying as it ages)
+       * @param aroonUp Recency of the highest high (100 = it is the current bar, decaying as it ages)
+       */
+      public record Value(double aroonDown, double aroonUp) { }
 
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
        */
       public Value update( double inHigh, double inLow ) {
-         core.aroonStreamStep(this, inHigh, inLow);
+         core.AROON_StreamStep(this, inHigh, inLow);
          this.cachedValue = new Value(this.cur_outAroonDown, this.cur_outAroonUp);
          return this.cachedValue;
       }
@@ -466,8 +457,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public Value peek( double inHigh, double inLow ) {
-         AroonStream scratch = new AroonStream(this);
-         core.aroonStreamStep(scratch, inHigh, inLow);
+         AROON_Stream scratch = new AROON_Stream(this);
+         core.AROON_StreamStep(scratch, inHigh, inLow);
          return new Value(scratch.cur_outAroonDown, scratch.cur_outAroonUp);
       }
 
@@ -484,11 +475,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public AroonStream copy() {
-         return new AroonStream(this);
+      public AROON_Stream copy() {
+         return new AROON_Stream(this);
       }
    }
-   void aroonStreamStep( AroonStream sp, double inHigh, double inLow )
+   void AROON_StreamStep( AROON_Stream sp, double inHigh, double inLow )
    {
       double tmp = 0.0;
       if( sp.today >= 1073741824 ) {
@@ -543,7 +534,7 @@
       sp.trailingIdx += 1;
       sp.today += 1;
    }
-   private RetCode aroonOpenBody( AroonStream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
+   private RetCode AROON_OpenBody( AROON_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
    {
       double lowest = 0;
       double highest = 0;
@@ -563,6 +554,9 @@
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -673,10 +667,10 @@
       sp.x_inLow = capX_inLow;
       sp.cur_outAroonDown = lastValue_outAroonDown;
       sp.cur_outAroonUp = lastValue_outAroonUp;
-      sp.cachedValue = new AroonStream.Value(sp.cur_outAroonDown, sp.cur_outAroonUp);
+      sp.cachedValue = new AROON_Stream.Value(sp.cur_outAroonDown, sp.cur_outAroonUp);
       return RetCode.Success;
    }
-   private RetCode aroonOpenAndFillBody( AroonStream sp, double inHigh[], double inLow[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outAroonDown[], double outAroonUp[] )
+   private RetCode AROON_OpenAndFillBody( AROON_Stream sp, double inHigh[], double inLow[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outAroonDown[], double outAroonUp[] )
    {
       double lowest = 0;
       double highest = 0;
@@ -693,6 +687,9 @@
       int startIdx = 0;
       if( historyLen < 1 || inLow.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -806,63 +803,63 @@
       sp.x_inLow = capX_inLow;
       sp.cur_outAroonDown = outAroonDown[outNBElement.value - 1];
       sp.cur_outAroonUp = outAroonUp[outNBElement.value - 1];
-      sp.cachedValue = new AroonStream.Value(sp.cur_outAroonDown, sp.cur_outAroonUp);
+      sp.cachedValue = new AROON_Stream.Value(sp.cur_outAroonDown, sp.cur_outAroonUp);
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind aroonOpen (composition seam). */
-   AroonStream aroonOpenInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
+   /* Internal startIdx-anchored open behind AROON_Open (composition seam). */
+   AROON_Stream AROON_OpenInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
    {
-      AroonStream sp = new AroonStream(this);
-      RetCode retCode = aroonOpenBody(sp, inHigh, inLow, startIdx, optInTimePeriod);
+      AROON_Stream sp = new AROON_Stream(this);
+      RetCode retCode = AROON_OpenBody(sp, inHigh, inLow, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_AROON open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("AROON open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_AROON open: internal error");
+         throw new IllegalStateException("AROON open: internal error");
       }
-      throw new IllegalArgumentException("TA_AROON open: " + retCode);
+      throw new IllegalArgumentException("AROON open: " + retCode);
    }
    /**
     * Open a live AROON stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#aroon} at that bar.
-    * <p>The history must hold at least {@code aroonLookback(...) + 1} bars
+    * to {@link Core#AROON} at that bar.
+    * <p>The history must hold at least {@code AROON_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public AroonStream aroonOpen( double inHigh[], double inLow[], int optInTimePeriod )
+   public AROON_Stream AROON_Open( double inHigh[], double inLow[], int optInTimePeriod )
    {
-      return aroonOpenInternal(inHigh, inLow, 0, optInTimePeriod);
+      return AROON_OpenInternal(inHigh, inLow, 0, optInTimePeriod);
    }
    /**
-    * {@link Core#aroonOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#aroon} over the whole history in the same single pass
+    * {@link Core#AROON_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#AROON} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link AroonStream#fillRange()}.
+    * {@link AROON_Stream#fillRange()}.
     */
-   public AroonStream aroonOpenAndFill( double inHigh[], double inLow[], int optInTimePeriod, double outAroonDown[], double outAroonUp[] )
+   public AROON_Stream AROON_OpenAndFill( double inHigh[], double inLow[], int optInTimePeriod, double outAroonDown[], double outAroonUp[] )
    {
-      AroonStream sp = new AroonStream(this);
+      AROON_Stream sp = new AROON_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = aroonOpenAndFillBody(sp, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp);
+      RetCode retCode = AROON_OpenAndFillBody(sp, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_AROON openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("AROON openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_AROON openAndFill: internal error");
+         throw new IllegalStateException("AROON openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_AROON openAndFill: " + retCode);
+      throw new IllegalArgumentException("AROON openAndFill: " + retCode);
    }

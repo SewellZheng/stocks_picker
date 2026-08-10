@@ -7,7 +7,6 @@
 use crate::backends::builtins::SpecialBuiltin;
 use crate::backends::c::c_predicate_expr;
 use crate::backends::java::java_predicate_expr;
-use crate::backends::java::to_java_method_name;
 use crate::backends::rust_lang::rust_predicate_expr;
 use crate::ir::{EnumDef, FuncDef, Input, Output, ParamType};
 use std::collections::HashMap;
@@ -21,10 +20,10 @@ use std::path::Path;
 
 /// The comma-separated `FuncUnstId` variant names from enums.yaml (the source of
 /// truth), in ordinal order. Empty if the enum is somehow missing.
-fn func_unst_pascal_names(enums: &HashMap<String, EnumDef>) -> Vec<String> {
+fn func_unst_variant_names(enums: &HashMap<String, EnumDef>) -> Vec<String> {
     enums
         .get("FuncUnstId")
-        .map(|fu| fu.variants.iter().map(|v| v.pascal_name.clone()).collect())
+        .map(|fu| fu.variants.iter().map(|v| v.name.clone()).collect())
         .unwrap_or_default()
 }
 
@@ -596,7 +595,7 @@ fn emit_sv_compare(
             ));
         } else {
             let _ = std::fmt::Write::write_fmt(s, format_args!(
-                "{pad}if( {pre} sv_bitne(v{i}, {b}[{idx}]) ) {{ ok = 0; badBar = {bar}; badOut = {i}; bv = {b}[{idx}]; sv = v{i}; }}\n"
+                "{pad}if( {pre} sv_xtier_ne(v{i}, {b}[{idx}], &svZsign) ) {{ ok = 0; badBar = {bar}; badOut = {i}; bv = {b}[{idx}]; sv = v{i}; }}\n"
             ));
         }
     }
@@ -656,7 +655,9 @@ fn emit_sv_batch_fail_tail(s: &mut String, candle: bool) {
         s.push_str("            if( rd + 1 < rounds ) continue;\n");
         s.push_str("            TA_SetCompatibility((TA_Compatibility)savedCompat);\n");
         s.push_str("            TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );\n");
-        s.push_str("            pos = json_appendf(resp, resp_size, pos, \",\\\"rrc\\\":%d,\\\"legs\\\":%d,\\\"nb\\\":%d,\\\"openRejects\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll);\n");
+        // Reachable after earlier candle rounds already compared, so the benign
+        // count travels with it — otherwise those cases vanish from the summary.
+        s.push_str("            pos = json_appendf(resp, resp_size, pos, \",\\\"rrc\\\":%d,\\\"legs\\\":%d,\\\"nb\\\":%d,\\\"openRejects\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d,\\\"benign\\\":%d}\", (int)rc, lgi, svNb, openRejects, allOk ? 1 : 0, peekAll, svZsign);\n");
     } else {
         s.push_str("            TA_SetCompatibility((TA_Compatibility)savedCompat);\n");
         s.push_str("            snprintf(resp, resp_size, \"{\\\"retCode\\\":%d,\\\"legs\\\":0,\\\"nb\\\":%d,\\\"openRejects\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":1}\", (int)rc, svNb, openRejects, openRejects);\n");
@@ -1021,6 +1022,16 @@ fn generate_c_stream_verify(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("static double sv_f0[SV_MAXN], sv_f1[SV_MAXN], sv_f2[SV_MAXN];\n");
     s.push_str("static int sv_if0[SV_MAXN], sv_if1[SV_MAXN];\n");
     s.push_str("static int sv_bitne(double a, double b) { return memcmp(&a, &b, sizeof(double)) != 0; }\n");
+    // Cross-tier compare (stream vs batch, and OpenAndFill's array vs batch).
+    // Differing bits that are numerically equal can only be +0.0 vs -0.0, which
+    // max/min leave unspecified: counted, never a mismatch — the same benign
+    // class --fuzz-064 carries (issue #147). Same-tier compares (peek vs
+    // update) keep sv_bitne: one code path has no licence to differ at all.
+    s.push_str("static int sv_xtier_ne(double a, double b, int *zsign) {\n");
+    s.push_str("    if( !sv_bitne(a, b) ) return 0;\n");
+    s.push_str("    if( a == b ) { (*zsign)++; return 0; }\n");
+    s.push_str("    return 1;\n");
+    s.push_str("}\n");
     // Candle-settings variation for CDL streams: rounds 1/2 re-run the
     // batch-vs-stream comparison with every setting's avgPeriod bumped (+3)
     // or zeroed (the instant-candle degenerate, runtime trailing lag 0).
@@ -1109,6 +1120,8 @@ fn generate_c_stream_verify(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         s.push_str("        TA_RetCode rc;\n");
         s.push_str("        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;\n");
         s.push_str("        int fillOk = 1, fillChecked = 0;\n");
+        // Benign +/-0 cases across every cross-tier compare in this request.
+        s.push_str("        int svZsign = 0;\n");
         s.push_str("        int pref[4]; int pc[4];\n");
         if candle {
             // Candle functions honor "candleLegs": re-run the whole sweep
@@ -1250,7 +1263,7 @@ fn generate_c_stream_verify(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                     ));
                 } else {
                     s.push_str(&format!(
-                        "                if( sv_bitne({}[ft], {}[ft]) ) fillOk = 0;\n",
+                        "                if( sv_xtier_ne({}[ft], {}[ft], &svZsign) ) fillOk = 0;\n",
                         fbuf[i], bbuf[i]
                     ));
                 }
@@ -1448,9 +1461,9 @@ fn generate_c_stream_verify(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         // even if the driver's fill check ever regresses.
         s.push_str("        if( fillChecked && !fillOk ) allOk = 0;\n");
         if candle {
-            s.push_str("        pos = json_appendf(resp, resp_size, pos, \",\\\"beg\\\":%d,\\\"nb\\\":%d,\\\"legs\\\":%d,\\\"fill_checked\\\":%d,\\\"fill_ok\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll);\n");
+            s.push_str("        pos = json_appendf(resp, resp_size, pos, \",\\\"beg\\\":%d,\\\"nb\\\":%d,\\\"legs\\\":%d,\\\"fill_checked\\\":%d,\\\"fill_ok\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d,\\\"benign\\\":%d}\", svBeg, svNb, lgi, fillChecked, fillOk, allOk, peekAll, svZsign);\n");
         } else {
-            s.push_str("        pos = json_appendf(resp, resp_size, pos, \",\\\"fill_checked\\\":%d,\\\"fill_ok\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d}\", fillChecked, fillOk, allOk, peekAll);\n");
+            s.push_str("        pos = json_appendf(resp, resp_size, pos, \",\\\"fill_checked\\\":%d,\\\"fill_ok\\\":%d,\\\"ok\\\":%d,\\\"peek_ok\\\":%d,\\\"benign\\\":%d}\", fillChecked, fillOk, allOk, peekAll, svZsign);\n");
         }
         s.push_str("        return;\n");
         s.push_str("    }\n");
@@ -1970,7 +1983,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // COUNT sizes the table (#144).
     s.push_str("enum FuncUnstId {\n");
     {
-        let names = func_unst_pascal_names(enums);
+        let names = func_unst_variant_names(enums);
         let nchunks = names.chunks(6).count().max(1);
         for (idx, chunk) in names.chunks(6).enumerate() {
             if idx + 1 == nchunks {
@@ -1981,9 +1994,9 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             }
         }
     }
-    s.push_str("    All;\n");
-    s.push_str(&format!("    static final int COUNT = {};\n", func_unst_pascal_names(enums).len()));
-    s.push_str("    int value() { return this == All ? 65535 : ordinal(); }\n");
+    s.push_str("    ALL;\n");
+    s.push_str(&format!("    static final int COUNT = {};\n", func_unst_variant_names(enums).len()));
+    s.push_str("    int value() { return this == ALL ? 65535 : ordinal(); }\n");
     s.push_str("}\n\n");
 
     // No Compatibility enum: the Java backend constant-folds the Metastock arms
@@ -1994,7 +2007,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("enum MAType {\n");
     {
         let ma = enums.get("MAType").expect("MAType enum required");
-        let names: Vec<&str> = ma.variants.iter().map(|v| v.pascal_name.as_str()).collect();
+        let names: Vec<&str> = ma.variants.iter().map(|v| v.name.as_str()).collect();
         s.push_str(&format!("    {};\n", names.join(", ")));
     }
     s.push_str("}\n\n");
@@ -2027,12 +2040,13 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // The parameter sentinels the generated validation names. This server is a
     // standalone compilation unit, so it carries its own copy of what the shipped
     // io.github.talib.Core declares.
-    s.push_str("    static final double TA_REAL_DEFAULT = -4e37;\n");
-    s.push_str("    static final double TA_REAL_MIN = -3e37;\n");
-    s.push_str("    static final double TA_REAL_MAX = 3e37;\n");
-    s.push_str("    static final int TA_INTEGER_DEFAULT = Integer.MIN_VALUE;\n");
-    s.push_str("    static final int TA_INTEGER_MIN = Integer.MIN_VALUE + 1;\n");
-    s.push_str("    static final int TA_INTEGER_MAX = Integer.MAX_VALUE;\n");
+    s.push_str("    static final double REAL_DEFAULT = -4e37;\n");
+    s.push_str("    static final double REAL_MIN = -3e37;\n");
+    s.push_str("    static final double REAL_MAX = 3e37;\n");
+    s.push_str("    static final int INTEGER_DEFAULT = Integer.MIN_VALUE;\n");
+    s.push_str("    static final int INTEGER_MIN = Integer.MIN_VALUE + 1;\n");
+    s.push_str("    static final int INTEGER_MAX = Integer.MAX_VALUE;\n");
+    s.push_str("    static final int MAX_INDEX = 100000000;\n");
     // Sized by the id count, so the wildcard gets no slot -- matching the
     // shipped CoreBuilder (#144).
     s.push_str("    int[] unstablePeriod = new int[FuncUnstId.COUNT];\n");
@@ -2053,7 +2067,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    };\n\n");
     // Mirrors the shipped Core's mapper — the spliced public wrappers call it.
     s.push_str("    static RuntimeException failure(String funcName, RetCode retCode) {\n");
-    s.push_str("        String where = \"TA_\" + funcName + \": \";\n");
+    s.push_str("        String where = funcName + \": \";\n");
     s.push_str("        switch (retCode) {\n");
     s.push_str("            case OutOfRangeStartIndex: return new IndexOutOfBoundsException(where + \"startIdx out of range\");\n");
     s.push_str("            case OutOfRangeEndIndex: return new IndexOutOfBoundsException(where + \"endIdx out of range\");\n");
@@ -2244,8 +2258,8 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        else if (json.contains(\"\\\"set_unstable_period\\\"\")) {\n");
     s.push_str("            int id = jsonInt(json, \"id\");\n");
     s.push_str("            int period = jsonInt(json, \"period\");\n");
-    // FuncUnstId.All is the "set all" sentinel (matches C TA_SetUnstablePeriod).
-    s.push_str("            if (id == FuncUnstId.All.value()) {\n");
+    // FuncUnstId.ALL is the "set all" sentinel (matches C TA_SetUnstablePeriod).
+    s.push_str("            if (id == FuncUnstId.ALL.value()) {\n");
     s.push_str("                for (int i = 0; i < core.unstablePeriod.length; i++) core.unstablePeriod[i] = period;\n");
     s.push_str("                return \"{\\\"status\\\":\\\"ok\\\"}\"; \n");
     s.push_str("            }\n");
@@ -2314,7 +2328,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
     // Per-function handler methods — each is small enough for C2 JIT compilation.
     for func in funcs {
-        let func_lower = to_java_method_name(&func.name, func.camel_case.as_deref());
+        let func_base = func.name.clone();
 
         s.push_str(&format!(
             "    static String handle_{}(String json) {{\n",
@@ -2416,7 +2430,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         s.push_str("        if (_bi == 1) startNs = System.nanoTime();\n");
 
         // Call
-        s.push_str(&format!("        rc = core.{func_lower}Internal(\n"));
+        s.push_str(&format!("        rc = core.{func_base}_Internal(\n"));
         s.push_str("            startIdx, endIdx,\n");
         for name in &input_names {
             s.push_str(&format!("            {name},\n"));
@@ -2446,7 +2460,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                  \x20           for (int _fi = 0; _fi < {name}.length; _fi++) f_{name}[_fi] = (float){name}[_fi];\n"
             ));
         }
-        s.push_str(&format!("            rc = core.{func_lower}Internal(\n"));
+        s.push_str(&format!("            rc = core.{func_base}_Internal(\n"));
         s.push_str("                startIdx, endIdx,\n");
         for name in &input_names {
             s.push_str(&format!("                f_{name},\n"));
@@ -2870,12 +2884,12 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("                return sb.ToString();\n");
     s.push_str("            }\n");
 
-    // set_unstable_period — FuncUnstId.All is the "set all" sentinel (matches
+    // set_unstable_period — FuncUnstId.ALL is the "set all" sentinel (matches
     // C's TA_SetUnstablePeriod and the Java server).
     s.push_str("            else if (method == \"set_unstable_period\") {\n");
     s.push_str("                int id = GetInt(p, \"id\", -1);\n");
     s.push_str("                int period = GetInt(p, \"period\", 0);\n");
-    s.push_str("                if (id == (int)FuncUnstId.All) {\n");
+    s.push_str("                if (id == (int)FuncUnstId.ALL) {\n");
     s.push_str("                    for (int i = 0; i < core.unstablePeriod.Length; i++) core.unstablePeriod[i] = period;\n");
     s.push_str("                    return \"{\\\"status\\\":\\\"ok\\\"}\";\n");
     s.push_str("                }\n");
@@ -2979,10 +2993,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("    static long ComputeLookback(string funcName, JsonElement p) {\n");
     s.push_str("        switch (funcName) {\n");
     for func in funcs {
-        let base = crate::backends::csharp::to_csharp_method_name(
-            &func.name,
-            func.camel_case.as_deref(),
-        );
+        let base = func.name.clone();
         s.push_str(&format!("        case \"{}\": {{\n", func.name));
         for opt in &func.optional_inputs {
             match &opt.param_type {
@@ -3003,7 +3014,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
         }
         let args: Vec<&str> = func.optional_inputs.iter().map(|o| o.name.as_str()).collect();
         s.push_str(&format!(
-            "            return core.{base}Lookback({});\n",
+            "            return core.{base}_Lookback({});\n",
             args.join(", ")
         ));
         s.push_str("        }\n");
@@ -3014,10 +3025,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
 
     // Per-function handler methods.
     for func in funcs {
-        let base = crate::backends::csharp::to_csharp_method_name(
-            &func.name,
-            func.camel_case.as_deref(),
-        );
+        let base = func.name.clone();
         let input_names = expand_input_names(&func.inputs);
         let outputs = &func.outputs;
 
@@ -3296,9 +3304,9 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("use serde_json::{self, Value};\n");
     s.push_str("use std::io::{self, BufRead, Write};\n");
     s.push_str("use std::time::Instant;\n");
-    s.push_str("use ta_lib::{Core, CoreBuilder, RetCode, FuncUnstId};\n");
+    s.push_str("use ta_lib::{Core, CoreBuilder, RetCode, FuncUnstId, MAX_INDEX};\n");
     s.push_str("use ta_lib::{CandleSetting, CandleSettings, CandleSettingType};\n");
-    s.push_str("use ta_lib::abstract_api::{self, InputType, OutputType, OptDomain};\n\n");
+    s.push_str("use ta_lib::abstract_api::{self, InputType, OutputType, OptInputType};\n\n");
 
     // Seed-based fuzz input generator + FNV output hasher — a bit-exact port of
     // src/tools/ta_regtest/fuzz_data.h. Powers the cross-language bitwise-parity
@@ -3375,6 +3383,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        RetCode::InternalError => 5000,\n");
     s.push_str("        RetCode::OutOfRangeStartIndex => 12,\n");
     s.push_str("        RetCode::OutOfRangeEndIndex => 13,\n");
+    s.push_str("        _ => 5000,\n");
     s.push_str("    }\n");
     s.push_str("}\n\n");
 
@@ -3415,7 +3424,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("fn func_unst_id_from_int(id: usize) -> Option<FuncUnstId> {\n");
     s.push_str("    match id {\n");
     // Generated from enums.yaml (source of truth), in ordinal order.
-    for (i, name) in func_unst_pascal_names(enums).iter().enumerate() {
+    for (i, name) in func_unst_variant_names(enums).iter().enumerate() {
         s.push_str(&format!("        {i} => Some(FuncUnstId::{name}),\n"));
     }
     s.push_str("        _ => None,\n");
@@ -3424,12 +3433,12 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
     // apply_unstable_period — rebuild the immutable `*core` with one function's
     // unstable period changed, going through the public builder API (`Core` has no
-    // setters). Handles the FuncUnstAll "set all" wildcard (id == FuncUnstAll as
+    // setters). Handles the `ALL` "set all" wildcard (id == ALL as
     // usize); returns false on an out-of-range id. Shared by the `set_unstable_period`
     // RPC and the inline per-function `unstablePeriod` override.
     s.push_str("fn apply_unstable_period(core: &mut Core, id: usize, period: i32) -> bool {\n");
-    s.push_str("    if id == FuncUnstId::FuncUnstAll as usize {\n");
-    s.push_str("        *core = core.to_builder().unstable_period(FuncUnstId::FuncUnstAll, period).build();\n");
+    s.push_str("    if id == FuncUnstId::ALL as usize {\n");
+    s.push_str("        *core = core.to_builder().unstable_period(FuncUnstId::ALL, period).build();\n");
     s.push_str("        true\n");
     s.push_str("    } else if let Some(uid) = func_unst_id_from_int(id) {\n");
     s.push_str("        *core = core.to_builder().unstable_period(uid, period).build();\n");
@@ -3484,7 +3493,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // Per-function dispatch
     for func in funcs {
         let method_name = format!("TA_{}", func.name);
-        let fn_name = func.name.to_lowercase();
+        let fn_name = func.name.clone();
 
         s.push_str(&format!("        \"{method_name}\" => {{\n"));
 
@@ -3703,7 +3712,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         // abstract_call reroute returns the `lookback` field the C ta_abstract path
         // exposes; harmless extra field for the regular per-function path. Computed
         // after the unstable-period assignment above so it reflects that state.
-        s.push_str(&format!("            let lookback = core.{fn_name}_lookback("));
+        s.push_str(&format!("            let lookback = core.{fn_name}_Lookback("));
         let lb_args: Vec<String> = func
             .optional_inputs
             .iter()
@@ -3763,7 +3772,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         "            let period = params[\"period\"].as_i64().unwrap_or(0) as i32;\n",
     );
     // apply_unstable_period rebuilds the immutable Core via the builder and handles
-    // the FuncUnstAll "set all" sentinel (matches C TA_SetUnstablePeriod).
+    // the `ALL` "set all" sentinel (matches C TA_SetUnstablePeriod).
     s.push_str("            if apply_unstable_period(core, id, period) {\n");
     s.push_str(
         "                \"{\\\"status\\\":\\\"ok\\\"}\".to_string()\n",
@@ -3909,7 +3918,6 @@ const RUST_ABSTRACT_METADATA_HANDLERS: &str = r#"        "TA_GetFuncInfo" => {
                         "name": fi.name,
                         "group": fi.group.as_str(),
                         "hint": fi.hint,
-                        "camelCaseName": fi.camel_case_name,
                         "flags": fi.flags.bits(),
                         "nbInput": fi.nb_input(),
                         "nbOptInput": fi.nb_opt_input(),
@@ -3945,11 +3953,11 @@ const RUST_ABSTRACT_METADATA_HANDLERS: &str = r#"        "TA_GetFuncInfo" => {
             match abstract_api::get_func_handle(name)
                 .and_then(|id| abstract_api::get_opt_input_parameter_info(id, idx)) {
                 Some(oi) => {
-                    let (ty, default): (i32, f64) = match oi.domain {
-                        OptDomain::RealRange { default, .. } => (0, default),
-                        OptDomain::RealList { default, .. } => (1, default),
-                        OptDomain::IntegerRange { default, .. } => (2, default as f64),
-                        OptDomain::IntegerList { default, .. } => (3, default as f64),
+                    let (ty, default): (i32, f64) = match oi.kind {
+                        OptInputType::RealRange { default, .. } => (0, default),
+                        OptInputType::RealList { default, .. } => (1, default),
+                        OptInputType::IntegerRange { default, .. } => (2, default as f64),
+                        OptInputType::IntegerList { default, .. } => (3, default as f64),
                     };
                     let mut resp = serde_json::json!({
                         "type": ty,
@@ -3959,8 +3967,8 @@ const RUST_ABSTRACT_METADATA_HANDLERS: &str = r#"        "TA_GetFuncInfo" => {
                         "hint": oi.hint,
                         "defaultValue": default,
                     });
-                    match oi.domain {
-                        OptDomain::RealRange { min, max, precision, suggested, .. } => {
+                    match oi.kind {
+                        OptInputType::RealRange { min, max, precision, suggested, .. } => {
                             resp["min"] = serde_json::json!(min);
                             resp["max"] = serde_json::json!(max);
                             resp["precision"] = serde_json::json!(precision);
@@ -3968,14 +3976,14 @@ const RUST_ABSTRACT_METADATA_HANDLERS: &str = r#"        "TA_GetFuncInfo" => {
                             resp["suggestedEnd"] = serde_json::json!(suggested.1);
                             resp["suggestedIncrement"] = serde_json::json!(suggested.2);
                         }
-                        OptDomain::IntegerRange { min, max, suggested, .. } => {
+                        OptInputType::IntegerRange { min, max, suggested, .. } => {
                             resp["min"] = serde_json::json!(min);
                             resp["max"] = serde_json::json!(max);
                             resp["suggestedStart"] = serde_json::json!(suggested.0);
                             resp["suggestedEnd"] = serde_json::json!(suggested.1);
                             resp["suggestedIncrement"] = serde_json::json!(suggested.2);
                         }
-                        OptDomain::IntegerList { values, .. } => {
+                        OptInputType::IntegerList { values, .. } => {
                             let mut vl = String::new();
                             for (i, (v, label)) in values.iter().enumerate() {
                                 if i > 0 { vl.push(';'); }
@@ -3983,7 +3991,7 @@ const RUST_ABSTRACT_METADATA_HANDLERS: &str = r#"        "TA_GetFuncInfo" => {
                             }
                             resp["valueList"] = serde_json::json!(vl);
                         }
-                        OptDomain::RealList { .. } => {}
+                        OptInputType::RealList { .. } => {}
                     }
                     resp.to_string()
                 }
@@ -4049,11 +4057,11 @@ fn abs_call(core: &Core, params: &Value) -> String {
     // clamping, and the driver compares retCodes.
     let raw_start = params["startIdx"].as_i64().unwrap_or(0);
     let raw_end = params["endIdx"].as_i64().unwrap_or(0);
-    if raw_start < 0 {
+    if raw_start < 0 || raw_start > MAX_INDEX as i64 {
         return format!("{{\"binder\":1,\"lookback\":-1,\"retCode\":{},\"outBegIdx\":0,\"outNBElement\":0}}",
                        retcode_to_int(RetCode::OutOfRangeStartIndex));
     }
-    if raw_end < 0 || raw_end < raw_start {
+    if raw_end < 0 || raw_end > MAX_INDEX as i64 || raw_end < raw_start {
         return format!("{{\"binder\":1,\"lookback\":-1,\"retCode\":{},\"outBegIdx\":0,\"outNBElement\":0}}",
                        retcode_to_int(RetCode::OutOfRangeEndIndex));
     }
@@ -4104,8 +4112,8 @@ fn abs_call(core: &Core, params: &Value) -> String {
             }
         }
         for (k, opt) in info.opt_inputs.iter().enumerate() {
-            match opt.domain {
-                OptDomain::RealRange { .. } | OptDomain::RealList { .. } => {
+            match opt.kind {
+                OptInputType::RealRange { .. } | OptInputType::RealList { .. } => {
                     if let Some(v) = params[opt.param_name].as_f64() { note(h.set_opt(k, v)); }
                 }
                 _ => {
@@ -4176,8 +4184,8 @@ fn abs_lookback(core: &Core, params: &Value) -> Option<i64> {
     let id = abstract_api::get_func_handle(fname)?;
     let mut h = id.new_call(core);
     for (k, opt) in id.info().opt_inputs.iter().enumerate() {
-        match opt.domain {
-            OptDomain::RealRange { .. } | OptDomain::RealList { .. } => {
+        match opt.kind {
+            OptInputType::RealRange { .. } | OptInputType::RealList { .. } => {
                 if let Some(v) = params[opt.param_name].as_f64() { let _ = h.set_opt(k, v); }
             }
             _ => {
@@ -4255,7 +4263,7 @@ const RUST_ABSTRACT_DYNAMIC_HANDLERS: &str = r#"        "abstract_call" => {
 // in-process on identical seeded inputs, compare BITWISE per bar (to_bits),
 // spot-assert peek == update, verify the OpenAndFill fill against the batch
 // arrays, and answer the same flat JSON contract the ta_regtest driver reads
-// (ok / peek_ok / legs / fill_checked / fill_ok / unsupportedArm /
+// (ok / peek_ok / legs / fill_checked / fill_ok / benign / unsupportedArm /
 // "not_streamable"). Differences from the C gate, by design:
 // - No startIdx-anchored OpenInternal leg: `<f>_open_internal` is pub(crate)
 //   (the anchor seam is a bit-exactness footgun, not a public API); anchored
@@ -4300,7 +4308,10 @@ fn sv_rust_input_array(name: &str, generic_idx: &mut usize) -> &'static str {
 #[allow(clippy::too_many_lines)]
 fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     use std::fmt::Write as _;
+    // The server-local verify fn stays snake_case (`sv_sma`); library calls use
+    // the verbatim function name.
     let sn = func.name.to_lowercase();
+    let fname = &func.name;
     let candle = func.name.starts_with("CDL");
     let inputs = crate::streaming::input_array_names(func);
     let mut gi = 0usize;
@@ -4417,6 +4428,13 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     s.push_str(&bdecls);
 
     s.push_str("    let mut legs = 0i64;\n    let mut all_ok = true;\n    let mut peek_all = true;\n    let mut fill_checked = 0i32;\n    let mut fill_ok = true;\n    let mut beg = 0usize;\n    let mut nb = 0usize;\n    let mut diag = String::new();\n");
+    // Benign +/-0 cases across every cross-tier compare in this request. `mut`
+    // only when an output can reach sv_xtier_ne: an all-integer function (every
+    // CDL*, MIN/MAX/MINMAXINDEX, HT_TRENDMODE) compares with `!=` and only ever
+    // reads this, and rustc's unused_mut is not in the generated crate's allow
+    // list — same reason cb_mut below is conditional.
+    let z_mut = if out_is_int.iter().any(|b| !*b) { "mut " } else { "" };
+    let _ = writeln!(s, "    let {z_mut}zsign = 0i64;");
     let rounds = if candle {
         "    let rounds = if candleLegs != 0 { 4 } else { 1 };\n"
     } else {
@@ -4448,13 +4466,13 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         let _ = writeln!(s, "        if {guard} {{");
         let _ = writeln!(
             s,
-            "            let r1 = c2.{sn}_open({full_ins}{opts_tail}).is_err();"
+            "            let r1 = c2.{fname}_Open({full_ins}{opts_tail}).is_err();"
         );
         s.push_str(&fdecls.replace("        ", "            "));
         s.push_str("            let mut fBeg = 0usize;\n            let mut fNb = 0usize;\n");
         let _ = writeln!(
             s,
-            "            let r2 = c2.{sn}_open_and_fill({full_ins}{opts_tail}, &mut fBeg, &mut fNb{fargs}).is_err();"
+            "            let r2 = c2.{fname}_OpenAndFill({full_ins}{opts_tail}, &mut fBeg, &mut fNb{fargs}).is_err();"
         );
         s.push_str("            let okr = r1 && r2;\n");
         s.push_str("            return format!(\"{{\\\"retCode\\\":0,\\\"legs\\\":0,\\\"unsupportedArm\\\":1,\\\"ok\\\":{},\\\"peek_ok\\\":1}}\", i32::from(okr));\n");
@@ -4464,18 +4482,18 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     // Batch leg.
     let _ = writeln!(
         s,
-        "        let rc = c2.{sn}(0, svN - 1, {full_ins}, {opts_lead}&mut beg, &mut nb{bargs});"
+        "        let rc = c2.{fname}(0, svN - 1, {full_ins}, {opts_lead}&mut beg, &mut nb{bargs});"
     );
-    let _ = writeln!(s, "        let lb = c2.{sn}_lookback({opts});");
+    let _ = writeln!(s, "        let lb = c2.{fname}_Lookback({opts});");
     s.push_str("        if rc != RetCode::Success || nb == 0 {\n");
     let _ = writeln!(
         s,
-        "            let open_rejects = c2.{sn}_open({full_ins}{opts_tail}).is_err();"
+        "            let open_rejects = c2.{fname}_Open({full_ins}{opts_tail}).is_err();"
     );
     if candle {
         s.push_str("            if !open_rejects { all_ok = false; }\n");
         s.push_str("            if rd + 1 < rounds { continue; }\n");
-        s.push_str("            return format!(\"{{\\\"retCode\\\":{},\\\"legs\\\":{},\\\"nb\\\":{},\\\"openRejects\\\":{},\\\"ok\\\":{},\\\"peek_ok\\\":{}}}\", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all));\n");
+        s.push_str("            return format!(\"{{\\\"retCode\\\":{},\\\"legs\\\":{},\\\"nb\\\":{},\\\"openRejects\\\":{},\\\"ok\\\":{},\\\"peek_ok\\\":{},\\\"benign\\\":{}}}\", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);\n");
     } else {
         s.push_str("            return format!(\"{{\\\"retCode\\\":{},\\\"legs\\\":0,\\\"nb\\\":{},\\\"openRejects\\\":{},\\\"ok\\\":{},\\\"peek_ok\\\":1}}\", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));\n");
     }
@@ -4487,7 +4505,7 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     s.push_str("        let mut fBeg = 0usize;\n        let mut fNb = 0usize;\n");
     let _ = writeln!(
         s,
-        "        match c2.{sn}_open_and_fill({full_ins}{opts_tail}, &mut fBeg, &mut fNb{fargs}) {{"
+        "        match c2.{fname}_OpenAndFill({full_ins}{opts_tail}, &mut fBeg, &mut fNb{fargs}) {{"
     );
     s.push_str("            Err(_) => { fill_ok = false; }\n");
     s.push_str("            Ok(_h) => {\n                if fBeg != beg || fNb != nb { fill_ok = false; }\n                else {\n");
@@ -4495,7 +4513,7 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         if *is_int {
             let _ = writeln!(s, "                    for i in 0..nb {{ if f{i}[i] != b{i}[i] {{ fill_ok = false; }} }}");
         } else {
-            let _ = writeln!(s, "                    for i in 0..nb {{ if f{i}[i].to_bits() != b{i}[i].to_bits() {{ fill_ok = false; }} }}");
+            let _ = writeln!(s, "                    for i in 0..nb {{ if sv_xtier_ne(f{i}[i], b{i}[i], &mut zsign) {{ fill_ok = false; }} }}");
         }
     }
     s.push_str("                }\n            }\n        }\n        }\n");
@@ -4512,7 +4530,7 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     s.push_str("        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);\n");
     s.push_str("        pcs.sort_unstable();\n        pcs.dedup();\n");
     s.push_str("        for &p in &pcs {\n");
-    let _ = writeln!(s, "            match c2.{sn}_open({pfx_ins}{opts_tail}) {{");
+    let _ = writeln!(s, "            match c2.{fname}_Open({pfx_ins}{opts_tail}) {{");
     s.push_str("                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(\",\\\"openRejectP\\\":{}\", p); } }\n");
     s.push_str("                Ok((mut st, v0)) => {\n                    legs += 1;\n");
     // open-value compare
@@ -4527,7 +4545,7 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         if out_is_int[i] {
             let _ = writeln!(s, "                    if {part} != b{i}[p - 1 - beg] {{ all_ok = false; if diag.is_empty() {{ diag = format!(\",\\\"badBar\\\":{{}},\\\"badOut\\\":{i},\\\"where\\\":\\\"open\\\"\", p - 1); }} }}");
         } else {
-            let _ = writeln!(s, "                    if {part}.to_bits() != b{i}[p - 1 - beg].to_bits() {{ all_ok = false; if diag.is_empty() {{ diag = format!(\",\\\"badBar\\\":{{}},\\\"badOut\\\":{i},\\\"where\\\":\\\"open\\\"\", p - 1); }} }}");
+            let _ = writeln!(s, "                    if sv_xtier_ne({part}, b{i}[p - 1 - beg], &mut zsign) {{ all_ok = false; if diag.is_empty() {{ diag = format!(\",\\\"badBar\\\":{{}},\\\"badOut\\\":{i},\\\"where\\\":\\\"open\\\"\", p - 1); }} }}");
         }
     }
     // update loop
@@ -4549,7 +4567,7 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         if out_is_int[i] {
             let _ = writeln!(s, "                            if {up} != b{i}[t - beg] {{ all_ok = false; if diag.is_empty() {{ diag = format!(\",\\\"badBar\\\":{{}},\\\"badOut\\\":{i},\\\"batchv\\\":\\\"{{}}\\\",\\\"streamv\\\":\\\"{{}}\\\"\", t, b{i}[t - beg], {up}); }} }}");
         } else {
-            let _ = writeln!(s, "                            if {up}.to_bits() != b{i}[t - beg].to_bits() {{ all_ok = false; if diag.is_empty() {{ diag = format!(\",\\\"badBar\\\":{{}},\\\"badOut\\\":{i},\\\"batchv\\\":\\\"{{:016x}}\\\",\\\"streamv\\\":\\\"{{:016x}}\\\"\", t, b{i}[t - beg].to_bits(), {up}.to_bits()); }} }}");
+            let _ = writeln!(s, "                            if sv_xtier_ne({up}, b{i}[t - beg], &mut zsign) {{ all_ok = false; if diag.is_empty() {{ diag = format!(\",\\\"badBar\\\":{{}},\\\"badOut\\\":{i},\\\"batchv\\\":\\\"{{:016x}}\\\",\\\"streamv\\\":\\\"{{:016x}}\\\"\", t, b{i}[t - beg].to_bits(), {up}.to_bits()); }} }}");
         }
     }
     s.push_str("                        } else {\n");
@@ -4558,7 +4576,7 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         if out_is_int[i] {
             let _ = writeln!(s, "                            if {up} != b{i}[t - beg] {{ all_ok = false; if diag.is_empty() {{ diag = format!(\",\\\"badBar\\\":{{}},\\\"badOut\\\":{i},\\\"batchv\\\":\\\"{{}}\\\",\\\"streamv\\\":\\\"{{}}\\\"\", t, b{i}[t - beg], {up}); }} }}");
         } else {
-            let _ = writeln!(s, "                            if {up}.to_bits() != b{i}[t - beg].to_bits() {{ all_ok = false; if diag.is_empty() {{ diag = format!(\",\\\"badBar\\\":{{}},\\\"badOut\\\":{i},\\\"batchv\\\":\\\"{{:016x}}\\\",\\\"streamv\\\":\\\"{{:016x}}\\\"\", t, b{i}[t - beg].to_bits(), {up}.to_bits()); }} }}");
+            let _ = writeln!(s, "                            if sv_xtier_ne({up}, b{i}[t - beg], &mut zsign) {{ all_ok = false; if diag.is_empty() {{ diag = format!(\",\\\"badBar\\\":{{}},\\\"badOut\\\":{i},\\\"batchv\\\":\\\"{{:016x}}\\\",\\\"streamv\\\":\\\"{{:016x}}\\\"\", t, b{i}[t - beg].to_bits(), {up}.to_bits()); }} }}");
         }
     }
     s.push_str("                        }\n");
@@ -4577,14 +4595,14 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         .join(", ");
     let _ = writeln!(
         s,
-        "            if c2.{sn}_open({short_ins}{opts_tail}).is_ok() {{ all_ok = false; if diag.is_empty() {{ diag = \",\\\"shortHistoryAccepted\\\":1\".to_string(); }} }}"
+        "            if c2.{fname}_Open({short_ins}{opts_tail}).is_ok() {{ all_ok = false; if diag.is_empty() {{ diag = \",\\\"shortHistoryAccepted\\\":1\".to_string(); }} }}"
     );
     s.push_str("        }\n");
 
     s.push_str("    }\n");
     // fill_ok folds into ok as a safety net (mirrors the C gate), so a driver
     // reading only `ok` — e.g. the debug sweep — still fails on a fill regression.
-    s.push_str("    format!(\"{{\\\"retCode\\\":0,\\\"beg\\\":{},\\\"nb\\\":{},\\\"legs\\\":{},\\\"fill_checked\\\":{},\\\"fill_ok\\\":{},\\\"ok\\\":{},\\\"peek_ok\\\":{}{}}}\", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), diag)\n");
+    s.push_str("    format!(\"{{\\\"retCode\\\":0,\\\"beg\\\":{},\\\"nb\\\":{},\\\"legs\\\":{},\\\"fill_checked\\\":{},\\\"fill_ok\\\":{},\\\"ok\\\":{},\\\"peek_ok\\\":{},\\\"benign\\\":{}{}}}\", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), zsign, diag)\n");
     s.push_str("}\n\n");
     s
 }
@@ -4598,6 +4616,14 @@ pub(crate) fn generate_rust_stream_verify(
     use std::fmt::Write as _;
     let mut s = String::new();
     s.push_str("// ---- stream_verify: Rust stream vs Rust batch, bitwise ----\n\n");
+    // Cross-tier compare — see the C emitter for the rule. Differing bits that
+    // compare equal are +0.0 vs -0.0 (issue #147): counted, never a mismatch.
+    // The peek-vs-update spot-assert stays a strict `to_bits()` compare.
+    s.push_str("fn sv_xtier_ne(a: f64, b: f64, zsign: &mut i64) -> bool {\n");
+    s.push_str("    if a.to_bits() == b.to_bits() { return false; }\n");
+    s.push_str("    if a == b { *zsign += 1; return false; }\n");
+    s.push_str("    true\n");
+    s.push_str("}\n\n");
     // Candle-settings rounds (mirror the C sweep): defaults / avgPeriod+3 /
     // avgPeriod=0 (instant candle) / rangeType=Shadows.
     s.push_str("fn sv_candle_settings(rd: i32) -> CandleSettings {\n    let mut s = CandleSettings::default_settings();\n    let all = |s: &mut CandleSettings, f: &dyn Fn(&mut CandleSetting)| {\n        for cs in [&mut s.body_long, &mut s.body_very_long, &mut s.body_short, &mut s.body_doji,\n                   &mut s.shadow_long, &mut s.shadow_very_long, &mut s.shadow_short,\n                   &mut s.shadow_very_short, &mut s.near, &mut s.far, &mut s.equal] {\n            f(cs);\n        }\n    };\n    match rd {\n        1 => all(&mut s, &|c| c.avg_period += 3),\n        2 => all(&mut s, &|c| c.avg_period = 0),\n        3 => all(&mut s, &|c| c.range_type = 2),\n        _ => {}\n    }\n    s\n}\n\n");
@@ -4668,7 +4694,7 @@ fn sv_java_input_array(name: &str, generic_idx: &mut usize) -> &'static str {
 #[allow(clippy::too_many_lines, clippy::cast_possible_truncation, clippy::cognitive_complexity)]
 fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     use std::fmt::Write as _;
-    let base = crate::backends::java::to_java_method_name(&func.name, func.camel_case.as_deref());
+    let base = func.name.clone();
     let class = crate::backends::java_stream::stream_class_name(func);
     let candle = func.name.starts_with("CDL");
     let inputs = crate::streaming::input_array_names(func);
@@ -4684,10 +4710,13 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         .iter()
         .map(|o| o.param_type == crate::ir::ParamType::Integer)
         .collect();
+    // The accessor CALL, not the name: `Value` is a record, so every read below
+    // is `up.macd()`. Rendered once here because all ten read sites interpolate
+    // this same list.
     let vfield: Vec<String> = func
         .outputs
         .iter()
-        .map(|o| crate::backends::java_stream::value_field_name(&o.name))
+        .map(|o| format!("{}()", crate::backends::java_stream::value_field_name(&o.name)))
         .collect();
 
     let mut s = String::new();
@@ -4810,6 +4839,10 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     s.push_str(&bdecls);
 
     s.push_str("        long legs = 0;\n        boolean allOk = true;\n        boolean peekAll = true;\n        int fillChecked = 0;\n        boolean fillOk = true;\n        MInteger beg = new MInteger();\n        MInteger nb = new MInteger();\n        String diag = \"\";\n");
+    // Benign +/-0 cases across every cross-tier compare in this request. A
+    // one-element array, not a static: the server answers many requests per
+    // process and a static would carry one function's count into the next.
+    s.push_str("        long[] zsign = { 0 };\n");
     if candle {
         s.push_str("        int rounds = (candleLegs != 0) ? 4 : 1;\n");
     } else {
@@ -4844,13 +4877,13 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         s.push_str("                boolean r1;\n");
         let _ = writeln!(
             s,
-            "                try {{ c2.{base}Open({full_ins}{opts_tail}); r1 = false; }} catch (IllegalArgumentException _e) {{ r1 = true; }}"
+            "                try {{ c2.{base}_Open({full_ins}{opts_tail}); r1 = false; }} catch (IllegalArgumentException _e) {{ r1 = true; }}"
         );
         s.push_str(&fdecls.replace("            ", "                "));
         s.push_str("                boolean r2;\n");
         let _ = writeln!(
             s,
-            "                try {{ c2.{base}OpenAndFill({full_ins}{opts_tail}{fargs}); r2 = false; }} catch (IllegalArgumentException _e) {{ r2 = true; }}"
+            "                try {{ c2.{base}_OpenAndFill({full_ins}{opts_tail}{fargs}); r2 = false; }} catch (IllegalArgumentException _e) {{ r2 = true; }}"
         );
         s.push_str("                boolean okr = r1 && r2;\n");
         s.push_str("                return \"{\\\"retCode\\\":0,\\\"legs\\\":0,\\\"unsupportedArm\\\":1,\\\"ok\\\":\" + (okr ? 1 : 0) + \",\\\"peek_ok\\\":1}\";\n");
@@ -4860,19 +4893,19 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     // Batch leg.
     let _ = writeln!(
         s,
-        "            RetCode rc = c2.{base}Internal(0, svN - 1, {full_ins}, {opts_lead}beg, nb{bargs});"
+        "            RetCode rc = c2.{base}_Internal(0, svN - 1, {full_ins}, {opts_lead}beg, nb{bargs});"
     );
-    let _ = writeln!(s, "            int lb = c2.{base}Lookback({opts});");
+    let _ = writeln!(s, "            int lb = c2.{base}_Lookback({opts});");
     s.push_str("            if (rc != RetCode.Success || nb.value == 0) {\n");
     s.push_str("                boolean openRejects;\n");
     let _ = writeln!(
         s,
-        "                try {{ c2.{base}Open({full_ins}{opts_tail}); openRejects = false; }} catch (IllegalArgumentException _e) {{ openRejects = true; }}"
+        "                try {{ c2.{base}_Open({full_ins}{opts_tail}); openRejects = false; }} catch (IllegalArgumentException _e) {{ openRejects = true; }}"
     );
     if candle {
         s.push_str("                if (!openRejects) allOk = false;\n");
         s.push_str("                if (rd + 1 < rounds) continue;\n");
-        s.push_str("                return \"{\\\"retCode\\\":\" + rc.toInt() + \",\\\"legs\\\":\" + legs + \",\\\"nb\\\":\" + nb.value + \",\\\"openRejects\\\":\" + (openRejects ? 1 : 0) + \",\\\"ok\\\":\" + (allOk ? 1 : 0) + \",\\\"peek_ok\\\":\" + (peekAll ? 1 : 0) + \"}\";\n");
+        s.push_str("                return \"{\\\"retCode\\\":\" + rc.toInt() + \",\\\"legs\\\":\" + legs + \",\\\"nb\\\":\" + nb.value + \",\\\"openRejects\\\":\" + (openRejects ? 1 : 0) + \",\\\"ok\\\":\" + (allOk ? 1 : 0) + \",\\\"peek_ok\\\":\" + (peekAll ? 1 : 0) + \",\\\"benign\\\":\" + zsign[0] + \"}\";\n");
     } else {
         s.push_str("                return \"{\\\"retCode\\\":\" + rc.toInt() + \",\\\"legs\\\":0,\\\"nb\\\":\" + nb.value + \",\\\"openRejects\\\":\" + (openRejects ? 1 : 0) + \",\\\"ok\\\":\" + (openRejects ? 1 : 0) + \",\\\"peek_ok\\\":1}\";\n");
     }
@@ -4883,7 +4916,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     s.push_str(&fdecls.replace("            ", "                "));
     let _ = writeln!(
         s,
-        "                Core.{class} _fh = c2.{base}OpenAndFill({full_ins}{opts_tail}{fargs});"
+        "                Core.{class} _fh = c2.{base}_OpenAndFill({full_ins}{opts_tail}{fargs});"
     );
     s.push_str("                OutRange _fr = _fh.fillRange();\n");
     s.push_str("                if (_fr.begIdx() != beg.value || _fr.count() != nb.value) fillOk = false;\n                else {\n");
@@ -4891,7 +4924,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         if *is_int {
             let _ = writeln!(s, "                    for (int i = 0; i < nb.value; i++) if (f{i}[i] != b{i}[i]) fillOk = false;");
         } else {
-            let _ = writeln!(s, "                    for (int i = 0; i < nb.value; i++) if (svBne(f{i}[i], b{i}[i])) fillOk = false;");
+            let _ = writeln!(s, "                    for (int i = 0; i < nb.value; i++) if (svXtierNe(f{i}[i], b{i}[i], zsign)) fillOk = false;");
         }
     }
     s.push_str("                }\n");
@@ -4912,7 +4945,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         };
         let _ = writeln!(
             s,
-            "                try {{ c2.{base}OpenAndFill({full_ins}{opts_tail}{alias_args}); fillOk = false; }} catch (IllegalArgumentException _e) {{ /* expected: output aliases input */ }}"
+            "                try {{ c2.{base}_OpenAndFill({full_ins}{opts_tail}{alias_args}); fillOk = false; }} catch (IllegalArgumentException _e) {{ /* expected: output aliases input */ }}"
         );
         if multi && !out_is_int[1] {
             let alias_args2 = {
@@ -4928,7 +4961,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
             };
             let _ = writeln!(
                 s,
-                "                try {{ c2.{base}OpenAndFill({full_ins}{opts_tail}{alias_args2}); fillOk = false; }} catch (IllegalArgumentException _e) {{ /* expected: output aliases output */ }}"
+                "                try {{ c2.{base}_OpenAndFill({full_ins}{opts_tail}{alias_args2}); fillOk = false; }} catch (IllegalArgumentException _e) {{ /* expected: output aliases output */ }}"
             );
         }
     }
@@ -4950,7 +4983,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     let _ = writeln!(s, "                Core.{class} st;");
     let _ = writeln!(
         s,
-        "                try {{ st = c2.{base}Open({}{opts_tail}); }}",
+        "                try {{ st = c2.{base}_Open({}{opts_tail}); }}",
         pfx_ins("p")
     );
     s.push_str("                catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = \",\\\"openRejectP\\\":\" + p; continue; }\n");
@@ -4963,13 +4996,13 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
             if out_is_int[i] {
                 let _ = writeln!(s, "                if (v0.{f} != b{i}[p - 1 - beg.value]) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + (p - 1) + \",\\\"badOut\\\":{i},\\\"where\\\":\\\"open\\\"\"; }}");
             } else {
-                let _ = writeln!(s, "                if (svBne(v0.{f}, b{i}[p - 1 - beg.value])) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + (p - 1) + \",\\\"badOut\\\":{i},\\\"where\\\":\\\"open\\\"\"; }}");
+                let _ = writeln!(s, "                if (svXtierNe(v0.{f}, b{i}[p - 1 - beg.value], zsign)) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + (p - 1) + \",\\\"badOut\\\":{i},\\\"where\\\":\\\"open\\\"\"; }}");
             }
         }
     } else if out_is_int[0] {
         s.push_str("                if (st.value() != b0[p - 1 - beg.value]) { allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + (p - 1) + \",\\\"badOut\\\":0,\\\"where\\\":\\\"open\\\"\"; }\n");
     } else {
-        s.push_str("                if (svBne(st.value(), b0[p - 1 - beg.value])) { allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + (p - 1) + \",\\\"badOut\\\":0,\\\"where\\\":\\\"open\\\"\"; }\n");
+        s.push_str("                if (svXtierNe(st.value(), b0[p - 1 - beg.value], zsign)) { allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + (p - 1) + \",\\\"badOut\\\":0,\\\"where\\\":\\\"open\\\"\"; }\n");
     }
     // Update loop with peek-every-7 + value()==update.
     s.push_str("                for (int t = p; t < svN; t++) {\n");
@@ -5005,13 +5038,13 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
                 if out_is_int[i] {
                     let _ = writeln!(s, "{pad}if (up.{f} != b{i}[t - beg.value]) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + t + \",\\\"badOut\\\":{i},\\\"batchv\\\":\\\"\" + b{i}[t - beg.value] + \"\\\",\\\"streamv\\\":\\\"\" + up.{f} + \"\\\"\"; }}");
                 } else {
-                    let _ = writeln!(s, "{pad}if (svBne(up.{f}, b{i}[t - beg.value])) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + t + \",\\\"badOut\\\":{i},\\\"batchv\\\":\\\"\" + String.format(\"%016x\", Double.doubleToRawLongBits(b{i}[t - beg.value])) + \"\\\",\\\"streamv\\\":\\\"\" + String.format(\"%016x\", Double.doubleToRawLongBits(up.{f})) + \"\\\"\"; }}");
+                    let _ = writeln!(s, "{pad}if (svXtierNe(up.{f}, b{i}[t - beg.value], zsign)) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + t + \",\\\"badOut\\\":{i},\\\"batchv\\\":\\\"\" + String.format(\"%016x\", Double.doubleToRawLongBits(b{i}[t - beg.value])) + \"\\\",\\\"streamv\\\":\\\"\" + String.format(\"%016x\", Double.doubleToRawLongBits(up.{f})) + \"\\\"\"; }}");
                 }
             }
         } else if out_is_int[0] {
             let _ = writeln!(s, "{pad}if (up != b0[t - beg.value]) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + t + \",\\\"badOut\\\":0,\\\"batchv\\\":\\\"\" + b0[t - beg.value] + \"\\\",\\\"streamv\\\":\\\"\" + up + \"\\\"\"; }}");
         } else {
-            let _ = writeln!(s, "{pad}if (svBne(up, b0[t - beg.value])) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + t + \",\\\"badOut\\\":0,\\\"batchv\\\":\\\"\" + String.format(\"%016x\", Double.doubleToRawLongBits(b0[t - beg.value])) + \"\\\",\\\"streamv\\\":\\\"\" + String.format(\"%016x\", Double.doubleToRawLongBits(up)) + \"\\\"\"; }}");
+            let _ = writeln!(s, "{pad}if (svXtierNe(up, b0[t - beg.value], zsign)) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"badBar\\\":\" + t + \",\\\"badOut\\\":0,\\\"batchv\\\":\\\"\" + String.format(\"%016x\", Double.doubleToRawLongBits(b0[t - beg.value])) + \"\\\",\\\"streamv\\\":\\\"\" + String.format(\"%016x\", Double.doubleToRawLongBits(up)) + \"\\\"\"; }}");
         }
     };
     emit_up_compares(&mut s, "                        ");
@@ -5031,7 +5064,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     s.push_str("                    try {\n");
     let _ = writeln!(
         s,
-        "                        Core.{class} sA = c2.{base}Open({}{opts_tail});",
+        "                        Core.{class} sA = c2.{base}_Open({}{opts_tail});",
         pfx_ins("p0")
     );
     s.push_str("                        int mid = (p0 + svN) / 2;\n");
@@ -5045,13 +5078,13 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
             if out_is_int[i] {
                 let _ = writeln!(s, "                            if (uA.{f} != uB.{f} || uA.{f} != b{i}[t - beg.value]) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"copyDiverged\\\":\" + t; }}");
             } else {
-                let _ = writeln!(s, "                            if (svBne(uA.{f}, uB.{f}) || svBne(uA.{f}, b{i}[t - beg.value])) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"copyDiverged\\\":\" + t; }}");
+                let _ = writeln!(s, "                            if (svBne(uA.{f}, uB.{f}) || svXtierNe(uA.{f}, b{i}[t - beg.value], zsign)) {{ allOk = false; if (diag.isEmpty()) diag = \",\\\"copyDiverged\\\":\" + t; }}");
             }
         }
     } else if out_is_int[0] {
         s.push_str("                            if (uA != uB || uA != b0[t - beg.value]) { allOk = false; if (diag.isEmpty()) diag = \",\\\"copyDiverged\\\":\" + t; }\n");
     } else {
-        s.push_str("                            if (svBne(uA, uB) || svBne(uA, b0[t - beg.value])) { allOk = false; if (diag.isEmpty()) diag = \",\\\"copyDiverged\\\":\" + t; }\n");
+        s.push_str("                            if (svBne(uA, uB) || svXtierNe(uA, b0[t - beg.value], zsign)) { allOk = false; if (diag.isEmpty()) diag = \",\\\"copyDiverged\\\":\" + t; }\n");
     }
     s.push_str("                        }\n");
     s.push_str("                    } catch (IllegalArgumentException _e) { allOk = false; if (diag.isEmpty()) diag = \",\\\"copyOpenReject\\\":1\"; }\n");
@@ -5063,7 +5096,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     s.push_str("            if (lb >= 1 && lb < svN) {\n");
     let _ = writeln!(
         s,
-        "                try {{ c2.{base}Open({}{opts_tail}); allOk = false; if (diag.isEmpty()) diag = \",\\\"shortHistoryAccepted\\\":1\"; }}",
+        "                try {{ c2.{base}_Open({}{opts_tail}); allOk = false; if (diag.isEmpty()) diag = \",\\\"shortHistoryAccepted\\\":1\"; }}",
         pfx_ins("lb")
     );
     s.push_str("                catch (InsufficientHistoryException _e) { /* expected, typed */ }\n");
@@ -5092,12 +5125,12 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         s.push_str("            try {\n");
         let _ = writeln!(
             s,
-            "                Core.{class} sD = c2.{base}Open({full_ins}, {});",
+            "                Core.{class} sD = c2.{base}_Open({full_ins}, {});",
             sent_args.join(", ")
         );
         let _ = writeln!(
             s,
-            "                Core.{class} sE = c2.{base}Open({full_ins}, {});",
+            "                Core.{class} sE = c2.{base}_Open({full_ins}, {});",
             expl_args.join(", ")
         );
         if multi {
@@ -5118,7 +5151,7 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
 
     s.push_str("        }\n");
     // fill_ok folds into ok as a safety net (mirrors the C/Rust gates).
-    s.push_str("        return \"{\\\"retCode\\\":0,\\\"beg\\\":\" + beg.value + \",\\\"nb\\\":\" + nb.value + \",\\\"legs\\\":\" + legs + \",\\\"fill_checked\\\":\" + fillChecked + \",\\\"fill_ok\\\":\" + (fillOk ? 1 : 0) + \",\\\"ok\\\":\" + ((allOk && fillOk) ? 1 : 0) + \",\\\"peek_ok\\\":\" + (peekAll ? 1 : 0) + diag + \"}\";\n");
+    s.push_str("        return \"{\\\"retCode\\\":0,\\\"beg\\\":\" + beg.value + \",\\\"nb\\\":\" + nb.value + \",\\\"legs\\\":\" + legs + \",\\\"fill_checked\\\":\" + fillChecked + \",\\\"fill_ok\\\":\" + (fillOk ? 1 : 0) + \",\\\"ok\\\":\" + ((allOk && fillOk) ? 1 : 0) + \",\\\"peek_ok\\\":\" + (peekAll ? 1 : 0) + \",\\\"benign\\\":\" + zsign[0] + diag + \"}\";\n");
     s.push_str("    }\n\n");
     s
 }
@@ -5135,6 +5168,14 @@ pub(crate) fn generate_java_stream_verify(
     let mut s = String::new();
     s.push_str("    // ---- stream_verify: Java stream vs Java batch, bitwise ----\n\n");
     s.push_str("    static boolean svBne(double a, double b) {\n        return Double.doubleToRawLongBits(a) != Double.doubleToRawLongBits(b);\n    }\n\n");
+    // Cross-tier compare — see the C emitter for the rule. Differing bits that
+    // compare equal are +0.0 vs -0.0 (issue #147): counted, never a mismatch.
+    // peek/value()/copy-vs-copy stay on svBne — one code path, no licence to differ.
+    s.push_str("    static boolean svXtierNe(double a, double b, long[] zsign) {\n");
+    s.push_str("        if (!svBne(a, b)) return false;\n");
+    s.push_str("        if (a == b) { zsign[0]++; return false; }\n");
+    s.push_str("        return true;\n");
+    s.push_str("    }\n\n");
     // Candle-settings rounds (mirror the C/Rust sweep): defaults / avgPeriod+3
     // / avgPeriod=0 (instant candle) / rangeType=Shadows.
     s.push_str("    static void svApplyCandleRound(Core c, int rd) {\n");
@@ -5261,7 +5302,7 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         var f = AbsLookup(p);
         if (f is null) return "{\"retCode\":2}";
         return $"{{\"name\":{AbsStr(f.Name)},\"group\":{AbsStr(f.Group.ToDisplayName())}"
-             + $",\"hint\":{AbsStr(f.Hint)},\"camelCaseName\":{AbsStr(f.CamelCaseName)}"
+             + $",\"hint\":{AbsStr(f.Hint)}"
              + $",\"flags\":{(uint)f.Flags},\"nbInput\":{f.Inputs.Length}"
              + $",\"nbOptInput\":{f.OptInputs.Length},\"nbOutput\":{f.Outputs.Length}}}";
     }
@@ -5379,6 +5420,14 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         if (f is null) return "{\"error\":\"Unknown function\"}";
         int startIdx = GetInt(p, "startIdx", 0);
         int endIdx = GetInt(p, "endIdx", 0);
+        // Answer the range codes BEFORE sizing anything by the range (#180).
+        // `n` below drives every output allocation, so validating after it
+        // would turn an out-of-range request into an 800MB-per-output
+        // allocation and take the server down instead of returning a code.
+        if (startIdx < 0 || startIdx > Core.MAX_INDEX)
+            return "{\"binder\":1,\"lookback\":-1,\"retCode\":12,\"outBegIdx\":0,\"outNBElement\":0}";
+        if (endIdx < 0 || endIdx > Core.MAX_INDEX || endIdx < startIdx)
+            return "{\"binder\":1,\"lookback\":-1,\"retCode\":13,\"outBegIdx\":0,\"outNBElement\":0}";
         int n = endIdx - startIdx + 1;
         if (n < 1) n = 1;
 

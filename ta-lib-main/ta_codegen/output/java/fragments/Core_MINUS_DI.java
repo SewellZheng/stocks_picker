@@ -19,7 +19,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#minusDI} consumes before it can
+    * Number of leading input bars {@link Core#MINUS_DI} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -32,7 +32,7 @@
     *        14; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int minusDILookback( int optInTimePeriod )
+   public int MINUS_DI_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -40,21 +40,21 @@
          return -1;
       }
       if( optInTimePeriod > 1 ) {
-         return optInTimePeriod + this.unstablePeriod[FuncUnstId.MinusDI.ordinal()] ;
+         return optInTimePeriod + this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()] ;
       } else {
          return 1 ;
       }
 
    }
-   RetCode minusDIInternal( int startIdx,
-                            int endIdx,
-                            double inHigh[],
-                            double inLow[],
-                            double inClose[],
-                            int optInTimePeriod,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode MINUS_DI_Internal( int startIdx,
+                              int endIdx,
+                              double inHigh[],
+                              double inLow[],
+                              double inClose[],
+                              int optInTimePeriod,
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              double outReal[] )
    {
       int today = 0;
       int lookbackTotal = 0;
@@ -69,10 +69,10 @@
       double diffP = 0;
       double diffM = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -173,7 +173,7 @@
        * you can comment out the following #undef/#define and rebuild the library.
        */
       if( optInTimePeriod > 1 ) {
-         lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MinusDI.ordinal()];
+         lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()];
       } else {
          lookbackTotal = 1;
       }
@@ -284,7 +284,7 @@
       /* Skip the unstable period. Note that this loop must be executed
        * at least ONCE to calculate the first DI.
        */
-      i = this.unstablePeriod[FuncUnstId.MinusDI.ordinal()] + 1;
+      i = this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()] + 1;
       while( i-- != 0 ) {
          /* Calculate the prevMinusDM */
          today += 1;
@@ -371,15 +371,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode minusDIInternal( int startIdx,
-                            int endIdx,
-                            float inHigh[],
-                            float inLow[],
-                            float inClose[],
-                            int optInTimePeriod,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode MINUS_DI_Internal( int startIdx,
+                              int endIdx,
+                              float inHigh[],
+                              float inLow[],
+                              float inClose[],
+                              int optInTimePeriod,
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              double outReal[] )
    {
       int today = 0;
       int lookbackTotal = 0;
@@ -394,10 +394,10 @@
       double diffP = 0;
       double diffM = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -406,7 +406,7 @@
          return RetCode.BadParam;
       }
       if( optInTimePeriod > 1 ) {
-         lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MinusDI.ordinal()];
+         lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()];
       } else {
          lookbackTotal = 1;
       }
@@ -494,7 +494,7 @@
          prevTR += tempReal;
          prevClose = (double)inClose[today];
       }
-      i = this.unstablePeriod[FuncUnstId.MinusDI.ordinal()] + 1;
+      i = this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()] + 1;
       while( i-- != 0 ) {
          today += 1;
          tempReal = (double)inHigh[today];
@@ -581,8 +581,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#minusDILookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#MINUS_DI_Lookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -596,29 +596,29 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#plusDI
-    * @see Core#minusDM
-    * @see Core#dx
-    * @see Core#adx
-    * @see Core#adxr
-    * @see Core#trueRange
+    * @see Core#PLUS_DI
+    * @see Core#MINUS_DM
+    * @see Core#DX
+    * @see Core#ADX
+    * @see Core#ADXR
+    * @see Core#TRANGE
     */
-   public OutRange minusDI( int startIdx,
-                            int endIdx,
-                            double inHigh[],
-                            double inLow[],
-                            double inClose[],
-                            int optInTimePeriod,
-                            double outReal[] )
+   public OutRange MINUS_DI( int startIdx,
+                             int endIdx,
+                             double inHigh[],
+                             double inLow[],
+                             double inClose[],
+                             int optInTimePeriod,
+                             double outReal[] )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = minusDIInternal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MINUS_DI_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("MINUS_DI", retCode);
       }
@@ -643,8 +643,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#minusDILookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#MINUS_DI_Lookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -658,29 +658,29 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#plusDI
-    * @see Core#minusDM
-    * @see Core#dx
-    * @see Core#adx
-    * @see Core#adxr
-    * @see Core#trueRange
+    * @see Core#PLUS_DI
+    * @see Core#MINUS_DM
+    * @see Core#DX
+    * @see Core#ADX
+    * @see Core#ADXR
+    * @see Core#TRANGE
     */
-   public OutRange minusDI( int startIdx,
-                            int endIdx,
-                            float inHigh[],
-                            float inLow[],
-                            float inClose[],
-                            int optInTimePeriod,
-                            double outReal[] )
+   public OutRange MINUS_DI( int startIdx,
+                             int endIdx,
+                             float inHigh[],
+                             float inLow[],
+                             float inClose[],
+                             int optInTimePeriod,
+                             double outReal[] )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = minusDIInternal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MINUS_DI_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("MINUS_DI", retCode);
       }
@@ -690,20 +690,19 @@
 
    /**
     * A live MINUS_DI stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#minusDI} over the same series.
-    * Open with {@link Core#minusDIOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#MINUS_DI} over the same series.
+    * Open with {@link Core#MINUS_DI_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class MinusDIStream {
+   public static final class MINUS_DI_Stream {
       final Core core;
       int optInTimePeriod;
       double prevHigh;
@@ -715,17 +714,20 @@
       double prevMinusDM;
       double prevTR;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      MinusDIStream( Core core ) { this.core = core; }
+      MINUS_DI_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#minusDIOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#MINUS_DI_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      MinusDIStream( MinusDIStream other ) {
+      MINUS_DI_Stream( MINUS_DI_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevHigh = other.prevHigh;
@@ -745,7 +747,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inHigh, double inLow, double inClose ) {
-         core.minusDIStreamStep(this, inHigh, inLow, inClose);
+         core.MINUS_DI_StreamStep(this, inHigh, inLow, inClose);
          return this.cur_outReal;
       }
 
@@ -757,8 +759,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
-         MinusDIStream scratch = new MinusDIStream(this);
-         core.minusDIStreamStep(scratch, inHigh, inLow, inClose);
+         MINUS_DI_Stream scratch = new MINUS_DI_Stream(this);
+         core.MINUS_DI_StreamStep(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
       }
 
@@ -775,11 +777,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public MinusDIStream copy() {
-         return new MinusDIStream(this);
+      public MINUS_DI_Stream copy() {
+         return new MINUS_DI_Stream(this);
       }
    }
-   void minusDIStreamStep( MinusDIStream sp, double inHigh, double inLow, double inClose )
+   void MINUS_DI_StreamStep( MINUS_DI_Stream sp, double inHigh, double inLow, double inClose )
    {
       if( sp.optInTimePeriod <= 1 ) {
          sp.tempReal = inHigh;
@@ -853,7 +855,7 @@
          }
       }
    }
-   private RetCode minusDIOpenBody( MinusDIStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   private RetCode MINUS_DI_OpenBody( MINUS_DI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
@@ -862,6 +864,9 @@
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -975,7 +980,7 @@
           * you can comment out the following #undef/#define and rebuild the library.
           */
          if( optInTimePeriod > 1 ) {
-            lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MinusDI.ordinal()];
+            lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()];
          } else {
             lookbackTotal = 1;
          }
@@ -1159,7 +1164,7 @@
           * you can comment out the following #undef/#define and rebuild the library.
           */
          if( optInTimePeriod > 1 ) {
-            lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MinusDI.ordinal()];
+            lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()];
          } else {
             lookbackTotal = 1;
          }
@@ -1221,7 +1226,7 @@
          /* Skip the unstable period. Note that this loop must be executed
           * at least ONCE to calculate the first DI.
           */
-         i = this.unstablePeriod[FuncUnstId.MinusDI.ordinal()] + 1;
+         i = this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()] + 1;
          while( i-- != 0 ) {
             /* Calculate the prevMinusDM */
             today += 1;
@@ -1320,13 +1325,16 @@
          return RetCode.Success;
       }
    }
-   private RetCode minusDIOpenAndFillBody( MinusDIStream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode MINUS_DI_OpenAndFillBody( MINUS_DI_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       int startIdx = 0;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -1443,7 +1451,7 @@
           * you can comment out the following #undef/#define and rebuild the library.
           */
          if( optInTimePeriod > 1 ) {
-            lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MinusDI.ordinal()];
+            lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()];
          } else {
             lookbackTotal = 1;
          }
@@ -1627,7 +1635,7 @@
           * you can comment out the following #undef/#define and rebuild the library.
           */
          if( optInTimePeriod > 1 ) {
-            lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MinusDI.ordinal()];
+            lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()];
          } else {
             lookbackTotal = 1;
          }
@@ -1689,7 +1697,7 @@
          /* Skip the unstable period. Note that this loop must be executed
           * at least ONCE to calculate the first DI.
           */
-         i = this.unstablePeriod[FuncUnstId.MinusDI.ordinal()] + 1;
+         i = this.unstablePeriod[FuncUnstId.MINUS_DI.ordinal()] + 1;
          while( i-- != 0 ) {
             /* Calculate the prevMinusDM */
             today += 1;
@@ -1788,60 +1796,60 @@
          return RetCode.Success;
       }
    }
-   /* Internal startIdx-anchored open behind minusDIOpen (composition seam). */
-   MinusDIStream minusDIOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   /* Internal startIdx-anchored open behind MINUS_DI_Open (composition seam). */
+   MINUS_DI_Stream MINUS_DI_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
-      MinusDIStream sp = new MinusDIStream(this);
-      RetCode retCode = minusDIOpenBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      MINUS_DI_Stream sp = new MINUS_DI_Stream(this);
+      RetCode retCode = MINUS_DI_OpenBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_MINUS_DI open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("MINUS_DI open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_MINUS_DI open: internal error");
+         throw new IllegalStateException("MINUS_DI open: internal error");
       }
-      throw new IllegalArgumentException("TA_MINUS_DI open: " + retCode);
+      throw new IllegalArgumentException("MINUS_DI open: " + retCode);
    }
    /**
     * Open a live MINUS_DI stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#minusDI} at that bar.
-    * <p>The history must hold at least {@code minusDILookback(...) + 1} bars
+    * to {@link Core#MINUS_DI} at that bar.
+    * <p>The history must hold at least {@code MINUS_DI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public MinusDIStream minusDIOpen( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
+   public MINUS_DI_Stream MINUS_DI_Open( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
    {
-      return minusDIOpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
+      return MINUS_DI_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
    /**
-    * {@link Core#minusDIOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#minusDI} over the whole history in the same single pass
+    * {@link Core#MINUS_DI_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#MINUS_DI} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link MinusDIStream#fillRange()}.
+    * {@link MINUS_DI_Stream#fillRange()}.
     */
-   public MinusDIStream minusDIOpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
+   public MINUS_DI_Stream MINUS_DI_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
    {
-      MinusDIStream sp = new MinusDIStream(this);
+      MINUS_DI_Stream sp = new MINUS_DI_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = minusDIOpenAndFillBody(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MINUS_DI_OpenAndFillBody(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_MINUS_DI openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("MINUS_DI openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_MINUS_DI openAndFill: internal error");
+         throw new IllegalStateException("MINUS_DI openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_MINUS_DI openAndFill: " + retCode);
+      throw new IllegalArgumentException("MINUS_DI openAndFill: " + retCode);
    }

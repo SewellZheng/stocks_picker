@@ -66,7 +66,7 @@ use super::*;
 #[allow(unused_mut)]
 #[allow(unused_assignments)]
 impl Core {
-    /// Lookback period for [`Core::max`]: the number of leading input values consumed before the
+    /// Lookback period for [`Core::MAX`]: the number of leading input values consumed before the
     /// first output value can be produced.
     ///
     /// # Arguments
@@ -76,7 +76,7 @@ impl Core {
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
     /// to select their default value.
     #[inline]
-    pub fn max_lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn MAX_Lookback(&self, mut optInTimePeriod: i32) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
@@ -107,7 +107,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `endIdx < startIdx`, and
+    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
+    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
     /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
     ///
     /// # Panics
@@ -128,7 +129,7 @@ impl Core {
     /// let mut out_nb = 0;
     /// let mut out = vec![0.0; 252];
     ///
-    /// let ret = core.max(0, data.len() - 1, &data, 30, &mut out_beg, &mut out_nb, &mut out);
+    /// let ret = core.MAX(0, data.len() - 1, &data, 30, &mut out_beg, &mut out_nb, &mut out);
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
     /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
@@ -136,13 +137,13 @@ impl Core {
     ///
     /// # See also
     ///
-    /// [`Core::min`] · [`Core::maxindex`] · [`Core::minmax`]
+    /// [`Core::MIN`] · [`Core::MAXINDEX`] · [`Core::MINMAX`]
     ///
-    /// Further reading: [ta-lib.org/functions/max](https://ta-lib.org/functions/max/)
+    /// Further reading: [ta-lib.org/functions/MAX](https://ta-lib.org/functions/MAX/)
     #[doc(alias = "Highest")]
     #[doc(alias = "HighestHigh")]
     #[doc(alias = "RollingMaximum")]
-    pub fn max(
+    pub fn MAX(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -152,15 +153,18 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if endIdx < startIdx {
+        if startIdx > MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
+        }
+        if endIdx > MAX_INDEX || endIdx < startIdx {
+            return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.max_lookback(optInTimePeriod);
+        let _assertLb = self.MAX_Lookback(optInTimePeriod);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -227,20 +231,20 @@ impl Core {
 }
 /**** Streaming API *****/
 
-/// Live MAX stream: one value per closed bar, bit-identical to [`Core::max`]
-/// over the same series. Open with [`Core::max_open`]; dropping the handle
+/// Live MAX stream: one value per closed bar, bit-identical to [`Core::MAX`]
+/// over the same series. Open with [`Core::MAX_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MAX_Stream")]
-pub struct MaxStream {
+pub struct MAX_Stream {
     core: Core,
-    state: MaxStreamState,
+    state: MAX_StreamState,
 }
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
-struct MaxStreamState {
+struct MAX_StreamState {
     optInTimePeriod: i32,
     highest: f64,
     trailingIdx: i32,
@@ -258,7 +262,7 @@ struct MaxStreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn max_step_internal(&self, sp: &mut MaxStreamState, inReal: f64, outReal: &mut f64) {
+    fn MAX_step_internal(&self, sp: &mut MAX_StreamState, inReal: f64, outReal: &mut f64) {
         let mut tmp: f64 = 0.0_f64;
         if sp.today >= 1073741824 {
             let rebaseShift: i32 = (sp.trailingIdx / sp.xCap) * sp.xCap;
@@ -289,15 +293,15 @@ impl Core {
         sp.today += 1;
     }
 
-    /// Internal startIdx-anchored open behind [`Core::max_open`] (composition seam).
-    pub(crate) fn max_open_internal(
+    /// Internal startIdx-anchored open behind [`Core::MAX_Open`] (composition seam).
+    pub(crate) fn MAX_OpenInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32,
-    ) -> Result<(MaxStream, f64), RetCode> {
+    ) -> Result<(MAX_Stream, f64), RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inReal.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
@@ -380,7 +384,7 @@ impl Core {
                 fillJ += 1;
             }
         }
-        let state = MaxStreamState {
+        let state = MAX_StreamState {
             optInTimePeriod,
             highest,
             trailingIdx: (trailingIdx) as i32,
@@ -390,11 +394,11 @@ impl Core {
             xCap: capX as i32,
             x_inReal,
         };
-        Ok((MaxStream { core: self.clone(), state }, lastValue_outReal))
+        Ok((MAX_Stream { core: self.clone(), state }, lastValue_outReal))
     }
 
     /// Open a live MAX stream over the warm-up history; returns the handle and
-    /// the value at the last history bar — bit-identical to [`Core::max`] at that bar.
+    /// the value at the last history bar — bit-identical to [`Core::MAX`] at that bar.
     ///
     /// # Errors
     ///
@@ -406,28 +410,28 @@ impl Core {
     /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.max_open(&data, 30).expect("enough history");
+    /// let (mut s, _last) = core.MAX_Open(&data, 30).expect("enough history");
     /// let peeked = s.peek(100.9);
     /// let updated = s.update(100.9);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_MAX_Open")]
-    pub fn max_open(&self, inReal: &[f64], optInTimePeriod: i32) -> Result<(MaxStream, f64), RetCode> {
-        self.max_open_internal(inReal, 0, optInTimePeriod)
+    pub fn MAX_Open(&self, inReal: &[f64], optInTimePeriod: i32) -> Result<(MAX_Stream, f64), RetCode> {
+        self.MAX_OpenInternal(inReal, 0, optInTimePeriod)
     }
 
-    /// [`Core::max_open`] that also fills the output array(s) bit-identically to
-    /// [`Core::max`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::MAX_Open`] that also fills the output array(s) bit-identically to
+    /// [`Core::MAX`] over `0..len` in the same single pass. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_MAX_OpenAndFill")]
-    pub fn max_open_and_fill(
+    pub fn MAX_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<MaxStream, RetCode> {
+    ) -> Result<MAX_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inReal.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
@@ -510,7 +514,7 @@ impl Core {
                 fillJ += 1;
             }
         }
-        let state = MaxStreamState {
+        let state = MAX_StreamState {
             optInTimePeriod,
             highest,
             trailingIdx: (trailingIdx) as i32,
@@ -520,19 +524,19 @@ impl Core {
             xCap: capX as i32,
             x_inReal,
         };
-        Ok(MaxStream { core: self.clone(), state })
+        Ok(MAX_Stream { core: self.clone(), state })
     }
 
 }
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
-impl MaxStream {
+impl MAX_Stream {
     /// Commit one closed bar; always produces a value. Never allocates.
     #[doc(alias = "TA_MAX_Update")]
     pub fn update(&mut self, inReal: f64) -> f64 {
         let mut outReal: f64 = 0.0_f64;
-        self.core.max_step_internal(&mut self.state, inReal, &mut outReal);
+        self.core.MAX_step_internal(&mut self.state, inReal, &mut outReal);
         outReal
     }
 
@@ -550,7 +554,7 @@ impl MaxStream {
 
 const _: () = {
     const fn _assert_auto<T: Send + Sync + Clone>() {}
-    _assert_auto::<MaxStream>();
+    _assert_auto::<MAX_Stream>();
 };
 
 /***************/

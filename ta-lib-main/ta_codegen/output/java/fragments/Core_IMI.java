@@ -22,7 +22,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#imi} consumes before it can
+    * Number of leading input bars {@link Core#IMI} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -33,7 +33,7 @@
     *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int imiLookback( int optInTimePeriod )
+   public int IMI_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -43,21 +43,21 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode imiInternal( int startIdx,
-                        int endIdx,
-                        double inOpen[],
-                        double inClose[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode IMI_Internal( int startIdx,
+                         int endIdx,
+                         double inOpen[],
+                         double inClose[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int lookback = 0;
       int outIdx = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -66,7 +66,7 @@
          return RetCode.BadParam;
       }
       outIdx = 0;
-      lookback = imiLookback(optInTimePeriod);
+      lookback = IMI_Lookback(optInTimePeriod);
       if( startIdx < lookback ) {
          startIdx = lookback;
       }
@@ -101,21 +101,21 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode imiInternal( int startIdx,
-                        int endIdx,
-                        float inOpen[],
-                        float inClose[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode IMI_Internal( int startIdx,
+                         int endIdx,
+                         float inOpen[],
+                         float inClose[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int lookback = 0;
       int outIdx = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -124,7 +124,7 @@
          return RetCode.BadParam;
       }
       outIdx = 0;
-      lookback = imiLookback(optInTimePeriod);
+      lookback = IMI_Lookback(optInTimePeriod);
       if( startIdx < lookback ) {
          startIdx = lookback;
       }
@@ -165,7 +165,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#imiLookback} is a <b>success with no
+    * valid range shorter than {@link Core#IMI_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -180,14 +180,14 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#rsi
+    * @see Core#RSI
     */
-   public OutRange imi( int startIdx,
+   public OutRange IMI( int startIdx,
                         int endIdx,
                         double inOpen[],
                         double inClose[],
@@ -196,7 +196,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = imiInternal(startIdx, endIdx, inOpen, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = IMI_Internal(startIdx, endIdx, inOpen, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("IMI", retCode);
       }
@@ -216,7 +216,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#imiLookback} is a <b>success with no
+    * valid range shorter than {@link Core#IMI_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -231,14 +231,14 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#rsi
+    * @see Core#RSI
     */
-   public OutRange imi( int startIdx,
+   public OutRange IMI( int startIdx,
                         int endIdx,
                         float inOpen[],
                         float inClose[],
@@ -247,7 +247,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = imiInternal(startIdx, endIdx, inOpen, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = IMI_Internal(startIdx, endIdx, inOpen, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("IMI", retCode);
       }
@@ -257,20 +257,19 @@
 
    /**
     * A live IMI stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#imi} over the same series.
-    * Open with {@link Core#imiOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#IMI} over the same series.
+    * Open with {@link Core#IMI_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class ImiStream {
+   public static final class IMI_Stream {
       final Core core;
       int optInTimePeriod;
       int winPos_i;
@@ -278,17 +277,20 @@
       double[] win_i_inOpen;
       double[] win_i_inClose;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      ImiStream( Core core ) { this.core = core; }
+      IMI_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#imiOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#IMI_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      ImiStream( ImiStream other ) {
+      IMI_Stream( IMI_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.winPos_i = other.winPos_i;
@@ -304,7 +306,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inOpen, double inClose ) {
-         core.imiStreamStep(this, inOpen, inClose);
+         core.IMI_StreamStep(this, inOpen, inClose);
          return this.cur_outReal;
       }
 
@@ -316,8 +318,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inOpen, double inClose ) {
-         ImiStream scratch = new ImiStream(this);
-         core.imiStreamStep(scratch, inOpen, inClose);
+         IMI_Stream scratch = new IMI_Stream(this);
+         core.IMI_StreamStep(scratch, inOpen, inClose);
          return scratch.cur_outReal;
       }
 
@@ -334,11 +336,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public ImiStream copy() {
-         return new ImiStream(this);
+      public IMI_Stream copy() {
+         return new IMI_Stream(this);
       }
    }
-   void imiStreamStep( ImiStream sp, double inOpen, double inClose )
+   void IMI_StreamStep( IMI_Stream sp, double inOpen, double inClose )
    {
       double upsum = 0.0;
       double downsum = 0.0;
@@ -368,7 +370,7 @@
          sp.winPos_i = 0;
       }
    }
-   private RetCode imiOpenBody( ImiStream sp, double inOpen[], double inClose[], int startIdx, int optInTimePeriod )
+   private RetCode IMI_OpenBody( IMI_Stream sp, double inOpen[], double inClose[], int startIdx, int optInTimePeriod )
    {
       int lookback = 0;
       int outIdx = 0;
@@ -380,13 +382,16 @@
       if( historyLen < 1 || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
       outIdx = 0;
-      lookback = imiLookback(optInTimePeriod);
+      lookback = IMI_Lookback(optInTimePeriod);
       if( startIdx < lookback ) {
          startIdx = lookback;
       }
@@ -436,7 +441,7 @@
       sp.cur_outReal = lastValue_outReal;
       return RetCode.Success;
    }
-   private RetCode imiOpenAndFillBody( ImiStream sp, double inOpen[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode IMI_OpenAndFillBody( IMI_Stream sp, double inOpen[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int lookback = 0;
       int outIdx = 0;
@@ -445,6 +450,9 @@
       int startIdx = 0;
       if( historyLen < 1 || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -455,7 +463,7 @@
          return RetCode.BadParam;
       }
       outIdx = 0;
-      lookback = imiLookback(optInTimePeriod);
+      lookback = IMI_Lookback(optInTimePeriod);
       if( startIdx < lookback ) {
          startIdx = lookback;
       }
@@ -505,60 +513,60 @@
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind imiOpen (composition seam). */
-   ImiStream imiOpenInternal( double inOpen[], double inClose[], int startIdx, int optInTimePeriod )
+   /* Internal startIdx-anchored open behind IMI_Open (composition seam). */
+   IMI_Stream IMI_OpenInternal( double inOpen[], double inClose[], int startIdx, int optInTimePeriod )
    {
-      ImiStream sp = new ImiStream(this);
-      RetCode retCode = imiOpenBody(sp, inOpen, inClose, startIdx, optInTimePeriod);
+      IMI_Stream sp = new IMI_Stream(this);
+      RetCode retCode = IMI_OpenBody(sp, inOpen, inClose, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_IMI open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("IMI open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_IMI open: internal error");
+         throw new IllegalStateException("IMI open: internal error");
       }
-      throw new IllegalArgumentException("TA_IMI open: " + retCode);
+      throw new IllegalArgumentException("IMI open: " + retCode);
    }
    /**
     * Open a live IMI stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#imi} at that bar.
-    * <p>The history must hold at least {@code imiLookback(...) + 1} bars
+    * to {@link Core#IMI} at that bar.
+    * <p>The history must hold at least {@code IMI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public ImiStream imiOpen( double inOpen[], double inClose[], int optInTimePeriod )
+   public IMI_Stream IMI_Open( double inOpen[], double inClose[], int optInTimePeriod )
    {
-      return imiOpenInternal(inOpen, inClose, 0, optInTimePeriod);
+      return IMI_OpenInternal(inOpen, inClose, 0, optInTimePeriod);
    }
    /**
-    * {@link Core#imiOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#imi} over the whole history in the same single pass
+    * {@link Core#IMI_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#IMI} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link ImiStream#fillRange()}.
+    * {@link IMI_Stream#fillRange()}.
     */
-   public ImiStream imiOpenAndFill( double inOpen[], double inClose[], int optInTimePeriod, double outReal[] )
+   public IMI_Stream IMI_OpenAndFill( double inOpen[], double inClose[], int optInTimePeriod, double outReal[] )
    {
-      ImiStream sp = new ImiStream(this);
+      IMI_Stream sp = new IMI_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = imiOpenAndFillBody(sp, inOpen, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = IMI_OpenAndFillBody(sp, inOpen, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_IMI openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("IMI openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_IMI openAndFill: internal error");
+         throw new IllegalStateException("IMI openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_IMI openAndFill: " + retCode);
+      throw new IllegalArgumentException("IMI openAndFill: " + retCode);
    }

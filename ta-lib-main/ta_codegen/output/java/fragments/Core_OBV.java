@@ -16,7 +16,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#obv} consumes before it can
+    * Number of leading input bars {@link Core#OBV} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -24,29 +24,29 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int obvLookback( )
+   public int OBV_Lookback( )
    {
       /* This function have no lookback needed. */
       return 0 ;
 
    }
-   RetCode obvInternal( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        double inVolume[],
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode OBV_Internal( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         double inVolume[],
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
       double prevReal = 0;
       double tempReal = 0;
       double prevOBV = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       prevOBV = inVolume[startIdx];
@@ -66,23 +66,23 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode obvInternal( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        float inVolume[],
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode OBV_Internal( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         float inVolume[],
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
       double prevReal = 0;
       double tempReal = 0;
       double prevOBV = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       prevOBV = (double)inVolume[startIdx];
@@ -113,7 +113,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#obvLookback} is a <b>success with no
+    * valid range shorter than {@link Core#OBV_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -125,12 +125,12 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     */
-   public OutRange obv( int startIdx,
+   public OutRange OBV( int startIdx,
                         int endIdx,
                         double inReal[],
                         double inVolume[],
@@ -138,7 +138,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = obvInternal(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
+      RetCode retCode = OBV_Internal(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("OBV", retCode);
       }
@@ -158,7 +158,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#obvLookback} is a <b>success with no
+    * valid range shorter than {@link Core#OBV_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -170,12 +170,12 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     */
-   public OutRange obv( int startIdx,
+   public OutRange OBV( int startIdx,
                         int endIdx,
                         float inReal[],
                         float inVolume[],
@@ -183,7 +183,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = obvInternal(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
+      RetCode retCode = OBV_Internal(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("OBV", retCode);
       }
@@ -193,35 +193,37 @@
 
    /**
     * A live OBV stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#obv} over the same series.
-    * Open with {@link Core#obvOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#OBV} over the same series.
+    * Open with {@link Core#OBV_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class ObvStream {
+   public static final class OBV_Stream {
       final Core core;
       double prevReal;
       double prevOBV;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      ObvStream( Core core ) { this.core = core; }
+      OBV_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#obvOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#OBV_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      ObvStream( ObvStream other ) {
+      OBV_Stream( OBV_Stream other ) {
          this.core = other.core;
          this.prevReal = other.prevReal;
          this.prevOBV = other.prevOBV;
@@ -234,7 +236,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inReal, double inVolume ) {
-         core.obvStreamStep(this, inReal, inVolume);
+         core.OBV_StreamStep(this, inReal, inVolume);
          return this.cur_outReal;
       }
 
@@ -246,8 +248,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inReal, double inVolume ) {
-         ObvStream scratch = new ObvStream(this);
-         core.obvStreamStep(scratch, inReal, inVolume);
+         OBV_Stream scratch = new OBV_Stream(this);
+         core.OBV_StreamStep(scratch, inReal, inVolume);
          return scratch.cur_outReal;
       }
 
@@ -264,11 +266,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public ObvStream copy() {
-         return new ObvStream(this);
+      public OBV_Stream copy() {
+         return new OBV_Stream(this);
       }
    }
-   void obvStreamStep( ObvStream sp, double inReal, double inVolume )
+   void OBV_StreamStep( OBV_Stream sp, double inReal, double inVolume )
    {
       double tempReal = 0.0;
       tempReal = inReal;
@@ -280,7 +282,7 @@
       sp.cur_outReal = sp.prevOBV;
       sp.prevReal = tempReal;
    }
-   private RetCode obvOpenBody( ObvStream sp, double inReal[], double inVolume[], int startIdx )
+   private RetCode OBV_OpenBody( OBV_Stream sp, double inReal[], double inVolume[], int startIdx )
    {
       int i = 0;
       int outIdx = 0;
@@ -294,6 +296,9 @@
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inVolume.length != inReal.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       prevOBV = inVolume[startIdx];
       prevReal = inReal[startIdx];
@@ -316,7 +321,7 @@
       sp.cur_outReal = lastValue_outReal;
       return RetCode.Success;
    }
-   private RetCode obvOpenAndFillBody( ObvStream sp, double inReal[], double inVolume[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode OBV_OpenAndFillBody( OBV_Stream sp, double inReal[], double inVolume[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -328,6 +333,9 @@
       int startIdx = 0;
       if( historyLen < 1 || inVolume.length != inReal.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
          return RetCode.BadParam;
@@ -353,60 +361,60 @@
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind obvOpen (composition seam). */
-   ObvStream obvOpenInternal( double inReal[], double inVolume[], int startIdx )
+   /* Internal startIdx-anchored open behind OBV_Open (composition seam). */
+   OBV_Stream OBV_OpenInternal( double inReal[], double inVolume[], int startIdx )
    {
-      ObvStream sp = new ObvStream(this);
-      RetCode retCode = obvOpenBody(sp, inReal, inVolume, startIdx);
+      OBV_Stream sp = new OBV_Stream(this);
+      RetCode retCode = OBV_OpenBody(sp, inReal, inVolume, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_OBV open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("OBV open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_OBV open: internal error");
+         throw new IllegalStateException("OBV open: internal error");
       }
-      throw new IllegalArgumentException("TA_OBV open: " + retCode);
+      throw new IllegalArgumentException("OBV open: " + retCode);
    }
    /**
     * Open a live OBV stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#obv} at that bar.
-    * <p>The history must hold at least {@code obvLookback(...) + 1} bars
+    * to {@link Core#OBV} at that bar.
+    * <p>The history must hold at least {@code OBV_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public ObvStream obvOpen( double inReal[], double inVolume[] )
+   public OBV_Stream OBV_Open( double inReal[], double inVolume[] )
    {
-      return obvOpenInternal(inReal, inVolume, 0);
+      return OBV_OpenInternal(inReal, inVolume, 0);
    }
    /**
-    * {@link Core#obvOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#obv} over the whole history in the same single pass
+    * {@link Core#OBV_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#OBV} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link ObvStream#fillRange()}.
+    * {@link OBV_Stream#fillRange()}.
     */
-   public ObvStream obvOpenAndFill( double inReal[], double inVolume[], double outReal[] )
+   public OBV_Stream OBV_OpenAndFill( double inReal[], double inVolume[], double outReal[] )
    {
-      ObvStream sp = new ObvStream(this);
+      OBV_Stream sp = new OBV_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = obvOpenAndFillBody(sp, inReal, inVolume, outBegIdx, outNBElement, outReal);
+      RetCode retCode = OBV_OpenAndFillBody(sp, inReal, inVolume, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_OBV openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("OBV openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_OBV openAndFill: internal error");
+         throw new IllegalStateException("OBV openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_OBV openAndFill: " + retCode);
+      throw new IllegalArgumentException("OBV openAndFill: " + retCode);
    }

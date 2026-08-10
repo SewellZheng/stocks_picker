@@ -55,7 +55,7 @@ public partial class Core
     *  090807 MF     Initial Version
     */
    /// <summary>
-   /// Number of leading input bars <c>Atan</c> consumes before it can produce
+   /// Number of leading input bars <c>ATAN</c> consumes before it can produce
    /// its first value.
    /// </summary>
    /// <remarks>
@@ -64,12 +64,12 @@ public partial class Core
    /// output.
    /// </remarks>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
-   public int AtanLookback( )
+   public int ATAN_Lookback( )
    {
       return 0 ;
 
    }
-   internal RetCode Atan( int startIdx,
+   internal RetCode ATAN( int startIdx,
                           int endIdx,
                           double[] inReal,
                           out int outBegIdx,
@@ -80,10 +80,10 @@ public partial class Core
       outNBElement = 0;
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Default return values */
@@ -94,7 +94,7 @@ public partial class Core
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
-   internal RetCode Atan( int startIdx,
+   internal RetCode ATAN( int startIdx,
                           int endIdx,
                           float[] inReal,
                           out int outBegIdx,
@@ -105,10 +105,10 @@ public partial class Core
       outNBElement = 0;
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
@@ -131,7 +131,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>AtanLookback</c> is a <b>success with
+   /// NaN. A valid range shorter than <c>ATAN_Lookback</c> is a <b>success with
    /// no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -142,18 +142,18 @@ public partial class Core
    /// startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange Atan( int startIdx,
+   public OutRange ATAN( int startIdx,
                          int endIdx,
                          double[] inReal,
                          double[] outReal )
    {
-      RetCode retCode = Atan(startIdx, endIdx, inReal, out int outBegIdx, out int outNBElement, outReal);
+      RetCode retCode = ATAN(startIdx, endIdx, inReal, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("ATAN", retCode);
       }
@@ -178,7 +178,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>AtanLookback</c> is a <b>success with
+   /// NaN. A valid range shorter than <c>ATAN_Lookback</c> is a <b>success with
    /// no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -189,18 +189,18 @@ public partial class Core
    /// startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange Atan( int startIdx,
+   public OutRange ATAN( int startIdx,
                          int endIdx,
                          float[] inReal,
                          double[] outReal )
    {
-      RetCode retCode = Atan(startIdx, endIdx, inReal, out int outBegIdx, out int outNBElement, outReal);
+      RetCode retCode = ATAN(startIdx, endIdx, inReal, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("ATAN", retCode);
       }

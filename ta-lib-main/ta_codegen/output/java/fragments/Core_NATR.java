@@ -17,7 +17,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#natr} consumes before it can
+    * Number of leading input bars {@link Core#NATR} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -31,7 +31,7 @@
     *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int natrLookback( int optInTimePeriod )
+   public int NATR_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -45,18 +45,18 @@
        * (optInTimePeriod-1) is for the simple
        * moving average.
        */
-      return optInTimePeriod + this.unstablePeriod[FuncUnstId.Natr.ordinal()] ;
+      return optInTimePeriod + this.unstablePeriod[FuncUnstId.NATR.ordinal()] ;
 
    }
-   RetCode natrInternal( int startIdx,
-                         int endIdx,
-                         double inHigh[],
-                         double inLow[],
-                         double inClose[],
-                         int optInTimePeriod,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode NATR_Internal( int startIdx,
+                          int endIdx,
+                          double inHigh[],
+                          double inLow[],
+                          double inClose[],
+                          int optInTimePeriod,
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -72,10 +72,10 @@
       double tempCY = 0;
       double tempLT = 0;
       double tempHT = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -111,7 +111,7 @@
       outBegIdx.value = 0;
       outNBElement.value = 0;
       /* Adjust startIdx to account for the lookback period. */
-      lookbackTotal = natrLookback(optInTimePeriod);
+      lookbackTotal = NATR_Lookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -181,7 +181,7 @@
        *  3) Divide by 'period'.
        */
       /* Skip the unstable period. */
-      i = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
+      i = this.unstablePeriod[FuncUnstId.NATR.ordinal()];
       while( i != 0 ) {
          /* Find the greatest of the 3 values. */
          tempLT = inLow[today];
@@ -256,15 +256,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode natrInternal( int startIdx,
-                         int endIdx,
-                         float inHigh[],
-                         float inLow[],
-                         float inClose[],
-                         int optInTimePeriod,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode NATR_Internal( int startIdx,
+                          int endIdx,
+                          float inHigh[],
+                          float inLow[],
+                          float inClose[],
+                          int optInTimePeriod,
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -280,10 +280,10 @@
       double tempCY = 0;
       double tempLT = 0;
       double tempHT = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -293,7 +293,7 @@
       }
       outBegIdx.value = 0;
       outNBElement.value = 0;
-      lookbackTotal = natrLookback(optInTimePeriod);
+      lookbackTotal = NATR_Lookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -320,7 +320,7 @@
          today += 1;
       }
       prevATR = periodTotal / optInTimePeriod;
-      i = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
+      i = this.unstablePeriod[FuncUnstId.NATR.ordinal()];
       while( i != 0 ) {
          tempLT = (double)inLow[today];
          tempHT = (double)inHigh[today];
@@ -398,8 +398,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#natrLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#NATR_Lookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -414,16 +414,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#atr
-    * @see Core#trueRange
-    * @see Core#sma
+    * @see Core#ATR
+    * @see Core#TRANGE
+    * @see Core#SMA
     */
-   public OutRange natr( int startIdx,
+   public OutRange NATR( int startIdx,
                          int endIdx,
                          double inHigh[],
                          double inLow[],
@@ -433,7 +433,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = natrInternal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = NATR_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("NATR", retCode);
       }
@@ -455,8 +455,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#natrLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#NATR_Lookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -471,16 +471,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#atr
-    * @see Core#trueRange
-    * @see Core#sma
+    * @see Core#ATR
+    * @see Core#TRANGE
+    * @see Core#SMA
     */
-   public OutRange natr( int startIdx,
+   public OutRange NATR( int startIdx,
                          int endIdx,
                          float inHigh[],
                          float inLow[],
@@ -490,7 +490,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = natrInternal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = NATR_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("NATR", retCode);
       }
@@ -500,20 +500,19 @@
 
    /**
     * A live NATR stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#natr} over the same series.
-    * Open with {@link Core#natrOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#NATR} over the same series.
+    * Open with {@link Core#NATR_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class NatrStream {
+   public static final class NATR_Stream {
       final Core core;
       int optInTimePeriod;
       double prevATR;
@@ -521,17 +520,20 @@
       double val3;
       double lag1_inClose;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      NatrStream( Core core ) { this.core = core; }
+      NATR_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#natrOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#NATR_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      NatrStream( NatrStream other ) {
+      NATR_Stream( NATR_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevATR = other.prevATR;
@@ -547,7 +549,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inHigh, double inLow, double inClose ) {
-         core.natrStreamStep(this, inHigh, inLow, inClose);
+         core.NATR_StreamStep(this, inHigh, inLow, inClose);
          return this.cur_outReal;
       }
 
@@ -559,8 +561,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
-         NatrStream scratch = new NatrStream(this);
-         core.natrStreamStep(scratch, inHigh, inLow, inClose);
+         NATR_Stream scratch = new NATR_Stream(this);
+         core.NATR_StreamStep(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
       }
 
@@ -577,11 +579,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public NatrStream copy() {
-         return new NatrStream(this);
+      public NATR_Stream copy() {
+         return new NATR_Stream(this);
       }
    }
-   void natrStreamStep( NatrStream sp, double inHigh, double inLow, double inClose )
+   void NATR_StreamStep( NATR_Stream sp, double inHigh, double inLow, double inClose )
    {
       double val2 = 0.0;
       double greatest = 0.0;
@@ -618,7 +620,7 @@
       }
       sp.lag1_inClose = inClose;
    }
-   private RetCode natrOpenBody( NatrStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   private RetCode NATR_OpenBody( NATR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       int i = 0;
       int outIdx = 0;
@@ -641,6 +643,9 @@
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -675,7 +680,7 @@
       outBegIdx.value = 0;
       outNBElement.value = 0;
       /* Adjust startIdx to account for the lookback period. */
-      lookbackTotal = natrLookback(optInTimePeriod);
+      lookbackTotal = NATR_Lookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -745,7 +750,7 @@
        *  3) Divide by 'period'.
        */
       /* Skip the unstable period. */
-      i = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
+      i = this.unstablePeriod[FuncUnstId.NATR.ordinal()];
       while( i != 0 ) {
          /* Find the greatest of the 3 values. */
          tempLT = inLow[today];
@@ -827,7 +832,7 @@
       sp.cur_outReal = lastValue_outReal;
       return RetCode.Success;
    }
-   private RetCode natrOpenAndFillBody( NatrStream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode NATR_OpenAndFillBody( NATR_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -848,6 +853,9 @@
       int startIdx = 0;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -885,7 +893,7 @@
       outBegIdx.value = 0;
       outNBElement.value = 0;
       /* Adjust startIdx to account for the lookback period. */
-      lookbackTotal = natrLookback(optInTimePeriod);
+      lookbackTotal = NATR_Lookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -955,7 +963,7 @@
        *  3) Divide by 'period'.
        */
       /* Skip the unstable period. */
-      i = this.unstablePeriod[FuncUnstId.Natr.ordinal()];
+      i = this.unstablePeriod[FuncUnstId.NATR.ordinal()];
       while( i != 0 ) {
          /* Find the greatest of the 3 values. */
          tempLT = inLow[today];
@@ -1037,60 +1045,60 @@
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind natrOpen (composition seam). */
-   NatrStream natrOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   /* Internal startIdx-anchored open behind NATR_Open (composition seam). */
+   NATR_Stream NATR_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
-      NatrStream sp = new NatrStream(this);
-      RetCode retCode = natrOpenBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      NATR_Stream sp = new NATR_Stream(this);
+      RetCode retCode = NATR_OpenBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_NATR open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("NATR open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_NATR open: internal error");
+         throw new IllegalStateException("NATR open: internal error");
       }
-      throw new IllegalArgumentException("TA_NATR open: " + retCode);
+      throw new IllegalArgumentException("NATR open: " + retCode);
    }
    /**
     * Open a live NATR stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#natr} at that bar.
-    * <p>The history must hold at least {@code natrLookback(...) + 1} bars
+    * to {@link Core#NATR} at that bar.
+    * <p>The history must hold at least {@code NATR_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public NatrStream natrOpen( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
+   public NATR_Stream NATR_Open( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
    {
-      return natrOpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
+      return NATR_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
    /**
-    * {@link Core#natrOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#natr} over the whole history in the same single pass
+    * {@link Core#NATR_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#NATR} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link NatrStream#fillRange()}.
+    * {@link NATR_Stream#fillRange()}.
     */
-   public NatrStream natrOpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
+   public NATR_Stream NATR_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
    {
-      NatrStream sp = new NatrStream(this);
+      NATR_Stream sp = new NATR_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = natrOpenAndFillBody(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = NATR_OpenAndFillBody(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_NATR openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("NATR openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_NATR openAndFill: internal error");
+         throw new IllegalStateException("NATR openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_NATR openAndFill: " + retCode);
+      throw new IllegalArgumentException("NATR openAndFill: " + retCode);
    }

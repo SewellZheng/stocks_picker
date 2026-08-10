@@ -57,9 +57,10 @@ public partial class Core
     *  072226 MF,CC  First version (issue #139).
     *  072326 MF,CC  Fused single-pass rewrite: rolling sums + sqrt(n)-sized
     *                CIRCBUF, no whole-range temporaries (issue #139).
+    *  080926 MF,CC  Allow period of 1. Just copy input into output.
     */
    /// <summary>
-   /// Number of leading input bars <c>Hma</c> consumes before it can produce its
+   /// Number of leading input bars <c>HMA</c> consumes before it can produce its
    /// first value.
    /// </summary>
    /// <remarks>
@@ -68,22 +69,22 @@ public partial class Core
    /// output.
    /// </remarks>
    /// <param name="optInTimePeriod">Number of bars in the full-period WMA; the half and square-root periods
-   /// derive from it (default 20; range 2..100000; <c>int.MinValue</c> selects
+   /// derive from it (default 20; range 1..100000; <c>int.MinValue</c> selects
    /// the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
-   public int HmaLookback( int optInTimePeriod )
+   public int HMA_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 20;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return -1;
       }
       int sqrtPeriod = 0;
       sqrtPeriod = (int)Math.Sqrt((double)optInTimePeriod);
-      return WmaLookback(optInTimePeriod) + WmaLookback(sqrtPeriod) ;
+      return WMA_Lookback(optInTimePeriod) + WMA_Lookback(sqrtPeriod) ;
 
    }
-   internal RetCode Hma( int startIdx,
+   internal RetCode HMA( int startIdx,
                          int endIdx,
                          double[] inReal,
                          int optInTimePeriod,
@@ -124,15 +125,15 @@ public partial class Core
       double[] dRing;
       int dRing_Idx = 0;
       int maxIdx_dRing = (50)-1;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 20;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
       /* The de-lagged series needs only its last sqrt(n) values, so the whole
@@ -154,10 +155,25 @@ public partial class Core
        * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
        * differential in test_composite.c holds it to that, memcmp-exact.
        */
+      /* No smoothing at period of 1: the output is a copy of the input
+       * (same convention as TA_MA for every MAType). Explicit because the
+       * formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+       * arm below would leave a cancellation residual instead of a copy.
+       */
+      if( optInTimePeriod == 1 ) {
+         outBegIdx = startIdx;
+         outIdx = 0;
+         today = startIdx;
+         while( today <= endIdx ) {
+            outReal[outIdx++] = inReal[today++];
+         }
+         outNBElement = outIdx;
+         return RetCode.Success ;
+      }
       halfPeriod = optInTimePeriod / 2;
       sqrtPeriod = (int)Math.Sqrt((double)optInTimePeriod);
-      lookbackSqrt = WmaLookback(sqrtPeriod);
-      lookbackTotal = WmaLookback(optInTimePeriod) + lookbackSqrt;
+      lookbackSqrt = WMA_Lookback(sqrtPeriod);
+      lookbackTotal = WMA_Lookback(optInTimePeriod) + lookbackSqrt;
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -306,7 +322,7 @@ public partial class Core
       outNBElement = outIdx;
       return RetCode.Success ;
    }
-   internal RetCode Hma( int startIdx,
+   internal RetCode HMA( int startIdx,
                          int endIdx,
                          float[] inReal,
                          int optInTimePeriod,
@@ -347,21 +363,31 @@ public partial class Core
       double[] dRing;
       int dRing_Idx = 0;
       int maxIdx_dRing = (50)-1;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 20;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInTimePeriod == 1 ) {
+         outBegIdx = startIdx;
+         outIdx = 0;
+         today = startIdx;
+         while( today <= endIdx ) {
+            outReal[outIdx++] = (double)inReal[today++];
+         }
+         outNBElement = outIdx;
+         return RetCode.Success ;
       }
       halfPeriod = optInTimePeriod / 2;
       sqrtPeriod = (int)Math.Sqrt((double)optInTimePeriod);
-      lookbackSqrt = WmaLookback(sqrtPeriod);
-      lookbackTotal = WmaLookback(optInTimePeriod) + lookbackSqrt;
+      lookbackSqrt = WMA_Lookback(sqrtPeriod);
+      lookbackTotal = WMA_Lookback(optInTimePeriod) + lookbackSqrt;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -494,40 +520,40 @@ public partial class Core
    /// </code>
    /// <list type="bullet">
    /// <item><description>The two derived periods <c>n/2</c> and <c>sqrt(n)</c> are **truncated** to integers, exactly as in Alan Hull's own statement of the formula (<c>Integer()</c>); Tulip Indicators and pandas-ta do the same. Some other published descriptions round to nearest instead, which changes both the values and, for the square root, the lookback — a visibly different line, not a tolerance-level difference. TA-Lib follows the author.</description></item>
-   /// <item><description>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default TA-Lib matches charting platforms regardless of their rounding convention.</description></item>
-   /// <item><description>The period range starts at 2: a period of 1 would make the half-period WMA degenerate (<c>Integer(1/2) = 0</c>).</description></item>
+   /// <item><description>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default a charting platform using the other convention still lands on TA-Lib's values.</description></item>
+   /// <item><description>A period of 1 performs no smoothing: the output is a copy of the input.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>HmaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range shorter than <c>HMA_Lookback</c> is a <b>success with
+   /// no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
    /// <param name="endIdx">Last bar of the requested range (inclusive).</param>
    /// <param name="inReal">Source price series, close by convention.</param>
    /// <param name="optInTimePeriod">Number of bars in the full-period WMA; the half and square-root periods
-   /// derive from it (default 20; range 2..100000; <c>int.MinValue</c> selects
+   /// derive from it (default 20; range 1..100000; <c>int.MinValue</c> selects
    /// the default).</param>
    /// <param name="outReal">Hull moving average of the input. Must hold at least <c>endIdx - startIdx
    /// + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange Hma( int startIdx,
+   public OutRange HMA( int startIdx,
                         int endIdx,
                         double[] inReal,
                         int optInTimePeriod,
                         double[] outReal )
    {
-      RetCode retCode = Hma(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      RetCode retCode = HMA(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("HMA", retCode);
       }
@@ -555,8 +581,8 @@ public partial class Core
    /// </code>
    /// <list type="bullet">
    /// <item><description>The two derived periods <c>n/2</c> and <c>sqrt(n)</c> are **truncated** to integers, exactly as in Alan Hull's own statement of the formula (<c>Integer()</c>); Tulip Indicators and pandas-ta do the same. Some other published descriptions round to nearest instead, which changes both the values and, for the square root, the lookback — a visibly different line, not a tolerance-level difference. TA-Lib follows the author.</description></item>
-   /// <item><description>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default TA-Lib matches charting platforms regardless of their rounding convention.</description></item>
-   /// <item><description>The period range starts at 2: a period of 1 would make the half-period WMA degenerate (<c>Integer(1/2) = 0</c>).</description></item>
+   /// <item><description>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default a charting platform using the other convention still lands on TA-Lib's values.</description></item>
+   /// <item><description>A period of 1 performs no smoothing: the output is a copy of the input.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -568,33 +594,33 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>HmaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range shorter than <c>HMA_Lookback</c> is a <b>success with
+   /// no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
    /// <param name="endIdx">Last bar of the requested range (inclusive).</param>
    /// <param name="inReal">Source price series, close by convention.</param>
    /// <param name="optInTimePeriod">Number of bars in the full-period WMA; the half and square-root periods
-   /// derive from it (default 20; range 2..100000; <c>int.MinValue</c> selects
+   /// derive from it (default 20; range 1..100000; <c>int.MinValue</c> selects
    /// the default).</param>
    /// <param name="outReal">Hull moving average of the input. Must hold at least <c>endIdx - startIdx
    /// + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange Hma( int startIdx,
+   public OutRange HMA( int startIdx,
                         int endIdx,
                         float[] inReal,
                         int optInTimePeriod,
                         double[] outReal )
    {
-      RetCode retCode = Hma(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      RetCode retCode = HMA(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("HMA", retCode);
       }

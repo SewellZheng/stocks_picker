@@ -74,7 +74,7 @@ use super::*;
 #[allow(unused_mut)]
 #[allow(unused_assignments)]
 impl Core {
-    /// Lookback period for [`Core::t3`]: the number of leading input values consumed before the
+    /// Lookback period for [`Core::T3`]: the number of leading input values consumed before the
     /// first output value can be produced.
     ///
     /// # Arguments
@@ -86,7 +86,7 @@ impl Core {
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`,
     /// and real parameters `-4e37`, to select their default value.
     #[inline]
-    pub fn t3_lookback(&self, mut optInTimePeriod: i32, mut optInVFactor: f64) -> usize {
+    pub fn T3_Lookback(&self, mut optInTimePeriod: i32, mut optInVFactor: f64) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 5;
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
@@ -133,7 +133,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `endIdx < startIdx`, and
+    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
+    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
     /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
     ///
     /// # Panics
@@ -154,7 +155,7 @@ impl Core {
     /// let mut out_nb = 0;
     /// let mut out = vec![0.0; 252];
     ///
-    /// let ret = core.t3(0, data.len() - 1, &data, 5, 0.7, &mut out_beg, &mut out_nb, &mut out);
+    /// let ret = core.T3(0, data.len() - 1, &data, 5, 0.7, &mut out_beg, &mut out_nb, &mut out);
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
     /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
@@ -162,17 +163,17 @@ impl Core {
     ///
     /// # See also
     ///
-    /// [`Core::ema`] · [`Core::dema`] · [`Core::tema`] · [`Core::ma`]
+    /// [`Core::EMA`] · [`Core::DEMA`] · [`Core::TEMA`] · [`Core::MA`]
     ///
     /// # References
     ///
     /// * Tim Tillson, *Smoothing Techniques for More Accurate Signals*, Technical Analysis of
     ///   Stocks & Commodities, V.16:1 (January 1998)
     ///
-    /// Further reading: [ta-lib.org/functions/t3](https://ta-lib.org/functions/t3/)
+    /// Further reading: [ta-lib.org/functions/T3](https://ta-lib.org/functions/T3/)
     #[doc(alias = "TillsonT3")]
     #[doc(alias = "TripleExponentialMovingAverage")]
-    pub fn t3(
+    pub fn T3(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -184,13 +185,13 @@ impl Core {
         outReal: &mut [f64],
     ) -> RetCode {
         #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, t3_fma, t3_impl, (startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal));
+        return ta_lib_dispatch::dispatch_fma!(self, T3_fma, T3_impl, (startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal));
         #[cfg(not(target_arch = "x86_64"))]
-        self.t3_impl(startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal)
+        self.T3_impl(startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal)
     }
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "fma")]
-    fn t3_fma(
+    fn T3_fma(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -201,10 +202,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        self.t3_impl(startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal)
+        self.T3_impl(startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal)
     }
     #[inline(always)]
-    fn t3_impl(
+    fn T3_impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -215,8 +216,11 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if endIdx < startIdx {
+        if startIdx > MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
+        }
+        if endIdx > MAX_INDEX || endIdx < startIdx {
+            return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 5;
@@ -228,7 +232,7 @@ impl Core {
         } else if (optInVFactor < 0e0) || (optInVFactor > 1e0) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.t3_lookback(optInTimePeriod, optInVFactor);
+        let _assertLb = self.T3_Lookback(optInTimePeriod, optInVFactor);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -402,20 +406,20 @@ impl Core {
 }
 /**** Streaming API *****/
 
-/// Live T3 stream: one value per closed bar, bit-identical to [`Core::t3`]
-/// over the same series. Open with [`Core::t3_open`]; dropping the handle
+/// Live T3 stream: one value per closed bar, bit-identical to [`Core::T3`]
+/// over the same series. Open with [`Core::T3_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_T3_Stream")]
-pub struct T3Stream {
+pub struct T3_Stream {
     core: Core,
-    state: T3StreamState,
+    state: T3_StreamState,
 }
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
-struct T3StreamState {
+struct T3_StreamState {
     optInTimePeriod: i32,
     optInVFactor: f64,
     k: f64,
@@ -439,7 +443,7 @@ struct T3StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn t3_step_internal(&self, sp: &mut T3StreamState, inReal: f64, outReal: &mut f64) {
+    fn T3_step_internal(&self, sp: &mut T3_StreamState, inReal: f64, outReal: &mut f64) {
         if sp.optInTimePeriod == 1 {
             (*outReal) = inReal;
             return;
@@ -453,15 +457,15 @@ impl Core {
         (*outReal) = (sp.c4 as f64).mul_add(sp.e3, (sp.c3 as f64).mul_add(sp.e4, (sp.c1 as f64).mul_add(sp.e6, sp.c2 * sp.e5)));
     }
 
-    /// Internal startIdx-anchored open behind [`Core::t3_open`] (composition seam).
-    pub(crate) fn t3_open_internal(
+    /// Internal startIdx-anchored open behind [`Core::T3_Open`] (composition seam).
+    pub(crate) fn T3_OpenInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInVFactor: f64,
-    ) -> Result<(T3Stream, f64), RetCode> {
+    ) -> Result<(T3_Stream, f64), RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inReal.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 5;
@@ -480,10 +484,10 @@ impl Core {
         let mut dummyNBElement: usize = 0;
         let mut lastValue_outReal: f64 = 0.0_f64;
         if optInTimePeriod == 1 {
-            if historyLen < self.t3_lookback(optInTimePeriod, optInVFactor) + 1 {
+            if historyLen < self.T3_Lookback(optInTimePeriod, optInVFactor) + 1 {
                 return Err(RetCode::BadParam);
             }
-            let state = T3StreamState {
+            let state = T3_StreamState {
                 optInTimePeriod: optInTimePeriod,
                 optInVFactor: optInVFactor,
                 k: 0.0_f64,
@@ -499,7 +503,7 @@ impl Core {
                 c3: 0.0_f64,
                 c4: 0.0_f64,
             };
-            return Ok((T3Stream { core: self.clone(), state }, inReal[historyLen - 1]));
+            return Ok((T3_Stream { core: self.clone(), state }, inReal[historyLen - 1]));
         }
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
@@ -654,7 +658,7 @@ impl Core {
         dummyNBElement = outIdx;
 
         // Capture the live batch state into the handle.
-        let state = T3StreamState {
+        let state = T3_StreamState {
             optInTimePeriod,
             optInVFactor,
             k,
@@ -670,11 +674,11 @@ impl Core {
             c3,
             c4,
         };
-        Ok((T3Stream { core: self.clone(), state }, lastValue_outReal))
+        Ok((T3_Stream { core: self.clone(), state }, lastValue_outReal))
     }
 
     /// Open a live T3 stream over the warm-up history; returns the handle and
-    /// the value at the last history bar — bit-identical to [`Core::t3`] at that bar.
+    /// the value at the last history bar — bit-identical to [`Core::T3`] at that bar.
     ///
     /// # Errors
     ///
@@ -686,28 +690,28 @@ impl Core {
     /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.t3_open(&data, 5, 0.7).expect("enough history");
+    /// let (mut s, _last) = core.T3_Open(&data, 5, 0.7).expect("enough history");
     /// let peeked = s.peek(100.9);
     /// let updated = s.update(100.9);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_T3_Open")]
-    pub fn t3_open(&self, inReal: &[f64], optInTimePeriod: i32, optInVFactor: f64) -> Result<(T3Stream, f64), RetCode> {
-        self.t3_open_internal(inReal, 0, optInTimePeriod, optInVFactor)
+    pub fn T3_Open(&self, inReal: &[f64], optInTimePeriod: i32, optInVFactor: f64) -> Result<(T3_Stream, f64), RetCode> {
+        self.T3_OpenInternal(inReal, 0, optInTimePeriod, optInVFactor)
     }
 
-    /// [`Core::t3_open`] that also fills the output array(s) bit-identically to
-    /// [`Core::t3`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::T3_Open`] that also fills the output array(s) bit-identically to
+    /// [`Core::T3`] over `0..len` in the same single pass. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_T3_OpenAndFill")]
-    pub fn t3_open_and_fill(
+    pub fn T3_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, mut optInVFactor: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<T3Stream, RetCode> {
+    ) -> Result<T3_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inReal.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 5;
@@ -725,10 +729,10 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod == 1 {
-            if historyLen < self.t3_lookback(optInTimePeriod, optInVFactor) + 1 {
+            if historyLen < self.T3_Lookback(optInTimePeriod, optInVFactor) + 1 {
                 return Err(RetCode::BadParam);
             }
-            let state = T3StreamState {
+            let state = T3_StreamState {
                 optInTimePeriod: optInTimePeriod,
                 optInVFactor: optInVFactor,
                 k: 0.0_f64,
@@ -744,7 +748,7 @@ impl Core {
                 c3: 0.0_f64,
                 c4: 0.0_f64,
             };
-            let fillLb: usize = self.t3_lookback(optInTimePeriod, optInVFactor);
+            let fillLb: usize = self.T3_Lookback(optInTimePeriod, optInVFactor);
             (*outBegIdx) = fillLb;
             (*outNBElement) = historyLen - fillLb;
             let mut fillIdx: usize = 0;
@@ -752,7 +756,7 @@ impl Core {
                 outReal[fillIdx] = inReal[fillLb + fillIdx];
                 fillIdx += 1;
             }
-            return Ok(T3Stream { core: self.clone(), state });
+            return Ok(T3_Stream { core: self.clone(), state });
         }
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
@@ -909,7 +913,7 @@ impl Core {
         (*outNBElement) = outIdx;
 
         // Capture the live batch state into the handle.
-        let state = T3StreamState {
+        let state = T3_StreamState {
             optInTimePeriod,
             optInVFactor,
             k,
@@ -925,19 +929,19 @@ impl Core {
             c3,
             c4,
         };
-        Ok(T3Stream { core: self.clone(), state })
+        Ok(T3_Stream { core: self.clone(), state })
     }
 
 }
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
-impl T3Stream {
+impl T3_Stream {
     /// Commit one closed bar; always produces a value. Never allocates.
     #[doc(alias = "TA_T3_Update")]
     pub fn update(&mut self, inReal: f64) -> f64 {
         let mut outReal: f64 = 0.0_f64;
-        self.core.t3_step_internal(&mut self.state, inReal, &mut outReal);
+        self.core.T3_step_internal(&mut self.state, inReal, &mut outReal);
         outReal
     }
 
@@ -955,7 +959,7 @@ impl T3Stream {
 
 const _: () = {
     const fn _assert_auto<T: Send + Sync + Clone>() {}
-    _assert_auto::<T3Stream>();
+    _assert_auto::<T3_Stream>();
 };
 
 /***************/

@@ -12,7 +12,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#acos} consumes before it can
+    * Number of leading input bars {@link Core#ACOS} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -20,24 +20,24 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int acosLookback( )
+   public int ACOS_Lookback( )
    {
       return 0 ;
 
    }
-   RetCode acosInternal( int startIdx,
-                         int endIdx,
-                         double inReal[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode ACOS_Internal( int startIdx,
+                          int endIdx,
+                          double inReal[],
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
@@ -47,19 +47,19 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode acosInternal( int startIdx,
-                         int endIdx,
-                         float inReal[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode ACOS_Internal( int startIdx,
+                          int endIdx,
+                          float inReal[],
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
@@ -79,8 +79,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#acosLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#ACOS_Lookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -90,23 +90,23 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cos
-    * @see Core#asin
-    * @see Core#atan
+    * @see Core#COS
+    * @see Core#ASIN
+    * @see Core#ATAN
     */
-   public OutRange acos( int startIdx,
+   public OutRange ACOS( int startIdx,
                          int endIdx,
                          double inReal[],
                          double outReal[] )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = acosInternal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ACOS_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ACOS", retCode);
       }
@@ -125,8 +125,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#acosLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#ACOS_Lookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -136,23 +136,23 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cos
-    * @see Core#asin
-    * @see Core#atan
+    * @see Core#COS
+    * @see Core#ASIN
+    * @see Core#ATAN
     */
-   public OutRange acos( int startIdx,
+   public OutRange ACOS( int startIdx,
                          int endIdx,
                          float inReal[],
                          double outReal[] )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = acosInternal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ACOS_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ACOS", retCode);
       }
@@ -162,33 +162,35 @@
 
    /**
     * A live ACOS stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#acos} over the same series.
-    * Open with {@link Core#acosOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#ACOS} over the same series.
+    * Open with {@link Core#ACOS_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class AcosStream {
+   public static final class ACOS_Stream {
       final Core core;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      AcosStream( Core core ) { this.core = core; }
+      ACOS_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#acosOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#ACOS_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      AcosStream( AcosStream other ) {
+      ACOS_Stream( ACOS_Stream other ) {
          this.core = other.core;
          this.cur_outReal = other.cur_outReal;
          this.fillRange = other.fillRange;
@@ -199,7 +201,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inReal ) {
-         core.acosStreamStep(this, inReal);
+         core.ACOS_StreamStep(this, inReal);
          return this.cur_outReal;
       }
 
@@ -211,8 +213,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inReal ) {
-         AcosStream scratch = new AcosStream(this);
-         core.acosStreamStep(scratch, inReal);
+         ACOS_Stream scratch = new ACOS_Stream(this);
+         core.ACOS_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -229,15 +231,15 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public AcosStream copy() {
-         return new AcosStream(this);
+      public ACOS_Stream copy() {
+         return new ACOS_Stream(this);
       }
    }
-   void acosStreamStep( AcosStream sp, double inReal )
+   void ACOS_StreamStep( ACOS_Stream sp, double inReal )
    {
       sp.cur_outReal = Math.acos(inReal);
    }
-   private RetCode acosOpenBody( AcosStream sp, double inReal[], int startIdx )
+   private RetCode ACOS_OpenBody( ACOS_Stream sp, double inReal[], int startIdx )
    {
       int outIdx = 0;
       int i = 0;
@@ -249,6 +251,9 @@
       if( historyLen < 1 ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          lastValue_outReal = Math.acos(inReal[i]);
       }
@@ -258,7 +263,7 @@
       sp.cur_outReal = lastValue_outReal;
       return RetCode.Success;
    }
-   private RetCode acosOpenAndFillBody( AcosStream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode ACOS_OpenAndFillBody( ACOS_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -267,6 +272,9 @@
       int startIdx = 0;
       if( historyLen < 1 ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
@@ -280,60 +288,60 @@
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind acosOpen (composition seam). */
-   AcosStream acosOpenInternal( double inReal[], int startIdx )
+   /* Internal startIdx-anchored open behind ACOS_Open (composition seam). */
+   ACOS_Stream ACOS_OpenInternal( double inReal[], int startIdx )
    {
-      AcosStream sp = new AcosStream(this);
-      RetCode retCode = acosOpenBody(sp, inReal, startIdx);
+      ACOS_Stream sp = new ACOS_Stream(this);
+      RetCode retCode = ACOS_OpenBody(sp, inReal, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_ACOS open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("ACOS open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_ACOS open: internal error");
+         throw new IllegalStateException("ACOS open: internal error");
       }
-      throw new IllegalArgumentException("TA_ACOS open: " + retCode);
+      throw new IllegalArgumentException("ACOS open: " + retCode);
    }
    /**
     * Open a live ACOS stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#acos} at that bar.
-    * <p>The history must hold at least {@code acosLookback(...) + 1} bars
+    * to {@link Core#ACOS} at that bar.
+    * <p>The history must hold at least {@code ACOS_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public AcosStream acosOpen( double inReal[] )
+   public ACOS_Stream ACOS_Open( double inReal[] )
    {
-      return acosOpenInternal(inReal, 0);
+      return ACOS_OpenInternal(inReal, 0);
    }
    /**
-    * {@link Core#acosOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#acos} over the whole history in the same single pass
+    * {@link Core#ACOS_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#ACOS} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link AcosStream#fillRange()}.
+    * {@link ACOS_Stream#fillRange()}.
     */
-   public AcosStream acosOpenAndFill( double inReal[], double outReal[] )
+   public ACOS_Stream ACOS_OpenAndFill( double inReal[], double outReal[] )
    {
-      AcosStream sp = new AcosStream(this);
+      ACOS_Stream sp = new ACOS_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = acosOpenAndFillBody(sp, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ACOS_OpenAndFillBody(sp, inReal, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_ACOS openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("ACOS openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_ACOS openAndFill: internal error");
+         throw new IllegalStateException("ACOS openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_ACOS openAndFill: " + retCode);
+      throw new IllegalArgumentException("ACOS openAndFill: " + retCode);
    }

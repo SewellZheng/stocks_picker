@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#cdlMatchingLow} consumes before
+    * Number of leading input bars {@link Core#CDLMATCHINGLOW} consumes before
     * it can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,7 +21,7 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int cdlMatchingLowLookback( )
+   public int CDLMATCHINGLOW_Lookback( )
    {
       int Equal_rangeType = this.candleSettings[CandleSettingType.Equal.ordinal()].rangeType.ordinal();
       int Equal_avgPeriod = this.candleSettings[CandleSettingType.Equal.ordinal()].avgPeriod;
@@ -29,15 +29,15 @@
       return Equal_avgPeriod + 1 ;
 
    }
-   RetCode cdlMatchingLowInternal( int startIdx,
-                                   int endIdx,
-                                   double inOpen[],
-                                   double inHigh[],
-                                   double inLow[],
-                                   double inClose[],
-                                   MInteger outBegIdx,
-                                   MInteger outNBElement,
-                                   int outInteger[] )
+   RetCode CDLMATCHINGLOW_Internal( int startIdx,
+                                    int endIdx,
+                                    double inOpen[],
+                                    double inHigh[],
+                                    double inLow[],
+                                    double inClose[],
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    int outInteger[] )
    {
       double EqualPeriodTotal = 0;
       int i = 0;
@@ -47,16 +47,16 @@
       int Equal_rangeType = this.candleSettings[CandleSettingType.Equal.ordinal()].rangeType.ordinal();
       int Equal_avgPeriod = this.candleSettings[CandleSettingType.Equal.ordinal()].avgPeriod;
       double Equal_factor = this.candleSettings[CandleSettingType.Equal.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlMatchingLowLookback();
+      lookbackTotal = CDLMATCHINGLOW_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -109,15 +109,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode cdlMatchingLowInternal( int startIdx,
-                                   int endIdx,
-                                   float inOpen[],
-                                   float inHigh[],
-                                   float inLow[],
-                                   float inClose[],
-                                   MInteger outBegIdx,
-                                   MInteger outNBElement,
-                                   int outInteger[] )
+   RetCode CDLMATCHINGLOW_Internal( int startIdx,
+                                    int endIdx,
+                                    float inOpen[],
+                                    float inHigh[],
+                                    float inLow[],
+                                    float inClose[],
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    int outInteger[] )
    {
       double EqualPeriodTotal = 0;
       int i = 0;
@@ -127,13 +127,13 @@
       int Equal_rangeType = this.candleSettings[CandleSettingType.Equal.ordinal()].rangeType.ordinal();
       int Equal_avgPeriod = this.candleSettings[CandleSettingType.Equal.ordinal()].avgPeriod;
       double Equal_factor = this.candleSettings[CandleSettingType.Equal.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      lookbackTotal = cdlMatchingLowLookback();
+      lookbackTotal = CDLMATCHINGLOW_Lookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -181,7 +181,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlMatchingLowLookback} is a
+    * valid range shorter than {@link Core#CDLMATCHINGLOW_Lookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -196,14 +196,14 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlHomingPigeon
+    * @see Core#CDLHOMINGPIGEON
     */
-   public OutRange cdlMatchingLow( int startIdx,
+   public OutRange CDLMATCHINGLOW( int startIdx,
                                    int endIdx,
                                    double inOpen[],
                                    double inHigh[],
@@ -213,7 +213,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlMatchingLowInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLMATCHINGLOW_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLMATCHINGLOW", retCode);
       }
@@ -238,7 +238,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlMatchingLowLookback} is a
+    * valid range shorter than {@link Core#CDLMATCHINGLOW_Lookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -253,14 +253,14 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlHomingPigeon
+    * @see Core#CDLHOMINGPIGEON
     */
-   public OutRange cdlMatchingLow( int startIdx,
+   public OutRange CDLMATCHINGLOW( int startIdx,
                                    int endIdx,
                                    float inOpen[],
                                    float inHigh[],
@@ -270,7 +270,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlMatchingLowInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLMATCHINGLOW_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLMATCHINGLOW", retCode);
       }
@@ -280,20 +280,19 @@
 
    /**
     * A live CDLMATCHINGLOW stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#cdlMatchingLow} over the same series.
-    * Open with {@link Core#cdlMatchingLowOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#CDLMATCHINGLOW} over the same series.
+    * Open with {@link Core#CDLMATCHINGLOW_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class CdlMatchingLowStream {
+   public static final class CDLMATCHINGLOW_Stream {
       final Core core;
       double EqualPeriodTotal;
       double lag1_inOpen;
@@ -311,17 +310,20 @@
       int cs_Equal_avgPeriod;
       double cs_Equal_factor;
       int cur_outInteger;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      CdlMatchingLowStream( Core core ) { this.core = core; }
+      CDLMATCHINGLOW_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#cdlMatchingLowOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#CDLMATCHINGLOW_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      CdlMatchingLowStream( CdlMatchingLowStream other ) {
+      CDLMATCHINGLOW_Stream( CDLMATCHINGLOW_Stream other ) {
          this.core = other.core;
          this.EqualPeriodTotal = other.EqualPeriodTotal;
          this.lag1_inOpen = other.lag1_inOpen;
@@ -347,7 +349,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
-         core.cdlMatchingLowStreamStep(this, inOpen, inHigh, inLow, inClose);
+         core.CDLMATCHINGLOW_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outInteger;
       }
 
@@ -359,8 +361,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
-         CdlMatchingLowStream scratch = new CdlMatchingLowStream(this);
-         core.cdlMatchingLowStreamStep(scratch, inOpen, inHigh, inLow, inClose);
+         CDLMATCHINGLOW_Stream scratch = new CDLMATCHINGLOW_Stream(this);
+         core.CDLMATCHINGLOW_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outInteger;
       }
 
@@ -377,11 +379,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public CdlMatchingLowStream copy() {
-         return new CdlMatchingLowStream(this);
+      public CDLMATCHINGLOW_Stream copy() {
+         return new CDLMATCHINGLOW_Stream(this);
       }
    }
-   void cdlMatchingLowStreamStep( CdlMatchingLowStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   void CDLMATCHINGLOW_StreamStep( CDLMATCHINGLOW_Stream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int Equal_rangeType = sp.cs_Equal_rangeType;
       int Equal_avgPeriod = sp.cs_Equal_avgPeriod;
@@ -416,7 +418,7 @@
          sp.ringPos_EqualTrailingIdx = 0;
       }
    }
-   private RetCode cdlMatchingLowOpenBody( CdlMatchingLowStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode CDLMATCHINGLOW_OpenBody( CDLMATCHINGLOW_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       double EqualPeriodTotal = 0;
       int i = 0;
@@ -431,13 +433,16 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       int Equal_rangeType = this.candleSettings[CandleSettingType.Equal.ordinal()].rangeType.ordinal();
       int Equal_avgPeriod = this.candleSettings[CandleSettingType.Equal.ordinal()].avgPeriod;
       double Equal_factor = this.candleSettings[CandleSettingType.Equal.ordinal()].factor;
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlMatchingLowLookback();
+      lookbackTotal = CDLMATCHINGLOW_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -529,7 +534,7 @@
       sp.cur_outInteger = lastValue_outInteger;
       return RetCode.Success;
    }
-   private RetCode cdlMatchingLowOpenAndFillBody( CdlMatchingLowStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLMATCHINGLOW_OpenAndFillBody( CDLMATCHINGLOW_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       double EqualPeriodTotal = 0;
       int i = 0;
@@ -542,6 +547,9 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          return RetCode.BadParam;
       }
@@ -551,7 +559,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlMatchingLowLookback();
+      lookbackTotal = CDLMATCHINGLOW_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -643,60 +651,60 @@
       sp.cur_outInteger = outInteger[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind cdlMatchingLowOpen (composition seam). */
-   CdlMatchingLowStream cdlMatchingLowOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   /* Internal startIdx-anchored open behind CDLMATCHINGLOW_Open (composition seam). */
+   CDLMATCHINGLOW_Stream CDLMATCHINGLOW_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
-      CdlMatchingLowStream sp = new CdlMatchingLowStream(this);
-      RetCode retCode = cdlMatchingLowOpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      CDLMATCHINGLOW_Stream sp = new CDLMATCHINGLOW_Stream(this);
+      RetCode retCode = CDLMATCHINGLOW_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLMATCHINGLOW open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLMATCHINGLOW open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLMATCHINGLOW open: internal error");
+         throw new IllegalStateException("CDLMATCHINGLOW open: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLMATCHINGLOW open: " + retCode);
+      throw new IllegalArgumentException("CDLMATCHINGLOW open: " + retCode);
    }
    /**
     * Open a live CDLMATCHINGLOW stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#cdlMatchingLow} at that bar.
-    * <p>The history must hold at least {@code cdlMatchingLowLookback(...) + 1} bars
+    * to {@link Core#CDLMATCHINGLOW} at that bar.
+    * <p>The history must hold at least {@code CDLMATCHINGLOW_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public CdlMatchingLowStream cdlMatchingLowOpen( double inOpen[], double inHigh[], double inLow[], double inClose[] )
+   public CDLMATCHINGLOW_Stream CDLMATCHINGLOW_Open( double inOpen[], double inHigh[], double inLow[], double inClose[] )
    {
-      return cdlMatchingLowOpenInternal(inOpen, inHigh, inLow, inClose, 0);
+      return CDLMATCHINGLOW_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
    /**
-    * {@link Core#cdlMatchingLowOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#cdlMatchingLow} over the whole history in the same single pass
+    * {@link Core#CDLMATCHINGLOW_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#CDLMATCHINGLOW} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link CdlMatchingLowStream#fillRange()}.
+    * {@link CDLMATCHINGLOW_Stream#fillRange()}.
     */
-   public CdlMatchingLowStream cdlMatchingLowOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
+   public CDLMATCHINGLOW_Stream CDLMATCHINGLOW_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
-      CdlMatchingLowStream sp = new CdlMatchingLowStream(this);
+      CDLMATCHINGLOW_Stream sp = new CDLMATCHINGLOW_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlMatchingLowOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLMATCHINGLOW_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLMATCHINGLOW openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLMATCHINGLOW openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLMATCHINGLOW openAndFill: internal error");
+         throw new IllegalStateException("CDLMATCHINGLOW openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLMATCHINGLOW openAndFill: " + retCode);
+      throw new IllegalArgumentException("CDLMATCHINGLOW openAndFill: " + retCode);
    }

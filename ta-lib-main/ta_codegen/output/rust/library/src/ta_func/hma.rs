@@ -54,6 +54,7 @@
  *  072226 MF,CC  First version (issue #139).
  *  072326 MF,CC  Fused single-pass rewrite: rolling sums + sqrt(n)-sized
  *                CIRCBUF, no whole-range temporaries (issue #139).
+ *  080926 MF,CC  Allow period of 1. Just copy input into output.
  */
 
 // Import types from parent module
@@ -66,26 +67,26 @@ use super::*;
 #[allow(unused_mut)]
 #[allow(unused_assignments)]
 impl Core {
-    /// Lookback period for [`Core::hma`]: the number of leading input values consumed before the
+    /// Lookback period for [`Core::HMA`]: the number of leading input values consumed before the
     /// first output value can be produced.
     ///
     /// # Arguments
     ///
     /// * `optInTimePeriod` — Number of bars in the full-period WMA; the half and square-root
-    ///   periods derive from it (default 20, range 2..=100000)
+    ///   periods derive from it (default 20, range 1..=100000)
     ///
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
     /// to select their default value.
     #[inline]
-    pub fn hma_lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn HMA_Lookback(&self, mut optInTimePeriod: i32) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 20;
-        } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
+        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return usize::MAX;
         }
         let mut sqrtPeriod: usize = 0_usize;
         sqrtPeriod = ((optInTimePeriod as f64).sqrt() as usize) as usize;
-        return (self.wma_lookback(optInTimePeriod) + self.wma_lookback((sqrtPeriod) as i32)) as usize;
+        return (self.WMA_Lookback(optInTimePeriod) + self.WMA_Lookback((sqrtPeriod) as i32)) as usize;
     }
     /// Hull Moving Average, published by Alan Hull in 2005: a moving average built to track price
     /// with far less lag than an [`SMA`](https://ta-lib.org/functions/sma),
@@ -116,10 +117,9 @@ impl Core {
     ///   tolerance-level difference. TA-Lib follows the author.
     /// * The default period of 20 is Alan Hull's own default. It is also a period on which the
     ///   truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47
-    ///   truncates and rounds to 4), so at the default TA-Lib matches charting platforms regardless
-    ///   of their rounding convention.
-    /// * The period range starts at 2: a period of 1 would make the half-period WMA degenerate
-    ///   (`Integer(1/2) = 0`).
+    ///   truncates and rounds to 4), so at the default a charting platform using the other
+    ///   convention still lands on TA-Lib's values.
+    /// * A period of 1 performs no smoothing: the output is a copy of the input.
     ///
     /// # Arguments
     ///
@@ -127,7 +127,7 @@ impl Core {
     /// * `endIdx` — End index of the requested calculation range (inclusive).
     /// * `inReal` — Source price series, close by convention.
     /// * `optInTimePeriod` — Number of bars in the full-period WMA; the half and square-root
-    ///   periods derive from it (default 20, range 2..=100000)
+    ///   periods derive from it (default 20, range 1..=100000)
     /// * `outBegIdx` — Set to the input index of the first output value.
     /// * `outNBElement` — Set to the number of output values written.
     /// * `outReal` — Hull moving average of the input.
@@ -136,7 +136,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `endIdx < startIdx`, and
+    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
+    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
     /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
     ///
     /// # Panics
@@ -157,7 +158,7 @@ impl Core {
     /// let mut out_nb = 0;
     /// let mut out = vec![0.0; 252];
     ///
-    /// let ret = core.hma(0, data.len() - 1, &data, 20, &mut out_beg, &mut out_nb, &mut out);
+    /// let ret = core.HMA(0, data.len() - 1, &data, 20, &mut out_beg, &mut out_nb, &mut out);
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
     /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
@@ -165,7 +166,7 @@ impl Core {
     ///
     /// # See also
     ///
-    /// [`Core::wma`] · [`Core::ma`] · [`Core::sma`] · [`Core::ema`]
+    /// [`Core::WMA`] · [`Core::MA`] · [`Core::SMA`] · [`Core::EMA`]
     ///
     /// # References
     ///
@@ -173,9 +174,9 @@ impl Core {
     ///   the `Integer()` truncation of both derived periods:
     ///   [alanhull.com/hull-moving-average](https://alanhull.com/hull-moving-average)
     ///
-    /// Further reading: [ta-lib.org/functions/hma](https://ta-lib.org/functions/hma/)
+    /// Further reading: [ta-lib.org/functions/HMA](https://ta-lib.org/functions/HMA/)
     #[doc(alias = "HullMovingAverage")]
-    pub fn hma(
+    pub fn HMA(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -185,15 +186,18 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if endIdx < startIdx {
+        if startIdx > MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
+        }
+        if endIdx > MAX_INDEX || endIdx < startIdx {
+            return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 20;
-        } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
+        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.hma_lookback(optInTimePeriod);
+        let _assertLb = self.HMA_Lookback(optInTimePeriod);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -248,10 +252,25 @@ impl Core {
         // (periodSub/periodSum, lagged trailing subtract), so this fused pass is
         // BIT-IDENTICAL to composing three TA_WMA calls -- the composite
         // differential in test_composite.c holds it to that, memcmp-exact.
+        // No smoothing at period of 1: the output is a copy of the input
+        // (same convention as TA_MA for every MAType). Explicit because the
+        // formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+        // arm below would leave a cancellation residual instead of a copy.
+        if optInTimePeriod == 1 {
+            (*outBegIdx) = startIdx;
+            outIdx = 0;
+            today = startIdx;
+            while today <= endIdx {
+                outReal[outIdx] = ((inReal[{ let _v = today; today += 1; _v }]) as f64);
+                outIdx += 1;
+            }
+            (*outNBElement) = outIdx;
+            return RetCode::Success;
+        }
         halfPeriod = (optInTimePeriod / 2) as usize;
         sqrtPeriod = ((optInTimePeriod as f64).sqrt() as usize) as usize;
-        lookbackSqrt = self.wma_lookback((sqrtPeriod) as i32);
-        lookbackTotal = self.wma_lookback(optInTimePeriod) + lookbackSqrt;
+        lookbackSqrt = self.WMA_Lookback((sqrtPeriod) as i32);
+        lookbackTotal = self.WMA_Lookback(optInTimePeriod) + lookbackSqrt;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -406,20 +425,20 @@ impl Core {
 }
 /**** Streaming API *****/
 
-/// Live HMA stream: one value per closed bar, bit-identical to [`Core::hma`]
-/// over the same series. Open with [`Core::hma_open`]; dropping the handle
+/// Live HMA stream: one value per closed bar, bit-identical to [`Core::HMA`]
+/// over the same series. Open with [`Core::HMA_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_HMA_Stream")]
-pub struct HmaStream {
+pub struct HMA_Stream {
     core: Core,
-    state: HmaStreamState,
+    state: HMA_StreamState,
 }
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
-struct HmaStreamState {
+struct HMA_StreamState {
     optInTimePeriod: i32,
     dividerFull: f64,
     periodSubFull: f64,
@@ -457,9 +476,13 @@ struct HmaStreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn hma_step_internal(&self, sp: &mut HmaStreamState, inReal: f64, outReal: &mut f64) {
+    fn HMA_step_internal(&self, sp: &mut HMA_StreamState, inReal: f64, outReal: &mut f64) {
         if sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 {
             let mut tempReal: f64 = 0.0_f64;
+            if sp.optInTimePeriod == 1 {
+                (*outReal) = inReal;
+                return;
+            }
             if sp.ringCap_trailingIdxFull == 0 {
                 sp.ring_trailingIdxFull_inReal[0] = inReal;
             }
@@ -478,6 +501,10 @@ impl Core {
             }
         } else {
             let mut tempReal: f64 = 0.0_f64;
+            if sp.optInTimePeriod == 1 {
+                (*outReal) = inReal;
+                return;
+            }
             if sp.ringCap_trailingIdxFull == 0 {
                 sp.ring_trailingIdxFull_inReal[0] = inReal;
             }
@@ -522,19 +549,19 @@ impl Core {
         }
     }
 
-    /// Internal startIdx-anchored open behind [`Core::hma_open`] (composition seam).
-    pub(crate) fn hma_open_internal(
+    /// Internal startIdx-anchored open behind [`Core::HMA_Open`] (composition seam).
+    pub(crate) fn HMA_OpenInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32,
-    ) -> Result<(HmaStream, f64), RetCode> {
+    ) -> Result<(HMA_Stream, f64), RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inReal.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 20;
-        } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
+        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();
@@ -543,6 +570,42 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut lastValue_outReal: f64 = 0.0_f64;
+        if optInTimePeriod == 1 {
+            if historyLen < self.HMA_Lookback(optInTimePeriod) + 1 {
+                return Err(RetCode::BadParam);
+            }
+            let state = HMA_StreamState {
+                optInTimePeriod: optInTimePeriod,
+                dividerFull: 0.0_f64,
+                periodSubFull: 0.0_f64,
+                periodSumFull: 0.0_f64,
+                trailingFull: 0.0_f64,
+                fullOut: 0.0_f64,
+                halfPeriod: 0_usize,
+                sqrtPeriod: 0_usize,
+                dividerHalf: 0.0_f64,
+                dividerSqrt: 0.0_f64,
+                periodSubHalf: 0.0_f64,
+                periodSumHalf: 0.0_f64,
+                trailingHalf: 0.0_f64,
+                periodSubSqrt: 0.0_f64,
+                periodSumSqrt: 0.0_f64,
+                trailingSqrt: 0.0_f64,
+                halfOut: 0.0_f64,
+                diffReal: 0.0_f64,
+                dRing_Idx: 0_usize,
+                maxIdx_dRing: 0_usize,
+                ringPos_trailingIdxFull: 0_usize,
+                ringCap_trailingIdxFull: 0_usize,
+                ring_trailingIdxFull_inReal: vec![0.0_f64; 1],
+                ringPos_trailingIdxHalf: 0_usize,
+                ringCap_trailingIdxHalf: 0_usize,
+                ring_trailingIdxHalf_inReal: vec![0.0_f64; 1],
+                cbSize_dRing: 0_usize,
+                cb_dRing: Vec::new(),
+            };
+            return Ok((HMA_Stream { core: self.clone(), state }, inReal[historyLen - 1]));
+        }
         if optInTimePeriod == 2 || optInTimePeriod == 3 {
             let mut lookbackTotal: usize = 0_usize;
             let mut lookbackSqrt: usize = 0_usize;
@@ -592,10 +655,14 @@ impl Core {
             // (periodSub/periodSum, lagged trailing subtract), so this fused pass is
             // BIT-IDENTICAL to composing three TA_WMA calls -- the composite
             // differential in test_composite.c holds it to that, memcmp-exact.
+            // No smoothing at period of 1: the output is a copy of the input
+            // (same convention as TA_MA for every MAType). Explicit because the
+            // formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+            // arm below would leave a cancellation residual instead of a copy.
             halfPeriod = (optInTimePeriod / 2) as usize;
             sqrtPeriod = ((optInTimePeriod as f64).sqrt() as usize) as usize;
-            lookbackSqrt = self.wma_lookback((sqrtPeriod) as i32);
-            lookbackTotal = self.wma_lookback(optInTimePeriod) + lookbackSqrt;
+            lookbackSqrt = self.WMA_Lookback((sqrtPeriod) as i32);
+            lookbackTotal = self.WMA_Lookback(optInTimePeriod) + lookbackSqrt;
             // Move up the start index if there is not
             // enough initial data.
             if startIdx < lookbackTotal {
@@ -659,7 +726,7 @@ impl Core {
             let mut ring_trailingIdxFull_inReal: Vec<f64> = vec![0.0_f64; allocN_trailingIdxFull];
             ring_trailingIdxFull_inReal[..cap_trailingIdxFull as usize]
                 .copy_from_slice(&inReal[historyLen - cap_trailingIdxFull as usize..]);
-            let state = HmaStreamState {
+            let state = HMA_StreamState {
                 optInTimePeriod,
                 dividerFull,
                 periodSubFull,
@@ -689,7 +756,7 @@ impl Core {
                 cbSize_dRing: 0_usize,
                 cb_dRing: Vec::new(),
             };
-            Ok((HmaStream { core: self.clone(), state }, lastValue_outReal))
+            Ok((HMA_Stream { core: self.clone(), state }, lastValue_outReal))
         } else {
             let mut lookbackTotal: usize = 0_usize;
             let mut lookbackSqrt: usize = 0_usize;
@@ -739,10 +806,14 @@ impl Core {
             // (periodSub/periodSum, lagged trailing subtract), so this fused pass is
             // BIT-IDENTICAL to composing three TA_WMA calls -- the composite
             // differential in test_composite.c holds it to that, memcmp-exact.
+            // No smoothing at period of 1: the output is a copy of the input
+            // (same convention as TA_MA for every MAType). Explicit because the
+            // formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+            // arm below would leave a cancellation residual instead of a copy.
             halfPeriod = (optInTimePeriod / 2) as usize;
             sqrtPeriod = ((optInTimePeriod as f64).sqrt() as usize) as usize;
-            lookbackSqrt = self.wma_lookback((sqrtPeriod) as i32);
-            lookbackTotal = self.wma_lookback(optInTimePeriod) + lookbackSqrt;
+            lookbackSqrt = self.WMA_Lookback((sqrtPeriod) as i32);
+            lookbackTotal = self.WMA_Lookback(optInTimePeriod) + lookbackSqrt;
             // Move up the start index if there is not
             // enough initial data.
             if startIdx < lookbackTotal {
@@ -886,7 +957,7 @@ impl Core {
             if cbSize_dRing > historyLen + 1 {
                 return Err(RetCode::InternalError);
             }
-            let state = HmaStreamState {
+            let state = HMA_StreamState {
                 optInTimePeriod,
                 dividerFull,
                 periodSubFull,
@@ -916,12 +987,12 @@ impl Core {
                 cbSize_dRing: cbSize_dRing,
                 cb_dRing: dRing,
             };
-            Ok((HmaStream { core: self.clone(), state }, lastValue_outReal))
+            Ok((HMA_Stream { core: self.clone(), state }, lastValue_outReal))
         }
     }
 
     /// Open a live HMA stream over the warm-up history; returns the handle and
-    /// the value at the last history bar — bit-identical to [`Core::hma`] at that bar.
+    /// the value at the last history bar — bit-identical to [`Core::HMA`] at that bar.
     ///
     /// # Errors
     ///
@@ -933,32 +1004,32 @@ impl Core {
     /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.hma_open(&data, 20).expect("enough history");
+    /// let (mut s, _last) = core.HMA_Open(&data, 20).expect("enough history");
     /// let peeked = s.peek(100.9);
     /// let updated = s.update(100.9);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_HMA_Open")]
-    pub fn hma_open(&self, inReal: &[f64], optInTimePeriod: i32) -> Result<(HmaStream, f64), RetCode> {
-        self.hma_open_internal(inReal, 0, optInTimePeriod)
+    pub fn HMA_Open(&self, inReal: &[f64], optInTimePeriod: i32) -> Result<(HMA_Stream, f64), RetCode> {
+        self.HMA_OpenInternal(inReal, 0, optInTimePeriod)
     }
 
-    /// [`Core::hma_open`] that also fills the output array(s) bit-identically to
-    /// [`Core::hma`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::HMA_Open`] that also fills the output array(s) bit-identically to
+    /// [`Core::HMA`] over `0..len` in the same single pass. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_HMA_OpenAndFill")]
-    pub fn hma_open_and_fill(
+    pub fn HMA_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<HmaStream, RetCode> {
+    ) -> Result<HMA_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inReal.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 20;
-        } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
+        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();
@@ -966,6 +1037,50 @@ impl Core {
         let mut startIdx: usize = 0;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
+        if optInTimePeriod == 1 {
+            if historyLen < self.HMA_Lookback(optInTimePeriod) + 1 {
+                return Err(RetCode::BadParam);
+            }
+            let state = HMA_StreamState {
+                optInTimePeriod: optInTimePeriod,
+                dividerFull: 0.0_f64,
+                periodSubFull: 0.0_f64,
+                periodSumFull: 0.0_f64,
+                trailingFull: 0.0_f64,
+                fullOut: 0.0_f64,
+                halfPeriod: 0_usize,
+                sqrtPeriod: 0_usize,
+                dividerHalf: 0.0_f64,
+                dividerSqrt: 0.0_f64,
+                periodSubHalf: 0.0_f64,
+                periodSumHalf: 0.0_f64,
+                trailingHalf: 0.0_f64,
+                periodSubSqrt: 0.0_f64,
+                periodSumSqrt: 0.0_f64,
+                trailingSqrt: 0.0_f64,
+                halfOut: 0.0_f64,
+                diffReal: 0.0_f64,
+                dRing_Idx: 0_usize,
+                maxIdx_dRing: 0_usize,
+                ringPos_trailingIdxFull: 0_usize,
+                ringCap_trailingIdxFull: 0_usize,
+                ring_trailingIdxFull_inReal: vec![0.0_f64; 1],
+                ringPos_trailingIdxHalf: 0_usize,
+                ringCap_trailingIdxHalf: 0_usize,
+                ring_trailingIdxHalf_inReal: vec![0.0_f64; 1],
+                cbSize_dRing: 0_usize,
+                cb_dRing: Vec::new(),
+            };
+            let fillLb: usize = self.HMA_Lookback(optInTimePeriod);
+            (*outBegIdx) = fillLb;
+            (*outNBElement) = historyLen - fillLb;
+            let mut fillIdx: usize = 0;
+            while fillIdx < historyLen - fillLb {
+                outReal[fillIdx] = inReal[fillLb + fillIdx];
+                fillIdx += 1;
+            }
+            return Ok(HMA_Stream { core: self.clone(), state });
+        }
         if optInTimePeriod == 2 || optInTimePeriod == 3 {
             let mut lookbackTotal: usize = 0_usize;
             let mut lookbackSqrt: usize = 0_usize;
@@ -1015,10 +1130,14 @@ impl Core {
             // (periodSub/periodSum, lagged trailing subtract), so this fused pass is
             // BIT-IDENTICAL to composing three TA_WMA calls -- the composite
             // differential in test_composite.c holds it to that, memcmp-exact.
+            // No smoothing at period of 1: the output is a copy of the input
+            // (same convention as TA_MA for every MAType). Explicit because the
+            // formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+            // arm below would leave a cancellation residual instead of a copy.
             halfPeriod = (optInTimePeriod / 2) as usize;
             sqrtPeriod = ((optInTimePeriod as f64).sqrt() as usize) as usize;
-            lookbackSqrt = self.wma_lookback((sqrtPeriod) as i32);
-            lookbackTotal = self.wma_lookback(optInTimePeriod) + lookbackSqrt;
+            lookbackSqrt = self.WMA_Lookback((sqrtPeriod) as i32);
+            lookbackTotal = self.WMA_Lookback(optInTimePeriod) + lookbackSqrt;
             // Move up the start index if there is not
             // enough initial data.
             if startIdx < lookbackTotal {
@@ -1083,7 +1202,7 @@ impl Core {
             let mut ring_trailingIdxFull_inReal: Vec<f64> = vec![0.0_f64; allocN_trailingIdxFull];
             ring_trailingIdxFull_inReal[..cap_trailingIdxFull as usize]
                 .copy_from_slice(&inReal[historyLen - cap_trailingIdxFull as usize..]);
-            let state = HmaStreamState {
+            let state = HMA_StreamState {
                 optInTimePeriod,
                 dividerFull,
                 periodSubFull,
@@ -1113,7 +1232,7 @@ impl Core {
                 cbSize_dRing: 0_usize,
                 cb_dRing: Vec::new(),
             };
-            Ok(HmaStream { core: self.clone(), state })
+            Ok(HMA_Stream { core: self.clone(), state })
         } else {
             let mut lookbackTotal: usize = 0_usize;
             let mut lookbackSqrt: usize = 0_usize;
@@ -1163,10 +1282,14 @@ impl Core {
             // (periodSub/periodSum, lagged trailing subtract), so this fused pass is
             // BIT-IDENTICAL to composing three TA_WMA calls -- the composite
             // differential in test_composite.c holds it to that, memcmp-exact.
+            // No smoothing at period of 1: the output is a copy of the input
+            // (same convention as TA_MA for every MAType). Explicit because the
+            // formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+            // arm below would leave a cancellation residual instead of a copy.
             halfPeriod = (optInTimePeriod / 2) as usize;
             sqrtPeriod = ((optInTimePeriod as f64).sqrt() as usize) as usize;
-            lookbackSqrt = self.wma_lookback((sqrtPeriod) as i32);
-            lookbackTotal = self.wma_lookback(optInTimePeriod) + lookbackSqrt;
+            lookbackSqrt = self.WMA_Lookback((sqrtPeriod) as i32);
+            lookbackTotal = self.WMA_Lookback(optInTimePeriod) + lookbackSqrt;
             // Move up the start index if there is not
             // enough initial data.
             if startIdx < lookbackTotal {
@@ -1311,7 +1434,7 @@ impl Core {
             if cbSize_dRing > historyLen + 1 {
                 return Err(RetCode::InternalError);
             }
-            let state = HmaStreamState {
+            let state = HMA_StreamState {
                 optInTimePeriod,
                 dividerFull,
                 periodSubFull,
@@ -1341,7 +1464,7 @@ impl Core {
                 cbSize_dRing: cbSize_dRing,
                 cb_dRing: dRing,
             };
-            Ok(HmaStream { core: self.clone(), state })
+            Ok(HMA_Stream { core: self.clone(), state })
         }
     }
 
@@ -1349,12 +1472,12 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
-impl HmaStream {
+impl HMA_Stream {
     /// Commit one closed bar; always produces a value. Never allocates.
     #[doc(alias = "TA_HMA_Update")]
     pub fn update(&mut self, inReal: f64) -> f64 {
         let mut outReal: f64 = 0.0_f64;
-        self.core.hma_step_internal(&mut self.state, inReal, &mut outReal);
+        self.core.HMA_step_internal(&mut self.state, inReal, &mut outReal);
         outReal
     }
 
@@ -1372,7 +1495,7 @@ impl HmaStream {
 
 const _: () = {
     const fn _assert_auto<T: Send + Sync + Clone>() {}
-    _assert_auto::<HmaStream>();
+    _assert_auto::<HMA_Stream>();
 };
 
 /***************/

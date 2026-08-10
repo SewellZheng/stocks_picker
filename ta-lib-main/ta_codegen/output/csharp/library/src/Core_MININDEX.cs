@@ -55,7 +55,7 @@ public partial class Core
     *  120806 AC   Creation (equal to MIN but outputs index)
     */
    /// <summary>
-   /// Number of leading input bars <c>MinIndex</c> consumes before it can
+   /// Number of leading input bars <c>MININDEX</c> consumes before it can
    /// produce its first value.
    /// </summary>
    /// <remarks>
@@ -66,7 +66,7 @@ public partial class Core
    /// <param name="optInTimePeriod">Window length over which the minimum is located (default 30; range
    /// 2..100000; <c>int.MinValue</c> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
-   public int MinIndexLookback( int optInTimePeriod )
+   public int MININDEX_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 30;
@@ -76,7 +76,7 @@ public partial class Core
       return optInTimePeriod - 1 ;
 
    }
-   internal RetCode MinIndex( int startIdx,
+   internal RetCode MININDEX( int startIdx,
                               int endIdx,
                               double[] inReal,
                               int optInTimePeriod,
@@ -94,10 +94,10 @@ public partial class Core
       int lowestIdx = 0;
       int today = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -159,7 +159,7 @@ public partial class Core
       outNBElement = outIdx;
       return RetCode.Success ;
    }
-   internal RetCode MinIndex( int startIdx,
+   internal RetCode MININDEX( int startIdx,
                               int endIdx,
                               float[] inReal,
                               int optInTimePeriod,
@@ -177,10 +177,10 @@ public partial class Core
       int lowestIdx = 0;
       int today = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -244,7 +244,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>MinIndexLookback</c> is a <b>success
+   /// NaN. A valid range shorter than <c>MININDEX_Lookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -257,19 +257,19 @@ public partial class Core
    /// least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange MinIndex( int startIdx,
+   public OutRange MININDEX( int startIdx,
                              int endIdx,
                              double[] inReal,
                              int optInTimePeriod,
                              int[] outInteger )
    {
-      RetCode retCode = MinIndex(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outInteger);
+      RetCode retCode = MININDEX(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw Failure("MININDEX", retCode);
       }
@@ -298,7 +298,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>MinIndexLookback</c> is a <b>success
+   /// NaN. A valid range shorter than <c>MININDEX_Lookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -311,19 +311,19 @@ public partial class Core
    /// least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange MinIndex( int startIdx,
+   public OutRange MININDEX( int startIdx,
                              int endIdx,
                              float[] inReal,
                              int optInTimePeriod,
                              int[] outInteger )
    {
-      RetCode retCode = MinIndex(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outInteger);
+      RetCode retCode = MININDEX(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw Failure("MININDEX", retCode);
       }

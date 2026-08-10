@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#cdlKicking} consumes before it
+    * Number of leading input bars {@link Core#CDLKICKING} consumes before it
     * can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,7 +21,7 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int cdlKickingLookback( )
+   public int CDLKICKING_Lookback( )
    {
       int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
       int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
@@ -32,15 +32,15 @@
       return Math.max(ShadowVeryShort_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
    }
-   RetCode cdlKickingInternal( int startIdx,
-                               int endIdx,
-                               double inOpen[],
-                               double inHigh[],
-                               double inLow[],
-                               double inClose[],
-                               MInteger outBegIdx,
-                               MInteger outNBElement,
-                               int outInteger[] )
+   RetCode CDLKICKING_Internal( int startIdx,
+                                int endIdx,
+                                double inOpen[],
+                                double inHigh[],
+                                double inLow[],
+                                double inClose[],
+                                MInteger outBegIdx,
+                                MInteger outNBElement,
+                                int outInteger[] )
    {
       double[] ShadowVeryShortPeriodTotal = new double[2];
       double[] BodyLongPeriodTotal = new double[2];
@@ -56,16 +56,16 @@
       int ShadowVeryShort_rangeType = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].rangeType.ordinal();
       int ShadowVeryShort_avgPeriod = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].avgPeriod;
       double ShadowVeryShort_factor = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlKickingLookback();
+      lookbackTotal = CDLKICKING_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -138,15 +138,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode cdlKickingInternal( int startIdx,
-                               int endIdx,
-                               float inOpen[],
-                               float inHigh[],
-                               float inLow[],
-                               float inClose[],
-                               MInteger outBegIdx,
-                               MInteger outNBElement,
-                               int outInteger[] )
+   RetCode CDLKICKING_Internal( int startIdx,
+                                int endIdx,
+                                float inOpen[],
+                                float inHigh[],
+                                float inLow[],
+                                float inClose[],
+                                MInteger outBegIdx,
+                                MInteger outNBElement,
+                                int outInteger[] )
    {
       double[] ShadowVeryShortPeriodTotal = new double[2];
       double[] BodyLongPeriodTotal = new double[2];
@@ -162,13 +162,13 @@
       int ShadowVeryShort_rangeType = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].rangeType.ordinal();
       int ShadowVeryShort_avgPeriod = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].avgPeriod;
       double ShadowVeryShort_factor = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      lookbackTotal = cdlKickingLookback();
+      lookbackTotal = CDLKICKING_Lookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -223,7 +223,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlKickingLookback} is a <b>success
+    * valid range shorter than {@link Core#CDLKICKING_Lookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -238,16 +238,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlKickingByLength
-    * @see Core#cdlMarubozu
-    * @see Core#cdlGapSideSideWhite
+    * @see Core#CDLKICKINGBYLENGTH
+    * @see Core#CDLMARUBOZU
+    * @see Core#CDLGAPSIDESIDEWHITE
     */
-   public OutRange cdlKicking( int startIdx,
+   public OutRange CDLKICKING( int startIdx,
                                int endIdx,
                                double inOpen[],
                                double inHigh[],
@@ -257,7 +257,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlKickingInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLKICKING_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLKICKING", retCode);
       }
@@ -274,7 +274,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlKickingLookback} is a <b>success
+    * valid range shorter than {@link Core#CDLKICKING_Lookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -289,16 +289,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlKickingByLength
-    * @see Core#cdlMarubozu
-    * @see Core#cdlGapSideSideWhite
+    * @see Core#CDLKICKINGBYLENGTH
+    * @see Core#CDLMARUBOZU
+    * @see Core#CDLGAPSIDESIDEWHITE
     */
-   public OutRange cdlKicking( int startIdx,
+   public OutRange CDLKICKING( int startIdx,
                                int endIdx,
                                float inOpen[],
                                float inHigh[],
@@ -308,7 +308,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlKickingInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLKICKING_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLKICKING", retCode);
       }
@@ -318,20 +318,19 @@
 
    /**
     * A live CDLKICKING stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#cdlKicking} over the same series.
-    * Open with {@link Core#cdlKickingOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#CDLKICKING} over the same series.
+    * Open with {@link Core#CDLKICKING_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class CdlKickingStream {
+   public static final class CDLKICKING_Stream {
       final Core core;
       double[] ShadowVeryShortPeriodTotal;
       double[] BodyLongPeriodTotal;
@@ -367,17 +366,20 @@
       int cs_ShadowVeryShort_avgPeriod;
       double cs_ShadowVeryShort_factor;
       int cur_outInteger;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      CdlKickingStream( Core core ) { this.core = core; }
+      CDLKICKING_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#cdlKickingOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#CDLKICKING_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      CdlKickingStream( CdlKickingStream other ) {
+      CDLKICKING_Stream( CDLKICKING_Stream other ) {
          this.core = other.core;
          this.ShadowVeryShortPeriodTotal = other.ShadowVeryShortPeriodTotal.clone();
          this.BodyLongPeriodTotal = other.BodyLongPeriodTotal.clone();
@@ -421,7 +423,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
-         core.cdlKickingStreamStep(this, inOpen, inHigh, inLow, inClose);
+         core.CDLKICKING_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outInteger;
       }
 
@@ -433,8 +435,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
-         CdlKickingStream scratch = new CdlKickingStream(this);
-         core.cdlKickingStreamStep(scratch, inOpen, inHigh, inLow, inClose);
+         CDLKICKING_Stream scratch = new CDLKICKING_Stream(this);
+         core.CDLKICKING_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outInteger;
       }
 
@@ -451,11 +453,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public CdlKickingStream copy() {
-         return new CdlKickingStream(this);
+      public CDLKICKING_Stream copy() {
+         return new CDLKICKING_Stream(this);
       }
    }
-   void cdlKickingStreamStep( CdlKickingStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   void CDLKICKING_StreamStep( CDLKICKING_Stream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
@@ -520,7 +522,7 @@
          sp.winPos_totIdx = 0;
       }
    }
-   private RetCode cdlKickingOpenBody( CdlKickingStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode CDLKICKING_OpenBody( CDLKICKING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       double[] ShadowVeryShortPeriodTotal = new double[2];
       double[] BodyLongPeriodTotal = new double[2];
@@ -538,6 +540,9 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
       int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
       double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
@@ -547,7 +552,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlKickingLookback();
+      lookbackTotal = CDLKICKING_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -711,7 +716,7 @@
       sp.cur_outInteger = lastValue_outInteger;
       return RetCode.Success;
    }
-   private RetCode cdlKickingOpenAndFillBody( CdlKickingStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLKICKING_OpenAndFillBody( CDLKICKING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       double[] ShadowVeryShortPeriodTotal = new double[2];
       double[] BodyLongPeriodTotal = new double[2];
@@ -727,6 +732,9 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          return RetCode.BadParam;
       }
@@ -739,7 +747,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlKickingLookback();
+      lookbackTotal = CDLKICKING_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -903,60 +911,60 @@
       sp.cur_outInteger = outInteger[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind cdlKickingOpen (composition seam). */
-   CdlKickingStream cdlKickingOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   /* Internal startIdx-anchored open behind CDLKICKING_Open (composition seam). */
+   CDLKICKING_Stream CDLKICKING_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
-      CdlKickingStream sp = new CdlKickingStream(this);
-      RetCode retCode = cdlKickingOpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      CDLKICKING_Stream sp = new CDLKICKING_Stream(this);
+      RetCode retCode = CDLKICKING_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLKICKING open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLKICKING open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLKICKING open: internal error");
+         throw new IllegalStateException("CDLKICKING open: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLKICKING open: " + retCode);
+      throw new IllegalArgumentException("CDLKICKING open: " + retCode);
    }
    /**
     * Open a live CDLKICKING stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#cdlKicking} at that bar.
-    * <p>The history must hold at least {@code cdlKickingLookback(...) + 1} bars
+    * to {@link Core#CDLKICKING} at that bar.
+    * <p>The history must hold at least {@code CDLKICKING_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public CdlKickingStream cdlKickingOpen( double inOpen[], double inHigh[], double inLow[], double inClose[] )
+   public CDLKICKING_Stream CDLKICKING_Open( double inOpen[], double inHigh[], double inLow[], double inClose[] )
    {
-      return cdlKickingOpenInternal(inOpen, inHigh, inLow, inClose, 0);
+      return CDLKICKING_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
    /**
-    * {@link Core#cdlKickingOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#cdlKicking} over the whole history in the same single pass
+    * {@link Core#CDLKICKING_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#CDLKICKING} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link CdlKickingStream#fillRange()}.
+    * {@link CDLKICKING_Stream#fillRange()}.
     */
-   public CdlKickingStream cdlKickingOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
+   public CDLKICKING_Stream CDLKICKING_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
-      CdlKickingStream sp = new CdlKickingStream(this);
+      CDLKICKING_Stream sp = new CDLKICKING_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlKickingOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLKICKING_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLKICKING openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLKICKING openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLKICKING openAndFill: internal error");
+         throw new IllegalStateException("CDLKICKING openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLKICKING openAndFill: " + retCode);
+      throw new IllegalArgumentException("CDLKICKING openAndFill: " + retCode);
    }

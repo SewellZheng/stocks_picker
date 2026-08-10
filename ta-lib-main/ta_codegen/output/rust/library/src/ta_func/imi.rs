@@ -72,7 +72,7 @@ use super::*;
 #[allow(unused_mut)]
 #[allow(unused_assignments)]
 impl Core {
-    /// Lookback period for [`Core::imi`]: the number of leading input values consumed before the
+    /// Lookback period for [`Core::IMI`]: the number of leading input values consumed before the
     /// first output value can be produced.
     ///
     /// # Arguments
@@ -83,7 +83,7 @@ impl Core {
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
     /// to select their default value.
     #[inline]
-    pub fn imi_lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn IMI_Lookback(&self, mut optInTimePeriod: i32) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
@@ -117,7 +117,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `endIdx < startIdx`, and
+    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
+    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
     /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
     ///
     /// # Panics
@@ -143,7 +144,7 @@ impl Core {
     /// let mut out_nb = 0;
     /// let mut out = vec![0.0; 252];
     ///
-    /// let ret = core.imi(
+    /// let ret = core.IMI(
     ///     0, open.len() - 1, &open, &close, 14,
     ///     &mut out_beg, &mut out_nb, &mut out,
     /// );
@@ -154,11 +155,11 @@ impl Core {
     ///
     /// # See also
     ///
-    /// [`Core::rsi`]
+    /// [`Core::RSI`]
     ///
-    /// Further reading: [ta-lib.org/functions/imi](https://ta-lib.org/functions/imi/)
+    /// Further reading: [ta-lib.org/functions/IMI](https://ta-lib.org/functions/IMI/)
     #[doc(alias = "IntradayMomentumIndex")]
-    pub fn imi(
+    pub fn IMI(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -169,15 +170,18 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if endIdx < startIdx {
+        if startIdx > MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
+        }
+        if endIdx > MAX_INDEX || endIdx < startIdx {
+            return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.imi_lookback(optInTimePeriod);
+        let _assertLb = self.IMI_Lookback(optInTimePeriod);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inOpen.len());
         assert!(_assertStart > endIdx || endIdx < inClose.len());
@@ -186,7 +190,7 @@ impl Core {
         let mut lookback: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         outIdx = 0;
-        lookback = self.imi_lookback(optInTimePeriod);
+        lookback = self.IMI_Lookback(optInTimePeriod);
         if startIdx < lookback {
             startIdx = lookback;
         }
@@ -224,20 +228,20 @@ impl Core {
 }
 /**** Streaming API *****/
 
-/// Live IMI stream: one value per closed bar, bit-identical to [`Core::imi`]
-/// over the same series. Open with [`Core::imi_open`]; dropping the handle
+/// Live IMI stream: one value per closed bar, bit-identical to [`Core::IMI`]
+/// over the same series. Open with [`Core::IMI_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_IMI_Stream")]
-pub struct ImiStream {
+pub struct IMI_Stream {
     core: Core,
-    state: ImiStreamState,
+    state: IMI_StreamState,
 }
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
-struct ImiStreamState {
+struct IMI_StreamState {
     optInTimePeriod: i32,
     winPos_i: usize,
     winCap_i: usize,
@@ -252,7 +256,7 @@ struct ImiStreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn imi_step_internal(&self, sp: &mut ImiStreamState, inOpen: f64, inClose: f64, outReal: &mut f64) {
+    fn IMI_step_internal(&self, sp: &mut IMI_StreamState, inOpen: f64, inClose: f64, outReal: &mut f64) {
         let mut upsum: f64 = 0.0_f64;
         let mut downsum: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
@@ -285,15 +289,15 @@ impl Core {
         }
     }
 
-    /// Internal startIdx-anchored open behind [`Core::imi_open`] (composition seam).
-    pub(crate) fn imi_open_internal(
+    /// Internal startIdx-anchored open behind [`Core::IMI_Open`] (composition seam).
+    pub(crate) fn IMI_OpenInternal(
         &self, inOpen: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32,
-    ) -> Result<(ImiStream, f64), RetCode> {
+    ) -> Result<(IMI_Stream, f64), RetCode> {
         if inOpen.is_empty() || inClose.is_empty() || inClose.len() != inOpen.len() {
             return Err(RetCode::BadParam);
         }
-        if inOpen.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inOpen.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
@@ -309,7 +313,7 @@ impl Core {
         let mut lookback: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         outIdx = 0;
-        lookback = self.imi_lookback(optInTimePeriod);
+        lookback = self.IMI_Lookback(optInTimePeriod);
         if startIdx < lookback {
             startIdx = lookback;
         }
@@ -352,18 +356,18 @@ impl Core {
         win_i_inOpen.copy_from_slice(&inOpen[historyLen - cap_i as usize..]);
         let mut win_i_inClose: Vec<f64> = vec![0.0_f64; cap_i as usize];
         win_i_inClose.copy_from_slice(&inClose[historyLen - cap_i as usize..]);
-        let state = ImiStreamState {
+        let state = IMI_StreamState {
             optInTimePeriod,
             winPos_i: 0_usize,
             winCap_i: cap_i as usize,
             win_i_inOpen,
             win_i_inClose,
         };
-        Ok((ImiStream { core: self.clone(), state }, lastValue_outReal))
+        Ok((IMI_Stream { core: self.clone(), state }, lastValue_outReal))
     }
 
     /// Open a live IMI stream over the warm-up history; returns the handle and
-    /// the value at the last history bar — bit-identical to [`Core::imi`] at that bar.
+    /// the value at the last history bar — bit-identical to [`Core::IMI`] at that bar.
     ///
     /// # Errors
     ///
@@ -380,28 +384,28 @@ impl Core {
     ///     .collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.imi_open(&open, &close, 14).expect("enough history");
+    /// let (mut s, _last) = core.IMI_Open(&open, &close, 14).expect("enough history");
     /// let peeked = s.peek(100.2, 100.9);
     /// let updated = s.update(100.2, 100.9);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_IMI_Open")]
-    pub fn imi_open(&self, inOpen: &[f64], inClose: &[f64], optInTimePeriod: i32) -> Result<(ImiStream, f64), RetCode> {
-        self.imi_open_internal(inOpen, inClose, 0, optInTimePeriod)
+    pub fn IMI_Open(&self, inOpen: &[f64], inClose: &[f64], optInTimePeriod: i32) -> Result<(IMI_Stream, f64), RetCode> {
+        self.IMI_OpenInternal(inOpen, inClose, 0, optInTimePeriod)
     }
 
-    /// [`Core::imi_open`] that also fills the output array(s) bit-identically to
-    /// [`Core::imi`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::IMI_Open`] that also fills the output array(s) bit-identically to
+    /// [`Core::IMI`] over `0..len` in the same single pass. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_IMI_OpenAndFill")]
-    pub fn imi_open_and_fill(
+    pub fn IMI_OpenAndFill(
         &self, inOpen: &[f64], inClose: &[f64], mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<ImiStream, RetCode> {
+    ) -> Result<IMI_Stream, RetCode> {
         if inOpen.is_empty() || inClose.is_empty() || inClose.len() != inOpen.len() {
             return Err(RetCode::BadParam);
         }
-        if inOpen.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inOpen.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
@@ -416,7 +420,7 @@ impl Core {
         let mut lookback: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         outIdx = 0;
-        lookback = self.imi_lookback(optInTimePeriod);
+        lookback = self.IMI_Lookback(optInTimePeriod);
         if startIdx < lookback {
             startIdx = lookback;
         }
@@ -459,26 +463,26 @@ impl Core {
         win_i_inOpen.copy_from_slice(&inOpen[historyLen - cap_i as usize..]);
         let mut win_i_inClose: Vec<f64> = vec![0.0_f64; cap_i as usize];
         win_i_inClose.copy_from_slice(&inClose[historyLen - cap_i as usize..]);
-        let state = ImiStreamState {
+        let state = IMI_StreamState {
             optInTimePeriod,
             winPos_i: 0_usize,
             winCap_i: cap_i as usize,
             win_i_inOpen,
             win_i_inClose,
         };
-        Ok(ImiStream { core: self.clone(), state })
+        Ok(IMI_Stream { core: self.clone(), state })
     }
 
 }
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
-impl ImiStream {
+impl IMI_Stream {
     /// Commit one closed bar; always produces a value. Never allocates.
     #[doc(alias = "TA_IMI_Update")]
     pub fn update(&mut self, inOpen: f64, inClose: f64) -> f64 {
         let mut outReal: f64 = 0.0_f64;
-        self.core.imi_step_internal(&mut self.state, inOpen, inClose, &mut outReal);
+        self.core.IMI_step_internal(&mut self.state, inOpen, inClose, &mut outReal);
         outReal
     }
 
@@ -496,7 +500,7 @@ impl ImiStream {
 
 const _: () = {
     const fn _assert_auto<T: Send + Sync + Clone>() {}
-    _assert_auto::<ImiStream>();
+    _assert_auto::<IMI_Stream>();
 };
 
 /***************/

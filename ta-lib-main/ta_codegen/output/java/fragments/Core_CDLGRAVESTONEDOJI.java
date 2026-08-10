@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#cdlGravestoneDoji} consumes
+    * Number of leading input bars {@link Core#CDLGRAVESTONEDOJI} consumes
     * before it can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,7 +21,7 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int cdlGravestoneDojiLookback( )
+   public int CDLGRAVESTONEDOJI_Lookback( )
    {
       int BodyDoji_rangeType = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].rangeType.ordinal();
       int BodyDoji_avgPeriod = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].avgPeriod;
@@ -32,15 +32,15 @@
       return Math.max(BodyDoji_avgPeriod, ShadowVeryShort_avgPeriod) ;
 
    }
-   RetCode cdlGravestoneDojiInternal( int startIdx,
-                                      int endIdx,
-                                      double inOpen[],
-                                      double inHigh[],
-                                      double inLow[],
-                                      double inClose[],
-                                      MInteger outBegIdx,
-                                      MInteger outNBElement,
-                                      int outInteger[] )
+   RetCode CDLGRAVESTONEDOJI_Internal( int startIdx,
+                                       int endIdx,
+                                       double inOpen[],
+                                       double inHigh[],
+                                       double inLow[],
+                                       double inClose[],
+                                       MInteger outBegIdx,
+                                       MInteger outNBElement,
+                                       int outInteger[] )
    {
       double BodyDojiPeriodTotal = 0;
       double ShadowVeryShortPeriodTotal = 0;
@@ -55,16 +55,16 @@
       int ShadowVeryShort_rangeType = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].rangeType.ordinal();
       int ShadowVeryShort_avgPeriod = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].avgPeriod;
       double ShadowVeryShort_factor = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlGravestoneDojiLookback();
+      lookbackTotal = CDLGRAVESTONEDOJI_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -124,15 +124,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode cdlGravestoneDojiInternal( int startIdx,
-                                      int endIdx,
-                                      float inOpen[],
-                                      float inHigh[],
-                                      float inLow[],
-                                      float inClose[],
-                                      MInteger outBegIdx,
-                                      MInteger outNBElement,
-                                      int outInteger[] )
+   RetCode CDLGRAVESTONEDOJI_Internal( int startIdx,
+                                       int endIdx,
+                                       float inOpen[],
+                                       float inHigh[],
+                                       float inLow[],
+                                       float inClose[],
+                                       MInteger outBegIdx,
+                                       MInteger outNBElement,
+                                       int outInteger[] )
    {
       double BodyDojiPeriodTotal = 0;
       double ShadowVeryShortPeriodTotal = 0;
@@ -147,13 +147,13 @@
       int ShadowVeryShort_rangeType = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].rangeType.ordinal();
       int ShadowVeryShort_avgPeriod = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].avgPeriod;
       double ShadowVeryShort_factor = this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      lookbackTotal = cdlGravestoneDojiLookback();
+      lookbackTotal = CDLGRAVESTONEDOJI_Lookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -211,7 +211,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlGravestoneDojiLookback} is a
+    * valid range shorter than {@link Core#CDLGRAVESTONEDOJI_Lookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -226,17 +226,17 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlDoji
-    * @see Core#cdlDragonflyDoji
-    * @see Core#cdlLongLeggedDoji
-    * @see Core#cdlDojiStar
+    * @see Core#CDLDOJI
+    * @see Core#CDLDRAGONFLYDOJI
+    * @see Core#CDLLONGLEGGEDDOJI
+    * @see Core#CDLDOJISTAR
     */
-   public OutRange cdlGravestoneDoji( int startIdx,
+   public OutRange CDLGRAVESTONEDOJI( int startIdx,
                                       int endIdx,
                                       double inOpen[],
                                       double inHigh[],
@@ -246,7 +246,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlGravestoneDojiInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLGRAVESTONEDOJI_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLGRAVESTONEDOJI", retCode);
       }
@@ -273,7 +273,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlGravestoneDojiLookback} is a
+    * valid range shorter than {@link Core#CDLGRAVESTONEDOJI_Lookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -288,17 +288,17 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlDoji
-    * @see Core#cdlDragonflyDoji
-    * @see Core#cdlLongLeggedDoji
-    * @see Core#cdlDojiStar
+    * @see Core#CDLDOJI
+    * @see Core#CDLDRAGONFLYDOJI
+    * @see Core#CDLLONGLEGGEDDOJI
+    * @see Core#CDLDOJISTAR
     */
-   public OutRange cdlGravestoneDoji( int startIdx,
+   public OutRange CDLGRAVESTONEDOJI( int startIdx,
                                       int endIdx,
                                       float inOpen[],
                                       float inHigh[],
@@ -308,7 +308,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlGravestoneDojiInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLGRAVESTONEDOJI_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLGRAVESTONEDOJI", retCode);
       }
@@ -318,20 +318,19 @@
 
    /**
     * A live CDLGRAVESTONEDOJI stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#cdlGravestoneDoji} over the same series.
-    * Open with {@link Core#cdlGravestoneDojiOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#CDLGRAVESTONEDOJI} over the same series.
+    * Open with {@link Core#CDLGRAVESTONEDOJI_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class CdlGravestoneDojiStream {
+   public static final class CDLGRAVESTONEDOJI_Stream {
       final Core core;
       double BodyDojiPeriodTotal;
       double ShadowVeryShortPeriodTotal;
@@ -354,17 +353,20 @@
       int cs_ShadowVeryShort_avgPeriod;
       double cs_ShadowVeryShort_factor;
       int cur_outInteger;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      CdlGravestoneDojiStream( Core core ) { this.core = core; }
+      CDLGRAVESTONEDOJI_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#cdlGravestoneDojiOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#CDLGRAVESTONEDOJI_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      CdlGravestoneDojiStream( CdlGravestoneDojiStream other ) {
+      CDLGRAVESTONEDOJI_Stream( CDLGRAVESTONEDOJI_Stream other ) {
          this.core = other.core;
          this.BodyDojiPeriodTotal = other.BodyDojiPeriodTotal;
          this.ShadowVeryShortPeriodTotal = other.ShadowVeryShortPeriodTotal;
@@ -395,7 +397,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
-         core.cdlGravestoneDojiStreamStep(this, inOpen, inHigh, inLow, inClose);
+         core.CDLGRAVESTONEDOJI_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outInteger;
       }
 
@@ -407,8 +409,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
-         CdlGravestoneDojiStream scratch = new CdlGravestoneDojiStream(this);
-         core.cdlGravestoneDojiStreamStep(scratch, inOpen, inHigh, inLow, inClose);
+         CDLGRAVESTONEDOJI_Stream scratch = new CDLGRAVESTONEDOJI_Stream(this);
+         core.CDLGRAVESTONEDOJI_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outInteger;
       }
 
@@ -425,11 +427,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public CdlGravestoneDojiStream copy() {
-         return new CdlGravestoneDojiStream(this);
+      public CDLGRAVESTONEDOJI_Stream copy() {
+         return new CDLGRAVESTONEDOJI_Stream(this);
       }
    }
-   void cdlGravestoneDojiStreamStep( CdlGravestoneDojiStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   void CDLGRAVESTONEDOJI_StreamStep( CDLGRAVESTONEDOJI_Stream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
@@ -476,7 +478,7 @@
          sp.ringPos_ShadowVeryShortTrailingIdx = 0;
       }
    }
-   private RetCode cdlGravestoneDojiOpenBody( CdlGravestoneDojiStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode CDLGRAVESTONEDOJI_OpenBody( CDLGRAVESTONEDOJI_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       double BodyDojiPeriodTotal = 0;
       double ShadowVeryShortPeriodTotal = 0;
@@ -493,6 +495,9 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       int BodyDoji_rangeType = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].rangeType.ordinal();
       int BodyDoji_avgPeriod = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].avgPeriod;
       double BodyDoji_factor = this.candleSettings[CandleSettingType.BodyDoji.ordinal()].factor;
@@ -502,7 +507,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlGravestoneDojiLookback();
+      lookbackTotal = CDLGRAVESTONEDOJI_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -610,7 +615,7 @@
       sp.cur_outInteger = lastValue_outInteger;
       return RetCode.Success;
    }
-   private RetCode cdlGravestoneDojiOpenAndFillBody( CdlGravestoneDojiStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLGRAVESTONEDOJI_OpenAndFillBody( CDLGRAVESTONEDOJI_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       double BodyDojiPeriodTotal = 0;
       double ShadowVeryShortPeriodTotal = 0;
@@ -625,6 +630,9 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          return RetCode.BadParam;
       }
@@ -637,7 +645,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlGravestoneDojiLookback();
+      lookbackTotal = CDLGRAVESTONEDOJI_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -745,60 +753,60 @@
       sp.cur_outInteger = outInteger[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind cdlGravestoneDojiOpen (composition seam). */
-   CdlGravestoneDojiStream cdlGravestoneDojiOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   /* Internal startIdx-anchored open behind CDLGRAVESTONEDOJI_Open (composition seam). */
+   CDLGRAVESTONEDOJI_Stream CDLGRAVESTONEDOJI_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
-      CdlGravestoneDojiStream sp = new CdlGravestoneDojiStream(this);
-      RetCode retCode = cdlGravestoneDojiOpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      CDLGRAVESTONEDOJI_Stream sp = new CDLGRAVESTONEDOJI_Stream(this);
+      RetCode retCode = CDLGRAVESTONEDOJI_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLGRAVESTONEDOJI open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLGRAVESTONEDOJI open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLGRAVESTONEDOJI open: internal error");
+         throw new IllegalStateException("CDLGRAVESTONEDOJI open: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLGRAVESTONEDOJI open: " + retCode);
+      throw new IllegalArgumentException("CDLGRAVESTONEDOJI open: " + retCode);
    }
    /**
     * Open a live CDLGRAVESTONEDOJI stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#cdlGravestoneDoji} at that bar.
-    * <p>The history must hold at least {@code cdlGravestoneDojiLookback(...) + 1} bars
+    * to {@link Core#CDLGRAVESTONEDOJI} at that bar.
+    * <p>The history must hold at least {@code CDLGRAVESTONEDOJI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public CdlGravestoneDojiStream cdlGravestoneDojiOpen( double inOpen[], double inHigh[], double inLow[], double inClose[] )
+   public CDLGRAVESTONEDOJI_Stream CDLGRAVESTONEDOJI_Open( double inOpen[], double inHigh[], double inLow[], double inClose[] )
    {
-      return cdlGravestoneDojiOpenInternal(inOpen, inHigh, inLow, inClose, 0);
+      return CDLGRAVESTONEDOJI_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
    /**
-    * {@link Core#cdlGravestoneDojiOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#cdlGravestoneDoji} over the whole history in the same single pass
+    * {@link Core#CDLGRAVESTONEDOJI_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#CDLGRAVESTONEDOJI} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link CdlGravestoneDojiStream#fillRange()}.
+    * {@link CDLGRAVESTONEDOJI_Stream#fillRange()}.
     */
-   public CdlGravestoneDojiStream cdlGravestoneDojiOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
+   public CDLGRAVESTONEDOJI_Stream CDLGRAVESTONEDOJI_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
-      CdlGravestoneDojiStream sp = new CdlGravestoneDojiStream(this);
+      CDLGRAVESTONEDOJI_Stream sp = new CDLGRAVESTONEDOJI_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlGravestoneDojiOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLGRAVESTONEDOJI_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLGRAVESTONEDOJI openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLGRAVESTONEDOJI openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLGRAVESTONEDOJI openAndFill: internal error");
+         throw new IllegalStateException("CDLGRAVESTONEDOJI openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLGRAVESTONEDOJI openAndFill: " + retCode);
+      throw new IllegalArgumentException("CDLGRAVESTONEDOJI openAndFill: " + retCode);
    }

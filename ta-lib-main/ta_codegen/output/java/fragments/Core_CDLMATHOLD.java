@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#cdlMatHold} consumes before it
+    * Number of leading input bars {@link Core#CDLMATHOLD} consumes before it
     * can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -24,11 +24,11 @@
     *        selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int cdlMatHoldLookback( double optInPenetration )
+   public int CDLMATHOLD_Lookback( double optInPenetration )
    {
-      if( optInPenetration == TA_REAL_DEFAULT ) {
+      if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 5e-1;
-      } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
+      } else if( optInPenetration < 0e0 || optInPenetration > REAL_MAX ) {
          return -1;
       }
       int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -40,16 +40,16 @@
       return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 4 ;
 
    }
-   RetCode cdlMatHoldInternal( int startIdx,
-                               int endIdx,
-                               double inOpen[],
-                               double inHigh[],
-                               double inLow[],
-                               double inClose[],
-                               double optInPenetration,
-                               MInteger outBegIdx,
-                               MInteger outNBElement,
-                               int outInteger[] )
+   RetCode CDLMATHOLD_Internal( int startIdx,
+                                int endIdx,
+                                double inOpen[],
+                                double inHigh[],
+                                double inLow[],
+                                double inClose[],
+                                double optInPenetration,
+                                MInteger outBegIdx,
+                                MInteger outNBElement,
+                                int outInteger[] )
    {
       double[] BodyPeriodTotal = new double[5];
       int i = 0;
@@ -64,21 +64,21 @@
       int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
       int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
       double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( optInPenetration == TA_REAL_DEFAULT ) {
+      if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 5e-1;
-      } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
+      } else if( optInPenetration < 0e0 || optInPenetration > REAL_MAX ) {
          return RetCode.BadParam;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlMatHoldLookback(optInPenetration);
+      lookbackTotal = CDLMATHOLD_Lookback(optInPenetration);
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -167,16 +167,16 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode cdlMatHoldInternal( int startIdx,
-                               int endIdx,
-                               float inOpen[],
-                               float inHigh[],
-                               float inLow[],
-                               float inClose[],
-                               double optInPenetration,
-                               MInteger outBegIdx,
-                               MInteger outNBElement,
-                               int outInteger[] )
+   RetCode CDLMATHOLD_Internal( int startIdx,
+                                int endIdx,
+                                float inOpen[],
+                                float inHigh[],
+                                float inLow[],
+                                float inClose[],
+                                double optInPenetration,
+                                MInteger outBegIdx,
+                                MInteger outNBElement,
+                                int outInteger[] )
    {
       double[] BodyPeriodTotal = new double[5];
       int i = 0;
@@ -191,18 +191,18 @@
       int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
       int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
       double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( optInPenetration == TA_REAL_DEFAULT ) {
+      if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 5e-1;
-      } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
+      } else if( optInPenetration < 0e0 || optInPenetration > REAL_MAX ) {
          return RetCode.BadParam;
       }
-      lookbackTotal = cdlMatHoldLookback(optInPenetration);
+      lookbackTotal = CDLMATHOLD_Lookback(optInPenetration);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -264,7 +264,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlMatHoldLookback} is a <b>success
+    * valid range shorter than {@link Core#CDLMATHOLD_Lookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -281,15 +281,15 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlRiseFall3Methods
-    * @see Core#cdlXSideGap3Methods
+    * @see Core#CDLRISEFALL3METHODS
+    * @see Core#CDLXSIDEGAP3METHODS
     */
-   public OutRange cdlMatHold( int startIdx,
+   public OutRange CDLMATHOLD( int startIdx,
                                int endIdx,
                                double inOpen[],
                                double inHigh[],
@@ -300,7 +300,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlMatHoldInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLMATHOLD_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLMATHOLD", retCode);
       }
@@ -323,7 +323,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlMatHoldLookback} is a <b>success
+    * valid range shorter than {@link Core#CDLMATHOLD_Lookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -340,15 +340,15 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlRiseFall3Methods
-    * @see Core#cdlXSideGap3Methods
+    * @see Core#CDLRISEFALL3METHODS
+    * @see Core#CDLXSIDEGAP3METHODS
     */
-   public OutRange cdlMatHold( int startIdx,
+   public OutRange CDLMATHOLD( int startIdx,
                                int endIdx,
                                float inOpen[],
                                float inHigh[],
@@ -359,7 +359,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlMatHoldInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLMATHOLD_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLMATHOLD", retCode);
       }
@@ -369,20 +369,19 @@
 
    /**
     * A live CDLMATHOLD stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#cdlMatHold} over the same series.
-    * Open with {@link Core#cdlMatHoldOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#CDLMATHOLD} over the same series.
+    * Open with {@link Core#CDLMATHOLD_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class CdlMatHoldStream {
+   public static final class CDLMATHOLD_Stream {
       final Core core;
       double optInPenetration;
       double[] BodyPeriodTotal;
@@ -430,17 +429,20 @@
       int cs_BodyShort_avgPeriod;
       double cs_BodyShort_factor;
       int cur_outInteger;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      CdlMatHoldStream( Core core ) { this.core = core; }
+      CDLMATHOLD_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#cdlMatHoldOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#CDLMATHOLD_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      CdlMatHoldStream( CdlMatHoldStream other ) {
+      CDLMATHOLD_Stream( CDLMATHOLD_Stream other ) {
          this.core = other.core;
          this.optInPenetration = other.optInPenetration;
          this.BodyPeriodTotal = other.BodyPeriodTotal.clone();
@@ -496,7 +498,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
-         core.cdlMatHoldStreamStep(this, inOpen, inHigh, inLow, inClose);
+         core.CDLMATHOLD_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outInteger;
       }
 
@@ -508,8 +510,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
-         CdlMatHoldStream scratch = new CdlMatHoldStream(this);
-         core.cdlMatHoldStreamStep(scratch, inOpen, inHigh, inLow, inClose);
+         CDLMATHOLD_Stream scratch = new CDLMATHOLD_Stream(this);
+         core.CDLMATHOLD_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outInteger;
       }
 
@@ -526,11 +528,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public CdlMatHoldStream copy() {
-         return new CdlMatHoldStream(this);
+      public CDLMATHOLD_Stream copy() {
+         return new CDLMATHOLD_Stream(this);
       }
    }
-   void cdlMatHoldStreamStep( CdlMatHoldStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   void CDLMATHOLD_StreamStep( CDLMATHOLD_Stream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
@@ -615,7 +617,7 @@
          sp.winPos_totIdx = 0;
       }
    }
-   private RetCode cdlMatHoldOpenBody( CdlMatHoldStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration )
+   private RetCode CDLMATHOLD_OpenBody( CDLMATHOLD_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration )
    {
       double[] BodyPeriodTotal = new double[5];
       int i = 0;
@@ -632,9 +634,12 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
-      if( optInPenetration == TA_REAL_DEFAULT ) {
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 5e-1;
-      } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
+      } else if( optInPenetration < 0e0 || optInPenetration > REAL_MAX ) {
          return RetCode.BadParam;
       }
       int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
@@ -646,7 +651,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlMatHoldLookback(optInPenetration);
+      lookbackTotal = CDLMATHOLD_Lookback(optInPenetration);
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -838,7 +843,7 @@
       sp.cur_outInteger = lastValue_outInteger;
       return RetCode.Success;
    }
-   private RetCode cdlMatHoldOpenAndFillBody( CdlMatHoldStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLMATHOLD_OpenAndFillBody( CDLMATHOLD_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       double[] BodyPeriodTotal = new double[5];
       int i = 0;
@@ -853,9 +858,12 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
-      if( optInPenetration == TA_REAL_DEFAULT ) {
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 5e-1;
-      } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
+      } else if( optInPenetration < 0e0 || optInPenetration > REAL_MAX ) {
          return RetCode.BadParam;
       }
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
@@ -870,7 +878,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlMatHoldLookback(optInPenetration);
+      lookbackTotal = CDLMATHOLD_Lookback(optInPenetration);
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -1062,60 +1070,60 @@
       sp.cur_outInteger = outInteger[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind cdlMatHoldOpen (composition seam). */
-   CdlMatHoldStream cdlMatHoldOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration )
+   /* Internal startIdx-anchored open behind CDLMATHOLD_Open (composition seam). */
+   CDLMATHOLD_Stream CDLMATHOLD_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration )
    {
-      CdlMatHoldStream sp = new CdlMatHoldStream(this);
-      RetCode retCode = cdlMatHoldOpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration);
+      CDLMATHOLD_Stream sp = new CDLMATHOLD_Stream(this);
+      RetCode retCode = CDLMATHOLD_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLMATHOLD open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLMATHOLD open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLMATHOLD open: internal error");
+         throw new IllegalStateException("CDLMATHOLD open: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLMATHOLD open: " + retCode);
+      throw new IllegalArgumentException("CDLMATHOLD open: " + retCode);
    }
    /**
     * Open a live CDLMATHOLD stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#cdlMatHold} at that bar.
-    * <p>The history must hold at least {@code cdlMatHoldLookback(...) + 1} bars
+    * to {@link Core#CDLMATHOLD} at that bar.
+    * <p>The history must hold at least {@code CDLMATHOLD_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public CdlMatHoldStream cdlMatHoldOpen( double inOpen[], double inHigh[], double inLow[], double inClose[], double optInPenetration )
+   public CDLMATHOLD_Stream CDLMATHOLD_Open( double inOpen[], double inHigh[], double inLow[], double inClose[], double optInPenetration )
    {
-      return cdlMatHoldOpenInternal(inOpen, inHigh, inLow, inClose, 0, optInPenetration);
+      return CDLMATHOLD_OpenInternal(inOpen, inHigh, inLow, inClose, 0, optInPenetration);
    }
    /**
-    * {@link Core#cdlMatHoldOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#cdlMatHold} over the whole history in the same single pass
+    * {@link Core#CDLMATHOLD_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#CDLMATHOLD} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link CdlMatHoldStream#fillRange()}.
+    * {@link CDLMATHOLD_Stream#fillRange()}.
     */
-   public CdlMatHoldStream cdlMatHoldOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], double optInPenetration, int outInteger[] )
+   public CDLMATHOLD_Stream CDLMATHOLD_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], double optInPenetration, int outInteger[] )
    {
-      CdlMatHoldStream sp = new CdlMatHoldStream(this);
+      CDLMATHOLD_Stream sp = new CDLMATHOLD_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlMatHoldOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLMATHOLD_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLMATHOLD openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLMATHOLD openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLMATHOLD openAndFill: internal error");
+         throw new IllegalStateException("CDLMATHOLD openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLMATHOLD openAndFill: " + retCode);
+      throw new IllegalArgumentException("CDLMATHOLD openAndFill: " + retCode);
    }

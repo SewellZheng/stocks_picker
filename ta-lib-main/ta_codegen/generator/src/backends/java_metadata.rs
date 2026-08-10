@@ -71,6 +71,53 @@ fn header(contributors: &str) -> String {
     )
 }
 
+/// The package's javadoc. Without a `package-info.java` the published javadoc
+/// renders an empty description for the package page, and a first release is
+/// the worst moment for that.
+///
+/// Built from `header` rather than beside it because a package javadoc must sit
+/// immediately before the `package` declaration, where `header` already ends.
+fn package_info() -> String {
+    let h = header("MF,CC");
+    let pkg = format!("package {PACKAGE};\n\n");
+    let license = h
+        .strip_suffix(&pkg)
+        .expect("header() ends with the package declaration");
+    format!(
+        "{license}/**\n\
+         \x20* Runtime introspection: what the library's functions are, what they take,\n\
+         \x20* and how to call one whose name is not known until run time.\n\
+         \x20*\n\
+         \x20* <p>The Java face of the C library's {{@code ta_abstract}} layer, and\n\
+         \x20* generated from the same definitions as the indicators themselves, so a\n\
+         \x20* row here cannot describe a method that does not exist.\n\
+         \x20*\n\
+         \x20* <p>{{@link {PACKAGE}.Functions#all()}} enumerates every function;\n\
+         \x20* {{@link {PACKAGE}.Functions#byName(java.lang.String)}} looks one up.\n\
+         \x20* Each {{@link {PACKAGE}.FunctionInfo}} carries its group, its flags and its\n\
+         \x20* input/optional-input/output descriptors, and mints a\n\
+         \x20* {{@link {PACKAGE}.ParamHolder}} to bind arguments into:\n\
+         \x20*\n\
+         \x20* <pre>{{@code\n\
+         \x20* FunctionInfo rsi = Functions.byName(\"RSI\");\n\
+         \x20* double[] out = new double[close.length];\n\
+         \x20* OutRange r = rsi.newCall()\n\
+         \x20*     .setInput(0, close)\n\
+         \x20*     .setOptInput(0, 14)\n\
+         \x20*     .setOutput(0, out)\n\
+         \x20*     .call(0, close.length - 1);\n\
+         \x20* }}</pre>\n\
+         \x20*\n\
+         \x20* <p>Binding is checked, not reflective: the dispatch onto the typed method\n\
+         \x20* is a generated {{@code switch}}, so the library stays AOT- and\n\
+         \x20* jlink-friendly and a signature change is a compile error rather than a\n\
+         \x20* run-time one. The typed API on {{@link io.github.talib.Core}} remains the\n\
+         \x20* faster and safer choice whenever the function is known at compile time.\n\
+         \x20*/\n\
+         {pkg}"
+    )
+}
+
 /// Emit `s` as a Java string literal (escaping `\"` and `\\`).
 fn js(s: &str) -> String {
     let mut o = String::from("\"");
@@ -108,7 +155,7 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, lib_src: &P
     // so a list with a gap silently bound the wrong member (issue #164).
     let matype: Vec<&str> = enums
         .get("MAType")
-        .map(|e| e.variants.iter().map(|v| v.short_name.as_str()).collect())
+        .map(|e| e.variants.iter().map(|v| v.name.as_str()).collect())
         .unwrap_or_default();
     for f in &rows {
         for opt in &f.opt_inputs {
@@ -144,6 +191,7 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, lib_src: &P
         }
     }
 
+    write(&dir, "package-info.java", &package_info());
     write(&dir, "InputType.java", &input_type_enum());
     write(&dir, "OptInputType.java", &opt_input_type_enum());
     write(&dir, "OutputType.java", &output_type_enum());
@@ -490,11 +538,6 @@ fn function_info_record() -> String {
          \x20* @param name          the canonical upper-case name, e.g. {@code SMA}\n\
          \x20* @param group         the functional group, e.g. {@code Overlap Studies}\n\
          \x20* @param hint          a one-line description ({@code \"\"} when none)\n\
-         \x20* @param camelCaseName C's {@code TA_FuncInfo.camelCaseName}, kept for\n\
-         \x20*                      cross-backend parity. Pascal-cased for some functions\n\
-         \x20*                      ({@code Accbands}) -- use {@link #javaMethodName()} to\n\
-         \x20*                      name the Java method\n\
-         \x20* @param javaMethodName the method on {@code Core}, e.g. {@code sma}, {@code accbands}\n\
          \x20* @param flags         see {@link FuncFlags}\n\
          \x20* @param inputs        inputs in call order\n\
          \x20* @param optInputs     optional parameters in call order\n\
@@ -504,8 +547,6 @@ fn function_info_record() -> String {
          \x20      String name,\n\
          \x20      String group,\n\
          \x20      String hint,\n\
-         \x20      String camelCaseName,\n\
-         \x20      String javaMethodName,\n\
          \x20      int flags,\n\
          \x20      List<InputInfo> inputs,\n\
          \x20      List<OptInputInfo> optInputs,\n\
@@ -629,15 +670,10 @@ fn emit_function_factory(s: &mut String, f: &FuncRow) {
     let _ = writeln!(s, "      return new FunctionInfo(");
     let _ = writeln!(
         s,
-        "         {}, {}, {}, {}, {}, 0x{:08X},",
+        "         {}, {}, {}, 0x{:08X},",
         js(&f.name),
         js(f.group.as_str()),
         js(&f.hint),
-        js(f.camel_case_name()),
-        // Derived here, with the very helper `java.rs` names the method with, so
-        // it cannot drift from the real signature — which is why it is not a
-        // field on the backend-neutral row.
-        js(&super::java::to_java_method_name(&f.name, f.camel_case.as_deref())),
         f.flags
     );
 
@@ -907,7 +943,7 @@ public final class ParamHolder {
             real MAType -- so it resolves at this boundary, which is exactly where
             an UNSET choice list already resolves (see the constructor). Leaving
             the two to disagree was issue #164's first finding. */
-         if (value == Core.TA_INTEGER_DEFAULT) {
+         if (value == Core.INTEGER_DEFAULT) {
             int declared = (int) info.optInputs().get(idx).defaultValue();
             maTypeOpts[idx] = all[declared];
             intOpts[idx] = declared;
@@ -1072,30 +1108,33 @@ public final class ParamHolder {
 /// The generated `switch` from a function name onto its typed public wrapper.
 fn dispatch_class(rows: &[FuncRow]) -> String {
     let mut s = header("MF,CC");
+    // Column 0, like the two tails below and this file's other emitters: in a
+    // non-raw literal the Rust source's own indentation is string content, and
+    // it shipped in the sources jar as a 9-space leak on every header line.
     s.push_str(
-        "import io.github.talib.Core;
-         import io.github.talib.OutRange;
+        r"import io.github.talib.Core;
+import io.github.talib.OutRange;
 
-         /**
-          * Routes a {@link ParamHolder} onto the typed method it names.
-          *
-          * <p>A generated {@code switch}, not reflection: the argument lists below are
-          * emitted from the same definitions as the methods they call, so a signature
-          * change breaks this file at compile time instead of at run time. It also
-          * leaves the library AOT- and jlink-friendly.
-          */
-         final class Dispatch {
+/**
+ * Routes a {@link ParamHolder} onto the typed method it names.
+ *
+ * <p>A generated {@code switch}, not reflection: the argument lists below are
+ * emitted from the same definitions as the methods they call, so a signature
+ * change breaks this file at compile time instead of at run time. It also
+ * leaves the library AOT- and jlink-friendly.
+ */
+final class Dispatch {
 
-            private Dispatch() { }
+   private Dispatch() { }
 
-            static OutRange call(ParamHolder h, int startIdx, int endIdx) {
-               Core core = h.core();
-               switch (h.info().name()) {
+   static OutRange call(ParamHolder h, int startIdx, int endIdx) {
+      Core core = h.core();
+      switch (h.info().name()) {
 ",
     );
 
     for f in rows {
-        let camel = super::java::to_java_method_name(&f.name, f.camel_case.as_deref());
+        let camel = f.name.clone();
 
         // Argument order comes STRAIGHT from the row the registry publishes:
         // a price bundle is one slot, and `signature_components` is the order
@@ -1157,7 +1196,7 @@ fn dispatch_class(rows: &[FuncRow]) -> String {
     );
 
     for f in rows {
-        let camel = super::java::to_java_method_name(&f.name, f.camel_case.as_deref());
+        let camel = f.name.clone();
         let mut args: Vec<String> = Vec::new();
         for (k, opt) in f.opt_inputs.iter().enumerate() {
             match &opt.domain {
@@ -1169,7 +1208,7 @@ fn dispatch_class(rows: &[FuncRow]) -> String {
             }
         }
         let _ = writeln!(s, "         case {}:", js(&f.name));
-        let _ = writeln!(s, "            return core.{camel}Lookback({});", args.join(", "));
+        let _ = writeln!(s, "            return core.{camel}_Lookback({});", args.join(", "));
     }
 
     s.push_str(

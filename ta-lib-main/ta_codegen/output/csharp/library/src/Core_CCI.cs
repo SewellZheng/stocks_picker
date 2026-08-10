@@ -66,7 +66,7 @@ public partial class Core
     *                spurious value (issue #7 / SF bug #107). Now returns 0.0.
     */
    /// <summary>
-   /// Number of leading input bars <c>Cci</c> consumes before it can produce its
+   /// Number of leading input bars <c>CCI</c> consumes before it can produce its
    /// first value.
    /// </summary>
    /// <remarks>
@@ -77,7 +77,7 @@ public partial class Core
    /// <param name="optInTimePeriod">Number of bars in the averaging/deviation window (default 14; range
    /// 2..100000; <c>int.MinValue</c> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
-   public int CciLookback( int optInTimePeriod )
+   public int CCI_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 14;
@@ -87,7 +87,7 @@ public partial class Core
       return optInTimePeriod - 1 ;
 
    }
-   internal RetCode Cci( int startIdx,
+   internal RetCode CCI( int startIdx,
                          int endIdx,
                          double[] inHigh,
                          double[] inLow,
@@ -110,10 +110,10 @@ public partial class Core
       double[] circBuffer;
       int circBuffer_Idx = 0;
       int maxIdx_circBuffer = (30)-1;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -199,7 +199,7 @@ public partial class Core
       /* Free the circular buffer if it was dynamically allocated. */
       return RetCode.Success ;
    }
-   internal RetCode Cci( int startIdx,
+   internal RetCode CCI( int startIdx,
                          int endIdx,
                          float[] inHigh,
                          float[] inLow,
@@ -222,10 +222,10 @@ public partial class Core
       double[] circBuffer;
       int circBuffer_Idx = 0;
       int maxIdx_circBuffer = (30)-1;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -300,8 +300,8 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>CciLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range shorter than <c>CCI_Lookback</c> is a <b>success with
+   /// no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -314,13 +314,13 @@ public partial class Core
    /// <param name="outReal">CCI value per bar. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange Cci( int startIdx,
+   public OutRange CCI( int startIdx,
                         int endIdx,
                         double[] inHigh,
                         double[] inLow,
@@ -328,7 +328,7 @@ public partial class Core
                         int optInTimePeriod,
                         double[] outReal )
    {
-      RetCode retCode = Cci(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      RetCode retCode = CCI(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("CCI", retCode);
       }
@@ -358,8 +358,8 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>CciLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range shorter than <c>CCI_Lookback</c> is a <b>success with
+   /// no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -372,13 +372,13 @@ public partial class Core
    /// <param name="outReal">CCI value per bar. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange Cci( int startIdx,
+   public OutRange CCI( int startIdx,
                         int endIdx,
                         float[] inHigh,
                         float[] inLow,
@@ -386,7 +386,7 @@ public partial class Core
                         int optInTimePeriod,
                         double[] outReal )
    {
-      RetCode retCode = Cci(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      RetCode retCode = CCI(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("CCI", retCode);
       }

@@ -12,7 +12,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#sin} consumes before it can
+    * Number of leading input bars {@link Core#SIN} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -20,24 +20,24 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int sinLookback( )
+   public int SIN_Lookback( )
    {
       return 0 ;
 
    }
-   RetCode sinInternal( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode SIN_Internal( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
@@ -47,19 +47,19 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode sinInternal( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode SIN_Internal( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
@@ -79,7 +79,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#sinLookback} is a <b>success with no
+    * valid range shorter than {@link Core#SIN_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -90,23 +90,23 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cos
-    * @see Core#tan
-    * @see Core#asin
+    * @see Core#COS
+    * @see Core#TAN
+    * @see Core#ASIN
     */
-   public OutRange sin( int startIdx,
+   public OutRange SIN( int startIdx,
                         int endIdx,
                         double inReal[],
                         double outReal[] )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = sinInternal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SIN_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("SIN", retCode);
       }
@@ -125,7 +125,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#sinLookback} is a <b>success with no
+    * valid range shorter than {@link Core#SIN_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -136,23 +136,23 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cos
-    * @see Core#tan
-    * @see Core#asin
+    * @see Core#COS
+    * @see Core#TAN
+    * @see Core#ASIN
     */
-   public OutRange sin( int startIdx,
+   public OutRange SIN( int startIdx,
                         int endIdx,
                         float inReal[],
                         double outReal[] )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = sinInternal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SIN_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("SIN", retCode);
       }
@@ -162,33 +162,35 @@
 
    /**
     * A live SIN stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#sin} over the same series.
-    * Open with {@link Core#sinOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#SIN} over the same series.
+    * Open with {@link Core#SIN_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class SinStream {
+   public static final class SIN_Stream {
       final Core core;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      SinStream( Core core ) { this.core = core; }
+      SIN_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#sinOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#SIN_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      SinStream( SinStream other ) {
+      SIN_Stream( SIN_Stream other ) {
          this.core = other.core;
          this.cur_outReal = other.cur_outReal;
          this.fillRange = other.fillRange;
@@ -199,7 +201,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inReal ) {
-         core.sinStreamStep(this, inReal);
+         core.SIN_StreamStep(this, inReal);
          return this.cur_outReal;
       }
 
@@ -211,8 +213,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inReal ) {
-         SinStream scratch = new SinStream(this);
-         core.sinStreamStep(scratch, inReal);
+         SIN_Stream scratch = new SIN_Stream(this);
+         core.SIN_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -229,15 +231,15 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public SinStream copy() {
-         return new SinStream(this);
+      public SIN_Stream copy() {
+         return new SIN_Stream(this);
       }
    }
-   void sinStreamStep( SinStream sp, double inReal )
+   void SIN_StreamStep( SIN_Stream sp, double inReal )
    {
       sp.cur_outReal = Math.sin(inReal);
    }
-   private RetCode sinOpenBody( SinStream sp, double inReal[], int startIdx )
+   private RetCode SIN_OpenBody( SIN_Stream sp, double inReal[], int startIdx )
    {
       int outIdx = 0;
       int i = 0;
@@ -249,6 +251,9 @@
       if( historyLen < 1 ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          lastValue_outReal = Math.sin(inReal[i]);
       }
@@ -258,7 +263,7 @@
       sp.cur_outReal = lastValue_outReal;
       return RetCode.Success;
    }
-   private RetCode sinOpenAndFillBody( SinStream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode SIN_OpenAndFillBody( SIN_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -267,6 +272,9 @@
       int startIdx = 0;
       if( historyLen < 1 ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
@@ -280,60 +288,60 @@
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind sinOpen (composition seam). */
-   SinStream sinOpenInternal( double inReal[], int startIdx )
+   /* Internal startIdx-anchored open behind SIN_Open (composition seam). */
+   SIN_Stream SIN_OpenInternal( double inReal[], int startIdx )
    {
-      SinStream sp = new SinStream(this);
-      RetCode retCode = sinOpenBody(sp, inReal, startIdx);
+      SIN_Stream sp = new SIN_Stream(this);
+      RetCode retCode = SIN_OpenBody(sp, inReal, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_SIN open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("SIN open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_SIN open: internal error");
+         throw new IllegalStateException("SIN open: internal error");
       }
-      throw new IllegalArgumentException("TA_SIN open: " + retCode);
+      throw new IllegalArgumentException("SIN open: " + retCode);
    }
    /**
     * Open a live SIN stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#sin} at that bar.
-    * <p>The history must hold at least {@code sinLookback(...) + 1} bars
+    * to {@link Core#SIN} at that bar.
+    * <p>The history must hold at least {@code SIN_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public SinStream sinOpen( double inReal[] )
+   public SIN_Stream SIN_Open( double inReal[] )
    {
-      return sinOpenInternal(inReal, 0);
+      return SIN_OpenInternal(inReal, 0);
    }
    /**
-    * {@link Core#sinOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#sin} over the whole history in the same single pass
+    * {@link Core#SIN_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#SIN} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link SinStream#fillRange()}.
+    * {@link SIN_Stream#fillRange()}.
     */
-   public SinStream sinOpenAndFill( double inReal[], double outReal[] )
+   public SIN_Stream SIN_OpenAndFill( double inReal[], double outReal[] )
    {
-      SinStream sp = new SinStream(this);
+      SIN_Stream sp = new SIN_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = sinOpenAndFillBody(sp, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SIN_OpenAndFillBody(sp, inReal, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_SIN openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("SIN openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_SIN openAndFill: internal error");
+         throw new IllegalStateException("SIN openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_SIN openAndFill: " + retCode);
+      throw new IllegalArgumentException("SIN openAndFill: " + retCode);
    }

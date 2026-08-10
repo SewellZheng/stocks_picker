@@ -56,7 +56,7 @@ public partial class Core
     *  010605 AC   Creation
     */
    /// <summary>
-   /// Number of leading input bars <c>CdlCounterAttack</c> consumes before it
+   /// Number of leading input bars <c>CDLCOUNTERATTACK</c> consumes before it
    /// can produce its first value.
    /// </summary>
    /// <remarks>
@@ -65,7 +65,7 @@ public partial class Core
    /// output.
    /// </remarks>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
-   public int CdlCounterAttackLookback( )
+   public int CDLCOUNTERATTACK_Lookback( )
    {
       int BodyLong_rangeType = (int)this.candleSettings[(int)CandleSettingType.BodyLong].rangeType;
       int BodyLong_avgPeriod = this.candleSettings[(int)CandleSettingType.BodyLong].avgPeriod;
@@ -76,7 +76,7 @@ public partial class Core
       return Math.Max(Equal_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
    }
-   internal RetCode CdlCounterAttack( int startIdx,
+   internal RetCode CDLCOUNTERATTACK( int startIdx,
                                       int endIdx,
                                       double[] inOpen,
                                       double[] inHigh,
@@ -102,16 +102,16 @@ public partial class Core
       int Equal_rangeType = (int)this.candleSettings[(int)CandleSettingType.Equal].rangeType;
       int Equal_avgPeriod = this.candleSettings[(int)CandleSettingType.Equal].avgPeriod;
       double Equal_factor = this.candleSettings[(int)CandleSettingType.Equal].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CdlCounterAttackLookback();
+      lookbackTotal = CDLCOUNTERATTACK_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -179,7 +179,7 @@ public partial class Core
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
-   internal RetCode CdlCounterAttack( int startIdx,
+   internal RetCode CDLCOUNTERATTACK( int startIdx,
                                       int endIdx,
                                       float[] inOpen,
                                       float[] inHigh,
@@ -205,13 +205,13 @@ public partial class Core
       int Equal_rangeType = (int)this.candleSettings[(int)CandleSettingType.Equal].rangeType;
       int Equal_avgPeriod = this.candleSettings[(int)CandleSettingType.Equal].avgPeriod;
       double Equal_factor = this.candleSettings[(int)CandleSettingType.Equal].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      lookbackTotal = CdlCounterAttackLookback();
+      lookbackTotal = CDLCOUNTERATTACK_Lookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -272,7 +272,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>CdlCounterAttackLookback</c> is a
+   /// NaN. A valid range shorter than <c>CDLCOUNTERATTACK_Lookback</c> is a
    /// <b>success with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -287,13 +287,13 @@ public partial class Core
    /// 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange CdlCounterAttack( int startIdx,
+   public OutRange CDLCOUNTERATTACK( int startIdx,
                                      int endIdx,
                                      double[] inOpen,
                                      double[] inHigh,
@@ -301,7 +301,7 @@ public partial class Core
                                      double[] inClose,
                                      int[] outInteger )
    {
-      RetCode retCode = CdlCounterAttack(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
+      RetCode retCode = CDLCOUNTERATTACK(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw Failure("CDLCOUNTERATTACK", retCode);
       }
@@ -329,7 +329,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>CdlCounterAttackLookback</c> is a
+   /// NaN. A valid range shorter than <c>CDLCOUNTERATTACK_Lookback</c> is a
    /// <b>success with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -344,13 +344,13 @@ public partial class Core
    /// 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange CdlCounterAttack( int startIdx,
+   public OutRange CDLCOUNTERATTACK( int startIdx,
                                      int endIdx,
                                      float[] inOpen,
                                      float[] inHigh,
@@ -358,7 +358,7 @@ public partial class Core
                                      float[] inClose,
                                      int[] outInteger )
    {
-      RetCode retCode = CdlCounterAttack(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
+      RetCode retCode = CDLCOUNTERATTACK(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw Failure("CDLCOUNTERATTACK", retCode);
       }

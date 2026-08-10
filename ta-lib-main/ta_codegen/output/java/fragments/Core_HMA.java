@@ -13,39 +13,40 @@
  *  072226 MF,CC  First version (issue #139).
  *  072326 MF,CC  Fused single-pass rewrite: rolling sums + sqrt(n)-sized
  *                CIRCBUF, no whole-range temporaries (issue #139).
+ *  080926 MF,CC  Allow period of 1. Just copy input into output.
  */
 
    /**
-    * Number of leading input bars {@link Core#hma} consumes before it can
+    * Number of leading input bars {@link Core#HMA} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
     * output.
     *
     * @param optInTimePeriod Number of bars in the full-period WMA; the half and
-    *        square-root periods derive from it (default 20; range 2..100000;
+    *        square-root periods derive from it (default 20; range 1..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int hmaLookback( int optInTimePeriod )
+   public int HMA_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return -1;
       }
       int sqrtPeriod;
       sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
-      return wmaLookback(optInTimePeriod) + wmaLookback(sqrtPeriod) ;
+      return WMA_Lookback(optInTimePeriod) + WMA_Lookback(sqrtPeriod) ;
 
    }
-   RetCode hmaInternal( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode HMA_Internal( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int lookbackTotal = 0;
       int lookbackSqrt = 0;
@@ -78,15 +79,15 @@
       double[] dRing;
       int dRing_Idx = 0;
       int maxIdx_dRing = (50)-1;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
       /* The de-lagged series needs only its last sqrt(n) values, so the whole
@@ -108,10 +109,25 @@
        * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
        * differential in test_composite.c holds it to that, memcmp-exact.
        */
+      /* No smoothing at period of 1: the output is a copy of the input
+       * (same convention as TA_MA for every MAType). Explicit because the
+       * formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+       * arm below would leave a cancellation residual instead of a copy.
+       */
+      if( optInTimePeriod == 1 ) {
+         outBegIdx.value = startIdx;
+         outIdx = 0;
+         today = startIdx;
+         while( today <= endIdx ) {
+            outReal[outIdx++] = inReal[today++];
+         }
+         outNBElement.value = outIdx;
+         return RetCode.Success ;
+      }
       halfPeriod = optInTimePeriod / 2;
       sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
-      lookbackSqrt = wmaLookback(sqrtPeriod);
-      lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+      lookbackSqrt = WMA_Lookback(sqrtPeriod);
+      lookbackTotal = WMA_Lookback(optInTimePeriod) + lookbackSqrt;
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -260,13 +276,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode hmaInternal( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode HMA_Internal( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int lookbackTotal = 0;
       int lookbackSqrt = 0;
@@ -299,21 +315,31 @@
       double[] dRing;
       int dRing_Idx = 0;
       int maxIdx_dRing = (50)-1;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInTimePeriod == 1 ) {
+         outBegIdx.value = startIdx;
+         outIdx = 0;
+         today = startIdx;
+         while( today <= endIdx ) {
+            outReal[outIdx++] = (double)inReal[today++];
+         }
+         outNBElement.value = outIdx;
+         return RetCode.Success ;
       }
       halfPeriod = optInTimePeriod / 2;
       sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
-      lookbackSqrt = wmaLookback(sqrtPeriod);
-      lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+      lookbackSqrt = WMA_Lookback(sqrtPeriod);
+      lookbackTotal = WMA_Lookback(optInTimePeriod) + lookbackSqrt;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -445,37 +471,37 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>The two derived periods {@code n/2} and {@code sqrt(n)} are **truncated** to integers, exactly as in Alan Hull's own statement of the formula ({@code Integer()}); Tulip Indicators and pandas-ta do the same. Some other published descriptions round to nearest instead, which changes both the values and, for the square root, the lookback — a visibly different line, not a tolerance-level difference. TA-Lib follows the author.</li>
-    * <li>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default TA-Lib matches charting platforms regardless of their rounding convention.</li>
-    * <li>The period range starts at 2: a period of 1 would make the half-period WMA degenerate ({@code Integer(1/2) = 0}).</li>
+    * <li>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default a charting platform using the other convention still lands on TA-Lib's values.</li>
+    * <li>A period of 1 performs no smoothing: the output is a copy of the input.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#hmaLookback} is a <b>success with no
+    * valid range shorter than {@link Core#HMA_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal Source price series, close by convention.
     * @param optInTimePeriod Number of bars in the full-period WMA; the half and
-    *        square-root periods derive from it (default 20; range 2..100000;
+    *        square-root periods derive from it (default 20; range 1..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Hull moving average of the input. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#wma
-    * @see Core#movingAverage
-    * @see Core#sma
-    * @see Core#ema
+    * @see Core#WMA
+    * @see Core#MA
+    * @see Core#SMA
+    * @see Core#EMA
     */
-   public OutRange hma( int startIdx,
+   public OutRange HMA( int startIdx,
                         int endIdx,
                         double inReal[],
                         int optInTimePeriod,
@@ -483,7 +509,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = hmaInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = HMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("HMA", retCode);
       }
@@ -510,8 +536,8 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>The two derived periods {@code n/2} and {@code sqrt(n)} are **truncated** to integers, exactly as in Alan Hull's own statement of the formula ({@code Integer()}); Tulip Indicators and pandas-ta do the same. Some other published descriptions round to nearest instead, which changes both the values and, for the square root, the lookback — a visibly different line, not a tolerance-level difference. TA-Lib follows the author.</li>
-    * <li>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default TA-Lib matches charting platforms regardless of their rounding convention.</li>
-    * <li>The period range starts at 2: a period of 1 would make the half-period WMA degenerate ({@code Integer(1/2) = 0}).</li>
+    * <li>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default a charting platform using the other convention still lands on TA-Lib's values.</li>
+    * <li>A period of 1 performs no smoothing: the output is a copy of the input.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -519,31 +545,31 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#hmaLookback} is a <b>success with no
+    * valid range shorter than {@link Core#HMA_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal Source price series, close by convention.
     * @param optInTimePeriod Number of bars in the full-period WMA; the half and
-    *        square-root periods derive from it (default 20; range 2..100000;
+    *        square-root periods derive from it (default 20; range 1..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Hull moving average of the input. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#wma
-    * @see Core#movingAverage
-    * @see Core#sma
-    * @see Core#ema
+    * @see Core#WMA
+    * @see Core#MA
+    * @see Core#SMA
+    * @see Core#EMA
     */
-   public OutRange hma( int startIdx,
+   public OutRange HMA( int startIdx,
                         int endIdx,
                         float inReal[],
                         int optInTimePeriod,
@@ -551,7 +577,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = hmaInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = HMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("HMA", retCode);
       }
@@ -561,20 +587,19 @@
 
    /**
     * A live HMA stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#hma} over the same series.
-    * Open with {@link Core#hmaOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#HMA} over the same series.
+    * Open with {@link Core#HMA_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class HmaStream {
+   public static final class HMA_Stream {
       final Core core;
       int optInTimePeriod;
       double dividerFull;
@@ -605,17 +630,20 @@
       double[] ring_trailingIdxHalf_inReal;
       int cbSize_dRing;
       double[] cb_dRing;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      HmaStream( Core core ) { this.core = core; }
+      HMA_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#hmaOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#HMA_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      HmaStream( HmaStream other ) {
+      HMA_Stream( HMA_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.dividerFull = other.dividerFull;
@@ -654,7 +682,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inReal ) {
-         core.hmaStreamStep(this, inReal);
+         core.HMA_StreamStep(this, inReal);
          return this.cur_outReal;
       }
 
@@ -666,8 +694,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inReal ) {
-         HmaStream scratch = new HmaStream(this);
-         core.hmaStreamStep(scratch, inReal);
+         HMA_Stream scratch = new HMA_Stream(this);
+         core.HMA_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -684,14 +712,18 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public HmaStream copy() {
-         return new HmaStream(this);
+      public HMA_Stream copy() {
+         return new HMA_Stream(this);
       }
    }
-   void hmaStreamStep( HmaStream sp, double inReal )
+   void HMA_StreamStep( HMA_Stream sp, double inReal )
    {
       if( sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 ) {
          double tempReal = 0.0;
+         if( sp.optInTimePeriod == 1 ) {
+            sp.cur_outReal = inReal;
+            return ;
+         }
          if( sp.ringCap_trailingIdxFull == 0 ) {
             sp.ring_trailingIdxFull_inReal[0] = inReal;
          }
@@ -710,6 +742,10 @@
          }
       } else {
          double tempReal = 0.0;
+         if( sp.optInTimePeriod == 1 ) {
+            sp.cur_outReal = inReal;
+            return ;
+         }
          if( sp.ringCap_trailingIdxFull == 0 ) {
             sp.ring_trailingIdxFull_inReal[0] = inReal;
          }
@@ -753,7 +789,7 @@
          }
       }
    }
-   private RetCode hmaOpenBody( HmaStream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode HMA_OpenBody( HMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
@@ -763,10 +799,48 @@
       if( historyLen < 1 ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInTimePeriod == 1 ) {
+         if( historyLen < HMA_Lookback(optInTimePeriod) + 1 ) {
+            return RetCode.OutOfRangeEndIndex;
+         }
+         sp.optInTimePeriod = optInTimePeriod;
+         sp.dividerFull = 0.0;
+         sp.periodSubFull = 0.0;
+         sp.periodSumFull = 0.0;
+         sp.trailingFull = 0.0;
+         sp.fullOut = 0.0;
+         sp.halfPeriod = 0;
+         sp.sqrtPeriod = 0;
+         sp.dividerHalf = 0.0;
+         sp.dividerSqrt = 0.0;
+         sp.periodSubHalf = 0.0;
+         sp.periodSumHalf = 0.0;
+         sp.trailingHalf = 0.0;
+         sp.periodSubSqrt = 0.0;
+         sp.periodSumSqrt = 0.0;
+         sp.trailingSqrt = 0.0;
+         sp.halfOut = 0.0;
+         sp.diffReal = 0.0;
+         sp.dRing_Idx = 0;
+         sp.maxIdx_dRing = 0;
+         sp.ringPos_trailingIdxFull = 0;
+         sp.ringCap_trailingIdxFull = 0;
+         sp.ring_trailingIdxFull_inReal = new double[1];
+         sp.ringPos_trailingIdxHalf = 0;
+         sp.ringCap_trailingIdxHalf = 0;
+         sp.ring_trailingIdxHalf_inReal = new double[1];
+         sp.cbSize_dRing = 0;
+         sp.cb_dRing = new double[1];
+         sp.cur_outReal = inReal[historyLen - 1];
+         return RetCode.Success;
       }
       if( optInTimePeriod == 2 || optInTimePeriod == 3 ) {
          int lookbackTotal = 0;
@@ -819,10 +893,15 @@
           * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
           * differential in test_composite.c holds it to that, memcmp-exact.
           */
+         /* No smoothing at period of 1: the output is a copy of the input
+          * (same convention as TA_MA for every MAType). Explicit because the
+          * formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+          * arm below would leave a cancellation residual instead of a copy.
+          */
          halfPeriod = optInTimePeriod / 2;
          sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
-         lookbackSqrt = wmaLookback(sqrtPeriod);
-         lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+         lookbackSqrt = WMA_Lookback(sqrtPeriod);
+         lookbackTotal = WMA_Lookback(optInTimePeriod) + lookbackSqrt;
          /* Move up the start index if there is not
           * enough initial data.
           */
@@ -966,10 +1045,15 @@
           * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
           * differential in test_composite.c holds it to that, memcmp-exact.
           */
+         /* No smoothing at period of 1: the output is a copy of the input
+          * (same convention as TA_MA for every MAType). Explicit because the
+          * formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+          * arm below would leave a cancellation residual instead of a copy.
+          */
          halfPeriod = optInTimePeriod / 2;
          sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
-         lookbackSqrt = wmaLookback(sqrtPeriod);
-         lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+         lookbackSqrt = WMA_Lookback(sqrtPeriod);
+         lookbackTotal = WMA_Lookback(optInTimePeriod) + lookbackSqrt;
          /* Move up the start index if there is not
           * enough initial data.
           */
@@ -1146,7 +1230,7 @@
          return RetCode.Success;
       }
    }
-   private RetCode hmaOpenAndFillBody( HmaStream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode HMA_OpenAndFillBody( HMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
@@ -1154,13 +1238,57 @@
       if( historyLen < 1 ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
+      }
+      if( optInTimePeriod == 1 ) {
+         if( historyLen < HMA_Lookback(optInTimePeriod) + 1 ) {
+            return RetCode.OutOfRangeEndIndex;
+         }
+         sp.optInTimePeriod = optInTimePeriod;
+         sp.dividerFull = 0.0;
+         sp.periodSubFull = 0.0;
+         sp.periodSumFull = 0.0;
+         sp.trailingFull = 0.0;
+         sp.fullOut = 0.0;
+         sp.halfPeriod = 0;
+         sp.sqrtPeriod = 0;
+         sp.dividerHalf = 0.0;
+         sp.dividerSqrt = 0.0;
+         sp.periodSubHalf = 0.0;
+         sp.periodSumHalf = 0.0;
+         sp.trailingHalf = 0.0;
+         sp.periodSubSqrt = 0.0;
+         sp.periodSumSqrt = 0.0;
+         sp.trailingSqrt = 0.0;
+         sp.halfOut = 0.0;
+         sp.diffReal = 0.0;
+         sp.dRing_Idx = 0;
+         sp.maxIdx_dRing = 0;
+         sp.ringPos_trailingIdxFull = 0;
+         sp.ringCap_trailingIdxFull = 0;
+         sp.ring_trailingIdxFull_inReal = new double[1];
+         sp.ringPos_trailingIdxHalf = 0;
+         sp.ringCap_trailingIdxHalf = 0;
+         sp.ring_trailingIdxHalf_inReal = new double[1];
+         sp.cbSize_dRing = 0;
+         sp.cb_dRing = new double[1];
+         int fillLb = HMA_Lookback(optInTimePeriod);
+         outBegIdx.value = fillLb;
+         outNBElement.value = historyLen - fillLb;
+         for( int fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ ) {
+            outReal[fillIdx] = inReal[fillLb + fillIdx];
+         }
+         sp.cur_outReal = outReal[outNBElement.value - 1];
+         return RetCode.Success;
       }
       if( optInTimePeriod == 2 || optInTimePeriod == 3 ) {
          int lookbackTotal = 0;
@@ -1213,10 +1341,15 @@
           * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
           * differential in test_composite.c holds it to that, memcmp-exact.
           */
+         /* No smoothing at period of 1: the output is a copy of the input
+          * (same convention as TA_MA for every MAType). Explicit because the
+          * formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+          * arm below would leave a cancellation residual instead of a copy.
+          */
          halfPeriod = optInTimePeriod / 2;
          sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
-         lookbackSqrt = wmaLookback(sqrtPeriod);
-         lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+         lookbackSqrt = WMA_Lookback(sqrtPeriod);
+         lookbackTotal = WMA_Lookback(optInTimePeriod) + lookbackSqrt;
          /* Move up the start index if there is not
           * enough initial data.
           */
@@ -1360,10 +1493,15 @@
           * BIT-IDENTICAL to composing three TA_WMA calls -- the composite
           * differential in test_composite.c holds it to that, memcmp-exact.
           */
+         /* No smoothing at period of 1: the output is a copy of the input
+          * (same convention as TA_MA for every MAType). Explicit because the
+          * formula has no value there -- Integer(1/2) is 0 -- and the degenerate
+          * arm below would leave a cancellation residual instead of a copy.
+          */
          halfPeriod = optInTimePeriod / 2;
          sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
-         lookbackSqrt = wmaLookback(sqrtPeriod);
-         lookbackTotal = wmaLookback(optInTimePeriod) + lookbackSqrt;
+         lookbackSqrt = WMA_Lookback(sqrtPeriod);
+         lookbackTotal = WMA_Lookback(optInTimePeriod) + lookbackSqrt;
          /* Move up the start index if there is not
           * enough initial data.
           */
@@ -1540,60 +1678,60 @@
          return RetCode.Success;
       }
    }
-   /* Internal startIdx-anchored open behind hmaOpen (composition seam). */
-   HmaStream hmaOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
+   /* Internal startIdx-anchored open behind HMA_Open (composition seam). */
+   HMA_Stream HMA_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
-      HmaStream sp = new HmaStream(this);
-      RetCode retCode = hmaOpenBody(sp, inReal, startIdx, optInTimePeriod);
+      HMA_Stream sp = new HMA_Stream(this);
+      RetCode retCode = HMA_OpenBody(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_HMA open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("HMA open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_HMA open: internal error");
+         throw new IllegalStateException("HMA open: internal error");
       }
-      throw new IllegalArgumentException("TA_HMA open: " + retCode);
+      throw new IllegalArgumentException("HMA open: " + retCode);
    }
    /**
     * Open a live HMA stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#hma} at that bar.
-    * <p>The history must hold at least {@code hmaLookback(...) + 1} bars
+    * to {@link Core#HMA} at that bar.
+    * <p>The history must hold at least {@code HMA_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public HmaStream hmaOpen( double inReal[], int optInTimePeriod )
+   public HMA_Stream HMA_Open( double inReal[], int optInTimePeriod )
    {
-      return hmaOpenInternal(inReal, 0, optInTimePeriod);
+      return HMA_OpenInternal(inReal, 0, optInTimePeriod);
    }
    /**
-    * {@link Core#hmaOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#hma} over the whole history in the same single pass
+    * {@link Core#HMA_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#HMA} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link HmaStream#fillRange()}.
+    * {@link HMA_Stream#fillRange()}.
     */
-   public HmaStream hmaOpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
+   public HMA_Stream HMA_OpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
-      HmaStream sp = new HmaStream(this);
+      HMA_Stream sp = new HMA_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = hmaOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = HMA_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_HMA openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("HMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_HMA openAndFill: internal error");
+         throw new IllegalStateException("HMA openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_HMA openAndFill: " + retCode);
+      throw new IllegalArgumentException("HMA openAndFill: " + retCode);
    }

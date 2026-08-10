@@ -56,7 +56,7 @@ public partial class Core
     *  022005 AC   Creation
     */
    /// <summary>
-   /// Number of leading input bars <c>CdlMatHold</c> consumes before it can
+   /// Number of leading input bars <c>CDLMATHOLD</c> consumes before it can
    /// produce its first value.
    /// </summary>
    /// <remarks>
@@ -67,7 +67,7 @@ public partial class Core
    /// <param name="optInPenetration">Max fraction of the 1st white body the reaction days (3rd, 4th) may
    /// penetrate (default 0.5; minimum 0; <c>-4e37</c> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
-   public int CdlMatHoldLookback( double optInPenetration )
+   public int CDLMATHOLD_Lookback( double optInPenetration )
    {
       if( optInPenetration == TA_REAL_DEFAULT ) {
          optInPenetration = 5e-1;
@@ -83,7 +83,7 @@ public partial class Core
       return Math.Max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 4 ;
 
    }
-   internal RetCode CdlMatHold( int startIdx,
+   internal RetCode CDLMATHOLD( int startIdx,
                                 int endIdx,
                                 double[] inOpen,
                                 double[] inHigh,
@@ -109,10 +109,10 @@ public partial class Core
       int BodyShort_rangeType = (int)this.candleSettings[(int)CandleSettingType.BodyShort].rangeType;
       int BodyShort_avgPeriod = this.candleSettings[(int)CandleSettingType.BodyShort].avgPeriod;
       double BodyShort_factor = this.candleSettings[(int)CandleSettingType.BodyShort].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInPenetration == TA_REAL_DEFAULT ) {
@@ -123,7 +123,7 @@ public partial class Core
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CdlMatHoldLookback(optInPenetration);
+      lookbackTotal = CDLMATHOLD_Lookback(optInPenetration);
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -212,7 +212,7 @@ public partial class Core
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
-   internal RetCode CdlMatHold( int startIdx,
+   internal RetCode CDLMATHOLD( int startIdx,
                                 int endIdx,
                                 float[] inOpen,
                                 float[] inHigh,
@@ -238,10 +238,10 @@ public partial class Core
       int BodyShort_rangeType = (int)this.candleSettings[(int)CandleSettingType.BodyShort].rangeType;
       int BodyShort_avgPeriod = this.candleSettings[(int)CandleSettingType.BodyShort].avgPeriod;
       double BodyShort_factor = this.candleSettings[(int)CandleSettingType.BodyShort].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInPenetration == TA_REAL_DEFAULT ) {
@@ -249,7 +249,7 @@ public partial class Core
       } else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX ) {
          return RetCode.BadParam;
       }
-      lookbackTotal = CdlMatHoldLookback(optInPenetration);
+      lookbackTotal = CDLMATHOLD_Lookback(optInPenetration);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -313,7 +313,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>CdlMatHoldLookback</c> is a <b>success
+   /// NaN. A valid range shorter than <c>CDLMATHOLD_Lookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -329,13 +329,13 @@ public partial class Core
    /// Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange CdlMatHold( int startIdx,
+   public OutRange CDLMATHOLD( int startIdx,
                                int endIdx,
                                double[] inOpen,
                                double[] inHigh,
@@ -344,7 +344,7 @@ public partial class Core
                                double optInPenetration,
                                int[] outInteger )
    {
-      RetCode retCode = CdlMatHold(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out int outBegIdx, out int outNBElement, outInteger);
+      RetCode retCode = CDLMATHOLD(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw Failure("CDLMATHOLD", retCode);
       }
@@ -372,7 +372,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>CdlMatHoldLookback</c> is a <b>success
+   /// NaN. A valid range shorter than <c>CDLMATHOLD_Lookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -388,13 +388,13 @@ public partial class Core
    /// Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange CdlMatHold( int startIdx,
+   public OutRange CDLMATHOLD( int startIdx,
                                int endIdx,
                                float[] inOpen,
                                float[] inHigh,
@@ -403,7 +403,7 @@ public partial class Core
                                double optInPenetration,
                                int[] outInteger )
    {
-      RetCode retCode = CdlMatHold(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out int outBegIdx, out int outNBElement, outInteger);
+      RetCode retCode = CDLMATHOLD(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw Failure("CDLMATHOLD", retCode);
       }

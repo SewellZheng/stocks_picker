@@ -19,7 +19,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#ppo} consumes before it can
+    * Number of leading input bars {@link Core#PPO} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -34,7 +34,7 @@
     *        8=T3, 9=HMA, 10=DISABLED).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int ppoLookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   public int PPO_Lookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
@@ -47,18 +47,18 @@
          return -1;
       }
       /* Lookback is driven by the slowest MA. */
-      return movingAverageLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
+      return MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
 
    }
-   RetCode ppoInternal( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        int optInFastPeriod,
-                        int optInSlowPeriod,
-                        MAType optInMAType,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode PPO_Internal( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInFastPeriod,
+                         int optInSlowPeriod,
+                         MAType optInMAType,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -68,10 +68,10 @@
       MInteger fastNb = new MInteger();
       int offset = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -96,12 +96,12 @@
          optInFastPeriod = tempInteger;
       }
       /* Calculate the fast MA into the tempBuffer. */
-      retCode = movingAverageInternal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+      retCode = MA_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
       /* Calculate the slow MA into the output. */
-      retCode = movingAverageInternal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      retCode = MA_Internal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -121,15 +121,15 @@
       }
       return RetCode.Success ;
    }
-   RetCode ppoInternal( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        int optInFastPeriod,
-                        int optInSlowPeriod,
-                        MAType optInMAType,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode PPO_Internal( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInFastPeriod,
+                         int optInSlowPeriod,
+                         MAType optInMAType,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -139,10 +139,10 @@
       MInteger fastNb = new MInteger();
       int offset = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -161,11 +161,11 @@
          optInSlowPeriod = optInFastPeriod;
          optInFastPeriod = tempInteger;
       }
-      retCode = movingAverageInternal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+      retCode = MA_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
-      retCode = movingAverageInternal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      retCode = MA_Internal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -194,7 +194,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#ppoLookback} is a <b>success with no
+    * valid range shorter than {@link Core#PPO_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -212,16 +212,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#apo
-    * @see Core#macd
-    * @see Core#movingAverage
+    * @see Core#APO
+    * @see Core#MACD
+    * @see Core#MA
     */
-   public OutRange ppo( int startIdx,
+   public OutRange PPO( int startIdx,
                         int endIdx,
                         double inReal[],
                         int optInFastPeriod,
@@ -231,7 +231,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ppoInternal(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PPO_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("PPO", retCode);
       }
@@ -254,7 +254,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#ppoLookback} is a <b>success with no
+    * valid range shorter than {@link Core#PPO_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -272,16 +272,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#apo
-    * @see Core#macd
-    * @see Core#movingAverage
+    * @see Core#APO
+    * @see Core#MACD
+    * @see Core#MA
     */
-   public OutRange ppo( int startIdx,
+   public OutRange PPO( int startIdx,
                         int endIdx,
                         float inReal[],
                         int optInFastPeriod,
@@ -291,7 +291,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ppoInternal(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PPO_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("PPO", retCode);
       }
@@ -301,45 +301,47 @@
 
    /**
     * A live PPO stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#ppo} over the same series.
-    * Open with {@link Core#ppoOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#PPO} over the same series.
+    * Open with {@link Core#PPO_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class PpoStream {
+   public static final class PPO_Stream {
       final Core core;
       int optInFastPeriod;
       int optInSlowPeriod;
       MAType optInMAType;
       double cur_outReal;
-      MovingAverageStream sub0;
-      MovingAverageStream sub1;
-      OutRange fillRange;
+      MA_Stream sub0;
+      MA_Stream sub1;
+      OutRange fillRange = OutRange.EMPTY;
 
-      PpoStream( Core core ) { this.core = core; }
+      PPO_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#ppoOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#PPO_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      PpoStream( PpoStream other ) {
+      PPO_Stream( PPO_Stream other ) {
          this.core = other.core;
          this.optInFastPeriod = other.optInFastPeriod;
          this.optInSlowPeriod = other.optInSlowPeriod;
          this.optInMAType = other.optInMAType;
          this.cur_outReal = other.cur_outReal;
-         this.sub0 = new MovingAverageStream(other.sub0);
-         this.sub1 = new MovingAverageStream(other.sub1);
+         this.sub0 = new MA_Stream(other.sub0);
+         this.sub1 = new MA_Stream(other.sub1);
          this.fillRange = other.fillRange;
       }
 
@@ -348,7 +350,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inReal ) {
-         core.ppoStreamStep(this, inReal);
+         core.PPO_StreamStep(this, inReal);
          return this.cur_outReal;
       }
 
@@ -360,8 +362,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inReal ) {
-         PpoStream scratch = new PpoStream(this);
-         core.ppoStreamStep(scratch, inReal);
+         PPO_Stream scratch = new PPO_Stream(this);
+         core.PPO_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -378,11 +380,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public PpoStream copy() {
-         return new PpoStream(this);
+      public PPO_Stream copy() {
+         return new PPO_Stream(this);
       }
    }
-   void ppoStreamStep( PpoStream sp, double inReal )
+   void PPO_StreamStep( PPO_Stream sp, double inReal )
    {
       double tempReal = 0.0;
       double cur_tempBuffer = 0.0;
@@ -399,7 +401,7 @@
       }
       sp.cur_outReal = cur_outReal;
    }
-   private RetCode ppoOpenBody( PpoStream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   private RetCode PPO_OpenBody( PPO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -416,6 +418,9 @@
       if( historyLen < 1 ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
@@ -425,6 +430,9 @@
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( historyLen < PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       double[] sc_outReal = new double[historyLen];
       /* Allocate an intermediate buffer. */
@@ -441,16 +449,16 @@
       /* Calculate the fast MA into the tempBuffer. */
       /* Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      MovingAverageStream sub0 = movingAverageOpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInFastPeriod, optInMAType);
-      retCode = movingAverageInternal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+      MA_Stream sub0 = MA_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInFastPeriod, optInMAType);
+      retCode = MA_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
       /* Calculate the slow MA into the output. */
       /* Sub-stream 1: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      MovingAverageStream sub1 = movingAverageOpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInSlowPeriod, optInMAType);
-      retCode = movingAverageInternal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sc_outReal);
+      MA_Stream sub1 = MA_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInSlowPeriod, optInMAType);
+      retCode = MA_Internal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sc_outReal);
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -480,7 +488,7 @@
       sp.cur_outReal = sc_outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   private RetCode ppoOpenAndFillBody( PpoStream sp, double inReal[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode PPO_OpenAndFillBody( PPO_Stream sp, double inReal[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -496,6 +504,9 @@
       if( historyLen < 1 ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
@@ -508,6 +519,9 @@
       }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
+      }
+      if( historyLen < PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       double[] sc_outReal = new double[historyLen];
       /* Allocate an intermediate buffer. */
@@ -524,16 +538,16 @@
       /* Calculate the fast MA into the tempBuffer. */
       /* Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      MovingAverageStream sub0 = movingAverageOpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInFastPeriod, optInMAType);
-      retCode = movingAverageInternal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+      MA_Stream sub0 = MA_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInFastPeriod, optInMAType);
+      retCode = MA_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
       /* Calculate the slow MA into the output. */
       /* Sub-stream 1: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      MovingAverageStream sub1 = movingAverageOpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInSlowPeriod, optInMAType);
-      retCode = movingAverageInternal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sc_outReal);
+      MA_Stream sub1 = MA_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInSlowPeriod, optInMAType);
+      retCode = MA_Internal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sc_outReal);
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -564,60 +578,60 @@
       System.arraycopy(sc_outReal, 0, outReal, 0, outNBElement.value);
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind ppoOpen (composition seam). */
-   PpoStream ppoOpenInternal( double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   /* Internal startIdx-anchored open behind PPO_Open (composition seam). */
+   PPO_Stream PPO_OpenInternal( double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
-      PpoStream sp = new PpoStream(this);
-      RetCode retCode = ppoOpenBody(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType);
+      PPO_Stream sp = new PPO_Stream(this);
+      RetCode retCode = PPO_OpenBody(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_PPO open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("PPO open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_PPO open: internal error");
+         throw new IllegalStateException("PPO open: internal error");
       }
-      throw new IllegalArgumentException("TA_PPO open: " + retCode);
+      throw new IllegalArgumentException("PPO open: " + retCode);
    }
    /**
     * Open a live PPO stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#ppo} at that bar.
-    * <p>The history must hold at least {@code ppoLookback(...) + 1} bars
+    * to {@link Core#PPO} at that bar.
+    * <p>The history must hold at least {@code PPO_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public PpoStream ppoOpen( double inReal[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   public PPO_Stream PPO_Open( double inReal[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
-      return ppoOpenInternal(inReal, 0, optInFastPeriod, optInSlowPeriod, optInMAType);
+      return PPO_OpenInternal(inReal, 0, optInFastPeriod, optInSlowPeriod, optInMAType);
    }
    /**
-    * {@link Core#ppoOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#ppo} over the whole history in the same single pass
+    * {@link Core#PPO_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#PPO} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link PpoStream#fillRange()}.
+    * {@link PPO_Stream#fillRange()}.
     */
-   public PpoStream ppoOpenAndFill( double inReal[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, double outReal[] )
+   public PPO_Stream PPO_OpenAndFill( double inReal[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, double outReal[] )
    {
-      PpoStream sp = new PpoStream(this);
+      PPO_Stream sp = new PPO_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ppoOpenAndFillBody(sp, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PPO_OpenAndFillBody(sp, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_PPO openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("PPO openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_PPO openAndFill: internal error");
+         throw new IllegalStateException("PPO openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_PPO openAndFill: " + retCode);
+      throw new IllegalArgumentException("PPO openAndFill: " + retCode);
    }

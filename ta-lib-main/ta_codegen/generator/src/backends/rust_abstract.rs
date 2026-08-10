@@ -5,7 +5,7 @@
 //! (linear strcmp name scan, opaque `void* dataSet`, heap-allocated string tables,
 //! fn-pointer callbacks), it emits a **zero-cost, link-time-const registry**:
 //! everything lives in `&'static`/`const` tables, the opaque dataSet becomes a
-//! type-safe `OptDomain` enum, `FuncId` is a fieldless enum that doubles as the
+//! type-safe `OptInputType` enum, `FuncId` is a fieldless enum that doubles as the
 //! dense index, enumeration is an iterator, and name lookup is a generated `match`.
 //!
 //! Renders [`abstract_rows`](super::abstract_rows) — the backend-neutral row model
@@ -33,9 +33,9 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, out_base: &
 
     // --- FuncId enum (fieldless; doubles as the dense index into FUNCS) ---
     o.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]\n");
-    o.push_str("#[repr(u16)]\n#[allow(non_camel_case_types)]\npub enum FuncId {\n");
+    o.push_str("#[repr(u16)]\n#[non_exhaustive]\n#[allow(non_camel_case_types)]\npub enum FuncId {\n");
     for f in &sorted {
-        let _ = writeln!(o, "    {},", pascal_ident(&f.name));
+        let _ = writeln!(o, "    {},", f.name);
     }
     o.push_str("}\n\n");
 
@@ -81,9 +81,8 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, out_base: &
 
 fn emit_func(o: &mut String, f: &FuncRow) {
     o.push_str("    FuncInfo {\n");
-    let _ = writeln!(o, "        id: FuncId::{},", pascal_ident(&f.name));
+    let _ = writeln!(o, "        id: FuncId::{},", f.name);
     let _ = writeln!(o, "        name: {:?},", f.name);
-    let _ = writeln!(o, "        camel_case_name: {:?},", f.camel_case_name());
     let _ = writeln!(o, "        group: Group::{},", f.group.ident());
     let _ = writeln!(o, "        hint: {:?},", f.hint);
     let _ = writeln!(o, "        flags: FuncFlags({:#010x}),", f.flags);
@@ -108,7 +107,7 @@ fn emit_func(o: &mut String, f: &FuncRow) {
 
     match &f.unst {
         Some(u) => {
-            let _ = writeln!(o, "        unst_id: Some(FuncUnstId::{}),", u.pascal_name);
+            let _ = writeln!(o, "        unst_id: Some(FuncUnstId::{}),", u.name);
         }
         None => o.push_str("        unst_id: None,\n"),
     }
@@ -146,7 +145,7 @@ fn emit_output(o: &mut String, out: &OutputRow) {
 
 fn emit_opt(o: &mut String, opt: &OptRow) {
     // The row carries `precision` as `i32` (C's `TA_RealRange.precision` is an
-    // int); the generated `OptDomain::RealRange` narrows it to `u8`. Nothing in
+    // int); the generated `OptInputType::RealRange` narrows it to `u8`. Nothing in
     // the shipped input comes close, but an out-of-range YAML value would emit a
     // crate that does not compile — fail here instead, naming the parameter.
     if let OptDomain::RealRange { precision, .. } = &opt.domain {
@@ -158,7 +157,7 @@ fn emit_opt(o: &mut String, opt: &OptRow) {
     }
     let _ = write!(
         o,
-        "OptInputInfo {{ param_name: {:?}, display_name: {:?}, hint: {:?}, flags: OptInputFlags({:#010x}), domain: ",
+        "OptInputInfo {{ param_name: {:?}, display_name: {:?}, hint: {:?}, flags: OptInputFlags({:#010x}), kind: ",
         opt.param_name, opt.display_name, opt.hint, opt.flags
     );
     emit_domain(o, &opt.domain);
@@ -171,7 +170,7 @@ fn emit_domain(o: &mut String, domain: &OptDomain) {
             let (s, e, i) = *suggested;
             let _ = write!(
                 o,
-                "OptDomain::RealRange {{ min: {}, max: {}, precision: {}, default: {}, suggested: ({}, {}, {}) }}",
+                "OptInputType::RealRange {{ min: {}, max: {}, precision: {}, default: {}, suggested: ({}, {}, {}) }}",
                 fl(*min),
                 fl(*max),
                 precision,
@@ -185,18 +184,18 @@ fn emit_domain(o: &mut String, domain: &OptDomain) {
             let (s, e, i) = *suggested;
             let _ = write!(
                 o,
-                "OptDomain::IntegerRange {{ min: {min}, max: {max}, default: {default}, suggested: ({s}, {e}, {i}) }}"
+                "OptInputType::IntegerRange {{ min: {min}, max: {max}, default: {default}, suggested: ({s}, {e}, {i}) }}"
             );
         }
         OptDomain::IntegerList { values, default } => {
-            o.push_str("OptDomain::IntegerList { values: &[");
+            o.push_str("OptInputType::IntegerList { values: &[");
             for (v, name) in values {
                 let _ = write!(o, "({v}, {name:?}), ");
             }
             let _ = write!(o, "], default: {default} }}");
         }
         OptDomain::RealList { values, default } => {
-            o.push_str("OptDomain::RealList { values: &[");
+            o.push_str("OptInputType::RealList { values: &[");
             for (v, name) in values {
                 let _ = write!(o, "({}, {name:?}), ", fl(*v));
             }
@@ -214,7 +213,7 @@ fn emit_api(o: &mut String, sorted: &[FuncRow]) {
     );
     o.push_str("pub fn get_func_handle(name: &str) -> Option<FuncId> {\n    Some(match name {\n");
     for f in sorted {
-        let _ = writeln!(o, "        {:?} => FuncId::{},", f.name, pascal_ident(&f.name));
+        let _ = writeln!(o, "        {:?} => FuncId::{},", f.name, f.name);
     }
     o.push_str("        _ => return None,\n    })\n}\n\n");
 
@@ -247,7 +246,7 @@ fn emit_api(o: &mut String, sorted: &[FuncRow]) {
 /// The hand-written half of the binder: the holder, its setters and the sealed
 /// `OptValue` trait. The two dispatch matches are generated after it.
 const BINDER_SCAFFOLDING: &str = r#"
-use crate::{Core, RetCode};
+use crate::{Core, RetCode, MAX_INDEX};
 
 /// Where a call's output starts and how much of it there is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,8 +280,8 @@ pub trait OptValue: sealed::Sealed {
 impl OptValue for i32 {
     fn bind(self, holder: &mut ParamHolder<'_>, index: usize) -> Result<(), RetCode> {
         let info = holder.func.info().opt_inputs.get(index).ok_or(RetCode::BadParam)?;
-        match info.domain {
-            OptDomain::IntegerRange { .. } | OptDomain::IntegerList { .. } => {
+        match info.kind {
+            OptInputType::IntegerRange { .. } | OptInputType::IntegerList { .. } => {
                 holder.int_opt[index] = self;
                 Ok(())
             }
@@ -294,8 +293,8 @@ impl OptValue for i32 {
 impl OptValue for f64 {
     fn bind(self, holder: &mut ParamHolder<'_>, index: usize) -> Result<(), RetCode> {
         let info = holder.func.info().opt_inputs.get(index).ok_or(RetCode::BadParam)?;
-        match info.domain {
-            OptDomain::RealRange { .. } | OptDomain::RealList { .. } => {
+        match info.kind {
+            OptInputType::RealRange { .. } | OptInputType::RealList { .. } => {
                 holder.real_opt[index] = self;
                 Ok(())
             }
@@ -317,7 +316,7 @@ impl OptValue for f64 {
 /// let core = Core::new();
 /// let close = vec![1.0f64; 64];
 /// let mut out = vec![0.0f64; 64];
-/// let mut call = FuncId::Sma.new_call(&core);
+/// let mut call = FuncId::SMA.new_call(&core);
 /// call.set_input(0, &close)?;
 /// call.set_opt(0, 30_i32)?;
 /// call.set_output(0, &mut out)?;
@@ -521,7 +520,7 @@ mod binder_tests {
             // number a transposition is undetectable.
             let set = |h: &mut ParamHolder<'_>| {
                 for (k, o) in f.opt_inputs.iter().enumerate() {
-                    if let OptDomain::IntegerRange { min, max, .. } = o.domain {
+                    if let OptInputType::IntegerRange { min, max, .. } = o.kind {
                         let v = (min + 2 + k as i32).min(max);
                         h.set_opt(k, v).unwrap();
                     }
@@ -559,13 +558,13 @@ mod binder_tests {
             let unset = |_: &mut ParamHolder<'_>| {};
             let explicit = |h: &mut ParamHolder<'_>| {
                 for (k, o) in f.opt_inputs.iter().enumerate() {
-                    match o.domain {
-                        OptDomain::IntegerRange { default, .. } => { h.set_opt(k, default).unwrap(); }
-                        OptDomain::IntegerList { default, .. } => {
+                    match o.kind {
+                        OptInputType::IntegerRange { default, .. } => { h.set_opt(k, default).unwrap(); }
+                        OptInputType::IntegerList { default, .. } => {
                             h.set_opt(k, i32::try_from(default).unwrap()).unwrap();
                         }
-                        OptDomain::RealRange { default, .. }
-                        | OptDomain::RealList { default, .. } => { h.set_opt(k, default).unwrap(); }
+                        OptInputType::RealRange { default, .. }
+                        | OptInputType::RealList { default, .. } => { h.set_opt(k, default).unwrap(); }
                     }
                 }
             };
@@ -597,7 +596,7 @@ mod binder_tests {
         let core = Core::new();
         let close = series(0.0);
         let mut tiny = vec![0.0; 4];
-        let mut h = FuncId::Sma.new_call(&core);
+        let mut h = FuncId::SMA.new_call(&core);
         h.set_input(0, &close).unwrap();
         h.set_opt(0, 30_i32).unwrap();
         h.set_output(0, &mut tiny).unwrap();
@@ -610,7 +609,7 @@ mod binder_tests {
         let core = Core::new();
         let close = series(0.0);
         let mut out = vec![0.0; N];
-        let mut h = FuncId::Sma.new_call(&core);
+        let mut h = FuncId::SMA.new_call(&core);
         assert_eq!(h.set_input(9, &close).err(), Some(RetCode::BadParam));
         assert_eq!(h.set_opt(0, 1.5_f64).err(), Some(RetCode::BadParam));
         assert_eq!(h.set_opt(9, 30_i32).err(), Some(RetCode::BadParam));
@@ -672,12 +671,12 @@ fn emit_binder(o: &mut String, sorted: &[FuncRow]) {
          \x20       let lb = match self.func {\n",
     );
     for f in sorted {
-        let snake = f.name.to_lowercase();
+        let snake = f.name.clone();
         let args = opt_args(f);
         let _ = writeln!(
             o,
-            "            FuncId::{} => self.core.{snake}_lookback({args}),",
-            pascal_ident(&f.name)
+            "            FuncId::{} => self.core.{snake}_Lookback({args}),",
+            f.name
         );
     }
     o.push_str(
@@ -697,11 +696,16 @@ fn emit_binder(o: &mut String, sorted: &[FuncRow]) {
          \x20   /// are the same call (issue #162).\n\
          \x20   ///\n\
          \x20   /// # Errors\n\
-         \x20   /// [`RetCode::BadParam`] if a required input or output was never bound,\n\
-         \x20   /// if an output is too short for the range, or if the function rejects\n\
-         \x20   /// its parameters.\n\
+         \x20   /// [`RetCode::OutOfRangeStartIndex`] if `start_idx` exceeds\n\
+         \x20   /// [`MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] if `end_idx` exceeds\n\
+         \x20   /// it or is below `start_idx`, and [`RetCode::BadParam`] if a required\n\
+         \x20   /// input or output was never bound, if an output is too short for the\n\
+         \x20   /// range, or if the function rejects its parameters.\n\
          \x20   pub fn call(&mut self, start_idx: usize, end_idx: usize) -> Result<OutRange, RetCode> {\n\
-         \x20       if end_idx < start_idx { return Err(RetCode::OutOfRangeEndIndex); }\n\
+         \x20       if start_idx > MAX_INDEX { return Err(RetCode::OutOfRangeStartIndex); }\n\
+         \x20       if end_idx > MAX_INDEX || end_idx < start_idx {\n\
+         \x20           return Err(RetCode::OutOfRangeEndIndex);\n\
+         \x20       }\n\
          \x20       // C cannot do this: TA_SetOutputParamRealPtr takes a bare pointer, so\n\
          \x20       // no backend checks capacity and an undersized buffer is an\n\
          \x20       // out-of-bounds write. A slice carries its length.\n\
@@ -742,8 +746,8 @@ fn opt_args(f: &FuncRow) -> String {
 /// with `&self`, reborrowed into the call, and put straight back — so a holder
 /// stays reusable, as C's does.
 fn emit_call_arm(o: &mut String, f: &FuncRow) {
-    let snake = f.name.to_lowercase();
-    let _ = writeln!(o, "            FuncId::{} => {{", pascal_ident(&f.name));
+    let snake = f.name.clone();
+    let _ = writeln!(o, "            FuncId::{} => {{", f.name);
 
     let mut args: Vec<String> = vec!["start_idx".into(), "end_idx".into()];
     for (slot, inp) in f.inputs.iter().enumerate() {
@@ -814,21 +818,6 @@ fn emit_call_arm(o: &mut String, f: &FuncRow) {
 }
 
 // --- name → identifier / variant helpers ---
-
-/// Convert a TA name (`HT_DCPERIOD`, `CDL2CROWS`, `T3`) into a valid, unique
-/// UpperCamelCase Rust identifier for a `FuncId` variant.
-fn pascal_ident(name: &str) -> String {
-    name.split('_')
-        .map(|seg| {
-            let lower = seg.to_lowercase();
-            let mut chars = lower.chars();
-            match chars.next() {
-                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect()
-}
 
 /// Format an f64 as a valid Rust literal (Debug yields e.g. `2.0`, `0.1`, `3e37`).
 fn fl(v: f64) -> String {
@@ -930,7 +919,7 @@ const HEADER: &str = r"//! TA-Lib function metadata registry — the Rust abstra
 //! Rust analog of C's `ta_abstract` (`TA_GetFuncInfo`, `TA_Get*ParameterInfo`,
 //! `TA_ForEachFunc`), implemented as a **zero-cost, link-time-const registry**:
 //!   * all metadata is `&'static`/`const` in `.rodata` — zero heap, zero runtime init;
-//!   * the opaque C `void* dataSet` + type tag becomes a type-safe [`OptDomain`] enum
+//!   * the opaque C `void* dataSet` + type tag becomes a type-safe [`OptInputType`] enum
 //!     (illegal states unrepresentable, no unchecked cast);
 //!   * [`FuncId`] is a fieldless enum that doubles as the dense index into [`FUNCS`]
 //!     (no opaque handle, no magic-number validity check);
@@ -958,6 +947,7 @@ use crate::FuncUnstId;
 const MODEL: &str = r#"/// Function group (closed set — replaces C's runtime group-string table + linear `getGroupId`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum Group {
     CycleIndicators,
     MathOperators,
@@ -1082,9 +1072,14 @@ pub struct OutputInfo {
     pub flags: OutputFlags,
 }
 
-/// The domain of an optional input — type-safe replacement for C's `void* dataSet` + type tag.
+/// What an optional input may be: the tag *and* its domain.
+///
+/// C keeps these apart — `TA_OptInputParameterType` names the shape and
+/// `const void *dataSet` carries the values, cast by hand. Here they are fused, so the
+/// pairing is checked by the compiler. Named for the C tag it replaces, matching Java's
+/// `OptInputType`; C# ships this same fused shape under `OptInputDomain`.
 #[derive(Debug, Clone, Copy)]
-pub enum OptDomain {
+pub enum OptInputType {
     RealRange { min: f64, max: f64, precision: u8, default: f64, suggested: (f64, f64, f64) },
     IntegerRange { min: i32, max: i32, default: i32, suggested: (i32, i32, i32) },
     RealList { values: &'static [(f64, &'static str)], default: f64 },
@@ -1098,7 +1093,7 @@ pub struct OptInputInfo {
     pub display_name: &'static str,
     pub hint: &'static str,
     pub flags: OptInputFlags,
-    pub domain: OptDomain,
+    pub kind: OptInputType,
 }
 
 /// Metadata for one TA-Lib function (C: `TA_FuncInfo` + its parameter tables).
@@ -1106,7 +1101,6 @@ pub struct OptInputInfo {
 pub struct FuncInfo {
     pub id: FuncId,
     pub name: &'static str,
-    pub camel_case_name: &'static str,
     pub group: Group,
     pub hint: &'static str,
     pub flags: FuncFlags,

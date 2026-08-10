@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#cdlSpinningTop} consumes before
+    * Number of leading input bars {@link Core#CDLSPINNINGTOP} consumes before
     * it can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,7 +21,7 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int cdlSpinningTopLookback( )
+   public int CDLSPINNINGTOP_Lookback( )
    {
       int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
       int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
@@ -29,15 +29,15 @@
       return BodyShort_avgPeriod ;
 
    }
-   RetCode cdlSpinningTopInternal( int startIdx,
-                                   int endIdx,
-                                   double inOpen[],
-                                   double inHigh[],
-                                   double inLow[],
-                                   double inClose[],
-                                   MInteger outBegIdx,
-                                   MInteger outNBElement,
-                                   int outInteger[] )
+   RetCode CDLSPINNINGTOP_Internal( int startIdx,
+                                    int endIdx,
+                                    double inOpen[],
+                                    double inHigh[],
+                                    double inLow[],
+                                    double inClose[],
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    int outInteger[] )
    {
       double BodyPeriodTotal = 0;
       int i = 0;
@@ -47,16 +47,16 @@
       int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
       int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
       double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlSpinningTopLookback();
+      lookbackTotal = CDLSPINNINGTOP_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -105,15 +105,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode cdlSpinningTopInternal( int startIdx,
-                                   int endIdx,
-                                   float inOpen[],
-                                   float inHigh[],
-                                   float inLow[],
-                                   float inClose[],
-                                   MInteger outBegIdx,
-                                   MInteger outNBElement,
-                                   int outInteger[] )
+   RetCode CDLSPINNINGTOP_Internal( int startIdx,
+                                    int endIdx,
+                                    float inOpen[],
+                                    float inHigh[],
+                                    float inLow[],
+                                    float inClose[],
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    int outInteger[] )
    {
       double BodyPeriodTotal = 0;
       int i = 0;
@@ -123,13 +123,13 @@
       int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
       int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
       double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      lookbackTotal = cdlSpinningTopLookback();
+      lookbackTotal = CDLSPINNINGTOP_Lookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -172,7 +172,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlSpinningTopLookback} is a
+    * valid range shorter than {@link Core#CDLSPINNINGTOP_Lookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -187,16 +187,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlDoji
-    * @see Core#cdlHignWave
-    * @see Core#cdlLongLeggedDoji
+    * @see Core#CDLDOJI
+    * @see Core#CDLHIGHWAVE
+    * @see Core#CDLLONGLEGGEDDOJI
     */
-   public OutRange cdlSpinningTop( int startIdx,
+   public OutRange CDLSPINNINGTOP( int startIdx,
                                    int endIdx,
                                    double inOpen[],
                                    double inHigh[],
@@ -206,7 +206,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlSpinningTopInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLSPINNINGTOP_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLSPINNINGTOP", retCode);
       }
@@ -227,7 +227,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlSpinningTopLookback} is a
+    * valid range shorter than {@link Core#CDLSPINNINGTOP_Lookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -242,16 +242,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlDoji
-    * @see Core#cdlHignWave
-    * @see Core#cdlLongLeggedDoji
+    * @see Core#CDLDOJI
+    * @see Core#CDLHIGHWAVE
+    * @see Core#CDLLONGLEGGEDDOJI
     */
-   public OutRange cdlSpinningTop( int startIdx,
+   public OutRange CDLSPINNINGTOP( int startIdx,
                                    int endIdx,
                                    float inOpen[],
                                    float inHigh[],
@@ -261,7 +261,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlSpinningTopInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLSPINNINGTOP_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLSPINNINGTOP", retCode);
       }
@@ -271,20 +271,19 @@
 
    /**
     * A live CDLSPINNINGTOP stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#cdlSpinningTop} over the same series.
-    * Open with {@link Core#cdlSpinningTopOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#CDLSPINNINGTOP} over the same series.
+    * Open with {@link Core#CDLSPINNINGTOP_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class CdlSpinningTopStream {
+   public static final class CDLSPINNINGTOP_Stream {
       final Core core;
       double BodyPeriodTotal;
       int ringPos_BodyTrailingIdx;
@@ -297,17 +296,20 @@
       int cs_BodyShort_avgPeriod;
       double cs_BodyShort_factor;
       int cur_outInteger;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      CdlSpinningTopStream( Core core ) { this.core = core; }
+      CDLSPINNINGTOP_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#cdlSpinningTopOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#CDLSPINNINGTOP_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      CdlSpinningTopStream( CdlSpinningTopStream other ) {
+      CDLSPINNINGTOP_Stream( CDLSPINNINGTOP_Stream other ) {
          this.core = other.core;
          this.BodyPeriodTotal = other.BodyPeriodTotal;
          this.ringPos_BodyTrailingIdx = other.ringPos_BodyTrailingIdx;
@@ -328,7 +330,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
-         core.cdlSpinningTopStreamStep(this, inOpen, inHigh, inLow, inClose);
+         core.CDLSPINNINGTOP_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outInteger;
       }
 
@@ -340,8 +342,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
-         CdlSpinningTopStream scratch = new CdlSpinningTopStream(this);
-         core.cdlSpinningTopStreamStep(scratch, inOpen, inHigh, inLow, inClose);
+         CDLSPINNINGTOP_Stream scratch = new CDLSPINNINGTOP_Stream(this);
+         core.CDLSPINNINGTOP_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outInteger;
       }
 
@@ -358,11 +360,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public CdlSpinningTopStream copy() {
-         return new CdlSpinningTopStream(this);
+      public CDLSPINNINGTOP_Stream copy() {
+         return new CDLSPINNINGTOP_Stream(this);
       }
    }
-   void cdlSpinningTopStreamStep( CdlSpinningTopStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   void CDLSPINNINGTOP_StreamStep( CDLSPINNINGTOP_Stream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
       int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
@@ -391,7 +393,7 @@
          sp.ringPos_BodyTrailingIdx = 0;
       }
    }
-   private RetCode cdlSpinningTopOpenBody( CdlSpinningTopStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode CDLSPINNINGTOP_OpenBody( CDLSPINNINGTOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       double BodyPeriodTotal = 0;
       int i = 0;
@@ -406,13 +408,16 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
       int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
       double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlSpinningTopLookback();
+      lookbackTotal = CDLSPINNINGTOP_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -486,7 +491,7 @@
       sp.cur_outInteger = lastValue_outInteger;
       return RetCode.Success;
    }
-   private RetCode cdlSpinningTopOpenAndFillBody( CdlSpinningTopStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLSPINNINGTOP_OpenAndFillBody( CDLSPINNINGTOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       double BodyPeriodTotal = 0;
       int i = 0;
@@ -499,6 +504,9 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          return RetCode.BadParam;
       }
@@ -508,7 +516,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlSpinningTopLookback();
+      lookbackTotal = CDLSPINNINGTOP_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -582,60 +590,60 @@
       sp.cur_outInteger = outInteger[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind cdlSpinningTopOpen (composition seam). */
-   CdlSpinningTopStream cdlSpinningTopOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   /* Internal startIdx-anchored open behind CDLSPINNINGTOP_Open (composition seam). */
+   CDLSPINNINGTOP_Stream CDLSPINNINGTOP_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
-      CdlSpinningTopStream sp = new CdlSpinningTopStream(this);
-      RetCode retCode = cdlSpinningTopOpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      CDLSPINNINGTOP_Stream sp = new CDLSPINNINGTOP_Stream(this);
+      RetCode retCode = CDLSPINNINGTOP_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLSPINNINGTOP open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLSPINNINGTOP open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLSPINNINGTOP open: internal error");
+         throw new IllegalStateException("CDLSPINNINGTOP open: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLSPINNINGTOP open: " + retCode);
+      throw new IllegalArgumentException("CDLSPINNINGTOP open: " + retCode);
    }
    /**
     * Open a live CDLSPINNINGTOP stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#cdlSpinningTop} at that bar.
-    * <p>The history must hold at least {@code cdlSpinningTopLookback(...) + 1} bars
+    * to {@link Core#CDLSPINNINGTOP} at that bar.
+    * <p>The history must hold at least {@code CDLSPINNINGTOP_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public CdlSpinningTopStream cdlSpinningTopOpen( double inOpen[], double inHigh[], double inLow[], double inClose[] )
+   public CDLSPINNINGTOP_Stream CDLSPINNINGTOP_Open( double inOpen[], double inHigh[], double inLow[], double inClose[] )
    {
-      return cdlSpinningTopOpenInternal(inOpen, inHigh, inLow, inClose, 0);
+      return CDLSPINNINGTOP_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
    /**
-    * {@link Core#cdlSpinningTopOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#cdlSpinningTop} over the whole history in the same single pass
+    * {@link Core#CDLSPINNINGTOP_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#CDLSPINNINGTOP} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link CdlSpinningTopStream#fillRange()}.
+    * {@link CDLSPINNINGTOP_Stream#fillRange()}.
     */
-   public CdlSpinningTopStream cdlSpinningTopOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
+   public CDLSPINNINGTOP_Stream CDLSPINNINGTOP_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
-      CdlSpinningTopStream sp = new CdlSpinningTopStream(this);
+      CDLSPINNINGTOP_Stream sp = new CDLSPINNINGTOP_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlSpinningTopOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLSPINNINGTOP_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLSPINNINGTOP openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLSPINNINGTOP openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLSPINNINGTOP openAndFill: internal error");
+         throw new IllegalStateException("CDLSPINNINGTOP openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLSPINNINGTOP openAndFill: " + retCode);
+      throw new IllegalArgumentException("CDLSPINNINGTOP openAndFill: " + retCode);
    }

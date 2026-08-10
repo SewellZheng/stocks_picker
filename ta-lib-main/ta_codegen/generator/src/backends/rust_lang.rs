@@ -58,7 +58,8 @@ pub(crate) const RESERVED_WORDS: &[&str] = &[
     "use",
     "where",
     "while",
-    "Self",
+    // `Self` is not listed: the match is case-insensitive, so `self` above
+    // already covers it.
     // --- reserved for future use ---
     "abstract",
     "become",
@@ -381,14 +382,14 @@ fn gen_imports() -> String {
 /// `ta_lib_dispatch::dispatch_fma!` (one cached CPU check per call; both
 /// paths are correctly rounded, so which clone runs never changes bits).
 /// Lookback and the stream tier stay undispatched, mirroring the C decision.
-fn fma_dispatch_wrap(text: String, fn_name: &str) -> String {
+fn fma_dispatch_wrap(text: String, fn_name: &str, vis: &str) -> String {
     if !fma::EMIT_FMA || !text.contains(".mul_add(") {
         return text;
     }
     // From here the variant fuses, so a signature-pattern mismatch must fail
     // LOUD: a silent passthrough would ship the exact #156 regression while
     // every value gate stays green (both paths are bit-identical).
-    let sig_open = format!("    pub fn {fn_name}(\n");
+    let sig_open = format!("    {vis}fn {fn_name}(\n");
     let sig_close = "    ) -> RetCode {\n";
     let Some(sig_pos) = text.find(&sig_open) else {
         panic!("{fn_name}: fused body but the signature no longer matches `{sig_open:?}` — FMA dispatch would silently vanish");
@@ -462,7 +463,7 @@ fn fma_dispatch_wrap(text: String, fn_name: &str) -> String {
 
 fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &Registry, helpers: &HelperRegistry) -> String {
     let mut out = String::new();
-    let snake = func.name.to_lowercase();
+    let snake = func.name.clone();
 
     // C's pointer-based scratch-buffer election becomes a rename here, so the
     // batch bodies below run the calculation directly in the caller's output
@@ -490,6 +491,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
     out.push_str(&fma_dispatch_wrap(
         gen_guarded_func(func, &snake, enums, registry, helpers),
         &snake,
+        "pub ",
     ));
 
     // Build a temporary FuncDef with private_body for the `_private` variant
@@ -553,7 +555,8 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
     if func.has_explicit_private {
         out.push_str(&fma_dispatch_wrap(
             gen_private_func(&body_func, &snake, &ctx, enums, registry, helpers),
-            &format!("{snake}_private"),
+            &format!("{snake}_Private"),
+            "pub(crate) ",
         ));
     }
 
@@ -603,7 +606,7 @@ fn gen_lookback(
 
         out.push_str("    #[inline]\n");
         out.push_str(&format!(
-            "    pub fn {}_lookback(&self, {}) -> usize {{\n",
+            "    pub fn {}_Lookback(&self, {}) -> usize {{\n",
             snake,
             params.join(", ")
         ));
@@ -616,7 +619,7 @@ fn gen_lookback(
         // Return lookback expression
         emit_lookback_return(&mut out);
     } else {
-        out.push_str(&format!("    pub fn {snake}_lookback(&self) -> usize {{\n"));
+        out.push_str(&format!("    pub fn {snake}_Lookback(&self) -> usize {{\n"));
         emit_lookback_return(&mut out);
     }
 
@@ -625,7 +628,7 @@ fn gen_lookback(
 }
 
 /// Generate the guarded public function — the batch entry point. Validates params,
-/// then renders the algorithm inline (or delegates to `{snake}_private` when the
+/// then renders the algorithm inline (or delegates to `{snake}_Private` when the
 /// function declares one).
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 fn gen_guarded_func(
@@ -651,9 +654,18 @@ fn gen_guarded_func(
     out.push_str(&gen_generic_output_params(func));
     out.push_str("    ) -> RetCode {\n");
 
-    // Range check
-    out.push_str("        if endIdx < startIdx {\n");
+    // Range check. `usize` makes C's two negative-index conditions
+    // unrepresentable, so MAX_INDEX is what gives OutOfRangeStartIndex a
+    // producer here at all. The end-index arm answers OutOfRangeEndIndex to
+    // match C and the crate's own abstract tier (#180; C6 of #179 -- every
+    // batch entry point used to answer OutOfRangeStartIndex for endIdx <
+    // startIdx, which no gate could see: the JSON-RPC server re-implements
+    // C's guard, so the crate's answer never reached the driver).
+    out.push_str("        if startIdx > MAX_INDEX {\n");
     out.push_str("            return RetCode::OutOfRangeStartIndex;\n");
+    out.push_str("        }\n");
+    out.push_str("        if endIdx > MAX_INDEX || endIdx < startIdx {\n");
+    out.push_str("            return RetCode::OutOfRangeEndIndex;\n");
     out.push_str("        }\n");
 
     // Param validation
@@ -999,7 +1011,7 @@ fn emit_bounds_asserts(func: &FuncDef, snake: &str, guard_empty_range: bool) -> 
         let lb_args: Vec<String> =
             func.optional_inputs.iter().map(|o| o.name.clone()).collect();
         out.push_str(&format!(
-            "        let _assertLb = self.{snake}_lookback({});\n",
+            "        let _assertLb = self.{snake}_Lookback({});\n",
             lb_args.join(", ")
         ));
         out.push_str(
@@ -1044,14 +1056,18 @@ fn gen_private_func_inner(
     helpers: &HelperRegistry,
 ) -> String {
     let mut out = String::new();
-    let func_name = format!("{snake}_private");
+    let func_name = format!("{snake}_Private");
 
     out.push_str(&super::rust_doc::private_docs(func, snake));
 
-    // Function signature — always pub fn (unsafe is contained internally)
+    // `pub(crate)`, not `pub`: C makes `TA_XXX_Private` file-`static` and Java/C#
+    // make theirs package-private/internal, so a `pub` here was the one backend
+    // where a caller could reach an entry point with no validation prologue --
+    // and therefore no TA_MAX_INDEX bound (#180). Cross-indicator calls are all
+    // in-crate, so nothing legitimate loses access.
     // #[inline] enables cross-module inlining for cross-indicator calls
     out.push_str("    #[inline]\n");
-    out.push_str(&format!("    pub fn {func_name}(\n"));
+    out.push_str(&format!("    pub(crate) fn {func_name}(\n"));
     out.push_str("        &self,\n");
     out.push_str("        mut startIdx: usize,\n");
     out.push_str("        endIdx: usize,\n");
@@ -4231,35 +4247,6 @@ fn render_lookback_code(
     out
 }
 
-pub(crate) fn to_pascal_case(s: &str) -> String {
-    // Direct mapping for known FuncUnstId names
-    match s {
-        "HT_DCPERIOD" => return "HtDcPeriod".to_string(),
-        "HT_DCPHASE" => return "HtDcPhase".to_string(),
-        "HT_PHASOR" => return "HtPhasor".to_string(),
-        "HT_SINE" => return "HtSine".to_string(),
-        "HT_TRENDLINE" => return "HtTrendline".to_string(),
-        "HT_TRENDMODE" => return "HtTrendMode".to_string(),
-        "MINUS_DI" => return "MinusDI".to_string(),
-        "MINUS_DM" => return "MinusDM".to_string(),
-        "PLUS_DI" => return "PlusDI".to_string(),
-        "PLUS_DM" => return "PlusDM".to_string(),
-        "STOCH_RSI" | "STOCHRSI" => return "StochRsi".to_string(),
-        _ => {}
-    }
-    s.split('_')
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let lower = part.to_lowercase();
-            let mut chars = lower.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect()
-}
-
 /// Decompose an expression into (array_name, offset) for array copy operations.
 /// `Var("arr")` → `("arr", "0")`; `AddressOf(ArrayAccess("arr", idx))` → `("arr", rendered_idx)`
 fn decompose_rust_array_ref(
@@ -4321,8 +4308,7 @@ fn render_func_call(
                     let base = func_name
                         .strip_prefix("FUNC_UNST_")
                         .unwrap_or(func_name);
-                    let pascal = to_pascal_case(base);
-                    return format!("self.unstable_period[FuncUnstId::{pascal} as usize]");
+                    return format!("self.unstable_period[FuncUnstId::{base} as usize]");
                 }
                 "self.unstable_period[0]".to_string()
             }
@@ -4360,8 +4346,14 @@ fn render_func_call(
                 "0.0_f64".to_string()
             }
         }
-    } else if fname.ends_with("_Lookback") {
-        let rust_name = fname.to_lowercase();
+    } else if fname.ends_with("_lookback") || fname.ends_with("_Lookback") {
+        // Two authored spellings reach here and name the same function: the
+        // prefix-free `sma_lookback`, and the legacy `TA_SMA_Lookback` whose
+        // `TA_` the parser has already stripped. Lower-casing folds the legacy
+        // form onto the registry's key, so both resolve through one rule — the C
+        // backend keeps the same pair of spellings alive (`c.rs`, "Legacy:").
+        let rust_name =
+            registry.resolve_call(&fname.to_lowercase(), crate::registry::Lang::Rust);
         let rendered_args: Vec<String> = args
             .iter()
             .map(|a| {
@@ -4387,31 +4379,6 @@ fn render_func_call(
             })
             .collect();
         format!("self.{}({})", rust_name, rendered_args.join(", "))
-    } else if fname.ends_with("_lookback") {
-        let rendered_args: Vec<String> = args
-            .iter()
-            .map(|a| {
-                // Real optIn params stay as f64 in lookback calls (no T-wrapping, no i32 cast)
-                let is_opt_real = matches!(a, Expr::Var(n) if !is_i32_opt_in_param(n) && strip_state_prefix(n).starts_with("optIn"));
-                if is_opt_real {
-                    let empty_opt: Vec<String> = Vec::new();
-                    return render_expr(a, ctx, &empty_opt, registry, helpers);
-                }
-                // Float literals are Real optIn values — don't cast to i32
-                if matches!(a, Expr::Literal(_)) {
-                    let empty_opt: Vec<String> = Vec::new();
-                    return render_expr(a, ctx, &empty_opt, registry, helpers);
-                }
-                let rendered = render_expr(a, ctx, opt_real_params, registry, helpers);
-                // Lookback functions take i32 params for Integer optIns; cast non-i32 args
-                if !expr_is_i32_typed(a) && !matches!(a, Expr::IntLiteral(_)) {
-                    format!("({rendered}) as i32")
-                } else {
-                    rendered
-                }
-            })
-            .collect();
-        format!("self.{}({})", fname, rendered_args.join(", "))
     } else if let Some(mf) = MathFn::from_name(fname) {
         // Math functions take priority over the indicator registry.
         // `atan(x)` in source means the C math function, not a cross-indicator call.
@@ -4564,7 +4531,7 @@ fn render_func_call(
         let (rendered_args, aliased) = render_cross_indicator_args(args, ctx, opt_real_params, registry, helpers);
         wrap_cross_indicator_call(format!("self.{}({})", resolved, rendered_args.join(", ")), &aliased)
     } else if is_ta_function(fname) {
-        let rust_name = fname.to_lowercase();
+        let rust_name = fname.to_uppercase();
         let (rendered_args, aliased) = render_cross_indicator_args(args, ctx, opt_real_params, registry, helpers);
         wrap_cross_indicator_call(format!("self.{}({})", rust_name, rendered_args.join(", ")), &aliased)
     } else {

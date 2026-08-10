@@ -1,7 +1,4 @@
 use ta_codegen_lib::backends;
-use ta_codegen_lib::extractor::func_extractor::extract_function_source;
-use ta_codegen_lib::extractor::table_parser::{parse_shared_defs, parse_table};
-use ta_codegen_lib::extractor::TableFuncDef;
 use ta_codegen_lib::formatter;
 use ta_codegen_lib::helper_registry::HelperRegistry;
 use ta_codegen_lib::ir;
@@ -84,10 +81,6 @@ fn main() {
             let backend_filter = find_arg(&args, &["--backend"]);
             build_servers(backend_filter.as_deref());
         }
-        "extract" => {
-            let func_filter = find_arg(&args, &["--function", "--func"]);
-            extract(func_filter.as_deref());
-        }
         "format" => {
             let func_filter = find_arg(&args, &["--func", "--function"]);
             let check_only = args.iter().any(|a| a == "--check");
@@ -105,7 +98,6 @@ fn main() {
             eprintln!("  generate-servers  Generate JSON-RPC server wrappers for each language");
             eprintln!("  generate-bench   Generate the direct-call C benchmark binary source");
             eprintln!("  build            Compile generated server source into executables");
-            eprintln!("  extract          Extract indicators from C source to ta_codegen/input/");
             eprintln!("  format           Re-indent the ta_codegen/input/ C source of truth");
             eprintln!("  stream-census    Report the IR-derived streamability per function");
             eprintln!("                   (--seed-yaml writes `streaming: true` for clean functions)");
@@ -122,11 +114,6 @@ fn main() {
                 "  --backend=NAME[,NAME,...]    Only generate specified backends (default: all)"
             );
             eprintln!("                               Backends: c, rust, java, csharp");
-            eprintln!();
-            eprintln!("Options for 'extract':");
-            eprintln!(
-                "  --function=NAME[,NAME,...]   Only extract specified functions (default: all)"
-            );
             std::process::exit(1);
         }
     }
@@ -149,13 +136,6 @@ fn find_arg(args: &[String], prefixes: &[&str]) -> Option<String> {
         }
     }
     None
-}
-
-/// True for non-indicator subdirectories of `ta_codegen/input/` (shared `helpers/`,
-/// library scaffolding `lib/`) that never carry a `<name>.yaml` indicator
-/// definition and therefore contribute nothing to generated output.
-fn is_reserved_dir(name: &str) -> bool {
-    matches!(name, "helpers" | "lib")
 }
 
 /// Recursively collect `*.c` files under `dir`.
@@ -541,7 +521,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
             }
         }
 
-        if is_reserved_dir(&func_name_lower) {
+        if parser::yaml::is_reserved_dir(&func_name_lower) {
             continue;
         }
 
@@ -759,7 +739,7 @@ fn load_all_yaml_defs(base: &Path) -> Vec<ir::FuncDef> {
         let dir = entry.path();
         let dir_name = entry.file_name().to_string_lossy().to_string();
 
-        if is_reserved_dir(&dir_name) {
+        if parser::yaml::is_reserved_dir(&dir_name) {
             continue;
         }
 
@@ -807,7 +787,7 @@ fn load_func_defs(func_filter: Option<&str>, root: &Path) -> Vec<ir::FuncDef> {
             }
         }
 
-        if is_reserved_dir(&func_name_lower) {
+        if parser::yaml::is_reserved_dir(&func_name_lower) {
             continue;
         }
 
@@ -932,11 +912,11 @@ fn verify_hand_maintained_funcunstid(
     let Some(fu) = enums.get("FuncUnstId") else {
         return;
     };
-    // The crate enum is the enums.yaml variants followed by the `FuncUnstAll`
+    // The crate enum is the enums.yaml variants followed by the `ALL`
     // wildcard sentinel; keep it in the expected list so a misplaced/duplicated
-    // sentinel (which would mis-size `[i32; FuncUnstAll as usize]`) is caught.
-    let mut expected: Vec<&str> = fu.variants.iter().map(|v| v.pascal_name.as_str()).collect();
-    expected.push("FuncUnstAll");
+    // sentinel (which would mis-size `[i32; ALL as usize]`) is caught.
+    let mut expected: Vec<&str> = fu.variants.iter().map(|v| v.name.as_str()).collect();
+    expected.push("ALL");
 
     let path = root.join("ta_codegen/generator/templates/rust/types.rs");
     let src = match std::fs::read_to_string(&path) {
@@ -964,7 +944,7 @@ fn verify_hand_maintained_funcunstid(
 
     // Variants are comma-separated; take each entry's leading identifier so an
     // explicit `= discriminant` or several variants on one line are handled, and
-    // keep `FuncUnstAll` in place (compared positionally against `expected`).
+    // keep `ALL` in place (compared positionally against `expected`).
     let found: Vec<&str> = stripped[..end]
         .split(',')
         .map(str::trim)
@@ -1371,12 +1351,24 @@ fn build_java_library(root: &Path, bin_dir: &Path) -> bool {
         }
     }
 
+    if !check_java_doc_examples(&src_root, &class_dir, bin_dir) {
+        return false;
+    }
+
     // Run every test class DISCOVERED in the sources, not a hardcoded list: a
     // hardcoded roster is how the retired `AllTests` suite went vacuous (it
     // named one class, which a later change deleted, and `ant test` kept
     // passing). A new *Test.java with a main() is picked up automatically; one
     // without a main() is a hard error rather than a silent skip.
-    let tests = discover_java_tests(&sources);
+    let (tests, unrunnable) = discover_java_tests(&sources);
+    if !unrunnable.is_empty() {
+        println!(
+            "  Building Java library... FAILED ({} test class(es) with no main(): {})",
+            unrunnable.len(),
+            unrunnable.join(", ")
+        );
+        return false;
+    }
     if tests.is_empty() {
         println!("  Building Java library... FAILED (no test classes discovered)");
         return false;
@@ -1403,14 +1395,157 @@ fn build_java_library(root: &Path, bin_dir: &Path) -> bool {
     true
 }
 
-/// Every `*Test.java` in the shipped library's test package, in a stable order.
+/// Compile the Java examples embedded in the shipped javadoc.
+///
+/// `-Xdoclint` does not look inside `<pre>{@code ...}</pre>`, so an example can
+/// call a method that does not exist and every other gate stays green. That is
+/// exactly how `setRealInput`/`setRealOutput` — names `ParamHolder` has never
+/// had — reached the metadata package's landing page. These blocks are the first
+/// thing a user copies, and a published javadoc jar cannot be corrected, so they
+/// are compiled like any other source.
+///
+/// Scope is the hand-written scaffolding plus the two package pages, listed in
+/// `DOC_EXAMPLE_FILES`. `Core.java` contributes only its hand-written region:
+/// the 233 blocks inside the GENCODE markers are each function's **Formula**
+/// from its canonical `.md`, which is algebra and deliberately not Java.
+///
+/// A snippet may use `close` and `out`; anything else fails, which is the point
+/// — the alternative is a preamble that quietly grows until the gate compiles
+/// something no reader could.
+fn check_java_doc_examples(src_root: &Path, class_dir: &Path, bin_dir: &Path) -> bool {
+    const DOC_EXAMPLE_FILES: &[&str] = &[
+        "main/java/io/github/talib/package-info.java",
+        "main/java/io/github/talib/CoreBuilder.java",
+        "main/java/io/github/talib/metadata/package-info.java",
+        "main/java/io/github/talib/metadata/Functions.java",
+        "main/java/io/github/talib/metadata/ParamHolder.java",
+    ];
+    const CORE_GENCODE_START: &str = "/**** START GENCODE SECTION 1";
+
+    let mut snippets: Vec<(String, String)> = Vec::new();
+    for rel in DOC_EXAMPLE_FILES {
+        let path = src_root.join(rel);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            println!("  Checking Java doc examples... FAILED (cannot read {})", path.display());
+            return false;
+        };
+        for (i, body) in extract_doc_code_blocks(&text).into_iter().enumerate() {
+            snippets.push((format!("{rel}#{i}"), body));
+        }
+    }
+    // Core.java: everything before the generated section.
+    let core_path = src_root.join("main/java/io/github/talib/Core.java");
+    if let Ok(text) = std::fs::read_to_string(&core_path) {
+        let head = text.split(CORE_GENCODE_START).next().unwrap_or("");
+        for (i, body) in extract_doc_code_blocks(head).into_iter().enumerate() {
+            snippets.push((format!("Core.java(hand-written)#{i}"), body));
+        }
+    }
+
+    print!("  Checking Java doc examples ({})... ", snippets.len());
+    if snippets.is_empty() {
+        // The scaffolding always carries examples; none found means the
+        // extractor stopped matching, not that the docs got simpler.
+        println!("FAILED (no <pre>{{@code ...}}</pre> blocks found — extractor out of step?)");
+        return false;
+    }
+
+    let dir = bin_dir.join("ta_codegen_java_docex");
+    let _ = std::fs::remove_dir_all(&dir);
+    if std::fs::create_dir_all(&dir).is_err() {
+        println!("FAILED (cannot create {})", dir.display());
+        return false;
+    }
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    for (n, (origin, body)) in snippets.iter().enumerate() {
+        let indented: String =
+            body.lines().map(|l| format!("         {l}\n")).collect::<String>();
+        // The free variables are FIELDS, not parameters: a snippet that declares
+        // its own `out` shadows a field legally, where a parameter of the same
+        // name is a compile error the snippet is not responsible for.
+        let src = format!(
+            "import io.github.talib.*;\n\
+             import io.github.talib.metadata.*;\n\
+             /** From {origin} — generated by the doc-example gate, not shipped. */\n\
+             public class DocExample{n} {{\n\
+             \x20  static double[] close = new double[300];\n\
+             \x20  static double[] out = new double[300];\n\
+             \x20  @SuppressWarnings(\"unused\")\n\
+             \x20  static void snippet() throws Exception {{\n\
+             {indented}\
+             \x20  }}\n\
+             }}\n"
+        );
+        let f = dir.join(format!("DocExample{n}.java"));
+        if std::fs::write(&f, src).is_err() {
+            println!("FAILED (cannot write {})", f.display());
+            return false;
+        }
+        files.push(f);
+    }
+
+    let mut cmd = std::process::Command::new("javac");
+    cmd.arg("--release").arg(JAVA_RELEASE).arg("-nowarn").arg("-cp").arg(class_dir);
+    cmd.arg("-d").arg(dir.join("classes"));
+    for f in &files {
+        cmd.arg(f);
+    }
+    match cmd.output() {
+        Ok(o) if o.status.success() => {
+            println!("OK");
+            true
+        }
+        Ok(o) => {
+            println!("FAILED");
+            for (n, (origin, _)) in snippets.iter().enumerate() {
+                println!("    DocExample{n} = {origin}");
+            }
+            print!("{}", String::from_utf8_lossy(&o.stderr));
+            false
+        }
+        Err(e) => {
+            println!("FAILED (javac not found: {e})");
+            false
+        }
+    }
+}
+
+/// The bodies of every `<pre>{@code ... }</pre>` block in `text`, with the
+/// javadoc `*` margin stripped.
+fn extract_doc_code_blocks(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cur: Option<Vec<String>> = None;
+    for line in text.lines() {
+        let t = line.trim_start();
+        let t = t.strip_prefix('*').map_or(t, str::trim_start);
+        if cur.is_none() {
+            if t.contains("<pre>{@code") {
+                cur = Some(Vec::new());
+            }
+            continue;
+        }
+        if t.starts_with("}</pre>") {
+            out.push(cur.take().unwrap_or_default().join("\n"));
+            continue;
+        }
+        if let Some(buf) = cur.as_mut() {
+            buf.push(t.to_string());
+        }
+    }
+    out
+}
+
+/// Every `*Test.java` in the shipped library's test package, in a stable order,
+/// paired with the ones that cannot be run.
 ///
 /// Discovered rather than listed so a new suite cannot be compiled-but-never-run
-/// (the `AllTests` trap). A `*Test.java` without a `main()` is reported and
-/// counted as a failure: silently skipping it would recreate exactly the vacuity
-/// this replaces.
-fn discover_java_tests(sources: &[std::path::PathBuf]) -> Vec<String> {
+/// (the `AllTests` trap). A `*Test.java` without a `main()` is returned in the
+/// second vec and fails the build: silently skipping it would recreate exactly
+/// the vacuity this replaces, and `tests.is_empty()` cannot catch it — one
+/// surviving suite masks any number of skipped ones.
+fn discover_java_tests(sources: &[std::path::PathBuf]) -> (Vec<String>, Vec<String>) {
     let mut out: Vec<String> = Vec::new();
+    let mut unrunnable: Vec<String> = Vec::new();
     for src in sources {
         let Some(stem) = src.file_stem().map(|s| s.to_string_lossy().to_string()) else {
             continue;
@@ -1419,14 +1554,40 @@ fn discover_java_tests(sources: &[std::path::PathBuf]) -> Vec<String> {
             continue;
         }
         let text = std::fs::read_to_string(src).unwrap_or_default();
-        if text.contains("public static void main(") {
+        if has_java_main(&text) {
             out.push(stem);
         } else {
-            println!("  WARNING: {stem} looks like a test but has no main() — not run");
+            unrunnable.push(stem);
         }
     }
     out.sort();
-    out
+    unrunnable.sort();
+    (out, unrunnable)
+}
+
+/// Whether `text` declares a `public static void main(...)`.
+///
+/// Tolerant of the modifier order and of whitespace before the parenthesis,
+/// because the caller now FAILS the build on a miss rather than warning: an
+/// exact-substring match would turn `static public void main(` — legal Java —
+/// into a hard failure of the whole Java build, which is a worse bug than the
+/// silent skip it replaced.
+fn has_java_main(text: &str) -> bool {
+    for line in text.lines() {
+        let Some(head) = line.split("main").next().filter(|_| line.contains("main")) else {
+            continue;
+        };
+        // The token right after `main` must open the parameter list.
+        let after = &line[head.len() + "main".len()..];
+        if !after.trim_start().starts_with('(') {
+            continue;
+        }
+        let has = |kw: &str| head.split_whitespace().any(|w| w == kw);
+        if has("public") && has("static") && has("void") {
+            return true;
+        }
+    }
+    false
 }
 
 /// JDK floor for everything Java this tool compiles, kept in one place so the
@@ -1614,220 +1775,6 @@ fn csharp_test_tfms(test_dir: &Path) -> Vec<String> {
         }
     }
     Vec::new()
-}
-
-fn extract(func_filter: Option<&str>) {
-    let base = repo_root();
-    let tables_dir = base.join("src/ta_abstract/tables");
-    let def_ui_path = base.join("src/ta_abstract/ta_def_ui.c");
-    let func_dir = base.join("src/ta_func");
-    let out_dir = base.join("ta_codegen/input");
-
-    // 1. Parse shared definitions
-    let def_ui_source = std::fs::read_to_string(&def_ui_path).expect("Cannot read ta_def_ui.c");
-    let shared = parse_shared_defs(&def_ui_source);
-
-    // 2. Parse all table files
-    let mut all_funcs: Vec<TableFuncDef> = Vec::new();
-    let mut table_files: Vec<_> = std::fs::read_dir(&tables_dir)
-        .expect("Cannot read tables directory")
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
-            name.starts_with("table_") && name.ends_with(".c")
-        })
-        .collect();
-    table_files.sort_by_key(|e| e.file_name());
-
-    for entry in &table_files {
-        let source = std::fs::read_to_string(entry.path()).unwrap();
-        let funcs = parse_table(&source, &shared);
-        all_funcs.extend(funcs);
-    }
-
-    println!("Found {} indicators in abstract tables", all_funcs.len());
-
-    // 3. Apply function filter
-    let filter_names: Option<Vec<String>> =
-        func_filter.map(|f| f.split(',').map(|s| s.trim().to_uppercase()).collect());
-
-    let mut succeeded = 0;
-    let mut failed = 0;
-    let mut skipped = 0;
-
-    for func in &all_funcs {
-        if let Some(ref names) = filter_names {
-            if !names.iter().any(|n| n == &func.name) {
-                continue;
-            }
-        }
-
-        // Read corresponding source file
-        let src_path = func_dir.join(format!("ta_{}.c", func.name));
-        if !src_path.exists() {
-            eprintln!("  SKIP {}: source file not found", func.name);
-            skipped += 1;
-            continue;
-        }
-
-        let source = match std::fs::read_to_string(&src_path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("  FAIL {}: cannot read source: {}", func.name, e);
-                failed += 1;
-                continue;
-            }
-        };
-
-        // Extract C logic (catch panics and timeouts from parser)
-        let name_lower = func.name.to_lowercase();
-        let source_clone = source.clone();
-        let name_clone = name_lower.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                extract_function_source(&source_clone, &name_clone)
-            }));
-            let _ = tx.send(result);
-        });
-
-        let extracted_c = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
-            Ok(Ok(c)) => c,
-            Ok(Err(_)) => {
-                eprintln!("  FAIL {}: extractor panicked", func.name);
-                failed += 1;
-                continue;
-            }
-            Err(_) => {
-                eprintln!("  FAIL {}: extractor timed out", func.name);
-                failed += 1;
-                continue;
-            }
-        };
-
-        if extracted_c.trim().is_empty() {
-            eprintln!("  FAIL {}: extractor produced empty output", func.name);
-            failed += 1;
-            continue;
-        }
-
-        // Generate YAML
-        let yaml = func_to_yaml(func);
-
-        // Write output
-        let indicator_dir = out_dir.join(&name_lower);
-        std::fs::create_dir_all(&indicator_dir).unwrap();
-
-        let yaml_path = indicator_dir.join(format!("{}.yaml", name_lower));
-        let c_path = indicator_dir.join(format!("{}.c", name_lower));
-
-        std::fs::write(&yaml_path, &yaml).unwrap();
-        std::fs::write(&c_path, &extracted_c).unwrap();
-
-        println!("  OK   {}", func.name);
-        succeeded += 1;
-    }
-
-    println!();
-    println!(
-        "Extracted {} indicators ({} succeeded, {} failed, {} skipped)",
-        succeeded + failed + skipped,
-        succeeded,
-        failed,
-        skipped
-    );
-}
-
-fn func_to_yaml(func: &TableFuncDef) -> String {
-    let mut out = String::new();
-
-    out.push_str(&format!("name: {}\n", func.name));
-    out.push_str(&format!("camel_case: {}\n", func.camel_case));
-    out.push_str(&format!("group: {}\n", func.group));
-    out.push_str(&format!("hint: {}\n", func.hint));
-
-    // flags
-    if func.flags.is_empty() {
-        out.push_str("flags: []\n");
-    } else {
-        out.push_str(&format!("flags: [{}]\n", func.flags.join(", ")));
-    }
-
-    // inputs
-    out.push_str("inputs:\n");
-    for input in &func.inputs {
-        out.push_str(&format!("  - name: {}\n", input.name));
-        out.push_str(&format!("    type: {}\n", input.param_type));
-        if input.param_type == "price" && !input.price_flags.is_empty() {
-            out.push_str(&format!(
-                "    price_components: [{}]\n",
-                input.price_flags.join(", ")
-            ));
-        }
-    }
-
-    // optional_inputs
-    if !func.optional_inputs.is_empty() {
-        out.push_str("optional_inputs:\n");
-        for opt in &func.optional_inputs {
-            out.push_str(&format!("  - name: {}\n", opt.name));
-            out.push_str(&format!("    type: {}\n", opt.param_type));
-            if !opt.display_name.is_empty() {
-                out.push_str(&format!("    display_name: {}\n", opt.display_name));
-            }
-            if !opt.hint.is_empty() {
-                out.push_str(&format!("    hint: {}\n", opt.hint));
-            }
-            if let Some((min, max)) = opt.range {
-                out.push_str(&format!(
-                    "    range: [{}, {}]\n",
-                    format_yaml_num(min),
-                    format_yaml_num(max)
-                ));
-            }
-            if let Some(default) = opt.default {
-                out.push_str(&format!("    default: {}\n", format_yaml_num(default)));
-            }
-            if let Some((start, end, inc)) = opt.suggested {
-                out.push_str(&format!(
-                    "    suggested: [{}, {}, {}]\n",
-                    format_yaml_num(start),
-                    format_yaml_num(end),
-                    format_yaml_num(inc)
-                ));
-            }
-            if !opt.flags.is_empty() {
-                out.push_str(&format!("    flags: [{}]\n", opt.flags.join(", ")));
-            }
-        }
-    }
-
-    // outputs
-    out.push_str("outputs:\n");
-    for output in &func.outputs {
-        out.push_str(&format!("  - name: {}\n", output.name));
-        out.push_str(&format!("    type: {}\n", output.param_type));
-        if !output.flags.is_empty() {
-            out.push_str(&format!("    flags: [{}]\n", output.flags.join(", ")));
-        }
-    }
-
-    out
-}
-
-/// Format a number for YAML output: integers without decimal, reals with decimal.
-fn format_yaml_num(v: f64) -> String {
-    if v <= crate::backends::common::TA_REAL_MIN {
-        return "TA_REAL_MIN".to_string();
-    }
-    if v >= crate::backends::common::TA_REAL_MAX {
-        return "TA_REAL_MAX".to_string();
-    }
-    if v == v.floor() && v.abs() < 1e15 {
-        format!("{}", v as i64)
-    } else {
-        format!("{}", v)
-    }
 }
 
 /// The hand-written Rust library sources that ship inside the generated crate,
@@ -2047,7 +1994,7 @@ ta-lib-dispatch = { path = "../dispatch", version = "=0.1.1" }
 //! let mut sma = vec![0.0; close.len()];
 //! let (mut out_beg, mut out_nb) = (0, 0);
 //!
-//! let ret = core.sma(0, close.len() - 1, &close, 3, &mut out_beg, &mut out_nb, &mut sma);
+//! let ret = core.SMA(0, close.len() - 1, &close, 3, &mut out_beg, &mut out_nb, &mut sma);
 //! assert_eq!(ret, RetCode::Success);
 //!
 //! // The first 3-period average lands at input index 2 (the lookback):
@@ -2063,8 +2010,8 @@ ta-lib-dispatch = { path = "../dispatch", version = "=0.1.1" }
 //! * Outputs are written into caller-provided `&mut` slices; `outBegIdx` receives the
 //!   input index of the first output value and `outNBElement` the number of values
 //!   written. An indicator consumes a number of leading values (its *lookback*)
-//!   before producing output — query it with the matching `*_lookback` method
-//!   (e.g. [`Core::sma_lookback`]).
+//!   before producing output — query it with the matching `*_Lookback` method
+//!   (e.g. [`Core::SMA_Lookback`]).
 //! * Integer parameters accept `i32::MIN`, and real parameters `-4e37`, to select their
 //!   default value. A parameter outside its documented range returns
 //!   [`RetCode::BadParam`].
@@ -2080,7 +2027,7 @@ ta-lib-dispatch = { path = "../dispatch", version = "=0.1.1" }
 //! use ta_lib::{Core, FuncUnstId};
 //!
 //! let core = Core::builder()
-//!     .unstable_period(FuncUnstId::Ema, 10)
+//!     .unstable_period(FuncUnstId::EMA, 10)
 //!     .build();
 //! ```
 //!
@@ -2098,7 +2045,7 @@ ta-lib-dispatch = { path = "../dispatch", version = "=0.1.1" }
 //! [ta-lib.org/functions](https://ta-lib.org/functions/).
 
 #![forbid(unsafe_code)]
-#![allow(non_snake_case, unused_variables, unused_assignments, unused_mut, unused_parens, arithmetic_overflow)]
+#![allow(non_snake_case, non_camel_case_types, unused_variables, unused_assignments, unused_mut, unused_parens, arithmetic_overflow)]
 // Generated code: Clippy's style/complexity lints are noise on machine output, and
 // several "fixes" would change numeric behavior — e.g. `neg_cmp_op_on_partial_ord`
 // on C's `!(a < b)` NaN idiom, or De Morgan rewrites under `nonminimal_bool`. The
@@ -2145,7 +2092,7 @@ let core = Core::new();
 let mut sma = vec![0.0; close.len()];
 let (mut out_beg, mut out_nb) = (0, 0);
 
-let ret = core.sma(0, close.len() - 1, &close, 3, &mut out_beg, &mut out_nb, &mut sma);
+let ret = core.SMA(0, close.len() - 1, &close, 3, &mut out_beg, &mut out_nb, &mut sma);
 assert_eq!(ret, RetCode::Success);
 assert_eq!(sma[0], 12.0); // (11 + 12 + 13) / 3, at input index `out_beg` = 2
 ```
@@ -2153,7 +2100,7 @@ assert_eq!(sma[0], 12.0); // (11 + 12 + 13) / 3, at input index `out_beg` = 2
 Every indicator is a method on `Core` with the same calling pattern: `&[f64]`
 input slices, a `startIdx..=endIdx` range, caller-provided output slices, and a
 `RetCode` result. `outBegIdx` reports the input index of the first output value;
-`*_lookback` methods return how many leading values an indicator consumes.
+`*_Lookback` methods return how many leading values an indicator consumes.
 
 ## Configuration
 
@@ -2165,7 +2112,7 @@ frozen:
 use ta_lib::{Core, FuncUnstId};
 
 let core = Core::builder()
-    .unstable_period(FuncUnstId::Ema, 10)
+    .unstable_period(FuncUnstId::EMA, 10)
     .build();
 ```
 

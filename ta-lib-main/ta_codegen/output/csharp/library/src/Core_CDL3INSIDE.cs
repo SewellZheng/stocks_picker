@@ -56,7 +56,7 @@ public partial class Core
     *  121104 AC   Creation
     */
    /// <summary>
-   /// Number of leading input bars <c>Cdl3Inside</c> consumes before it can
+   /// Number of leading input bars <c>CDL3INSIDE</c> consumes before it can
    /// produce its first value.
    /// </summary>
    /// <remarks>
@@ -65,7 +65,7 @@ public partial class Core
    /// output.
    /// </remarks>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
-   public int Cdl3InsideLookback( )
+   public int CDL3INSIDE_Lookback( )
    {
       int BodyLong_rangeType = (int)this.candleSettings[(int)CandleSettingType.BodyLong].rangeType;
       int BodyLong_avgPeriod = this.candleSettings[(int)CandleSettingType.BodyLong].avgPeriod;
@@ -76,7 +76,7 @@ public partial class Core
       return Math.Max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 2 ;
 
    }
-   internal RetCode Cdl3Inside( int startIdx,
+   internal RetCode CDL3INSIDE( int startIdx,
                                 int endIdx,
                                 double[] inOpen,
                                 double[] inHigh,
@@ -101,16 +101,16 @@ public partial class Core
       int BodyShort_rangeType = (int)this.candleSettings[(int)CandleSettingType.BodyShort].rangeType;
       int BodyShort_avgPeriod = this.candleSettings[(int)CandleSettingType.BodyShort].avgPeriod;
       double BodyShort_factor = this.candleSettings[(int)CandleSettingType.BodyShort].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = Cdl3InsideLookback();
+      lookbackTotal = CDL3INSIDE_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -176,7 +176,7 @@ public partial class Core
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
-   internal RetCode Cdl3Inside( int startIdx,
+   internal RetCode CDL3INSIDE( int startIdx,
                                 int endIdx,
                                 float[] inOpen,
                                 float[] inHigh,
@@ -201,13 +201,13 @@ public partial class Core
       int BodyShort_rangeType = (int)this.candleSettings[(int)CandleSettingType.BodyShort].rangeType;
       int BodyShort_avgPeriod = this.candleSettings[(int)CandleSettingType.BodyShort].avgPeriod;
       double BodyShort_factor = this.candleSettings[(int)CandleSettingType.BodyShort].factor;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      lookbackTotal = Cdl3InsideLookback();
+      lookbackTotal = CDL3INSIDE_Lookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -264,7 +264,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>Cdl3InsideLookback</c> is a <b>success
+   /// NaN. A valid range shorter than <c>CDL3INSIDE_Lookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -280,13 +280,13 @@ public partial class Core
    /// startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange Cdl3Inside( int startIdx,
+   public OutRange CDL3INSIDE( int startIdx,
                                int endIdx,
                                double[] inOpen,
                                double[] inHigh,
@@ -294,7 +294,7 @@ public partial class Core
                                double[] inClose,
                                int[] outInteger )
    {
-      RetCode retCode = Cdl3Inside(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
+      RetCode retCode = CDL3INSIDE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw Failure("CDL3INSIDE", retCode);
       }
@@ -322,7 +322,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>Cdl3InsideLookback</c> is a <b>success
+   /// NaN. A valid range shorter than <c>CDL3INSIDE_Lookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -338,13 +338,13 @@ public partial class Core
    /// startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange Cdl3Inside( int startIdx,
+   public OutRange CDL3INSIDE( int startIdx,
                                int endIdx,
                                float[] inOpen,
                                float[] inHigh,
@@ -352,7 +352,7 @@ public partial class Core
                                float[] inClose,
                                int[] outInteger )
    {
-      RetCode retCode = Cdl3Inside(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
+      RetCode retCode = CDL3INSIDE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw Failure("CDL3INSIDE", retCode);
       }

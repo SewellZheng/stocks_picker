@@ -14,7 +14,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#roc} consumes before it can
+    * Number of leading input bars {@link Core#ROC} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -24,7 +24,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int rocLookback( int optInTimePeriod )
+   public int ROC_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 10;
@@ -34,22 +34,22 @@
       return optInTimePeriod ;
 
    }
-   RetCode rocInternal( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode ROC_Internal( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int inIdx = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       double tempReal = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -118,22 +118,22 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode rocInternal( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode ROC_Internal( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int inIdx = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       double tempReal = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -177,7 +177,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#rocLookback} is a <b>success with no
+    * valid range shorter than {@link Core#ROC_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -190,17 +190,17 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#mom
-    * @see Core#rocP
-    * @see Core#rocR
-    * @see Core#rocR100
+    * @see Core#MOM
+    * @see Core#ROCP
+    * @see Core#ROCR
+    * @see Core#ROCR100
     */
-   public OutRange roc( int startIdx,
+   public OutRange ROC( int startIdx,
                         int endIdx,
                         double inReal[],
                         int optInTimePeriod,
@@ -208,7 +208,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = rocInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ROC_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ROC", retCode);
       }
@@ -229,7 +229,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#rocLookback} is a <b>success with no
+    * valid range shorter than {@link Core#ROC_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -242,17 +242,17 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#mom
-    * @see Core#rocP
-    * @see Core#rocR
-    * @see Core#rocR100
+    * @see Core#MOM
+    * @see Core#ROCP
+    * @see Core#ROCR
+    * @see Core#ROCR100
     */
-   public OutRange roc( int startIdx,
+   public OutRange ROC( int startIdx,
                         int endIdx,
                         float inReal[],
                         int optInTimePeriod,
@@ -260,7 +260,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = rocInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ROC_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ROC", retCode);
       }
@@ -270,37 +270,39 @@
 
    /**
     * A live ROC stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#roc} over the same series.
-    * Open with {@link Core#rocOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#ROC} over the same series.
+    * Open with {@link Core#ROC_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class RocStream {
+   public static final class ROC_Stream {
       final Core core;
       int optInTimePeriod;
       int ringPos_trailingIdx;
       int ringCap_trailingIdx;
       double[] ring_trailingIdx_inReal;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      RocStream( Core core ) { this.core = core; }
+      ROC_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#rocOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#ROC_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      RocStream( RocStream other ) {
+      ROC_Stream( ROC_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.ringPos_trailingIdx = other.ringPos_trailingIdx;
@@ -315,7 +317,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inReal ) {
-         core.rocStreamStep(this, inReal);
+         core.ROC_StreamStep(this, inReal);
          return this.cur_outReal;
       }
 
@@ -327,8 +329,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inReal ) {
-         RocStream scratch = new RocStream(this);
-         core.rocStreamStep(scratch, inReal);
+         ROC_Stream scratch = new ROC_Stream(this);
+         core.ROC_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -345,11 +347,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public RocStream copy() {
-         return new RocStream(this);
+      public ROC_Stream copy() {
+         return new ROC_Stream(this);
       }
    }
-   void rocStreamStep( RocStream sp, double inReal )
+   void ROC_StreamStep( ROC_Stream sp, double inReal )
    {
       double tempReal = 0.0;
       if( sp.ringCap_trailingIdx == 0 ) {
@@ -367,7 +369,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode rocOpenBody( RocStream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode ROC_OpenBody( ROC_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       int inIdx = 0;
       int outIdx = 0;
@@ -380,6 +382,9 @@
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 10;
@@ -460,7 +465,7 @@
       sp.cur_outReal = lastValue_outReal;
       return RetCode.Success;
    }
-   private RetCode rocOpenAndFillBody( RocStream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode ROC_OpenAndFillBody( ROC_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int inIdx = 0;
       int outIdx = 0;
@@ -471,6 +476,9 @@
       int startIdx = 0;
       if( historyLen < 1 ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 10;
@@ -554,60 +562,60 @@
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind rocOpen (composition seam). */
-   RocStream rocOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
+   /* Internal startIdx-anchored open behind ROC_Open (composition seam). */
+   ROC_Stream ROC_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
-      RocStream sp = new RocStream(this);
-      RetCode retCode = rocOpenBody(sp, inReal, startIdx, optInTimePeriod);
+      ROC_Stream sp = new ROC_Stream(this);
+      RetCode retCode = ROC_OpenBody(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_ROC open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("ROC open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_ROC open: internal error");
+         throw new IllegalStateException("ROC open: internal error");
       }
-      throw new IllegalArgumentException("TA_ROC open: " + retCode);
+      throw new IllegalArgumentException("ROC open: " + retCode);
    }
    /**
     * Open a live ROC stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#roc} at that bar.
-    * <p>The history must hold at least {@code rocLookback(...) + 1} bars
+    * to {@link Core#ROC} at that bar.
+    * <p>The history must hold at least {@code ROC_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public RocStream rocOpen( double inReal[], int optInTimePeriod )
+   public ROC_Stream ROC_Open( double inReal[], int optInTimePeriod )
    {
-      return rocOpenInternal(inReal, 0, optInTimePeriod);
+      return ROC_OpenInternal(inReal, 0, optInTimePeriod);
    }
    /**
-    * {@link Core#rocOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#roc} over the whole history in the same single pass
+    * {@link Core#ROC_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#ROC} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link RocStream#fillRange()}.
+    * {@link ROC_Stream#fillRange()}.
     */
-   public RocStream rocOpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
+   public ROC_Stream ROC_OpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
-      RocStream sp = new RocStream(this);
+      ROC_Stream sp = new ROC_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = rocOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ROC_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_ROC openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("ROC openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_ROC openAndFill: internal error");
+         throw new IllegalStateException("ROC openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_ROC openAndFill: " + retCode);
+      throw new IllegalArgumentException("ROC openAndFill: " + retCode);
    }

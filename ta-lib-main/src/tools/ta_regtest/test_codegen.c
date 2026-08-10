@@ -1333,6 +1333,7 @@ typedef struct {
     int               streamSkipped;
     int               streamRejectArms;
     int               streamFillFunctions; /* funcs whose OpenAndFill == batch(0,n-1) bitwise */
+    long long         streamBenign;        /* cross-tier +0.0/-0.0 pairs (#147) — never a failure */
 } ForEachFuncContext;
 
 static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
@@ -2671,6 +2672,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     int vecIsMin[STREAM_MAX_VEC];
     int nvec, v, variant, legs = 0, rejArms = 0, vecOverflow = 0;
     int fillChecked = 0;   /* set once any leg reports OpenAndFill was verified */
+    long long benign = 0;  /* signed-zero cases this function's legs reported */
     int isUnstable;
 
     if( ctx->error != TA_TEST_PASS ) return;
@@ -2816,6 +2818,14 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 if( l > 0 ) legs += l;
                 if( stream_flag(ctx->responseBuf, "\"unsupportedArm\":") == 1 )
                     rejArms++;
+                /* Cross-tier +0.0/-0.0 pairs the server chose not to fail on
+                 * (issue #147). Reported, never a failure — the same benign
+                 * class --fuzz-064 carries. `-1` is a server that predates the
+                 * field, which stream_flag reports as absent, not as a count. */
+                {
+                    int z = stream_flag(ctx->responseBuf, "\"benign\":");
+                    if( z > 0 ) benign += z;
+                }
             }
         }
     }
@@ -2835,7 +2845,13 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     ctx->streamFunctions++;
     ctx->streamLegs += legs;
     ctx->streamRejectArms += rejArms;
+    ctx->streamBenign += benign;
     if( fillChecked ) ctx->streamFillFunctions++;
+    /* Named per function, like --fuzz-064's BENIGN line: a summary total that
+     * starts moving says only that something did, not what. */
+    if( benign > 0 )
+        printf("  BENIGN TA_%s: %lld cross-tier signed-zero case(s) "
+               "(numerically equal, +0.0 vs -0.0)\n", funcInfo->name, benign);
 }
 
 /* ---- Test orchestration (Task 9) ---- */
@@ -2925,6 +2941,114 @@ static ErrorNumber test_predicate_parity(CodegenPipe *cp, const CodegenLanguage 
         }
     }
     printf("  Predicate parity (IS_ZERO family): %d values x 3 builtins match the C macro\n", n);
+    return TA_TEST_PASS;
+}
+
+/* TA_MAX_INDEX must bound startIdx/endIdx in EVERY backend, not just C
+ * (issue #180). Without this, deleting the cap from java.rs, csharp.rs or
+ * rust_lang.rs leaves every gate green: test_abstract.c's index-range gate
+ * drives the in-process C library only, and no other driver sends an index
+ * anywhere near the cap.
+ *
+ * SPANS ARE DELIBERATELY TINY. The servers size their output buffers
+ * `endIdx - startIdx + 1` BEFORE dispatching, so the obvious probe
+ * (startIdx=0, endIdx=TA_MAX_INDEX+1) would allocate 800MB per output on each
+ * server and test the allocator rather than the guard. Every pair below spans
+ * at most two elements while still being out of range.
+ *
+ * Two cases C covers that this cannot, by construction:
+ *  - negative indices: JSON numbers reach the servers through unsigned parses,
+ *    so a negative startIdx is not expressible over the wire.
+ *  - endIdx == TA_MAX_INDEX accepted: proving it needs a call that gets PAST
+ *    the range check, i.e. a real 800MB-per-array call. test_abstract.c reaches
+ *    it in-process instead, via an out-of-range optional parameter.
+ * What is left is exactly the part that can diverge silently: the two
+ * rejections and the startIdx boundary.
+ *
+ * A backend missing the guard does not merely answer the wrong code — it
+ * indexes an array of a few elements at ~1e8 and takes the server down. Both
+ * outcomes fail here; only the diagnostic differs. */
+typedef struct
+{
+    int         startIdx;
+    int         endIdx;
+    TA_RetCode  expected;
+    const char *what;
+} XlangIndexRangeCase;
+
+static ErrorNumber test_index_range_xlang(CodegenPipe *cp, const CodegenLanguage *lang,
+                                          char *reqBuf, char *respBuf)
+{
+    static const XlangIndexRangeCase CASES[] = {
+        { TA_MAX_INDEX+1, TA_MAX_INDEX+1, TA_OUT_OF_RANGE_START_INDEX,
+          "startIdx > TA_MAX_INDEX" },
+        { TA_MAX_INDEX,   TA_MAX_INDEX+1, TA_OUT_OF_RANGE_END_INDEX,
+          "endIdx > TA_MAX_INDEX" },
+        { 10,             9,              TA_OUT_OF_RANGE_END_INDEX,
+          "endIdx < startIdx" },
+        { TA_MAX_INDEX,   TA_MAX_INDEX-1, TA_OUT_OF_RANGE_END_INDEX,
+          "startIdx == TA_MAX_INDEX accepted" }
+    };
+    /* One per input shape: a single real array, a real array with several
+     * outputs, and a full price bundle. The prologue is emitted from one
+     * template, so this is about shapes, not about coverage of all 168. */
+    static const char *const FUNCS[] = { "TA_SMA", "TA_BBANDS", "TA_AD" };
+    static const int NB = 8;
+    double data[8] = { 10.0, 11.0, 12.0, 11.5, 13.0, 12.5, 14.0, 13.5 };
+    unsigned int f, c;
+    int nbChecked = 0;
+
+    for( f = 0; f < sizeof(FUNCS)/sizeof(FUNCS[0]); f++ )
+    {
+        for( c = 0; c < sizeof(CASES)/sizeof(CASES[0]); c++ )
+        {
+            const XlangIndexRangeCase *tc = &CASES[c];
+            int rc, pos;
+
+            pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, 0,
+                    "{\"method\":\"%s\",\"params\":{\"startIdx\":%d,\"endIdx\":%d",
+                    FUNCS[f], tc->startIdx, tc->endIdx);
+            if( strcmp(FUNCS[f], "TA_AD") == 0 )
+            {
+                pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, ",\"inHigh\":");
+                pos = json_write_double_array(reqBuf, JSON_BUF_SIZE, pos, data, NB, 0);
+                pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, ",\"inLow\":");
+                pos = json_write_double_array(reqBuf, JSON_BUF_SIZE, pos, data, NB, 0);
+                pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, ",\"inClose\":");
+                pos = json_write_double_array(reqBuf, JSON_BUF_SIZE, pos, data, NB, 0);
+                pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, ",\"inVolume\":");
+                pos = json_write_double_array(reqBuf, JSON_BUF_SIZE, pos, data, NB, 0);
+            }
+            else
+            {
+                pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, ",\"inReal\":");
+                pos = json_write_double_array(reqBuf, JSON_BUF_SIZE, pos, data, NB, 0);
+            }
+            codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, "}}");
+
+            if( codegen_pipe_call(cp, reqBuf, respBuf, JSON_BUF_SIZE) != TA_TEST_PASS
+                || json_is_error(respBuf) )
+            {
+                printf("  INDEX RANGE XLANG [%s]: %s %s (startIdx=%d endIdx=%d) "
+                       "call failed: %s\n",
+                       lang->display, FUNCS[f], tc->what, tc->startIdx, tc->endIdx,
+                       respBuf);
+                return TA_INDEX_RANGE_XLANG_CALL_FAILED;
+            }
+            rc = json_get_int(respBuf, "retCode");
+            if( rc != (int)tc->expected )
+            {
+                printf("  INDEX RANGE XLANG [%s]: %s %s (startIdx=%d endIdx=%d) "
+                       "returned %d, C returns %d\n",
+                       lang->display, FUNCS[f], tc->what, tc->startIdx, tc->endIdx,
+                       rc, (int)tc->expected);
+                return TA_INDEX_RANGE_XLANG_MISMATCH;
+            }
+            nbChecked++;
+        }
+    }
+    printf("  Index range (#180): %d case(s) match C's TA_MAX_INDEX contract\n",
+           nbChecked);
     return TA_TEST_PASS;
 }
 
@@ -3175,6 +3299,19 @@ static ErrorNumber test_codegen_for_language(
         }
     }
 
+    /* TA_MAX_INDEX bounds startIdx/endIdx in this backend too (#180). Not
+     * frozen-reference-dependent: ta_ref_serve predates the cap, so the
+     * expectation comes from the in-process C contract. */
+    if( ctx.error == TA_TEST_PASS )
+    {
+        ErrorNumber idxErr = test_index_range_xlang(&cp, lang, requestBuf, responseBuf);
+        if( idxErr != TA_TEST_PASS )
+        {
+            ctx.error = idxErr;
+            ctx.failed++;
+        }
+    }
+
     /* set_unstable_period's set-all wildcard actually reaches every function
      * (#144). Leaves the server back at all-zeros for the passes below. */
     if( ctx.error == TA_TEST_PASS )
@@ -3259,12 +3396,18 @@ static ErrorNumber test_codegen_for_language(
             ctx.streamSkipped       = 0;
             ctx.streamRejectArms    = 0;
             ctx.streamFillFunctions = 0;
+            ctx.streamBenign        = 0;
             TA_ForEachFunc(stream_one_function, &ctx);
+            /* The benign total is printed unconditionally, zero included: the
+             * whole point of counting the +/-0 class rather than ignoring it is
+             * that a change which starts flipping zeros shows up as a number
+             * moving off 0, in a line that is always there to compare against. */
             printf("  Stream verify: %d functions, %d legs bit-exact vs batch, "
-                   "%d expected-reject probes, %d without a stream\n"
+                   "%d expected-reject probes, %d without a stream, "
+                   "%lld benign signed-zero\n"
                    "  OpenAndFill verify: %d functions, filled array == batch(0,n-1) bitwise\n",
                    ctx.streamFunctions, ctx.streamLegs, ctx.streamRejectArms,
-                   ctx.streamSkipped, ctx.streamFillFunctions);
+                   ctx.streamSkipped, ctx.streamBenign, ctx.streamFillFunctions);
             /* Coverage ratchet: every function with a server stream must ALSO
              * verify OpenAndFill (the emit side and this verify side both gate on
              * the same has_open_and_fill, so they cannot desync silently — but if

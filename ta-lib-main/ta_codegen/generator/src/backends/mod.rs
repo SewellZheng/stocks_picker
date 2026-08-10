@@ -109,12 +109,12 @@ pub trait LanguageBackend {
 
     /// How this backend spells an input-tree `name` of `kind` in its output.
     ///
-    /// The default is verbatim, which is right for everything but a function
-    /// name: locals and signature arguments pass straight through in all four
-    /// backends. Function names are mangled per language, and the mangling is
-    /// what decides the answer — `LOOP` is a fine C function (`TA_LOOP`) and an
-    /// impossible Rust one (`loop`).
-    fn rendered_name(&self, name: &str, kind: NameKind<'_>) -> String {
+    /// The default is verbatim, and only C overrides it: locals, signature
+    /// arguments and function names all pass straight through, while C alone
+    /// prefixes `TA_`. That prefix is what decides the answer for a function
+    /// name — `loop` would be a fine C function (`TA_LOOP`) and an impossible
+    /// Rust one.
+    fn rendered_name(&self, name: &str, kind: NameKind) -> String {
         let _ = kind;
         name.to_string()
     }
@@ -125,10 +125,31 @@ pub trait LanguageBackend {
     /// [`reserved_words`](Self::reserved_words) entry". A backend with a rule
     /// that a word list cannot express overrides this wholesale; the returned
     /// string is the reason, phrased to be readable after `name`.
-    fn check_name(&self, name: &str, kind: NameKind<'_>) -> Result<(), String> {
+    ///
+    /// The comparison is **case-insensitive, and deliberately stricter than the
+    /// compilers.** `NEW`, `Double`, `In` and `Out` are legal identifiers in all
+    /// four targets, and all four are rejected here anyway.
+    ///
+    /// That is a house rule about legibility, not a legality constraint, so
+    /// "but it compiles" is not a reason to relax it: these names are read in
+    /// four languages at once, and one that reads as a keyword in any of them —
+    /// `Core.NEW(..)`, a local called `Double` — is worse to read than the
+    /// distinct abbreviation the author could have picked instead. An indicator
+    /// is free to be called `SMA` or `HT_DCPERIOD`; nothing real needs to be
+    /// called `In`.
+    ///
+    /// The cost is nil in practice: `shipped_input_tree_passes` sweeps every
+    /// name, argument and local in `ta_codegen/input/` and none of them trips
+    /// this. Contextual keywords stay legal, which is what keeps `VAR` — the
+    /// variance function — spelling itself.
+    fn check_name(&self, name: &str, kind: NameKind) -> Result<(), String> {
         let rendered = self.rendered_name(name, kind);
-        if self.reserved_words().contains(&rendered.as_str()) {
-            return Err(reserved_word_reason(self.name(), name, &rendered));
+        if let Some(word) = self
+            .reserved_words()
+            .iter()
+            .find(|w| w.eq_ignore_ascii_case(&rendered))
+        {
+            return Err(reserved_word_reason(self.name(), name, &rendered, word));
         }
         Ok(())
     }
@@ -179,9 +200,9 @@ impl LanguageBackend for CBackend {
     }
     /// `TA_SMA`, `TA_MOVING_AVERAGE` — the `TA_` prefix puts every function name
     /// out of the keywords' reach; everything else is verbatim.
-    fn rendered_name(&self, name: &str, kind: NameKind<'_>) -> String {
+    fn rendered_name(&self, name: &str, kind: NameKind) -> String {
         match kind {
-            NameKind::Function { .. } => format!("TA_{}", name.to_uppercase()),
+            NameKind::Function => format!("TA_{}", name.to_uppercase()),
             _ => name.to_string(),
         }
     }
@@ -232,6 +253,16 @@ impl LanguageBackend for RustBackend {
     fn file_name(&self, func: &FuncDef) -> String {
         format!("{}.rs", func.name.to_lowercase())
     }
+    /// `SMA` is the method, but the module and file that carry it are `sma` /
+    /// `sma.rs` — a lower-case path is the safe spelling on a case-insensitive
+    /// filesystem. So the name has to clear Rust's keywords *lower-cased*: a
+    /// function named `LOOP` would emit `mod loop;`, which rustc rejects.
+    fn rendered_name(&self, name: &str, kind: NameKind) -> String {
+        match kind {
+            NameKind::Function => name.to_lowercase(),
+            _ => name.to_string(),
+        }
+    }
     fn clean_glob(&self) -> (&'static str, &'static str) {
         ("", ".rs")
     }
@@ -243,14 +274,8 @@ impl LanguageBackend for RustBackend {
     fn reserved_words(&self) -> &'static [&'static str] {
         rust_lang::RESERVED_WORDS
     }
-    /// A `Core` method is the lower-cased function name (`SMA` -> `sma`), which
-    /// is the one mangling in this tree that can *create* a keyword collision.
-    fn rendered_name(&self, name: &str, kind: NameKind<'_>) -> String {
-        match kind {
-            NameKind::Function { .. } => name.to_lowercase(),
-            _ => name.to_string(),
-        }
-    }
+    /// Verbatim — Rust spells an indicator exactly as `input/` names it. Only
+    /// the module/file path stays lower-cased, and that is not public API.
     fn generate_server(
         &self,
         funcs: &[FuncDef],
@@ -298,13 +323,7 @@ impl LanguageBackend for JavaBackend {
     fn reserved_words(&self) -> &'static [&'static str] {
         java::RESERVED_WORDS
     }
-    /// camelCase, from the YAML `camel_case` when the function carries one.
-    fn rendered_name(&self, name: &str, kind: NameKind<'_>) -> String {
-        match kind {
-            NameKind::Function { camel_case } => java::to_java_method_name(name, camel_case),
-            _ => name.to_string(),
-        }
-    }
+    /// Verbatim — Java spells an indicator exactly as `input/` names it.
     fn generate_server(
         &self,
         funcs: &[FuncDef],
@@ -357,13 +376,7 @@ impl LanguageBackend for CSharpBackend {
     fn reserved_words(&self) -> &'static [&'static str] {
         csharp::RESERVED_WORDS
     }
-    /// `PascalCase`, from the same YAML `camel_case` Java derives from.
-    fn rendered_name(&self, name: &str, kind: NameKind<'_>) -> String {
-        match kind {
-            NameKind::Function { camel_case } => csharp::to_csharp_method_name(name, camel_case),
-            _ => name.to_string(),
-        }
-    }
+    /// Verbatim — C# spells an indicator exactly as `input/` names it.
     fn generate_server(
         &self,
         funcs: &[FuncDef],
@@ -385,13 +398,28 @@ impl LanguageBackend for CSharpBackend {
 
 /// The reason string a backend's default [`LanguageBackend::check_name`]
 /// returns, spelling out the mangling when the rendered form differs from the
-/// authored one (`LOOP` is not itself a keyword; `loop` is).
-pub(crate) fn reserved_word_reason(backend: &str, name: &str, rendered: &str) -> String {
-    if rendered == name {
+/// authored one (`LOOP` is not itself a keyword; `loop` is), and the case fold
+/// when it does not (`NEW` appears in no keyword list; `new` does).
+pub(crate) fn reserved_word_reason(
+    backend: &str,
+    name: &str,
+    rendered: &str,
+    word: &str,
+) -> String {
+    if rendered != name {
+        format!(
+            "it renders as `{rendered}` in the {backend} backend, which is the reserved \
+             word `{word}` there"
+        )
+    } else if rendered == word {
         format!("`{name}` is a reserved word in the {backend} backend")
     } else {
+        // Case-only match. Say so plainly — `NEW` is in no keyword list, so
+        // "`NEW` is a reserved word" reads as a contradiction and invites the
+        // reader to go looking for a bug that is not there.
         format!(
-            "it renders as `{rendered}` in the {backend} backend, which is a reserved word there"
+            "`{name}` differs only by case from `{word}`, a reserved word in the \
+             {backend} backend; pick a distinct abbreviation"
         )
     }
 }

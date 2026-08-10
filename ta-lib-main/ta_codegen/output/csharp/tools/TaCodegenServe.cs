@@ -621,7 +621,7 @@ public class TaCodegenServe {
             else if (method == "set_unstable_period") {
                 int id = GetInt(p, "id", -1);
                 int period = GetInt(p, "period", 0);
-                if (id == (int)FuncUnstId.All) {
+                if (id == (int)FuncUnstId.ALL) {
                     for (int i = 0; i < core.unstablePeriod.Length; i++) core.unstablePeriod[i] = period;
                     return "{\"status\":\"ok\"}";
                 }
@@ -715,7 +715,7 @@ public class TaCodegenServe {
         var f = AbsLookup(p);
         if (f is null) return "{\"retCode\":2}";
         return $"{{\"name\":{AbsStr(f.Name)},\"group\":{AbsStr(f.Group.ToDisplayName())}"
-             + $",\"hint\":{AbsStr(f.Hint)},\"camelCaseName\":{AbsStr(f.CamelCaseName)}"
+             + $",\"hint\":{AbsStr(f.Hint)}"
              + $",\"flags\":{(uint)f.Flags},\"nbInput\":{f.Inputs.Length}"
              + $",\"nbOptInput\":{f.OptInputs.Length},\"nbOutput\":{f.Outputs.Length}}}";
     }
@@ -833,6 +833,14 @@ public class TaCodegenServe {
         if (f is null) return "{\"error\":\"Unknown function\"}";
         int startIdx = GetInt(p, "startIdx", 0);
         int endIdx = GetInt(p, "endIdx", 0);
+        // Answer the range codes BEFORE sizing anything by the range (#180).
+        // `n` below drives every output allocation, so validating after it
+        // would turn an out-of-range request into an 800MB-per-output
+        // allocation and take the server down instead of returning a code.
+        if (startIdx < 0 || startIdx > Core.MAX_INDEX)
+            return "{\"binder\":1,\"lookback\":-1,\"retCode\":12,\"outBegIdx\":0,\"outNBElement\":0}";
+        if (endIdx < 0 || endIdx > Core.MAX_INDEX || endIdx < startIdx)
+            return "{\"binder\":1,\"lookback\":-1,\"retCode\":13,\"outBegIdx\":0,\"outNBElement\":0}";
         int n = endIdx - startIdx + 1;
         if (n < 1) n = 1;
 
@@ -904,377 +912,377 @@ public class TaCodegenServe {
         switch (funcName) {
         case "ACCBANDS": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.AccbandsLookback(optInTimePeriod);
+            return core.ACCBANDS_Lookback(optInTimePeriod);
         }
         case "ACOS": {
-            return core.AcosLookback();
+            return core.ACOS_Lookback();
         }
         case "AD": {
-            return core.AdLookback();
+            return core.AD_Lookback();
         }
         case "ADD": {
-            return core.AddLookback();
+            return core.ADD_Lookback();
         }
         case "ADOSC": {
             int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
             int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
-            return core.AdOscLookback(optInFastPeriod, optInSlowPeriod);
+            return core.ADOSC_Lookback(optInFastPeriod, optInSlowPeriod);
         }
         case "ADX": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.AdxLookback(optInTimePeriod);
+            return core.ADX_Lookback(optInTimePeriod);
         }
         case "ADXR": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.AdxrLookback(optInTimePeriod);
+            return core.ADXR_Lookback(optInTimePeriod);
         }
         case "APO": {
             int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
             int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
             MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
-            return core.ApoLookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+            return core.APO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
         }
         case "AROON": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.AroonLookback(optInTimePeriod);
+            return core.AROON_Lookback(optInTimePeriod);
         }
         case "AROONOSC": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.AroonOscLookback(optInTimePeriod);
+            return core.AROONOSC_Lookback(optInTimePeriod);
         }
         case "ASIN": {
-            return core.AsinLookback();
+            return core.ASIN_Lookback();
         }
         case "ATAN": {
-            return core.AtanLookback();
+            return core.ATAN_Lookback();
         }
         case "ATR": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.AtrLookback(optInTimePeriod);
+            return core.ATR_Lookback(optInTimePeriod);
         }
         case "AVGDEV": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.AvgDevLookback(optInTimePeriod);
+            return core.AVGDEV_Lookback(optInTimePeriod);
         }
         case "AVGPRICE": {
-            return core.AvgPriceLookback();
+            return core.AVGPRICE_Lookback();
         }
         case "BBANDS": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
             double optInNbDevUp = GetDouble(p, "optInNbDevUp", 0.0);
             double optInNbDevDn = GetDouble(p, "optInNbDevDn", 0.0);
             MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
-            return core.BbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
+            return core.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
         }
         case "BETA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.BetaLookback(optInTimePeriod);
+            return core.BETA_Lookback(optInTimePeriod);
         }
         case "BOP": {
-            return core.BopLookback();
+            return core.BOP_Lookback();
         }
         case "CCI": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.CciLookback(optInTimePeriod);
+            return core.CCI_Lookback(optInTimePeriod);
         }
         case "CDL2CROWS": {
-            return core.Cdl2CrowsLookback();
+            return core.CDL2CROWS_Lookback();
         }
         case "CDL3BLACKCROWS": {
-            return core.Cdl3BlackCrowsLookback();
+            return core.CDL3BLACKCROWS_Lookback();
         }
         case "CDL3INSIDE": {
-            return core.Cdl3InsideLookback();
+            return core.CDL3INSIDE_Lookback();
         }
         case "CDL3LINESTRIKE": {
-            return core.Cdl3LineStrikeLookback();
+            return core.CDL3LINESTRIKE_Lookback();
         }
         case "CDL3OUTSIDE": {
-            return core.Cdl3OutsideLookback();
+            return core.CDL3OUTSIDE_Lookback();
         }
         case "CDL3STARSINSOUTH": {
-            return core.Cdl3StarsInSouthLookback();
+            return core.CDL3STARSINSOUTH_Lookback();
         }
         case "CDL3WHITESOLDIERS": {
-            return core.Cdl3WhiteSoldiersLookback();
+            return core.CDL3WHITESOLDIERS_Lookback();
         }
         case "CDLABANDONEDBABY": {
             double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
-            return core.CdlAbandonedBabyLookback(optInPenetration);
+            return core.CDLABANDONEDBABY_Lookback(optInPenetration);
         }
         case "CDLADVANCEBLOCK": {
-            return core.CdlAdvanceBlockLookback();
+            return core.CDLADVANCEBLOCK_Lookback();
         }
         case "CDLBELTHOLD": {
-            return core.CdlBeltHoldLookback();
+            return core.CDLBELTHOLD_Lookback();
         }
         case "CDLBREAKAWAY": {
-            return core.CdlBreakawayLookback();
+            return core.CDLBREAKAWAY_Lookback();
         }
         case "CDLCLOSINGMARUBOZU": {
-            return core.CdlClosingMarubozuLookback();
+            return core.CDLCLOSINGMARUBOZU_Lookback();
         }
         case "CDLCONCEALBABYSWALL": {
-            return core.CdlConcealBabysWallLookback();
+            return core.CDLCONCEALBABYSWALL_Lookback();
         }
         case "CDLCOUNTERATTACK": {
-            return core.CdlCounterAttackLookback();
+            return core.CDLCOUNTERATTACK_Lookback();
         }
         case "CDLDARKCLOUDCOVER": {
             double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
-            return core.CdlDarkCloudCoverLookback(optInPenetration);
+            return core.CDLDARKCLOUDCOVER_Lookback(optInPenetration);
         }
         case "CDLDOJI": {
-            return core.CdlDojiLookback();
+            return core.CDLDOJI_Lookback();
         }
         case "CDLDOJISTAR": {
-            return core.CdlDojiStarLookback();
+            return core.CDLDOJISTAR_Lookback();
         }
         case "CDLDRAGONFLYDOJI": {
-            return core.CdlDragonflyDojiLookback();
+            return core.CDLDRAGONFLYDOJI_Lookback();
         }
         case "CDLENGULFING": {
-            return core.CdlEngulfingLookback();
+            return core.CDLENGULFING_Lookback();
         }
         case "CDLEVENINGDOJISTAR": {
             double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
-            return core.CdlEveningDojiStarLookback(optInPenetration);
+            return core.CDLEVENINGDOJISTAR_Lookback(optInPenetration);
         }
         case "CDLEVENINGSTAR": {
             double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
-            return core.CdlEveningStarLookback(optInPenetration);
+            return core.CDLEVENINGSTAR_Lookback(optInPenetration);
         }
         case "CDLGAPSIDESIDEWHITE": {
-            return core.CdlGapSideSideWhiteLookback();
+            return core.CDLGAPSIDESIDEWHITE_Lookback();
         }
         case "CDLGRAVESTONEDOJI": {
-            return core.CdlGravestoneDojiLookback();
+            return core.CDLGRAVESTONEDOJI_Lookback();
         }
         case "CDLHAMMER": {
-            return core.CdlHammerLookback();
+            return core.CDLHAMMER_Lookback();
         }
         case "CDLHANGINGMAN": {
-            return core.CdlHangingManLookback();
+            return core.CDLHANGINGMAN_Lookback();
         }
         case "CDLHARAMI": {
-            return core.CdlHaramiLookback();
+            return core.CDLHARAMI_Lookback();
         }
         case "CDLHARAMICROSS": {
-            return core.CdlHaramiCrossLookback();
+            return core.CDLHARAMICROSS_Lookback();
         }
         case "CDLHIGHWAVE": {
-            return core.CdlHignWaveLookback();
+            return core.CDLHIGHWAVE_Lookback();
         }
         case "CDLHIKKAKE": {
-            return core.CdlHikkakeLookback();
+            return core.CDLHIKKAKE_Lookback();
         }
         case "CDLHIKKAKEMOD": {
-            return core.CdlHikkakeModLookback();
+            return core.CDLHIKKAKEMOD_Lookback();
         }
         case "CDLHOMINGPIGEON": {
-            return core.CdlHomingPigeonLookback();
+            return core.CDLHOMINGPIGEON_Lookback();
         }
         case "CDLIDENTICAL3CROWS": {
-            return core.CdlIdentical3CrowsLookback();
+            return core.CDLIDENTICAL3CROWS_Lookback();
         }
         case "CDLINNECK": {
-            return core.CdlInNeckLookback();
+            return core.CDLINNECK_Lookback();
         }
         case "CDLINVERTEDHAMMER": {
-            return core.CdlInvertedHammerLookback();
+            return core.CDLINVERTEDHAMMER_Lookback();
         }
         case "CDLKICKING": {
-            return core.CdlKickingLookback();
+            return core.CDLKICKING_Lookback();
         }
         case "CDLKICKINGBYLENGTH": {
-            return core.CdlKickingByLengthLookback();
+            return core.CDLKICKINGBYLENGTH_Lookback();
         }
         case "CDLLADDERBOTTOM": {
-            return core.CdlLadderBottomLookback();
+            return core.CDLLADDERBOTTOM_Lookback();
         }
         case "CDLLONGLEGGEDDOJI": {
-            return core.CdlLongLeggedDojiLookback();
+            return core.CDLLONGLEGGEDDOJI_Lookback();
         }
         case "CDLLONGLINE": {
-            return core.CdlLongLineLookback();
+            return core.CDLLONGLINE_Lookback();
         }
         case "CDLMARUBOZU": {
-            return core.CdlMarubozuLookback();
+            return core.CDLMARUBOZU_Lookback();
         }
         case "CDLMATCHINGLOW": {
-            return core.CdlMatchingLowLookback();
+            return core.CDLMATCHINGLOW_Lookback();
         }
         case "CDLMATHOLD": {
             double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
-            return core.CdlMatHoldLookback(optInPenetration);
+            return core.CDLMATHOLD_Lookback(optInPenetration);
         }
         case "CDLMORNINGDOJISTAR": {
             double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
-            return core.CdlMorningDojiStarLookback(optInPenetration);
+            return core.CDLMORNINGDOJISTAR_Lookback(optInPenetration);
         }
         case "CDLMORNINGSTAR": {
             double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
-            return core.CdlMorningStarLookback(optInPenetration);
+            return core.CDLMORNINGSTAR_Lookback(optInPenetration);
         }
         case "CDLONNECK": {
-            return core.CdlOnNeckLookback();
+            return core.CDLONNECK_Lookback();
         }
         case "CDLPIERCING": {
-            return core.CdlPiercingLookback();
+            return core.CDLPIERCING_Lookback();
         }
         case "CDLRICKSHAWMAN": {
-            return core.CdlRickshawManLookback();
+            return core.CDLRICKSHAWMAN_Lookback();
         }
         case "CDLRISEFALL3METHODS": {
-            return core.CdlRiseFall3MethodsLookback();
+            return core.CDLRISEFALL3METHODS_Lookback();
         }
         case "CDLSEPARATINGLINES": {
-            return core.CdlSeperatingLinesLookback();
+            return core.CDLSEPARATINGLINES_Lookback();
         }
         case "CDLSHOOTINGSTAR": {
-            return core.CdlShootingStarLookback();
+            return core.CDLSHOOTINGSTAR_Lookback();
         }
         case "CDLSHORTLINE": {
-            return core.CdlShortLineLookback();
+            return core.CDLSHORTLINE_Lookback();
         }
         case "CDLSPINNINGTOP": {
-            return core.CdlSpinningTopLookback();
+            return core.CDLSPINNINGTOP_Lookback();
         }
         case "CDLSTALLEDPATTERN": {
-            return core.CdlStalledPatternLookback();
+            return core.CDLSTALLEDPATTERN_Lookback();
         }
         case "CDLSTICKSANDWICH": {
-            return core.CdlStickSandwichLookback();
+            return core.CDLSTICKSANDWICH_Lookback();
         }
         case "CDLTAKURI": {
-            return core.CdlTakuriLookback();
+            return core.CDLTAKURI_Lookback();
         }
         case "CDLTASUKIGAP": {
-            return core.CdlTasukiGapLookback();
+            return core.CDLTASUKIGAP_Lookback();
         }
         case "CDLTHRUSTING": {
-            return core.CdlThrustingLookback();
+            return core.CDLTHRUSTING_Lookback();
         }
         case "CDLTRISTAR": {
-            return core.CdlTristarLookback();
+            return core.CDLTRISTAR_Lookback();
         }
         case "CDLUNIQUE3RIVER": {
-            return core.CdlUnique3RiverLookback();
+            return core.CDLUNIQUE3RIVER_Lookback();
         }
         case "CDLUPSIDEGAP2CROWS": {
-            return core.CdlUpsideGap2CrowsLookback();
+            return core.CDLUPSIDEGAP2CROWS_Lookback();
         }
         case "CDLXSIDEGAP3METHODS": {
-            return core.CdlXSideGap3MethodsLookback();
+            return core.CDLXSIDEGAP3METHODS_Lookback();
         }
         case "CEIL": {
-            return core.CeilLookback();
+            return core.CEIL_Lookback();
         }
         case "CMF": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.CmfLookback(optInTimePeriod);
+            return core.CMF_Lookback(optInTimePeriod);
         }
         case "CMO": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.CmoLookback(optInTimePeriod);
+            return core.CMO_Lookback(optInTimePeriod);
         }
         case "CMOU": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.CmouLookback(optInTimePeriod);
+            return core.CMOU_Lookback(optInTimePeriod);
         }
         case "CORREL": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.CorrelLookback(optInTimePeriod);
+            return core.CORREL_Lookback(optInTimePeriod);
         }
         case "COS": {
-            return core.CosLookback();
+            return core.COS_Lookback();
         }
         case "COSH": {
-            return core.CoshLookback();
+            return core.COSH_Lookback();
         }
         case "DEMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.DemaLookback(optInTimePeriod);
+            return core.DEMA_Lookback(optInTimePeriod);
         }
         case "DIV": {
-            return core.DivLookback();
+            return core.DIV_Lookback();
         }
         case "DX": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.DxLookback(optInTimePeriod);
+            return core.DX_Lookback(optInTimePeriod);
         }
         case "EMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.EmaLookback(optInTimePeriod);
+            return core.EMA_Lookback(optInTimePeriod);
         }
         case "EXP": {
-            return core.ExpLookback();
+            return core.EXP_Lookback();
         }
         case "FLOOR": {
-            return core.FloorLookback();
+            return core.FLOOR_Lookback();
         }
         case "HMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.HmaLookback(optInTimePeriod);
+            return core.HMA_Lookback(optInTimePeriod);
         }
         case "HT_DCPERIOD": {
-            return core.HtDcPeriodLookback();
+            return core.HT_DCPERIOD_Lookback();
         }
         case "HT_DCPHASE": {
-            return core.HtDcPhaseLookback();
+            return core.HT_DCPHASE_Lookback();
         }
         case "HT_PHASOR": {
-            return core.HtPhasorLookback();
+            return core.HT_PHASOR_Lookback();
         }
         case "HT_SINE": {
-            return core.HtSineLookback();
+            return core.HT_SINE_Lookback();
         }
         case "HT_TRENDLINE": {
-            return core.HtTrendlineLookback();
+            return core.HT_TRENDLINE_Lookback();
         }
         case "HT_TRENDMODE": {
-            return core.HtTrendModeLookback();
+            return core.HT_TRENDMODE_Lookback();
         }
         case "IMI": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.ImiLookback(optInTimePeriod);
+            return core.IMI_Lookback(optInTimePeriod);
         }
         case "KAMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.KamaLookback(optInTimePeriod);
+            return core.KAMA_Lookback(optInTimePeriod);
         }
         case "LINEARREG": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.LinearRegLookback(optInTimePeriod);
+            return core.LINEARREG_Lookback(optInTimePeriod);
         }
         case "LINEARREG_ANGLE": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.LinearRegAngleLookback(optInTimePeriod);
+            return core.LINEARREG_ANGLE_Lookback(optInTimePeriod);
         }
         case "LINEARREG_INTERCEPT": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.LinearRegInterceptLookback(optInTimePeriod);
+            return core.LINEARREG_INTERCEPT_Lookback(optInTimePeriod);
         }
         case "LINEARREG_SLOPE": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.LinearRegSlopeLookback(optInTimePeriod);
+            return core.LINEARREG_SLOPE_Lookback(optInTimePeriod);
         }
         case "LN": {
-            return core.LnLookback();
+            return core.LN_Lookback();
         }
         case "LOG10": {
-            return core.Log10Lookback();
+            return core.LOG10_Lookback();
         }
         case "MA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
             MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
-            return core.MovingAverageLookback(optInTimePeriod, optInMAType);
+            return core.MA_Lookback(optInTimePeriod, optInMAType);
         }
         case "MACD": {
             int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
             int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
             int optInSignalPeriod = GetInt(p, "optInSignalPeriod", 0);
-            return core.MacdLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+            return core.MACD_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
         }
         case "MACDEXT": {
             int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
@@ -1283,134 +1291,134 @@ public class TaCodegenServe {
             MAType optInSlowMAType = (MAType)GetInt(p, "optInSlowMAType", 0);
             int optInSignalPeriod = GetInt(p, "optInSignalPeriod", 0);
             MAType optInSignalMAType = (MAType)GetInt(p, "optInSignalMAType", 0);
-            return core.MacdExtLookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType);
+            return core.MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType);
         }
         case "MACDFIX": {
             int optInSignalPeriod = GetInt(p, "optInSignalPeriod", 0);
-            return core.MacdFixLookback(optInSignalPeriod);
+            return core.MACDFIX_Lookback(optInSignalPeriod);
         }
         case "MAMA": {
             double optInFastLimit = GetDouble(p, "optInFastLimit", 0.0);
             double optInSlowLimit = GetDouble(p, "optInSlowLimit", 0.0);
-            return core.MamaLookback(optInFastLimit, optInSlowLimit);
+            return core.MAMA_Lookback(optInFastLimit, optInSlowLimit);
         }
         case "MAVP": {
             int optInMinPeriod = GetInt(p, "optInMinPeriod", 0);
             int optInMaxPeriod = GetInt(p, "optInMaxPeriod", 0);
             MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
-            return core.MovingAverageVariablePeriodLookback(optInMinPeriod, optInMaxPeriod, optInMAType);
+            return core.MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType);
         }
         case "MAX": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MaxLookback(optInTimePeriod);
+            return core.MAX_Lookback(optInTimePeriod);
         }
         case "MAXINDEX": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MaxIndexLookback(optInTimePeriod);
+            return core.MAXINDEX_Lookback(optInTimePeriod);
         }
         case "MEDPRICE": {
-            return core.MedPriceLookback();
+            return core.MEDPRICE_Lookback();
         }
         case "MFI": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MfiLookback(optInTimePeriod);
+            return core.MFI_Lookback(optInTimePeriod);
         }
         case "MIDPOINT": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MidPointLookback(optInTimePeriod);
+            return core.MIDPOINT_Lookback(optInTimePeriod);
         }
         case "MIDPRICE": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MidPriceLookback(optInTimePeriod);
+            return core.MIDPRICE_Lookback(optInTimePeriod);
         }
         case "MIN": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MinLookback(optInTimePeriod);
+            return core.MIN_Lookback(optInTimePeriod);
         }
         case "MININDEX": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MinIndexLookback(optInTimePeriod);
+            return core.MININDEX_Lookback(optInTimePeriod);
         }
         case "MINMAX": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MinMaxLookback(optInTimePeriod);
+            return core.MINMAX_Lookback(optInTimePeriod);
         }
         case "MINMAXINDEX": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MinMaxIndexLookback(optInTimePeriod);
+            return core.MINMAXINDEX_Lookback(optInTimePeriod);
         }
         case "MINUS_DI": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MinusDILookback(optInTimePeriod);
+            return core.MINUS_DI_Lookback(optInTimePeriod);
         }
         case "MINUS_DM": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MinusDMLookback(optInTimePeriod);
+            return core.MINUS_DM_Lookback(optInTimePeriod);
         }
         case "MOM": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.MomLookback(optInTimePeriod);
+            return core.MOM_Lookback(optInTimePeriod);
         }
         case "MULT": {
-            return core.MultLookback();
+            return core.MULT_Lookback();
         }
         case "NATR": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.NatrLookback(optInTimePeriod);
+            return core.NATR_Lookback(optInTimePeriod);
         }
         case "NVI": {
-            return core.NviLookback();
+            return core.NVI_Lookback();
         }
         case "OBV": {
-            return core.ObvLookback();
+            return core.OBV_Lookback();
         }
         case "PLUS_DI": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.PlusDILookback(optInTimePeriod);
+            return core.PLUS_DI_Lookback(optInTimePeriod);
         }
         case "PLUS_DM": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.PlusDMLookback(optInTimePeriod);
+            return core.PLUS_DM_Lookback(optInTimePeriod);
         }
         case "PPO": {
             int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
             int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
             MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
-            return core.PpoLookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+            return core.PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
         }
         case "PVI": {
-            return core.PviLookback();
+            return core.PVI_Lookback();
         }
         case "PVO": {
             int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
             int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
             MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
-            return core.PvoLookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+            return core.PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
         }
         case "ROC": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.RocLookback(optInTimePeriod);
+            return core.ROC_Lookback(optInTimePeriod);
         }
         case "ROCP": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.RocPLookback(optInTimePeriod);
+            return core.ROCP_Lookback(optInTimePeriod);
         }
         case "ROCR": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.RocRLookback(optInTimePeriod);
+            return core.ROCR_Lookback(optInTimePeriod);
         }
         case "ROCR100": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.RocR100Lookback(optInTimePeriod);
+            return core.ROCR100_Lookback(optInTimePeriod);
         }
         case "RSI": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.RsiLookback(optInTimePeriod);
+            return core.RSI_Lookback(optInTimePeriod);
         }
         case "SAR": {
             double optInAcceleration = GetDouble(p, "optInAcceleration", 0.0);
             double optInMaximum = GetDouble(p, "optInMaximum", 0.0);
-            return core.SarLookback(optInAcceleration, optInMaximum);
+            return core.SAR_Lookback(optInAcceleration, optInMaximum);
         }
         case "SAREXT": {
             double optInStartValue = GetDouble(p, "optInStartValue", 0.0);
@@ -1421,25 +1429,25 @@ public class TaCodegenServe {
             double optInAccelerationInitShort = GetDouble(p, "optInAccelerationInitShort", 0.0);
             double optInAccelerationShort = GetDouble(p, "optInAccelerationShort", 0.0);
             double optInAccelerationMaxShort = GetDouble(p, "optInAccelerationMaxShort", 0.0);
-            return core.SarExtLookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort);
+            return core.SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort);
         }
         case "SIN": {
-            return core.SinLookback();
+            return core.SIN_Lookback();
         }
         case "SINH": {
-            return core.SinhLookback();
+            return core.SINH_Lookback();
         }
         case "SMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.SmaLookback(optInTimePeriod);
+            return core.SMA_Lookback(optInTimePeriod);
         }
         case "SQRT": {
-            return core.SqrtLookback();
+            return core.SQRT_Lookback();
         }
         case "STDDEV": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
             double optInNbDev = GetDouble(p, "optInNbDev", 0.0);
-            return core.StdDevLookback(optInTimePeriod, optInNbDev);
+            return core.STDDEV_Lookback(optInTimePeriod, optInNbDev);
         }
         case "STOCH": {
             int optInFastK_Period = GetInt(p, "optInFastK_Period", 0);
@@ -1447,86 +1455,86 @@ public class TaCodegenServe {
             MAType optInSlowK_MAType = (MAType)GetInt(p, "optInSlowK_MAType", 0);
             int optInSlowD_Period = GetInt(p, "optInSlowD_Period", 0);
             MAType optInSlowD_MAType = (MAType)GetInt(p, "optInSlowD_MAType", 0);
-            return core.StochLookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType);
+            return core.STOCH_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType);
         }
         case "STOCHF": {
             int optInFastK_Period = GetInt(p, "optInFastK_Period", 0);
             int optInFastD_Period = GetInt(p, "optInFastD_Period", 0);
             MAType optInFastD_MAType = (MAType)GetInt(p, "optInFastD_MAType", 0);
-            return core.StochFLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+            return core.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
         }
         case "STOCHRSI": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
             int optInFastK_Period = GetInt(p, "optInFastK_Period", 0);
             int optInFastD_Period = GetInt(p, "optInFastD_Period", 0);
             MAType optInFastD_MAType = (MAType)GetInt(p, "optInFastD_MAType", 0);
-            return core.StochRsiLookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+            return core.STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType);
         }
         case "SUB": {
-            return core.SubLookback();
+            return core.SUB_Lookback();
         }
         case "SUM": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.SumLookback(optInTimePeriod);
+            return core.SUM_Lookback(optInTimePeriod);
         }
         case "T3": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
             double optInVFactor = GetDouble(p, "optInVFactor", 0.0);
-            return core.T3Lookback(optInTimePeriod, optInVFactor);
+            return core.T3_Lookback(optInTimePeriod, optInVFactor);
         }
         case "TAN": {
-            return core.TanLookback();
+            return core.TAN_Lookback();
         }
         case "TANH": {
-            return core.TanhLookback();
+            return core.TANH_Lookback();
         }
         case "TEMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.TemaLookback(optInTimePeriod);
+            return core.TEMA_Lookback(optInTimePeriod);
         }
         case "TRANGE": {
-            return core.TrueRangeLookback();
+            return core.TRANGE_Lookback();
         }
         case "TRIMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.TrimaLookback(optInTimePeriod);
+            return core.TRIMA_Lookback(optInTimePeriod);
         }
         case "TRIX": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.TrixLookback(optInTimePeriod);
+            return core.TRIX_Lookback(optInTimePeriod);
         }
         case "TSF": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.TsfLookback(optInTimePeriod);
+            return core.TSF_Lookback(optInTimePeriod);
         }
         case "TYPPRICE": {
-            return core.TypPriceLookback();
+            return core.TYPPRICE_Lookback();
         }
         case "ULTOSC": {
             int optInTimePeriod1 = GetInt(p, "optInTimePeriod1", 0);
             int optInTimePeriod2 = GetInt(p, "optInTimePeriod2", 0);
             int optInTimePeriod3 = GetInt(p, "optInTimePeriod3", 0);
-            return core.UltOscLookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
+            return core.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
         }
         case "VAR": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
             double optInNbDev = GetDouble(p, "optInNbDev", 0.0);
-            return core.VarianceLookback(optInTimePeriod, optInNbDev);
+            return core.VAR_Lookback(optInTimePeriod, optInNbDev);
         }
         case "VWMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.VwmaLookback(optInTimePeriod);
+            return core.VWMA_Lookback(optInTimePeriod);
         }
         case "WCLPRICE": {
-            return core.WclPriceLookback();
+            return core.WCLPRICE_Lookback();
         }
         case "WILLR": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.WillRLookback(optInTimePeriod);
+            return core.WILLR_Lookback(optInTimePeriod);
         }
         case "WMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
-            return core.WmaLookback(optInTimePeriod);
+            return core.WMA_Lookback(optInTimePeriod);
         }
         default: return -1;
         }
@@ -1558,7 +1566,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Accbands(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.ACCBANDS(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -1569,7 +1577,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Accbands(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.ACCBANDS(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -1612,14 +1620,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Acos(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ACOS(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Acos(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ACOS(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -1667,7 +1675,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Ad(startIdx, endIdx, inHigh, inLow, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
+            rc = core.AD(startIdx, endIdx, inHigh, inLow, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -1680,7 +1688,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
             var f_inVolume = new float[inVolume.Length];
             for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
-            rc = core.Ad(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, f_inVolume, out outBegIdx, out outNBElement, outArr0);
+            rc = core.AD(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, f_inVolume, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -1722,7 +1730,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Add(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ADD(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -1731,7 +1739,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inReal0.Length; _fi++) f_inReal0[_fi] = (float)inReal0[_fi];
             var f_inReal1 = new float[inReal1.Length];
             for (int _fi = 0; _fi < inReal1.Length; _fi++) f_inReal1[_fi] = (float)inReal1[_fi];
-            rc = core.Add(startIdx, endIdx, f_inReal0, f_inReal1, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ADD(startIdx, endIdx, f_inReal0, f_inReal1, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -1781,7 +1789,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.AdOsc(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInFastPeriod, optInSlowPeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ADOSC(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInFastPeriod, optInSlowPeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -1794,7 +1802,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
             var f_inVolume = new float[inVolume.Length];
             for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
-            rc = core.AdOsc(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, f_inVolume, optInFastPeriod, optInSlowPeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ADOSC(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, f_inVolume, optInFastPeriod, optInSlowPeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -1841,7 +1849,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Adx(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ADX(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -1852,7 +1860,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Adx(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ADX(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -1898,7 +1906,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Adxr(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ADXR(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -1909,7 +1917,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Adxr(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ADXR(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -1951,14 +1959,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Apo(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.APO(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Apo(startIdx, endIdx, f_inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.APO(startIdx, endIdx, f_inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2002,7 +2010,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Aroon(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.AROON(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2011,7 +2019,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
             var f_inLow = new float[inLow.Length];
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
-            rc = core.Aroon(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.AROON(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2056,7 +2064,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.AroonOsc(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.AROONOSC(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2065,7 +2073,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
             var f_inLow = new float[inLow.Length];
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
-            rc = core.AroonOsc(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.AROONOSC(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2104,14 +2112,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Asin(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ASIN(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Asin(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ASIN(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2150,14 +2158,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Atan(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ATAN(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Atan(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ATAN(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2204,7 +2212,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Atr(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ATR(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2215,7 +2223,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Atr(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ATR(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2255,14 +2263,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.AvgDev(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.AVGDEV(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.AvgDev(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.AVGDEV(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2310,7 +2318,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.AvgPrice(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.AVGPRICE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2323,7 +2331,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.AvgPrice(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.AVGPRICE(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2368,14 +2376,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Bbands(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.BBANDS(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Bbands(startIdx, endIdx, f_inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.BBANDS(startIdx, endIdx, f_inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2422,7 +2430,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Beta(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.BETA(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2431,7 +2439,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inReal0.Length; _fi++) f_inReal0[_fi] = (float)inReal0[_fi];
             var f_inReal1 = new float[inReal1.Length];
             for (int _fi = 0; _fi < inReal1.Length; _fi++) f_inReal1[_fi] = (float)inReal1[_fi];
-            rc = core.Beta(startIdx, endIdx, f_inReal0, f_inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.BETA(startIdx, endIdx, f_inReal0, f_inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2479,7 +2487,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Bop(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.BOP(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2492,7 +2500,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Bop(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.BOP(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2538,7 +2546,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cci(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CCI(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2549,7 +2557,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Cci(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CCI(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2597,7 +2605,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cdl2Crows(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL2CROWS(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2610,7 +2618,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Cdl2Crows(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL2CROWS(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2658,7 +2666,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cdl3BlackCrows(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3BLACKCROWS(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2671,7 +2679,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Cdl3BlackCrows(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3BLACKCROWS(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2719,7 +2727,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cdl3Inside(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3INSIDE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2732,7 +2740,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Cdl3Inside(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3INSIDE(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2780,7 +2788,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cdl3LineStrike(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3LINESTRIKE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2793,7 +2801,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Cdl3LineStrike(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3LINESTRIKE(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2841,7 +2849,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cdl3Outside(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3OUTSIDE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2854,7 +2862,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Cdl3Outside(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3OUTSIDE(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2902,7 +2910,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cdl3StarsInSouth(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3STARSINSOUTH(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2915,7 +2923,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Cdl3StarsInSouth(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3STARSINSOUTH(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -2963,7 +2971,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cdl3WhiteSoldiers(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3WHITESOLDIERS(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -2976,7 +2984,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Cdl3WhiteSoldiers(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDL3WHITESOLDIERS(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3025,7 +3033,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlAbandonedBaby(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLABANDONEDBABY(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3038,7 +3046,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlAbandonedBaby(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLABANDONEDBABY(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3086,7 +3094,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlAdvanceBlock(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLADVANCEBLOCK(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3099,7 +3107,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlAdvanceBlock(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLADVANCEBLOCK(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3147,7 +3155,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlBeltHold(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLBELTHOLD(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3160,7 +3168,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlBeltHold(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLBELTHOLD(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3208,7 +3216,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlBreakaway(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLBREAKAWAY(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3221,7 +3229,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlBreakaway(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLBREAKAWAY(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3269,7 +3277,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlClosingMarubozu(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLCLOSINGMARUBOZU(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3282,7 +3290,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlClosingMarubozu(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLCLOSINGMARUBOZU(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3330,7 +3338,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlConcealBabysWall(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLCONCEALBABYSWALL(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3343,7 +3351,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlConcealBabysWall(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLCONCEALBABYSWALL(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3391,7 +3399,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlCounterAttack(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLCOUNTERATTACK(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3404,7 +3412,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlCounterAttack(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLCOUNTERATTACK(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3453,7 +3461,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlDarkCloudCover(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLDARKCLOUDCOVER(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3466,7 +3474,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlDarkCloudCover(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLDARKCLOUDCOVER(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3514,7 +3522,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlDoji(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLDOJI(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3527,7 +3535,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlDoji(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLDOJI(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3575,7 +3583,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlDojiStar(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLDOJISTAR(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3588,7 +3596,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlDojiStar(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLDOJISTAR(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3636,7 +3644,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlDragonflyDoji(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLDRAGONFLYDOJI(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3649,7 +3657,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlDragonflyDoji(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLDRAGONFLYDOJI(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3697,7 +3705,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlEngulfing(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLENGULFING(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3710,7 +3718,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlEngulfing(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLENGULFING(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3759,7 +3767,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlEveningDojiStar(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLEVENINGDOJISTAR(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3772,7 +3780,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlEveningDojiStar(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLEVENINGDOJISTAR(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3821,7 +3829,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlEveningStar(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLEVENINGSTAR(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3834,7 +3842,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlEveningStar(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLEVENINGSTAR(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3882,7 +3890,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlGapSideSideWhite(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLGAPSIDESIDEWHITE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3895,7 +3903,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlGapSideSideWhite(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLGAPSIDESIDEWHITE(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -3943,7 +3951,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlGravestoneDoji(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLGRAVESTONEDOJI(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -3956,7 +3964,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlGravestoneDoji(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLGRAVESTONEDOJI(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4004,7 +4012,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlHammer(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHAMMER(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4017,7 +4025,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlHammer(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHAMMER(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4065,7 +4073,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlHangingMan(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHANGINGMAN(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4078,7 +4086,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlHangingMan(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHANGINGMAN(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4126,7 +4134,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlHarami(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHARAMI(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4139,7 +4147,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlHarami(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHARAMI(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4187,7 +4195,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlHaramiCross(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHARAMICROSS(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4200,7 +4208,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlHaramiCross(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHARAMICROSS(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4248,7 +4256,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlHignWave(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHIGHWAVE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4261,7 +4269,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlHignWave(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHIGHWAVE(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4309,7 +4317,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlHikkake(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHIKKAKE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4322,7 +4330,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlHikkake(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHIKKAKE(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4370,7 +4378,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlHikkakeMod(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHIKKAKEMOD(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4383,7 +4391,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlHikkakeMod(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHIKKAKEMOD(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4431,7 +4439,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlHomingPigeon(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHOMINGPIGEON(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4444,7 +4452,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlHomingPigeon(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLHOMINGPIGEON(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4492,7 +4500,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlIdentical3Crows(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLIDENTICAL3CROWS(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4505,7 +4513,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlIdentical3Crows(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLIDENTICAL3CROWS(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4553,7 +4561,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlInNeck(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLINNECK(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4566,7 +4574,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlInNeck(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLINNECK(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4614,7 +4622,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlInvertedHammer(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLINVERTEDHAMMER(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4627,7 +4635,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlInvertedHammer(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLINVERTEDHAMMER(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4675,7 +4683,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlKicking(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLKICKING(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4688,7 +4696,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlKicking(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLKICKING(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4736,7 +4744,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlKickingByLength(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLKICKINGBYLENGTH(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4749,7 +4757,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlKickingByLength(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLKICKINGBYLENGTH(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4797,7 +4805,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlLadderBottom(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLLADDERBOTTOM(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4810,7 +4818,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlLadderBottom(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLLADDERBOTTOM(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4858,7 +4866,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlLongLeggedDoji(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLLONGLEGGEDDOJI(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4871,7 +4879,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlLongLeggedDoji(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLLONGLEGGEDDOJI(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4919,7 +4927,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlLongLine(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLLONGLINE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4932,7 +4940,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlLongLine(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLLONGLINE(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -4980,7 +4988,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlMarubozu(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMARUBOZU(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -4993,7 +5001,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlMarubozu(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMARUBOZU(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5041,7 +5049,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlMatchingLow(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMATCHINGLOW(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5054,7 +5062,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlMatchingLow(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMATCHINGLOW(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5103,7 +5111,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlMatHold(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMATHOLD(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5116,7 +5124,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlMatHold(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMATHOLD(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5165,7 +5173,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlMorningDojiStar(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMORNINGDOJISTAR(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5178,7 +5186,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlMorningDojiStar(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMORNINGDOJISTAR(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5227,7 +5235,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlMorningStar(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMORNINGSTAR(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5240,7 +5248,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlMorningStar(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLMORNINGSTAR(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5288,7 +5296,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlOnNeck(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLONNECK(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5301,7 +5309,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlOnNeck(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLONNECK(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5349,7 +5357,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlPiercing(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLPIERCING(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5362,7 +5370,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlPiercing(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLPIERCING(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5410,7 +5418,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlRickshawMan(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLRICKSHAWMAN(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5423,7 +5431,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlRickshawMan(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLRICKSHAWMAN(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5471,7 +5479,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlRiseFall3Methods(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLRISEFALL3METHODS(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5484,7 +5492,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlRiseFall3Methods(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLRISEFALL3METHODS(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5532,7 +5540,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlSeperatingLines(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSEPARATINGLINES(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5545,7 +5553,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlSeperatingLines(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSEPARATINGLINES(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5593,7 +5601,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlShootingStar(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSHOOTINGSTAR(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5606,7 +5614,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlShootingStar(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSHOOTINGSTAR(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5654,7 +5662,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlShortLine(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSHORTLINE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5667,7 +5675,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlShortLine(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSHORTLINE(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5715,7 +5723,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlSpinningTop(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSPINNINGTOP(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5728,7 +5736,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlSpinningTop(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSPINNINGTOP(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5776,7 +5784,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlStalledPattern(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSTALLEDPATTERN(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5789,7 +5797,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlStalledPattern(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSTALLEDPATTERN(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5837,7 +5845,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlStickSandwich(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSTICKSANDWICH(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5850,7 +5858,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlStickSandwich(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLSTICKSANDWICH(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5898,7 +5906,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlTakuri(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLTAKURI(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5911,7 +5919,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlTakuri(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLTAKURI(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -5959,7 +5967,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlTasukiGap(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLTASUKIGAP(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -5972,7 +5980,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlTasukiGap(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLTASUKIGAP(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6020,7 +6028,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlThrusting(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLTHRUSTING(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -6033,7 +6041,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlThrusting(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLTHRUSTING(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6081,7 +6089,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlTristar(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLTRISTAR(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -6094,7 +6102,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlTristar(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLTRISTAR(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6142,7 +6150,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlUnique3River(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLUNIQUE3RIVER(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -6155,7 +6163,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlUnique3River(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLUNIQUE3RIVER(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6203,7 +6211,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlUpsideGap2Crows(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLUPSIDEGAP2CROWS(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -6216,7 +6224,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlUpsideGap2Crows(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLUPSIDEGAP2CROWS(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6264,7 +6272,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.CdlXSideGap3Methods(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLXSIDEGAP3METHODS(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -6277,7 +6285,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.CdlXSideGap3Methods(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CDLXSIDEGAP3METHODS(startIdx, endIdx, f_inOpen, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6316,14 +6324,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Ceil(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CEIL(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Ceil(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CEIL(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6372,7 +6380,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cmf(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CMF(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -6385,7 +6393,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
             var f_inVolume = new float[inVolume.Length];
             for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
-            rc = core.Cmf(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, f_inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CMF(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, f_inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6426,14 +6434,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cmo(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CMO(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Cmo(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CMO(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6473,14 +6481,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cmou(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CMOU(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Cmou(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CMOU(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6523,7 +6531,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Correl(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CORREL(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -6532,7 +6540,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inReal0.Length; _fi++) f_inReal0[_fi] = (float)inReal0[_fi];
             var f_inReal1 = new float[inReal1.Length];
             for (int _fi = 0; _fi < inReal1.Length; _fi++) f_inReal1[_fi] = (float)inReal1[_fi];
-            rc = core.Correl(startIdx, endIdx, f_inReal0, f_inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.CORREL(startIdx, endIdx, f_inReal0, f_inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6571,14 +6579,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cos(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.COS(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Cos(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.COS(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6617,14 +6625,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Cosh(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.COSH(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Cosh(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.COSH(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6664,14 +6672,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Dema(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.DEMA(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Dema(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.DEMA(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6713,7 +6721,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Div(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
+            rc = core.DIV(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -6722,7 +6730,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inReal0.Length; _fi++) f_inReal0[_fi] = (float)inReal0[_fi];
             var f_inReal1 = new float[inReal1.Length];
             for (int _fi = 0; _fi < inReal1.Length; _fi++) f_inReal1[_fi] = (float)inReal1[_fi];
-            rc = core.Div(startIdx, endIdx, f_inReal0, f_inReal1, out outBegIdx, out outNBElement, outArr0);
+            rc = core.DIV(startIdx, endIdx, f_inReal0, f_inReal1, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6769,7 +6777,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Dx(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.DX(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -6780,7 +6788,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Dx(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.DX(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6821,14 +6829,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Ema(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.EMA(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Ema(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.EMA(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6867,14 +6875,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Exp(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.EXP(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Exp(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.EXP(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6913,14 +6921,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Floor(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.FLOOR(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Floor(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.FLOOR(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -6960,14 +6968,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Hma(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HMA(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Hma(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HMA(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7007,14 +7015,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.HtDcPeriod(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HT_DCPERIOD(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.HtDcPeriod(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HT_DCPERIOD(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7054,14 +7062,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.HtDcPhase(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HT_DCPHASE(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.HtDcPhase(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HT_DCPHASE(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7102,14 +7110,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.HtPhasor(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.HT_PHASOR(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.HtPhasor(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.HT_PHASOR(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7152,14 +7160,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.HtSine(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.HT_SINE(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.HtSine(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.HT_SINE(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7201,14 +7209,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.HtTrendline(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HT_TRENDLINE(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.HtTrendline(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HT_TRENDLINE(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7248,14 +7256,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.HtTrendMode(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HT_TRENDMODE(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.HtTrendMode(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.HT_TRENDMODE(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7298,7 +7306,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Imi(startIdx, endIdx, inOpen, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.IMI(startIdx, endIdx, inOpen, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -7307,7 +7315,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inOpen.Length; _fi++) f_inOpen[_fi] = (float)inOpen[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Imi(startIdx, endIdx, f_inOpen, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.IMI(startIdx, endIdx, f_inOpen, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7348,14 +7356,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Kama(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.KAMA(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Kama(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.KAMA(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7395,14 +7403,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.LinearReg(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LINEARREG(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.LinearReg(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LINEARREG(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7442,14 +7450,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.LinearRegAngle(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LINEARREG_ANGLE(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.LinearRegAngle(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LINEARREG_ANGLE(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7489,14 +7497,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.LinearRegIntercept(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LINEARREG_INTERCEPT(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.LinearRegIntercept(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LINEARREG_INTERCEPT(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7536,14 +7544,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.LinearRegSlope(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LINEARREG_SLOPE(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.LinearRegSlope(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LINEARREG_SLOPE(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7582,14 +7590,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Ln(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LN(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Ln(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LN(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7628,14 +7636,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Log10(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LOG10(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Log10(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.LOG10(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7676,14 +7684,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MovingAverage(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MA(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.MovingAverage(startIdx, endIdx, f_inReal, optInTimePeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MA(startIdx, endIdx, f_inReal, optInTimePeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7727,14 +7735,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Macd(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.MACD(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Macd(startIdx, endIdx, f_inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.MACD(startIdx, endIdx, f_inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7785,14 +7793,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MacdExt(startIdx, endIdx, inReal, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.MACDEXT(startIdx, endIdx, inReal, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.MacdExt(startIdx, endIdx, f_inReal, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.MACDEXT(startIdx, endIdx, f_inReal, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7838,14 +7846,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MacdFix(startIdx, endIdx, inReal, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.MACDFIX(startIdx, endIdx, inReal, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.MacdFix(startIdx, endIdx, f_inReal, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
+            rc = core.MACDFIX(startIdx, endIdx, f_inReal, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7892,14 +7900,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Mama(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.MAMA(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, out outBegIdx, out outNBElement, outArr0, outArr1);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Mama(startIdx, endIdx, f_inReal, optInFastLimit, optInSlowLimit, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.MAMA(startIdx, endIdx, f_inReal, optInFastLimit, optInSlowLimit, out outBegIdx, out outNBElement, outArr0, outArr1);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7946,7 +7954,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MovingAverageVariablePeriod(startIdx, endIdx, inReal0, inReal1, optInMinPeriod, optInMaxPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MAVP(startIdx, endIdx, inReal0, inReal1, optInMinPeriod, optInMaxPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -7955,7 +7963,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inReal0.Length; _fi++) f_inReal0[_fi] = (float)inReal0[_fi];
             var f_inReal1 = new float[inReal1.Length];
             for (int _fi = 0; _fi < inReal1.Length; _fi++) f_inReal1[_fi] = (float)inReal1[_fi];
-            rc = core.MovingAverageVariablePeriod(startIdx, endIdx, f_inReal0, f_inReal1, optInMinPeriod, optInMaxPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MAVP(startIdx, endIdx, f_inReal0, f_inReal1, optInMinPeriod, optInMaxPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -7995,14 +8003,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Max(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MAX(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Max(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MAX(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8042,14 +8050,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MaxIndex(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MAXINDEX(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.MaxIndex(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MAXINDEX(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8091,7 +8099,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MedPrice(startIdx, endIdx, inHigh, inLow, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MEDPRICE(startIdx, endIdx, inHigh, inLow, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8100,7 +8108,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
             var f_inLow = new float[inLow.Length];
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
-            rc = core.MedPrice(startIdx, endIdx, f_inHigh, f_inLow, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MEDPRICE(startIdx, endIdx, f_inHigh, f_inLow, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8149,7 +8157,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Mfi(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MFI(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8162,7 +8170,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
             var f_inVolume = new float[inVolume.Length];
             for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
-            rc = core.Mfi(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, f_inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MFI(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, f_inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8202,14 +8210,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MidPoint(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MIDPOINT(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.MidPoint(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MIDPOINT(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8252,7 +8260,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MidPrice(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MIDPRICE(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8261,7 +8269,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
             var f_inLow = new float[inLow.Length];
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
-            rc = core.MidPrice(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MIDPRICE(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8301,14 +8309,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Min(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MIN(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Min(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MIN(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8348,14 +8356,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MinIndex(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MININDEX(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.MinIndex(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MININDEX(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8396,14 +8404,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MinMax(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.MINMAX(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.MinMax(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.MINMAX(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8446,14 +8454,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MinMaxIndex(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.MINMAXINDEX(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.MinMaxIndex(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.MINMAXINDEX(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8502,7 +8510,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MinusDI(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MINUS_DI(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8513,7 +8521,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.MinusDI(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MINUS_DI(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8557,7 +8565,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.MinusDM(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MINUS_DM(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8566,7 +8574,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
             var f_inLow = new float[inLow.Length];
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
-            rc = core.MinusDM(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MINUS_DM(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8606,14 +8614,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Mom(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MOM(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Mom(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MOM(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8655,7 +8663,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Mult(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MULT(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8664,7 +8672,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inReal0.Length; _fi++) f_inReal0[_fi] = (float)inReal0[_fi];
             var f_inReal1 = new float[inReal1.Length];
             for (int _fi = 0; _fi < inReal1.Length; _fi++) f_inReal1[_fi] = (float)inReal1[_fi];
-            rc = core.Mult(startIdx, endIdx, f_inReal0, f_inReal1, out outBegIdx, out outNBElement, outArr0);
+            rc = core.MULT(startIdx, endIdx, f_inReal0, f_inReal1, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8711,7 +8719,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Natr(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.NATR(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8722,7 +8730,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Natr(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.NATR(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8764,7 +8772,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Nvi(startIdx, endIdx, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
+            rc = core.NVI(startIdx, endIdx, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8773,7 +8781,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
             var f_inVolume = new float[inVolume.Length];
             for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
-            rc = core.Nvi(startIdx, endIdx, f_inClose, f_inVolume, out outBegIdx, out outNBElement, outArr0);
+            rc = core.NVI(startIdx, endIdx, f_inClose, f_inVolume, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8815,7 +8823,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Obv(startIdx, endIdx, inReal, inVolume, out outBegIdx, out outNBElement, outArr0);
+            rc = core.OBV(startIdx, endIdx, inReal, inVolume, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8824,7 +8832,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
             var f_inVolume = new float[inVolume.Length];
             for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
-            rc = core.Obv(startIdx, endIdx, f_inReal, f_inVolume, out outBegIdx, out outNBElement, outArr0);
+            rc = core.OBV(startIdx, endIdx, f_inReal, f_inVolume, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8871,7 +8879,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.PlusDI(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PLUS_DI(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8882,7 +8890,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.PlusDI(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PLUS_DI(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8926,7 +8934,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.PlusDM(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PLUS_DM(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -8935,7 +8943,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
             var f_inLow = new float[inLow.Length];
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
-            rc = core.PlusDM(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PLUS_DM(startIdx, endIdx, f_inHigh, f_inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -8977,14 +8985,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Ppo(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PPO(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Ppo(startIdx, endIdx, f_inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PPO(startIdx, endIdx, f_inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9026,7 +9034,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Pvi(startIdx, endIdx, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PVI(startIdx, endIdx, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -9035,7 +9043,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
             var f_inVolume = new float[inVolume.Length];
             for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
-            rc = core.Pvi(startIdx, endIdx, f_inClose, f_inVolume, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PVI(startIdx, endIdx, f_inClose, f_inVolume, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9077,14 +9085,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Pvo(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PVO(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inVolume = new float[inVolume.Length];
             for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
-            rc = core.Pvo(startIdx, endIdx, f_inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
+            rc = core.PVO(startIdx, endIdx, f_inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9124,14 +9132,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Roc(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ROC(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Roc(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ROC(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9171,14 +9179,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.RocP(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ROCP(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.RocP(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ROCP(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9218,14 +9226,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.RocR(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ROCR(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.RocR(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ROCR(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9265,14 +9273,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.RocR100(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ROCR100(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.RocR100(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ROCR100(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9313,14 +9321,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Rsi(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.RSI(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Rsi(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.RSI(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9364,7 +9372,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Sar(startIdx, endIdx, inHigh, inLow, optInAcceleration, optInMaximum, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SAR(startIdx, endIdx, inHigh, inLow, optInAcceleration, optInMaximum, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -9373,7 +9381,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
             var f_inLow = new float[inLow.Length];
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
-            rc = core.Sar(startIdx, endIdx, f_inHigh, f_inLow, optInAcceleration, optInMaximum, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SAR(startIdx, endIdx, f_inHigh, f_inLow, optInAcceleration, optInMaximum, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9423,7 +9431,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.SarExt(startIdx, endIdx, inHigh, inLow, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SAREXT(startIdx, endIdx, inHigh, inLow, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -9432,7 +9440,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
             var f_inLow = new float[inLow.Length];
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
-            rc = core.SarExt(startIdx, endIdx, f_inHigh, f_inLow, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SAREXT(startIdx, endIdx, f_inHigh, f_inLow, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9471,14 +9479,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Sin(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SIN(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Sin(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SIN(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9517,14 +9525,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Sinh(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SINH(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Sinh(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SINH(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9564,14 +9572,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Sma(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SMA(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Sma(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SMA(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9610,14 +9618,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Sqrt(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SQRT(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Sqrt(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SQRT(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9658,14 +9666,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.StdDev(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
+            rc = core.STDDEV(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.StdDev(startIdx, endIdx, f_inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
+            rc = core.STDDEV(startIdx, endIdx, f_inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9716,7 +9724,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Stoch(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.STOCH(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -9727,7 +9735,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.Stoch(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.STOCH(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9778,7 +9786,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.StochF(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.STOCHF(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -9789,7 +9797,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.StochF(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.STOCHF(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9835,14 +9843,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.StochRsi(startIdx, endIdx, inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.STOCHRSI(startIdx, endIdx, inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.StochRsi(startIdx, endIdx, f_inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
+            rc = core.STOCHRSI(startIdx, endIdx, f_inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9886,7 +9894,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Sub(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SUB(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -9895,7 +9903,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inReal0.Length; _fi++) f_inReal0[_fi] = (float)inReal0[_fi];
             var f_inReal1 = new float[inReal1.Length];
             for (int _fi = 0; _fi < inReal1.Length; _fi++) f_inReal1[_fi] = (float)inReal1[_fi];
-            rc = core.Sub(startIdx, endIdx, f_inReal0, f_inReal1, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SUB(startIdx, endIdx, f_inReal0, f_inReal1, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -9935,14 +9943,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Sum(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SUM(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Sum(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.SUM(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10030,14 +10038,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Tan(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TAN(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Tan(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TAN(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10076,14 +10084,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Tanh(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TANH(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Tanh(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TANH(startIdx, endIdx, f_inReal, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10123,14 +10131,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Tema(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TEMA(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Tema(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TEMA(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10175,7 +10183,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.TrueRange(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TRANGE(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -10186,7 +10194,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.TrueRange(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TRANGE(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10226,14 +10234,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Trima(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TRIMA(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Trima(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TRIMA(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10273,14 +10281,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Trix(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TRIX(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Trix(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TRIX(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10320,14 +10328,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Tsf(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TSF(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Tsf(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TSF(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10372,7 +10380,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.TypPrice(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TYPPRICE(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -10383,7 +10391,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.TypPrice(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.TYPPRICE(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10431,7 +10439,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.UltOsc(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ULTOSC(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -10442,7 +10450,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.UltOsc(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out outBegIdx, out outNBElement, outArr0);
+            rc = core.ULTOSC(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10483,14 +10491,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Variance(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
+            rc = core.VAR(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Variance(startIdx, endIdx, f_inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
+            rc = core.VAR(startIdx, endIdx, f_inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10533,7 +10541,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Vwma(startIdx, endIdx, inReal, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.VWMA(startIdx, endIdx, inReal, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -10542,7 +10550,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
             var f_inVolume = new float[inVolume.Length];
             for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
-            rc = core.Vwma(startIdx, endIdx, f_inReal, f_inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.VWMA(startIdx, endIdx, f_inReal, f_inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10587,7 +10595,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.WclPrice(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.WCLPRICE(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -10598,7 +10606,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.WclPrice(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            rc = core.WCLPRICE(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10644,7 +10652,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.WillR(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.WILLR(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
@@ -10655,7 +10663,7 @@ public class TaCodegenServe {
             for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
             var f_inClose = new float[inClose.Length];
             for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
-            rc = core.WillR(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.WILLR(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
@@ -10695,14 +10703,14 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
-            rc = core.Wma(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.WMA(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
         }
         long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
         int usedFloat = 0;
         if (GetInt(p, "use_float", 0) != 0) {
             var f_inReal = new float[inReal.Length];
             for (int _fi = 0; _fi < inReal.Length; _fi++) f_inReal[_fi] = (float)inReal[_fi];
-            rc = core.Wma(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            rc = core.WMA(startIdx, endIdx, f_inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
             usedFloat = 1;
         }
         if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {

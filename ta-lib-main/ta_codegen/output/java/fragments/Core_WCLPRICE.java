@@ -15,7 +15,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#wclPrice} consumes before it can
+    * Number of leading input bars {@link Core#WCLPRICE} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -23,27 +23,27 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int wclPriceLookback( )
+   public int WCLPRICE_Lookback( )
    {
       /* This function have no lookback needed. */
       return 0 ;
 
    }
-   RetCode wclPriceInternal( int startIdx,
-                             int endIdx,
-                             double inHigh[],
-                             double inLow[],
-                             double inClose[],
-                             MInteger outBegIdx,
-                             MInteger outNBElement,
-                             double outReal[] )
+   RetCode WCLPRICE_Internal( int startIdx,
+                              int endIdx,
+                              double inHigh[],
+                              double inLow[],
+                              double inClose[],
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Weighted Close Price = (High + Low + (Close*2) ) / 4 */
@@ -55,21 +55,21 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode wclPriceInternal( int startIdx,
-                             int endIdx,
-                             float inHigh[],
-                             float inLow[],
-                             float inClose[],
-                             MInteger outBegIdx,
-                             MInteger outNBElement,
-                             double outReal[] )
+   RetCode WCLPRICE_Internal( int startIdx,
+                              int endIdx,
+                              float inHigh[],
+                              float inLow[],
+                              float inClose[],
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       outIdx = 0;
@@ -90,7 +90,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#wclPriceLookback} is a <b>success
+    * valid range shorter than {@link Core#WCLPRICE_Lookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -103,16 +103,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#typPrice
-    * @see Core#medPrice
-    * @see Core#avgPrice
+    * @see Core#TYPPRICE
+    * @see Core#MEDPRICE
+    * @see Core#AVGPRICE
     */
-   public OutRange wclPrice( int startIdx,
+   public OutRange WCLPRICE( int startIdx,
                              int endIdx,
                              double inHigh[],
                              double inLow[],
@@ -121,7 +121,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = wclPriceInternal(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = WCLPRICE_Internal(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("WCLPRICE", retCode);
       }
@@ -140,7 +140,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#wclPriceLookback} is a <b>success
+    * valid range shorter than {@link Core#WCLPRICE_Lookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -153,16 +153,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#typPrice
-    * @see Core#medPrice
-    * @see Core#avgPrice
+    * @see Core#TYPPRICE
+    * @see Core#MEDPRICE
+    * @see Core#AVGPRICE
     */
-   public OutRange wclPrice( int startIdx,
+   public OutRange WCLPRICE( int startIdx,
                              int endIdx,
                              float inHigh[],
                              float inLow[],
@@ -171,7 +171,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = wclPriceInternal(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = WCLPRICE_Internal(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("WCLPRICE", retCode);
       }
@@ -181,33 +181,35 @@
 
    /**
     * A live WCLPRICE stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#wclPrice} over the same series.
-    * Open with {@link Core#wclPriceOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#WCLPRICE} over the same series.
+    * Open with {@link Core#WCLPRICE_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class WclPriceStream {
+   public static final class WCLPRICE_Stream {
       final Core core;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      WclPriceStream( Core core ) { this.core = core; }
+      WCLPRICE_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#wclPriceOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#WCLPRICE_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      WclPriceStream( WclPriceStream other ) {
+      WCLPRICE_Stream( WCLPRICE_Stream other ) {
          this.core = other.core;
          this.cur_outReal = other.cur_outReal;
          this.fillRange = other.fillRange;
@@ -218,7 +220,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inHigh, double inLow, double inClose ) {
-         core.wclPriceStreamStep(this, inHigh, inLow, inClose);
+         core.WCLPRICE_StreamStep(this, inHigh, inLow, inClose);
          return this.cur_outReal;
       }
 
@@ -230,8 +232,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
-         WclPriceStream scratch = new WclPriceStream(this);
-         core.wclPriceStreamStep(scratch, inHigh, inLow, inClose);
+         WCLPRICE_Stream scratch = new WCLPRICE_Stream(this);
+         core.WCLPRICE_StreamStep(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
       }
 
@@ -248,15 +250,15 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public WclPriceStream copy() {
-         return new WclPriceStream(this);
+      public WCLPRICE_Stream copy() {
+         return new WCLPRICE_Stream(this);
       }
    }
-   void wclPriceStreamStep( WclPriceStream sp, double inHigh, double inLow, double inClose )
+   void WCLPRICE_StreamStep( WCLPRICE_Stream sp, double inHigh, double inLow, double inClose )
    {
       sp.cur_outReal = (Math.fma(inClose, 2.0, inHigh + inLow)) / 4.0;
    }
-   private RetCode wclPriceOpenBody( WclPriceStream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode WCLPRICE_OpenBody( WCLPRICE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       int outIdx = 0;
       int i = 0;
@@ -267,6 +269,9 @@
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       /* Weighted Close Price = (High + Low + (Close*2) ) / 4 */
       outIdx = 0;
@@ -279,7 +284,7 @@
       sp.cur_outReal = lastValue_outReal;
       return RetCode.Success;
    }
-   private RetCode wclPriceOpenAndFillBody( WclPriceStream sp, double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode WCLPRICE_OpenAndFillBody( WCLPRICE_Stream sp, double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -288,6 +293,9 @@
       int startIdx = 0;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
@@ -303,60 +311,60 @@
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind wclPriceOpen (composition seam). */
-   WclPriceStream wclPriceOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx )
+   /* Internal startIdx-anchored open behind WCLPRICE_Open (composition seam). */
+   WCLPRICE_Stream WCLPRICE_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx )
    {
-      WclPriceStream sp = new WclPriceStream(this);
-      RetCode retCode = wclPriceOpenBody(sp, inHigh, inLow, inClose, startIdx);
+      WCLPRICE_Stream sp = new WCLPRICE_Stream(this);
+      RetCode retCode = WCLPRICE_OpenBody(sp, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_WCLPRICE open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("WCLPRICE open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_WCLPRICE open: internal error");
+         throw new IllegalStateException("WCLPRICE open: internal error");
       }
-      throw new IllegalArgumentException("TA_WCLPRICE open: " + retCode);
+      throw new IllegalArgumentException("WCLPRICE open: " + retCode);
    }
    /**
     * Open a live WCLPRICE stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#wclPrice} at that bar.
-    * <p>The history must hold at least {@code wclPriceLookback(...) + 1} bars
+    * to {@link Core#WCLPRICE} at that bar.
+    * <p>The history must hold at least {@code WCLPRICE_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public WclPriceStream wclPriceOpen( double inHigh[], double inLow[], double inClose[] )
+   public WCLPRICE_Stream WCLPRICE_Open( double inHigh[], double inLow[], double inClose[] )
    {
-      return wclPriceOpenInternal(inHigh, inLow, inClose, 0);
+      return WCLPRICE_OpenInternal(inHigh, inLow, inClose, 0);
    }
    /**
-    * {@link Core#wclPriceOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#wclPrice} over the whole history in the same single pass
+    * {@link Core#WCLPRICE_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#WCLPRICE} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link WclPriceStream#fillRange()}.
+    * {@link WCLPRICE_Stream#fillRange()}.
     */
-   public WclPriceStream wclPriceOpenAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] )
+   public WCLPRICE_Stream WCLPRICE_OpenAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] )
    {
-      WclPriceStream sp = new WclPriceStream(this);
+      WCLPRICE_Stream sp = new WCLPRICE_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = wclPriceOpenAndFillBody(sp, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = WCLPRICE_OpenAndFillBody(sp, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_WCLPRICE openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("WCLPRICE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_WCLPRICE openAndFill: internal error");
+         throw new IllegalStateException("WCLPRICE openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_WCLPRICE openAndFill: " + retCode);
+      throw new IllegalArgumentException("WCLPRICE openAndFill: " + retCode);
    }

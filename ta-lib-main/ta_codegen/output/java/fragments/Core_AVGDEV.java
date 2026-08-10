@@ -12,7 +12,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#avgDev} consumes before it can
+    * Number of leading input bars {@link Core#AVGDEV} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -22,7 +22,7 @@
     *        {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int avgDevLookback( int optInTimePeriod )
+   public int AVGDEV_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -32,21 +32,21 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode avgDevInternal( int startIdx,
-                           int endIdx,
-                           double inReal[],
-                           int optInTimePeriod,
-                           MInteger outBegIdx,
-                           MInteger outNBElement,
-                           double outReal[] )
+   RetCode AVGDEV_Internal( int startIdx,
+                            int endIdx,
+                            double inReal[],
+                            int optInTimePeriod,
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            double outReal[] )
    {
       int today = 0;
       int outIdx = 0;
       int lookback = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -87,21 +87,21 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode avgDevInternal( int startIdx,
-                           int endIdx,
-                           float inReal[],
-                           int optInTimePeriod,
-                           MInteger outBegIdx,
-                           MInteger outNBElement,
-                           double outReal[] )
+   RetCode AVGDEV_Internal( int startIdx,
+                            int endIdx,
+                            float inReal[],
+                            int optInTimePeriod,
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            double outReal[] )
    {
       int today = 0;
       int outIdx = 0;
       int lookback = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -152,7 +152,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#avgDevLookback} is a <b>success with
+    * valid range shorter than {@link Core#AVGDEV_Lookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -165,16 +165,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#stdDev
-    * @see Core#variance
-    * @see Core#sma
+    * @see Core#STDDEV
+    * @see Core#VAR
+    * @see Core#SMA
     */
-   public OutRange avgDev( int startIdx,
+   public OutRange AVGDEV( int startIdx,
                            int endIdx,
                            double inReal[],
                            int optInTimePeriod,
@@ -182,7 +182,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = avgDevInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = AVGDEV_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("AVGDEV", retCode);
       }
@@ -203,7 +203,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#avgDevLookback} is a <b>success with
+    * valid range shorter than {@link Core#AVGDEV_Lookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -216,16 +216,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#stdDev
-    * @see Core#variance
-    * @see Core#sma
+    * @see Core#STDDEV
+    * @see Core#VAR
+    * @see Core#SMA
     */
-   public OutRange avgDev( int startIdx,
+   public OutRange AVGDEV( int startIdx,
                            int endIdx,
                            float inReal[],
                            int optInTimePeriod,
@@ -233,7 +233,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = avgDevInternal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = AVGDEV_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("AVGDEV", retCode);
       }
@@ -243,37 +243,39 @@
 
    /**
     * A live AVGDEV stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#avgDev} over the same series.
-    * Open with {@link Core#avgDevOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#AVGDEV} over the same series.
+    * Open with {@link Core#AVGDEV_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class AvgDevStream {
+   public static final class AVGDEV_Stream {
       final Core core;
       int optInTimePeriod;
       int winPos_i;
       int winCap_i;
       double[] win_i_inReal;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      AvgDevStream( Core core ) { this.core = core; }
+      AVGDEV_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#avgDevOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#AVGDEV_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      AvgDevStream( AvgDevStream other ) {
+      AVGDEV_Stream( AVGDEV_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.winPos_i = other.winPos_i;
@@ -288,7 +290,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inReal ) {
-         core.avgDevStreamStep(this, inReal);
+         core.AVGDEV_StreamStep(this, inReal);
          return this.cur_outReal;
       }
 
@@ -300,8 +302,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inReal ) {
-         AvgDevStream scratch = new AvgDevStream(this);
-         core.avgDevStreamStep(scratch, inReal);
+         AVGDEV_Stream scratch = new AVGDEV_Stream(this);
+         core.AVGDEV_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -318,11 +320,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public AvgDevStream copy() {
-         return new AvgDevStream(this);
+      public AVGDEV_Stream copy() {
+         return new AVGDEV_Stream(this);
       }
    }
-   void avgDevStreamStep( AvgDevStream sp, double inReal )
+   void AVGDEV_StreamStep( AVGDEV_Stream sp, double inReal )
    {
       double todaySum = 0.0;
       double todayDev = 0.0;
@@ -342,7 +344,7 @@
          sp.winPos_i = 0;
       }
    }
-   private RetCode avgDevOpenBody( AvgDevStream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode AVGDEV_OpenBody( AVGDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       int today = 0;
       int outIdx = 0;
@@ -354,6 +356,9 @@
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -405,7 +410,7 @@
       sp.cur_outReal = lastValue_outReal;
       return RetCode.Success;
    }
-   private RetCode avgDevOpenAndFillBody( AvgDevStream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode AVGDEV_OpenAndFillBody( AVGDEV_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int today = 0;
       int outIdx = 0;
@@ -415,6 +420,9 @@
       int startIdx = 0;
       if( historyLen < 1 ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -469,60 +477,60 @@
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind avgDevOpen (composition seam). */
-   AvgDevStream avgDevOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
+   /* Internal startIdx-anchored open behind AVGDEV_Open (composition seam). */
+   AVGDEV_Stream AVGDEV_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
-      AvgDevStream sp = new AvgDevStream(this);
-      RetCode retCode = avgDevOpenBody(sp, inReal, startIdx, optInTimePeriod);
+      AVGDEV_Stream sp = new AVGDEV_Stream(this);
+      RetCode retCode = AVGDEV_OpenBody(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_AVGDEV open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("AVGDEV open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_AVGDEV open: internal error");
+         throw new IllegalStateException("AVGDEV open: internal error");
       }
-      throw new IllegalArgumentException("TA_AVGDEV open: " + retCode);
+      throw new IllegalArgumentException("AVGDEV open: " + retCode);
    }
    /**
     * Open a live AVGDEV stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#avgDev} at that bar.
-    * <p>The history must hold at least {@code avgDevLookback(...) + 1} bars
+    * to {@link Core#AVGDEV} at that bar.
+    * <p>The history must hold at least {@code AVGDEV_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public AvgDevStream avgDevOpen( double inReal[], int optInTimePeriod )
+   public AVGDEV_Stream AVGDEV_Open( double inReal[], int optInTimePeriod )
    {
-      return avgDevOpenInternal(inReal, 0, optInTimePeriod);
+      return AVGDEV_OpenInternal(inReal, 0, optInTimePeriod);
    }
    /**
-    * {@link Core#avgDevOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#avgDev} over the whole history in the same single pass
+    * {@link Core#AVGDEV_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#AVGDEV} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link AvgDevStream#fillRange()}.
+    * {@link AVGDEV_Stream#fillRange()}.
     */
-   public AvgDevStream avgDevOpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
+   public AVGDEV_Stream AVGDEV_OpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
-      AvgDevStream sp = new AvgDevStream(this);
+      AVGDEV_Stream sp = new AVGDEV_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = avgDevOpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = AVGDEV_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_AVGDEV openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("AVGDEV openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_AVGDEV openAndFill: internal error");
+         throw new IllegalStateException("AVGDEV openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_AVGDEV openAndFill: " + retCode);
+      throw new IllegalArgumentException("AVGDEV openAndFill: " + retCode);
    }

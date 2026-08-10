@@ -39,6 +39,20 @@
 #include "ta_def_ui.h"
 
 /* HMA BEGIN */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_HMA_TimePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   20,
+   "Time period",
+
+   NULL
+};
+
 static const TA_InputParameterInfo    *TA_HMA_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -52,14 +66,13 @@ static const TA_OutputParameterInfo   *TA_HMA_Outputs[]   =
 };
 
 static const TA_OptInputParameterInfo *TA_HMA_OptInputs[] =
-{ &TA_DEF_UI_TimePeriod_20_MINIMUM2,
+{ &TA_DEF_UI_D_HMA_TimePeriod,
   NULL
 };
 
 DEF_FUNCTION( HMA,
               TA_GroupId_OverlapStudies,
               "Hull Moving Average",
-              "Hma",
               TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* HMA END */
@@ -83,7 +96,6 @@ static const TA_OptInputParameterInfo *TA_HT_DCPERIOD_OptInputs[] =
 DEF_FUNCTION( HT_DCPERIOD,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - Dominant Cycle Period",
-              "HtDcPeriod",
               TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_DCPERIOD END */
@@ -107,7 +119,6 @@ static const TA_OptInputParameterInfo *TA_HT_DCPHASE_OptInputs[] =
 DEF_FUNCTION( HT_DCPHASE,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - Dominant Cycle Phase",
-              "HtDcPhase",
               TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_DCPHASE END */
@@ -138,7 +149,6 @@ static const TA_OptInputParameterInfo *TA_HT_PHASOR_OptInputs[] =
 DEF_FUNCTION( HT_PHASOR,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - Phasor Components",
-              "HtPhasor",
               TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_PHASOR END */
@@ -169,7 +179,6 @@ static const TA_OptInputParameterInfo *TA_HT_SINE_OptInputs[] =
 DEF_FUNCTION( HT_SINE,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - SineWave",
-              "HtSine",
               TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_SINE END */
@@ -193,7 +202,6 @@ static const TA_OptInputParameterInfo *TA_HT_TRENDLINE_OptInputs[] =
 DEF_FUNCTION( HT_TRENDLINE,
               TA_GroupId_OverlapStudies,
               "Hilbert Transform - Instantaneous Trendline",
-              "HtTrendline",
               TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* HT_TRENDLINE END */
@@ -217,7 +225,6 @@ static const TA_OptInputParameterInfo *TA_HT_TRENDMODE_OptInputs[] =
 DEF_FUNCTION( HT_TRENDMODE,
               TA_GroupId_CycleIndicators,
               "Hilbert Transform - Trend vs Cycle Mode",
-              "HtTrendMode",
               TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
              );
 /* HT_TRENDMODE END */

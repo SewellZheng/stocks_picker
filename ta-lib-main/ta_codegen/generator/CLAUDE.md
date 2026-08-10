@@ -2,7 +2,7 @@
 
 ## What This Is
 
-`ta_codegen` is the Rust-based code generator that replaces the old `gen_code.c` pipeline for indicator code generation. It reads YAML function definitions extracted from the C source, produces language-specific indicator implementations, and generates JSON-RPC servers for cross-language regression testing.
+`ta_codegen` is the Rust-based code generator that replaces the old `gen_code.c` pipeline for indicator code generation. It reads the per-indicator definitions in `ta_codegen/input/` — the source of truth — produces language-specific indicator implementations, and generates JSON-RPC servers for cross-language regression testing.
 
 ## Architecture
 
@@ -59,9 +59,8 @@ touching all three.
 |--------|---------|
 | `parser` | Parses YAML metadata (via raw serde structs) into `FuncDef`; parses `.c` source directly into IR `Statement`/`Expr` (no intermediate raw-struct stage for the logic) |
 | `ir` | Intermediate representation (`FuncDef`, `ParamType`, `Statement`, `Expr`, etc.) |
-| `extractor` | Extracts indicator definitions from C source files → YAML |
 | `backends/c.rs` | Generates C indicator implementations (guarded `TA_<N>` / `TA_S_<N>`, plus `TA_<N>_Private` where declared) |
-| `backends/rust_lang.rs` | Generates Rust indicator implementations (concrete `f64`, guarded entry point plus `_private` where declared) |
+| `backends/rust_lang.rs` | Generates Rust indicator implementations (concrete `f64`, guarded `<N>` plus `<N>_Private` where declared) |
 | `backends/rust_doc.rs` | Renders each function's canonical `<name>.md` as rustdoc on the generated Rust methods (summary/formula/notes, `# Arguments` with YAML numbers injected, `# Errors`/`# Panics`, a runnable doctest, `#[doc(alias)]`, intra-doc `# See also` links) |
 | `backends/java.rs` | Generates Java Core class methods |
 | `backends/csharp.rs` | Generates the shipped C# indicators — one `Core_<NAME>.cs` (`public partial class Core`) per function; XML docs via `csharp_doc.rs`, condition folding shared with Java via `compat_fold.rs` |
@@ -90,9 +89,6 @@ cargo run -- generate-servers --backend=c    # Generate server for specific lang
 
 cargo run -- build                           # Compile generated servers into executables
 cargo run -- build --backend=c,java          # Build specific servers
-
-cargo run -- extract                         # Extract all indicators from C source → YAML
-cargo run -- extract --function=EMA          # Extract specific indicator
 ```
 
 ## Testing
@@ -210,12 +206,10 @@ Two pieces C *does* share are shared deliberately, because an independent gate
 already covers them: `price_bundle` (its own unit tests) and the flag bit values
 (`flag_sync` pins them against `include/ta_abstract.h`).
 
-Per-backend derived *names* are never fields on a row. A Java or C# method name
-is computed by the backend, with the very helper it emits the signature with, so
-the registry cannot name a method that does not exist. The row keeps
-`camel_case: Option<String>` unresolved for the same reason: the helpers
-distinguish `None` from `Some`, and a pre-resolved `camelCaseName` would turn
-`HT_DCPERIOD` into `hT_DCPERIOD` instead of `htDcperiod`.
+A row carries no derived *name* at all. There is one name — the YAML `name` —
+and every backend spells it verbatim (C alone prefixes `TA_`), so a row has
+nothing to derive, nothing to keep in sync, and no way to name a method that
+does not exist.
 
 ## Rust Backend Details
 
@@ -231,9 +225,9 @@ is concrete-`f64` only.
 
 | Variant | Purpose |
 |---------|---------|
-| `fn xxx_lookback(...) -> usize` | Lookback (first valid output index) |
-| `fn xxx(...)` | Guarded public API: validates params, pre-computes optimization values, delegates |
-| `fn xxx_private(...)` | Only where the definition declares one (EMA). Extra pre-computed params (EMA's `k`), no validation prologue — its only caller is the guarded body above it |
+| `fn <N>_Lookback(...) -> usize` | Lookback (first valid output index) |
+| `fn <N>(...)` | Guarded public API: validates params, pre-computes optimization values, delegates |
+| `fn <N>_Private(...)` | Only where the definition declares one (`EMA_Private`). Extra pre-computed params (EMA's `k`), no validation prologue — its only caller is the guarded body above it |
 
 Cross-indicator calls target the **guarded** entry point, which carries the
 bounds-assert preamble; that preamble takes an empty-range escape so a call

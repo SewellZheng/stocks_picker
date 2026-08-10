@@ -63,7 +63,7 @@ use super::*;
 #[allow(unused_mut)]
 #[allow(unused_assignments)]
 impl Core {
-    /// Lookback period for [`Core::cdlmorningstar`]: the number of leading input values consumed
+    /// Lookback period for [`Core::CDLMORNINGSTAR`]: the number of leading input values consumed
     /// before the first output value can be produced.
     ///
     /// # Arguments
@@ -74,7 +74,7 @@ impl Core {
     /// Returns `usize::MAX` when a parameter is out of range. Real parameters accept `-4e37` to
     /// select their default value.
     #[inline]
-    pub fn cdlmorningstar_lookback(&self, mut optInPenetration: f64) -> usize {
+    pub fn CDLMORNINGSTAR_Lookback(&self, mut optInPenetration: f64) -> usize {
         if optInPenetration == REAL_DEFAULT {
             optInPenetration = 3e-1;
         } else if (optInPenetration < 0e0) || (optInPenetration > REAL_MAX) {
@@ -124,7 +124,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `endIdx < startIdx`, and
+    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
+    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
     /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
     ///
     /// # Panics
@@ -152,7 +153,7 @@ impl Core {
     /// let mut out_nb = 0;
     /// let mut out = vec![0i32; 252];
     ///
-    /// let ret = core.cdlmorningstar(
+    /// let ret = core.CDLMORNINGSTAR(
     ///     0, open.len() - 1, &open, &high, &low, &close, 0.3,
     ///     &mut out_beg, &mut out_nb, &mut out,
     /// );
@@ -162,13 +163,13 @@ impl Core {
     ///
     /// # See also
     ///
-    /// [`Core::cdlmorningdojistar`] · [`Core::cdleveningstar`] · [`Core::cdlabandonedbaby`] ·
-    /// [`Core::cdldojistar`]
+    /// [`Core::CDLMORNINGDOJISTAR`] · [`Core::CDLEVENINGSTAR`] · [`Core::CDLABANDONEDBABY`] ·
+    /// [`Core::CDLDOJISTAR`]
     ///
     /// Further reading:
-    /// [ta-lib.org/functions/cdlmorningstar](https://ta-lib.org/functions/cdlmorningstar/)
+    /// [ta-lib.org/functions/CDLMORNINGSTAR](https://ta-lib.org/functions/CDLMORNINGSTAR/)
     #[doc(alias = "MorningStar")]
-    pub fn cdlmorningstar(
+    pub fn CDLMORNINGSTAR(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -182,13 +183,13 @@ impl Core {
         outInteger: &mut [i32],
     ) -> RetCode {
         #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, cdlmorningstar_fma, cdlmorningstar_impl, (startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger));
+        return ta_lib_dispatch::dispatch_fma!(self, CDLMORNINGSTAR_fma, CDLMORNINGSTAR_impl, (startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger));
         #[cfg(not(target_arch = "x86_64"))]
-        self.cdlmorningstar_impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger)
+        self.CDLMORNINGSTAR_impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger)
     }
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "fma")]
-    fn cdlmorningstar_fma(
+    fn CDLMORNINGSTAR_fma(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -201,10 +202,10 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        self.cdlmorningstar_impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger)
+        self.CDLMORNINGSTAR_impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger)
     }
     #[inline(always)]
-    fn cdlmorningstar_impl(
+    fn CDLMORNINGSTAR_impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -217,15 +218,18 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        if endIdx < startIdx {
+        if startIdx > MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
+        }
+        if endIdx > MAX_INDEX || endIdx < startIdx {
+            return RetCode::OutOfRangeEndIndex;
         }
         if optInPenetration == REAL_DEFAULT {
             optInPenetration = 3e-1;
         } else if (optInPenetration < 0e0) || (optInPenetration > REAL_MAX) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.cdlmorningstar_lookback(optInPenetration);
+        let _assertLb = self.CDLMORNINGSTAR_Lookback(optInPenetration);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inOpen.len());
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
@@ -255,7 +259,7 @@ impl Core {
         let BodyShort_factor: f64 = self.candle_settings.body_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.cdlmorningstar_lookback(optInPenetration);
+        lookbackTotal = self.CDLMORNINGSTAR_Lookback(optInPenetration);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -467,20 +471,20 @@ impl Core {
 }
 /**** Streaming API *****/
 
-/// Live CDLMORNINGSTAR stream: one value per closed bar, bit-identical to [`Core::cdlmorningstar`]
-/// over the same series. Open with [`Core::cdlmorningstar_open`]; dropping the handle
+/// Live CDLMORNINGSTAR stream: one value per closed bar, bit-identical to [`Core::CDLMORNINGSTAR`]
+/// over the same series. Open with [`Core::CDLMORNINGSTAR_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLMORNINGSTAR_Stream")]
-pub struct CdlmorningstarStream {
+pub struct CDLMORNINGSTAR_Stream {
     core: Core,
-    state: CdlmorningstarStreamState,
+    state: CDLMORNINGSTAR_StreamState,
 }
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
-struct CdlmorningstarStreamState {
+struct CDLMORNINGSTAR_StreamState {
     optInPenetration: f64,
     BodyShortPeriodTotal: f64,
     BodyLongPeriodTotal: f64,
@@ -515,7 +519,7 @@ struct CdlmorningstarStreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn cdlmorningstar_step_internal(&self, sp: &mut CdlmorningstarStreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
+    fn CDLMORNINGSTAR_step_internal(&self, sp: &mut CDLMORNINGSTAR_StreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
         #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type;
         #[allow(non_snake_case)]
@@ -671,15 +675,15 @@ impl Core {
         }
     }
 
-    /// Internal startIdx-anchored open behind [`Core::cdlmorningstar_open`] (composition seam).
-    pub(crate) fn cdlmorningstar_open_internal(
+    /// Internal startIdx-anchored open behind [`Core::CDLMORNINGSTAR_Open`] (composition seam).
+    pub(crate) fn CDLMORNINGSTAR_OpenInternal(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInPenetration: f64,
-    ) -> Result<(CdlmorningstarStream, i32), RetCode> {
+    ) -> Result<(CDLMORNINGSTAR_Stream, i32), RetCode> {
         if inOpen.is_empty() || inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
             return Err(RetCode::BadParam);
         }
-        if inOpen.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inOpen.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if optInPenetration == REAL_DEFAULT {
             optInPenetration = 3e-1;
@@ -714,7 +718,7 @@ impl Core {
         let BodyShort_factor: f64 = self.candle_settings.body_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.cdlmorningstar_lookback(optInPenetration);
+        lookbackTotal = self.CDLMORNINGSTAR_Lookback(optInPenetration);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -976,7 +980,7 @@ impl Core {
                 fillJ += 1;
             }
         }
-        let state = CdlmorningstarStreamState {
+        let state = CDLMORNINGSTAR_StreamState {
             optInPenetration,
             BodyShortPeriodTotal,
             BodyLongPeriodTotal,
@@ -1003,11 +1007,11 @@ impl Core {
             ring_BodyShortTrailingIdx_inLow,
             ring_BodyShortTrailingIdx_inClose,
         };
-        Ok((CdlmorningstarStream { core: self.clone(), state }, lastValue_outInteger))
+        Ok((CDLMORNINGSTAR_Stream { core: self.clone(), state }, lastValue_outInteger))
     }
 
     /// Open a live CDLMORNINGSTAR stream over the warm-up history; returns the handle and
-    /// the value at the last history bar — bit-identical to [`Core::cdlmorningstar`] at that bar.
+    /// the value at the last history bar — bit-identical to [`Core::CDLMORNINGSTAR`] at that bar.
     ///
     /// # Errors
     ///
@@ -1026,28 +1030,28 @@ impl Core {
     ///     .collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.cdlmorningstar_open(&open, &high, &low, &close, 0.3).expect("enough history");
+    /// let (mut s, _last) = core.CDLMORNINGSTAR_Open(&open, &high, &low, &close, 0.3).expect("enough history");
     /// let peeked = s.peek(100.2, 101.4, 99.1, 100.9);
     /// let updated = s.update(100.2, 101.4, 99.1, 100.9);
     /// assert_eq!(peeked, updated);
     /// ```
     #[doc(alias = "TA_CDLMORNINGSTAR_Open")]
-    pub fn cdlmorningstar_open(&self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], optInPenetration: f64) -> Result<(CdlmorningstarStream, i32), RetCode> {
-        self.cdlmorningstar_open_internal(inOpen, inHigh, inLow, inClose, 0, optInPenetration)
+    pub fn CDLMORNINGSTAR_Open(&self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], optInPenetration: f64) -> Result<(CDLMORNINGSTAR_Stream, i32), RetCode> {
+        self.CDLMORNINGSTAR_OpenInternal(inOpen, inHigh, inLow, inClose, 0, optInPenetration)
     }
 
-    /// [`Core::cdlmorningstar_open`] that also fills the output array(s) bit-identically to
-    /// [`Core::cdlmorningstar`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::CDLMORNINGSTAR_Open`] that also fills the output array(s) bit-identically to
+    /// [`Core::CDLMORNINGSTAR`] over `0..len` in the same single pass. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_CDLMORNINGSTAR_OpenAndFill")]
-    pub fn cdlmorningstar_open_and_fill(
+    pub fn CDLMORNINGSTAR_OpenAndFill(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInPenetration: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
-    ) -> Result<CdlmorningstarStream, RetCode> {
+    ) -> Result<CDLMORNINGSTAR_Stream, RetCode> {
         if inOpen.is_empty() || inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
             return Err(RetCode::BadParam);
         }
-        if inOpen.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inOpen.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if optInPenetration == REAL_DEFAULT {
             optInPenetration = 3e-1;
@@ -1081,7 +1085,7 @@ impl Core {
         let BodyShort_factor: f64 = self.candle_settings.body_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.cdlmorningstar_lookback(optInPenetration);
+        lookbackTotal = self.CDLMORNINGSTAR_Lookback(optInPenetration);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -1345,7 +1349,7 @@ impl Core {
                 fillJ += 1;
             }
         }
-        let state = CdlmorningstarStreamState {
+        let state = CDLMORNINGSTAR_StreamState {
             optInPenetration,
             BodyShortPeriodTotal,
             BodyLongPeriodTotal,
@@ -1372,19 +1376,19 @@ impl Core {
             ring_BodyShortTrailingIdx_inLow,
             ring_BodyShortTrailingIdx_inClose,
         };
-        Ok(CdlmorningstarStream { core: self.clone(), state })
+        Ok(CDLMORNINGSTAR_Stream { core: self.clone(), state })
     }
 
 }
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
-impl CdlmorningstarStream {
+impl CDLMORNINGSTAR_Stream {
     /// Commit one closed bar; always produces a value. Never allocates.
     #[doc(alias = "TA_CDLMORNINGSTAR_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> i32 {
         let mut outInteger: i32 = 0_i32;
-        self.core.cdlmorningstar_step_internal(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
+        self.core.CDLMORNINGSTAR_step_internal(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
         outInteger
     }
 
@@ -1402,7 +1406,7 @@ impl CdlmorningstarStream {
 
 const _: () = {
     const fn _assert_auto<T: Send + Sync + Clone>() {}
-    _assert_auto::<CdlmorningstarStream>();
+    _assert_auto::<CDLMORNINGSTAR_Stream>();
 };
 
 /***************/

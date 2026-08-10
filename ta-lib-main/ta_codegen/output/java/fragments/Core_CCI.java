@@ -23,7 +23,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#cci} consumes before it can
+    * Number of leading input bars {@link Core#CCI} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -34,7 +34,7 @@
     *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int cciLookback( int optInTimePeriod )
+   public int CCI_Lookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -44,15 +44,15 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode cciInternal( int startIdx,
-                        int endIdx,
-                        double inHigh[],
-                        double inLow[],
-                        double inClose[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode CCI_Internal( int startIdx,
+                         int endIdx,
+                         double inHigh[],
+                         double inLow[],
+                         double inClose[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double tempReal = 0;
       double tempReal2 = 0;
@@ -65,10 +65,10 @@
       double[] circBuffer;
       int circBuffer_Idx = 0;
       int maxIdx_circBuffer = (30)-1;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -154,15 +154,15 @@
       /* Free the circular buffer if it was dynamically allocated. */
       return RetCode.Success ;
    }
-   RetCode cciInternal( int startIdx,
-                        int endIdx,
-                        float inHigh[],
-                        float inLow[],
-                        float inClose[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode CCI_Internal( int startIdx,
+                         int endIdx,
+                         float inHigh[],
+                         float inLow[],
+                         float inClose[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       double tempReal = 0;
       double tempReal2 = 0;
@@ -175,10 +175,10 @@
       double[] circBuffer;
       int circBuffer_Idx = 0;
       int maxIdx_circBuffer = (30)-1;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -250,7 +250,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cciLookback} is a <b>success with no
+    * valid range shorter than {@link Core#CCI_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -266,15 +266,15 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#typPrice
-    * @see Core#sma
+    * @see Core#TYPPRICE
+    * @see Core#SMA
     */
-   public OutRange cci( int startIdx,
+   public OutRange CCI( int startIdx,
                         int endIdx,
                         double inHigh[],
                         double inLow[],
@@ -284,7 +284,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cciInternal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = CCI_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("CCI", retCode);
       }
@@ -308,7 +308,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cciLookback} is a <b>success with no
+    * valid range shorter than {@link Core#CCI_Lookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -324,15 +324,15 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#typPrice
-    * @see Core#sma
+    * @see Core#TYPPRICE
+    * @see Core#SMA
     */
-   public OutRange cci( int startIdx,
+   public OutRange CCI( int startIdx,
                         int endIdx,
                         float inHigh[],
                         float inLow[],
@@ -342,7 +342,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cciInternal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = CCI_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("CCI", retCode);
       }
@@ -352,20 +352,19 @@
 
    /**
     * A live CCI stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#cci} over the same series.
-    * Open with {@link Core#cciOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#CCI} over the same series.
+    * Open with {@link Core#CCI_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class CciStream {
+   public static final class CCI_Stream {
       final Core core;
       int optInTimePeriod;
       double tempReal;
@@ -377,17 +376,20 @@
       int cbSize_circBuffer;
       double[] cb_circBuffer;
       double cur_outReal;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      CciStream( Core core ) { this.core = core; }
+      CCI_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#cciOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#CCI_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      CciStream( CciStream other ) {
+      CCI_Stream( CCI_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.tempReal = other.tempReal;
@@ -407,7 +409,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public double update( double inHigh, double inLow, double inClose ) {
-         core.cciStreamStep(this, inHigh, inLow, inClose);
+         core.CCI_StreamStep(this, inHigh, inLow, inClose);
          return this.cur_outReal;
       }
 
@@ -419,8 +421,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
-         CciStream scratch = new CciStream(this);
-         core.cciStreamStep(scratch, inHigh, inLow, inClose);
+         CCI_Stream scratch = new CCI_Stream(this);
+         core.CCI_StreamStep(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
       }
 
@@ -437,11 +439,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public CciStream copy() {
-         return new CciStream(this);
+      public CCI_Stream copy() {
+         return new CCI_Stream(this);
       }
    }
-   void cciStreamStep( CciStream sp, double inHigh, double inLow, double inClose )
+   void CCI_StreamStep( CCI_Stream sp, double inHigh, double inLow, double inClose )
    {
       double lastValue = 0.0;
       lastValue = (inHigh + inLow + inClose) / 3;
@@ -472,7 +474,7 @@
          sp.circBuffer_Idx = 0;
       }
    }
-   private RetCode cciOpenBody( CciStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   private RetCode CCI_OpenBody( CCI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       double tempReal = 0;
       double tempReal2 = 0;
@@ -492,6 +494,9 @@
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -591,7 +596,7 @@
       sp.cur_outReal = lastValue_outReal;
       return RetCode.Success;
    }
-   private RetCode cciOpenAndFillBody( CciStream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode CCI_OpenAndFillBody( CCI_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       double tempReal = 0;
       double tempReal2 = 0;
@@ -609,6 +614,9 @@
       int startIdx = 0;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
          return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -711,60 +719,60 @@
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind cciOpen (composition seam). */
-   CciStream cciOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   /* Internal startIdx-anchored open behind CCI_Open (composition seam). */
+   CCI_Stream CCI_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
-      CciStream sp = new CciStream(this);
-      RetCode retCode = cciOpenBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      CCI_Stream sp = new CCI_Stream(this);
+      RetCode retCode = CCI_OpenBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CCI open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CCI open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CCI open: internal error");
+         throw new IllegalStateException("CCI open: internal error");
       }
-      throw new IllegalArgumentException("TA_CCI open: " + retCode);
+      throw new IllegalArgumentException("CCI open: " + retCode);
    }
    /**
     * Open a live CCI stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#cci} at that bar.
-    * <p>The history must hold at least {@code cciLookback(...) + 1} bars
+    * to {@link Core#CCI} at that bar.
+    * <p>The history must hold at least {@code CCI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public CciStream cciOpen( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
+   public CCI_Stream CCI_Open( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
    {
-      return cciOpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
+      return CCI_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
    /**
-    * {@link Core#cciOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#cci} over the whole history in the same single pass
+    * {@link Core#CCI_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#CCI} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link CciStream#fillRange()}.
+    * {@link CCI_Stream#fillRange()}.
     */
-   public CciStream cciOpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
+   public CCI_Stream CCI_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
    {
-      CciStream sp = new CciStream(this);
+      CCI_Stream sp = new CCI_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cciOpenAndFillBody(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = CCI_OpenAndFillBody(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CCI openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CCI openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CCI openAndFill: internal error");
+         throw new IllegalStateException("CCI openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_CCI openAndFill: " + retCode);
+      throw new IllegalArgumentException("CCI openAndFill: " + retCode);
    }

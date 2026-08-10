@@ -132,7 +132,7 @@ pub(crate) fn build_matype_map(enums: &HashMap<String, EnumDef>) -> HashMap<Stri
         .map(|e| {
             e.variants
                 .iter()
-                .map(|v| (v.c_name.clone(), format!("MAType.{}", v.pascal_name)))
+                .map(|v| (v.c_name.clone(), format!("MAType.{}", v.name)))
                 .collect()
         })
         .unwrap_or_default()
@@ -491,7 +491,7 @@ pub(crate) fn java_type_str(var_type: &VarType) -> &'static str {
 }
 
 /// Optional-parameter validation prologue (Java): map the Integer.MIN_VALUE /
-/// TA_REAL_DEFAULT sentinels to the documented default value, then reject
+/// `Core.REAL_DEFAULT` sentinels to the documented default value, then reject
 /// out-of-range values. One source of truth for both variants: guarded
 /// functions fail with `RetCode.BadParam`, lookback functions fail with `-1`
 /// (the classic lookback bad-param contract).
@@ -499,7 +499,7 @@ pub(crate) fn java_type_str(var_type: &VarType) -> &'static str {
 /// Enum params (e.g. MAType) are the one place Java needs neither half of this
 /// prologue, and the type system genuinely is the reason: a Java enum reference
 /// cannot hold an arbitrary int, so there is no out-of-range value to reject and
-/// no `TA_INTEGER_DEFAULT` to substitute. `Integer.MIN_VALUE` is not a `MAType`
+/// no `INTEGER_DEFAULT` to substitute. `Integer.MIN_VALUE` is not a `MAType`
 /// and cannot be made into one, so "use the documented default" is discharged by
 /// the signature rather than by a check. C, Rust and C# all surface that
 /// parameter as an integer instead, so all three must substitute — see
@@ -532,7 +532,7 @@ pub(crate) fn emit_opt_param_validation(func: &FuncDef, fail: &str) -> String {
             ParamType::Real => {
                 if let Some(default_val) = opt.default {
                     out.push_str(&format!(
-                        "      if( {name} == TA_REAL_DEFAULT ) {{\n         {name} = {val:e};\n      }}",
+                        "      if( {name} == REAL_DEFAULT ) {{\n         {name} = {val:e};\n      }}",
                         name = opt.name,
                         val = default_val
                     ));
@@ -541,8 +541,8 @@ pub(crate) fn emit_opt_param_validation(func: &FuncDef, fail: &str) -> String {
                         out.push_str(&format!(
                             " else if( {name} < {lo} || {name} > {hi} ) {{\n         return {fail};\n      }}",
                             name = opt.name,
-                            lo = super::common::real_bound_literal(min, "TA_"),
-                            hi = super::common::real_bound_literal(max, "TA_")
+                            lo = super::common::real_bound_literal(min, ""),
+                            hi = super::common::real_bound_literal(max, "")
                         ));
                     }
                     out.push('\n');
@@ -560,7 +560,7 @@ fn gen_lookback(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    let name = to_java_method_name(&func.name, func.camel_case.as_deref());
+    let name = func.name.clone();
 
     // Build parameter list for signature
     let param_str = if func.optional_inputs.is_empty() {
@@ -599,7 +599,7 @@ fn gen_lookback(
 
     let docs = super::java_doc::lookback_docs(func, &name, enums);
     format!(
-        "{docs}   public int {name}Lookback({param_str})\n\
+        "{docs}   public int {name}_Lookback({param_str})\n\
          \x20  {{\n\
          {body}\n\
          \x20  }}\n"
@@ -640,7 +640,7 @@ fn render_init_expr(expr: &Expr) -> String {
 /// server's inline `Core`, and the server calls the cores, so the cross-language
 /// hash/retCode surface is unaffected by the public API above them.
 fn internal_core_name(base: &str) -> String {
-    format!("{base}Internal")
+    format!("{base}_Internal")
 }
 
 /// Emit the public, `OutRange`-returning wrapper over one internal core.
@@ -657,7 +657,7 @@ fn gen_public_wrapper(
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
 ) -> String {
-    let base_name = to_java_method_name(&func.name, func.camel_case.as_deref());
+    let base_name = func.name.clone();
     let core = internal_core_name(&base_name);
     let public_name = base_name.clone();
 
@@ -730,22 +730,22 @@ fn gen_private(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    let base_name = to_java_method_name(&func.name, func.camel_case.as_deref());
-    let name_override = format!("{base_name}Private");
+    let base_name = func.name.clone();
+    let name_override = format!("{base_name}_Private");
     gen_func_inner(func, false, Some(&name_override), enums, registry, helpers)
 }
 
 /// Generate the Private method float overload (for Java method overloading).
 /// Java needs this because float[] is not assignable to double[] — S_ callers
-/// of emaPrivate(float_input, k) need a float overload.
+/// of EMA_Private(float_input, k) need a float overload.
 fn gen_private_sp(
     func: &FuncDef,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    let base_name = to_java_method_name(&func.name, func.camel_case.as_deref());
-    let name_override = format!("{base_name}Private");
+    let base_name = func.name.clone();
+    let name_override = format!("{base_name}_Private");
     gen_func_inner(func, true, Some(&name_override), enums, registry, helpers)
 }
 
@@ -772,7 +772,7 @@ fn gen_func_inner(
     helpers: &HelperRegistry,
 ) -> String {
     let mut out = String::new();
-    let base_name = to_java_method_name(&func.name, func.camel_case.as_deref());
+    let base_name = func.name.clone();
     let name = if let Some(n) = name_override {
         n.to_string()
     } else {
@@ -966,10 +966,10 @@ fn gen_func_inner(
     // Validation prologue. Omitted for the `Private` variant, whose callers are the
     // guarded cores that have already validated.
     if name_override.is_none() {
-        out.push_str("      if( startIdx < 0 ) {\n");
+        out.push_str("      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {\n");
         out.push_str("         return RetCode.OutOfRangeStartIndex ;\n");
         out.push_str("      }\n");
-        out.push_str("      if( (endIdx < 0) || (endIdx < startIdx)) {\n");
+        out.push_str("      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {\n");
         out.push_str("         return RetCode.OutOfRangeEndIndex ;\n");
         out.push_str("      }\n");
         // Optional parameter validation (default + range)
@@ -1702,7 +1702,7 @@ pub(crate) fn render_java_switch_label(label: &str, enums: &HashMap<String, Enum
         // "case MAType.Sma:"): qualified enum case labels are Java 21+
         // syntax, and the shipped Core.java must keep compiling on older
         // JDKs (the reference Java also emitted unqualified labels).
-        variant.pascal_name.clone()
+        variant.name.clone()
     } else {
         label.to_string()
     }
@@ -2050,76 +2050,11 @@ pub(crate) fn java_predicate_expr(which: SpecialBuiltin, args: &[String]) -> Str
     }
 }
 
-/// The `FuncUnstId` Pascal variant name for an `UNSTABLE_PERIOD(<name>)`
-/// argument (with or without its `FUNC_UNST_` prefix). The irregular spellings
-/// match the enum emitted from enums.yaml. Shared by the Java and C# emitters.
-pub(crate) fn unst_pascal_name(func_name: &str) -> String {
-    let base = func_name.strip_prefix("FUNC_UNST_").unwrap_or(func_name);
-    match base {
-        "HT_DCPERIOD" => "HtDcPeriod".to_string(),
-        "HT_DCPHASE" => "HtDcPhase".to_string(),
-        "HT_PHASOR" => "HtPhasor".to_string(),
-        "HT_SINE" => "HtSine".to_string(),
-        "HT_TRENDLINE" => "HtTrendline".to_string(),
-        "HT_TRENDMODE" => "HtTrendMode".to_string(),
-        "MINUS_DI" => "MinusDI".to_string(),
-        "MINUS_DM" => "MinusDM".to_string(),
-        "PLUS_DI" => "PlusDI".to_string(),
-        "PLUS_DM" => "PlusDM".to_string(),
-        "STOCH_RSI" => "StochRsi".to_string(),
-        _ => to_pascal_case(base),
-    }
-}
-
-/// Convert a function identifier to `PascalCase`.
-/// e.g., "RSI" -> "Rsi", "ADX" -> "Adx", "HT_DCPERIOD" -> "HtDcperiod"
-fn to_pascal_case(s: &str) -> String {
-    s.to_lowercase()
-        .split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect()
-}
-
-/// Convert a function to its Java `camelCase` method base name.
-///
-/// The canonical name is the YAML `camel_case` field with its first character
-/// lower-cased (e.g. `MovingAverage` -> `movingAverage`, `WillR` -> `willR`,
-/// `CdlHignWave` -> `cdlHignWave` — historical typos preserved verbatim). This is
-/// the public API surface the shipped `Core.java` exposes, ported from the legacy
-/// `ta_java_defs.h` method-name map.
-///
-/// When `camel_case` is absent, falls back to a naive lowercase-split of the C
-/// name (`ht_dcperiod` -> `htDcperiod`): keeps the first segment lowercase and
-/// capitalizes subsequent underscore-delimited segments.
-pub(crate) fn to_java_method_name(name: &str, camel_case: Option<&str>) -> String {
-    if let Some(cc) = camel_case {
-        let mut chars = cc.chars();
-        return match chars.next() {
-            None => String::new(),
-            Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
-        };
-    }
-    let lower = name.to_lowercase();
-    let parts: Vec<&str> = lower.split('_').collect();
-    let mut result = String::new();
-    for (i, part) in parts.iter().enumerate() {
-        if i == 0 {
-            result.push_str(part);
-        } else {
-            let mut chars = part.chars();
-            if let Some(c) = chars.next() {
-                result.extend(c.to_uppercase());
-                result.push_str(chars.as_str());
-            }
-        }
-    }
-    result
+/// The `FuncUnstId` variant name for an `UNSTABLE_PERIOD(<name>)` argument
+/// (with or without its `FUNC_UNST_` prefix). Verbatim: the enum emitted from
+/// enums.yaml spells every variant exactly as the YAML names it.
+pub(crate) fn unst_variant_name(func_name: &str) -> String {
+    func_name.strip_prefix("FUNC_UNST_").unwrap_or(func_name).to_string()
 }
 
 /// Try to render a candle helper function call as an inline Java ternary chain.
@@ -2215,8 +2150,8 @@ fn render_func_call(
                 // UNSTABLE_PERIOD(RSI) -> this.unstablePeriod[FuncUnstId.Rsi.ordinal()]
                 // UNSTABLE_PERIOD(FUNC_UNST_ATR) -> strip FUNC_UNST_ prefix first
                 if let Some(Expr::Var(func_name)) = args.first() {
-                    let pascal = unst_pascal_name(func_name);
-                    return format!("this.unstablePeriod[FuncUnstId.{pascal}.ordinal()]");
+                    let variant = unst_variant_name(func_name);
+                    return format!("this.unstablePeriod[FuncUnstId.{variant}.ordinal()]");
                 }
                 "this.unstablePeriod[0]".to_string()
             }
@@ -2486,16 +2421,16 @@ mod tests {
         let output = generate(&func, &enums, &registry, &HelperRegistry::empty());
 
         // The internal core is emitted, package-private (no `public`).
-        assert!(output.contains("   RetCode smaInternal("), "Missing guarded core");
+        assert!(output.contains("   RetCode SMA_Internal("), "Missing guarded core");
         assert!(!output.contains("Unguarded"), "no unguarded tier may exist");
         assert!(
-            !output.contains("public RetCode sma"),
+            !output.contains("public RetCode SMA"),
             "cores must be package-private — RetCode never appears on the public surface"
         );
 
         // The surviving core validates. Bounded to the double core's own body so
         // a match inside the float overload cannot stand in for it.
-        let guarded_pos = output.find("RetCode smaInternal( ").unwrap();
+        let guarded_pos = output.find("RetCode SMA_Internal( ").unwrap();
         let guarded_section = &output[guarded_pos..];
         let guarded_end = guarded_section[1..]
             .find("   RetCode ")
@@ -2506,7 +2441,7 @@ mod tests {
         );
 
         // The public surface is OutRange-returning wrappers over those cores.
-        assert!(output.contains("   public OutRange sma( "), "Missing public sma wrapper");
+        assert!(output.contains("   public OutRange SMA( "), "Missing public SMA wrapper");
         assert!(
             output.contains("throw failure(\"SMA\", retCode);"),
             "guarded wrapper must map RetCode onto the documented exception"

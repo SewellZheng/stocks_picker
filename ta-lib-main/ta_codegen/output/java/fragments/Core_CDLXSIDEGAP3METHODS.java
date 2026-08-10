@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#cdlXSideGap3Methods} consumes
+    * Number of leading input bars {@link Core#CDLXSIDEGAP3METHODS} consumes
     * before it can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,34 +21,34 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int cdlXSideGap3MethodsLookback( )
+   public int CDLXSIDEGAP3METHODS_Lookback( )
    {
       return 2 ;
 
    }
-   RetCode cdlXSideGap3MethodsInternal( int startIdx,
-                                        int endIdx,
-                                        double inOpen[],
-                                        double inHigh[],
-                                        double inLow[],
-                                        double inClose[],
-                                        MInteger outBegIdx,
-                                        MInteger outNBElement,
-                                        int outInteger[] )
+   RetCode CDLXSIDEGAP3METHODS_Internal( int startIdx,
+                                         int endIdx,
+                                         double inOpen[],
+                                         double inHigh[],
+                                         double inLow[],
+                                         double inClose[],
+                                         MInteger outBegIdx,
+                                         MInteger outNBElement,
+                                         int outInteger[] )
    {
       int i = 0;
       int outIdx = 0;
       int lookbackTotal = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlXSideGap3MethodsLookback();
+      lookbackTotal = CDLXSIDEGAP3METHODS_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -98,26 +98,26 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode cdlXSideGap3MethodsInternal( int startIdx,
-                                        int endIdx,
-                                        float inOpen[],
-                                        float inHigh[],
-                                        float inLow[],
-                                        float inClose[],
-                                        MInteger outBegIdx,
-                                        MInteger outNBElement,
-                                        int outInteger[] )
+   RetCode CDLXSIDEGAP3METHODS_Internal( int startIdx,
+                                         int endIdx,
+                                         float inOpen[],
+                                         float inHigh[],
+                                         float inLow[],
+                                         float inClose[],
+                                         MInteger outBegIdx,
+                                         MInteger outNBElement,
+                                         int outInteger[] )
    {
       int i = 0;
       int outIdx = 0;
       int lookbackTotal = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      lookbackTotal = cdlXSideGap3MethodsLookback();
+      lookbackTotal = CDLXSIDEGAP3METHODS_Lookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -153,7 +153,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlXSideGap3MethodsLookback} is a
+    * valid range shorter than {@link Core#CDLXSIDEGAP3METHODS_Lookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -169,16 +169,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlGapSideSideWhite
-    * @see Core#cdlTasukiGap
-    * @see Core#cdlRiseFall3Methods
+    * @see Core#CDLGAPSIDESIDEWHITE
+    * @see Core#CDLTASUKIGAP
+    * @see Core#CDLRISEFALL3METHODS
     */
-   public OutRange cdlXSideGap3Methods( int startIdx,
+   public OutRange CDLXSIDEGAP3METHODS( int startIdx,
                                         int endIdx,
                                         double inOpen[],
                                         double inHigh[],
@@ -188,7 +188,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlXSideGap3MethodsInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLXSIDEGAP3METHODS_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLXSIDEGAP3METHODS", retCode);
       }
@@ -210,7 +210,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlXSideGap3MethodsLookback} is a
+    * valid range shorter than {@link Core#CDLXSIDEGAP3METHODS_Lookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -226,16 +226,16 @@
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, or two outputs share one array.
     * @throws NullPointerException if any input or output array is null.
     *
-    * @see Core#cdlGapSideSideWhite
-    * @see Core#cdlTasukiGap
-    * @see Core#cdlRiseFall3Methods
+    * @see Core#CDLGAPSIDESIDEWHITE
+    * @see Core#CDLTASUKIGAP
+    * @see Core#CDLRISEFALL3METHODS
     */
-   public OutRange cdlXSideGap3Methods( int startIdx,
+   public OutRange CDLXSIDEGAP3METHODS( int startIdx,
                                         int endIdx,
                                         float inOpen[],
                                         float inHigh[],
@@ -245,7 +245,7 @@
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlXSideGap3MethodsInternal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLXSIDEGAP3METHODS_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLXSIDEGAP3METHODS", retCode);
       }
@@ -255,37 +255,39 @@
 
    /**
     * A live CDLXSIDEGAP3METHODS stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#cdlXSideGap3Methods} over the same series.
-    * Open with {@link Core#cdlXSideGap3MethodsOpen}; there is no close — the handle is
+    * closed bar, bit-identical to {@link Core#CDLXSIDEGAP3METHODS} over the same series.
+    * Open with {@link Core#CDLXSIDEGAP3METHODS_Open}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
     * {@code value} and {@code copy} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
     * {@code value}/{@code copy} never write the handle and may be called
     * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent. Do not mutate the owning
-    * {@link Core}'s settings while streams opened from it are live.
+    * {@code copy()} results) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
-   public static final class CdlXSideGap3MethodsStream {
+   public static final class CDLXSIDEGAP3METHODS_Stream {
       final Core core;
       double lag1_inOpen;
       double lag2_inOpen;
       double lag1_inClose;
       double lag2_inClose;
       int cur_outInteger;
-      OutRange fillRange;
+      OutRange fillRange = OutRange.EMPTY;
 
-      CdlXSideGap3MethodsStream( Core core ) { this.core = core; }
+      CDLXSIDEGAP3METHODS_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#cdlXSideGap3MethodsOpenAndFill}, or {@code null}
-       * when this handle came from a plain {@code open} (which fills nothing).
+       * The range filled by {@link Core#CDLXSIDEGAP3METHODS_OpenAndFill}, or
+       * {@link OutRange#EMPTY} when this handle came from a plain
+       * {@code open} (which fills nothing). Never {@code null}; a
+       * successful {@code openAndFill} always writes at least one value,
+       * so {@link OutRange#isEmpty()} tells the two apart.
        */
       public OutRange fillRange() { return fillRange; }
 
-      CdlXSideGap3MethodsStream( CdlXSideGap3MethodsStream other ) {
+      CDLXSIDEGAP3METHODS_Stream( CDLXSIDEGAP3METHODS_Stream other ) {
          this.core = other.core;
          this.lag1_inOpen = other.lag1_inOpen;
          this.lag2_inOpen = other.lag2_inOpen;
@@ -300,7 +302,7 @@
        * Never throws after a successful open; never allocates handle state.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
-         core.cdlXSideGap3MethodsStreamStep(this, inOpen, inHigh, inLow, inClose);
+         core.CDLXSIDEGAP3METHODS_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outInteger;
       }
 
@@ -312,8 +314,8 @@
        * prefer {@code update} on a {@code copy()}.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
-         CdlXSideGap3MethodsStream scratch = new CdlXSideGap3MethodsStream(this);
-         core.cdlXSideGap3MethodsStreamStep(scratch, inOpen, inHigh, inLow, inClose);
+         CDLXSIDEGAP3METHODS_Stream scratch = new CDLXSIDEGAP3METHODS_Stream(this);
+         core.CDLXSIDEGAP3METHODS_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outInteger;
       }
 
@@ -330,11 +332,11 @@
        * An independent deep copy of this stream: both evolve separately from
        * here on (the Java rendering of the Rust handle's {@code Clone}).
        */
-      public CdlXSideGap3MethodsStream copy() {
-         return new CdlXSideGap3MethodsStream(this);
+      public CDLXSIDEGAP3METHODS_Stream copy() {
+         return new CDLXSIDEGAP3METHODS_Stream(this);
       }
    }
-   void cdlXSideGap3MethodsStreamStep( CdlXSideGap3MethodsStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   void CDLXSIDEGAP3METHODS_StreamStep( CDLXSIDEGAP3METHODS_Stream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       if( ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : 0 - 1) == ((sp.lag1_inClose >= sp.lag1_inOpen) ? 1 : 0 - 1) && /* 1st and 2nd of same color */
           ((sp.lag1_inClose >= sp.lag1_inOpen) ? 1 : 0 - 1) == 0 - ((inClose >= inOpen) ? 1 : 0 - 1) && /* 3rd opposite color */
@@ -356,7 +358,7 @@
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
    }
-   private RetCode cdlXSideGap3MethodsOpenBody( CdlXSideGap3MethodsStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode CDLXSIDEGAP3METHODS_OpenBody( CDLXSIDEGAP3METHODS_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       int i = 0;
       int outIdx = 0;
@@ -369,10 +371,13 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlXSideGap3MethodsLookback();
+      lookbackTotal = CDLXSIDEGAP3METHODS_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -428,7 +433,7 @@
       sp.cur_outInteger = lastValue_outInteger;
       return RetCode.Success;
    }
-   private RetCode cdlXSideGap3MethodsOpenAndFillBody( CdlXSideGap3MethodsStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLXSIDEGAP3METHODS_OpenAndFillBody( CDLXSIDEGAP3METHODS_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -439,13 +444,16 @@
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
          return RetCode.BadParam;
       }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          return RetCode.BadParam;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = cdlXSideGap3MethodsLookback();
+      lookbackTotal = CDLXSIDEGAP3METHODS_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -501,60 +509,60 @@
       sp.cur_outInteger = outInteger[outNBElement.value - 1];
       return RetCode.Success;
    }
-   /* Internal startIdx-anchored open behind cdlXSideGap3MethodsOpen (composition seam). */
-   CdlXSideGap3MethodsStream cdlXSideGap3MethodsOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   /* Internal startIdx-anchored open behind CDLXSIDEGAP3METHODS_Open (composition seam). */
+   CDLXSIDEGAP3METHODS_Stream CDLXSIDEGAP3METHODS_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
-      CdlXSideGap3MethodsStream sp = new CdlXSideGap3MethodsStream(this);
-      RetCode retCode = cdlXSideGap3MethodsOpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      CDLXSIDEGAP3METHODS_Stream sp = new CDLXSIDEGAP3METHODS_Stream(this);
+      RetCode retCode = CDLXSIDEGAP3METHODS_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLXSIDEGAP3METHODS open: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLXSIDEGAP3METHODS open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLXSIDEGAP3METHODS open: internal error");
+         throw new IllegalStateException("CDLXSIDEGAP3METHODS open: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLXSIDEGAP3METHODS open: " + retCode);
+      throw new IllegalArgumentException("CDLXSIDEGAP3METHODS open: " + retCode);
    }
    /**
     * Open a live CDLXSIDEGAP3METHODS stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#cdlXSideGap3Methods} at that bar.
-    * <p>The history must hold at least {@code cdlXSideGap3MethodsLookback(...) + 1} bars
+    * to {@link Core#CDLXSIDEGAP3METHODS} at that bar.
+    * <p>The history must hold at least {@code CDLXSIDEGAP3METHODS_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
     * default, as in the batch API).
     */
-   public CdlXSideGap3MethodsStream cdlXSideGap3MethodsOpen( double inOpen[], double inHigh[], double inLow[], double inClose[] )
+   public CDLXSIDEGAP3METHODS_Stream CDLXSIDEGAP3METHODS_Open( double inOpen[], double inHigh[], double inLow[], double inClose[] )
    {
-      return cdlXSideGap3MethodsOpenInternal(inOpen, inHigh, inLow, inClose, 0);
+      return CDLXSIDEGAP3METHODS_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
    /**
-    * {@link Core#cdlXSideGap3MethodsOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#cdlXSideGap3Methods} over the whole history in the same single pass
+    * {@link Core#CDLXSIDEGAP3METHODS_Open} that also fills the output array(s) bit-identically
+    * to {@link Core#CDLXSIDEGAP3METHODS} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link CdlXSideGap3MethodsStream#fillRange()}.
+    * {@link CDLXSIDEGAP3METHODS_Stream#fillRange()}.
     */
-   public CdlXSideGap3MethodsStream cdlXSideGap3MethodsOpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
+   public CDLXSIDEGAP3METHODS_Stream CDLXSIDEGAP3METHODS_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
-      CdlXSideGap3MethodsStream sp = new CdlXSideGap3MethodsStream(this);
+      CDLXSIDEGAP3METHODS_Stream sp = new CDLXSIDEGAP3METHODS_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = cdlXSideGap3MethodsOpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLXSIDEGAP3METHODS_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
       if( retCode == RetCode.OutOfRangeEndIndex ) {
-         throw new InsufficientHistoryException("TA_CDLXSIDEGAP3METHODS openAndFill: history shorter than lookback + 1");
+         throw new InsufficientHistoryException("CDLXSIDEGAP3METHODS openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TA_CDLXSIDEGAP3METHODS openAndFill: internal error");
+         throw new IllegalStateException("CDLXSIDEGAP3METHODS openAndFill: internal error");
       }
-      throw new IllegalArgumentException("TA_CDLXSIDEGAP3METHODS openAndFill: " + retCode);
+      throw new IllegalArgumentException("CDLXSIDEGAP3METHODS openAndFill: " + retCode);
    }

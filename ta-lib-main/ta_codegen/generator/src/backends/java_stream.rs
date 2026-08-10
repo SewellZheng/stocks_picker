@@ -31,7 +31,9 @@
 //!   (an `IllegalArgumentException` subclass). `InternalError` (capture
 //!   invariant) becomes `IllegalStateException`; every other reject a plain
 //!   `IllegalArgumentException`. Messages carry the stable prefix
-//!   `"TA_<NAME> open:"`. `update`/`peek` never throw after a successful open.
+//!   `"<NAME> open:"`, where `<NAME>` is the function as the metadata registry
+//!   spells it (`SMA`, `HT_TRENDLINE`) — not C's `TA_`-prefixed symbol and not
+//!   the Java method name. `update`/`peek` never throw after a successful open.
 //! - There is no `close`: a handle is ordinary heap state — GC suffices (no
 //!   AutoCloseable, no finalizer). Handles are deliberately NOT serializable;
 //!   the sanctioned checkpoint story is re-opening from retained history.
@@ -62,7 +64,7 @@ use super::fma::{self, FmaVarSets};
 use super::java::{
     build_matype_map, collect_address_of_vars, collect_double_address_of_vars, collect_matype_vars,
     emit_opt_param_validation, java_type_str, render_expr, render_hoisted_blocks,
-    render_statement_ctx, to_java_method_name, JavaRenderCtx, JAVA_CANDLE_FNS,
+    render_statement_ctx, JavaRenderCtx, JAVA_CANDLE_FNS,
 };
 use crate::helper_registry::hoist_block_helpers;
 
@@ -78,26 +80,16 @@ pub fn emits_stream(func: &FuncDef, lookup: &dyn streaming::CalleeLookup) -> boo
     streaming::validate_streamable(func, lookup).is_ok()
 }
 
-/// The Java method base name (`sma`, `movingAverage`, `cdl2Crows`) — always
-/// derived from the Java naming authority, never the C name.
-fn java_base(func: &FuncDef) -> String {
-    to_java_method_name(&func.name, func.camel_case.as_deref())
+/// The base every Java identifier for this function is spelled from: the YAML
+/// `name:` verbatim (`SMA`, `MA`, `CDL2CROWS`).
+fn base_name(func: &FuncDef) -> String {
+    func.name.clone()
 }
 
-/// First character uppercased (base name → class-name stem).
-fn capitalize_first(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-        None => String::new(),
-    }
-}
-
-/// Public handle class name, nested in `Core`: `SmaStream`,
-/// `MovingAverageStream` (from the Java base name — a batch `movingAverage`
-/// user must find its stream under the same name).
+/// Public handle class name, nested in `Core`: `SMA_Stream`, mirroring C's
+/// `TA_SMA_Stream` minus the prefix.
 pub fn stream_class_name(func: &FuncDef) -> String {
-    format!("{}Stream", capitalize_first(&java_base(func)))
+    format!("{}_Stream", base_name(func))
 }
 
 fn out_is_int(func: &FuncDef, name: &str) -> bool {
@@ -566,7 +558,7 @@ fn emit_handle_class_with_members(
     extra_members: &str,
 ) {
     let class = stream_class_name(func);
-    let base = java_base(func);
+    let base = base_name(func);
     let n = func.name.to_uppercase();
 
     let _ = writeln!(
@@ -574,15 +566,14 @@ fn emit_handle_class_with_members(
         "   /**\n\
          \x20   * A live {n} stream (unrelated to {{@code java.util.stream}}): one value per\n\
          \x20   * closed bar, bit-identical to {{@link Core#{base}}} over the same series.\n\
-         \x20   * Open with {{@link Core#{base}Open}}; there is no close — the handle is\n\
+         \x20   * Open with {{@link Core#{base}_Open}}; there is no close — the handle is\n\
          \x20   * ordinary heap state, unreferenced handles are simply garbage-collected.\n\
          \x20   * <p>Concurrency: a handle is single-writer — {{@code update}}, {{@code peek}},\n\
          \x20   * {{@code value}} and {{@code copy}} must not race with an {{@code update}} on\n\
          \x20   * the same handle. With no concurrent {{@code update}}, {{@code peek}}/\n\
          \x20   * {{@code value}}/{{@code copy}} never write the handle and may be called\n\
          \x20   * concurrently after safe publication. Independent handles (including\n\
-         \x20   * {{@code copy()}} results) are fully independent. Do not mutate the owning\n\
-         \x20   * {{@link Core}}'s settings while streams opened from it are live.\n\
+         \x20   * {{@code copy()}} results) are fully independent.\n\
          \x20   * <p>Not serializable by design: to checkpoint, retain the history and\n\
          \x20   * re-open — the result is bit-identical by contract.\n\
          \x20   */"
@@ -593,18 +584,24 @@ fn emit_handle_class_with_members(
         let _ = writeln!(o, "      {jty} {name};");
     }
     o.push_str(extra_members);
-    // Set once, by openAndFill only (null for a plain open) — the range of the
-    // warm-up values that call wrote into the caller's output arrays.
-    let _ = writeln!(o, "      OutRange fillRange;");
+    // Set once, by openAndFill only — the range of the warm-up values that call
+    // wrote into the caller's output arrays. A plain open fills nothing and so
+    // keeps `EMPTY`, which cannot collide with a real fill: openAndFill returns
+    // OutOfRangeEndIndex (→ InsufficientHistoryException) when the history is
+    // shorter than lookback + 1, so a successful one always writes ≥ 1 value.
+    let _ = writeln!(o, "      OutRange fillRange = OutRange.EMPTY;");
     let _ = writeln!(o, "\n      {class}( Core core ) {{ this.core = core; }}");
     let _ = writeln!(
         o,
         "\n      /**\n\
-         \x20      * The range filled by {{@link Core#{base}OpenAndFill}}, or {{@code null}}\n\
-         \x20      * when this handle came from a plain {{@code open}} (which fills nothing).\n\
+         \x20      * The range filled by {{@link Core#{base}_OpenAndFill}}, or\n\
+         \x20      * {{@link OutRange#EMPTY}} when this handle came from a plain\n\
+         \x20      * {{@code open}} (which fills nothing). Never {{@code null}}; a\n\
+         \x20      * successful {{@code openAndFill}} always writes at least one value,\n\
+         \x20      * so {{@link OutRange#isEmpty()}} tells the two apart.\n\
          \x20      */\n\
          \x20     public OutRange fillRange() {{ return fillRange; }}",
-        base = java_base(func)
+        base = base_name(func)
     );
 
     // Deep-copy constructor: scalars assign, arrays clone (element-wise for
@@ -631,80 +628,52 @@ fn emit_handle_class_with_members(
     let _ = writeln!(o, "   }}");
 }
 
-/// The immutable multi-output value class (batch output order, public final
-/// fields named after the outputs: `outSlowK` → `slowK`).
+/// The immutable multi-output value record (batch output order, components
+/// named after the outputs: `outSlowK` → `slowK`).
+///
+/// A record, not a hand-rolled class: `equals`/`hashCode`/`toString` become
+/// spec-guaranteed rather than 20 generated lines each that have to be argued
+/// correct. The semantics are identical — a record compares `double` components
+/// with `Double.compare`, which agrees with the `doubleToLongBits` comparison
+/// this replaces on every input, `±0.0` and every NaN bit pattern included —
+/// and the rendered `toString` is byte-for-byte the same `Value[slowK=…, …]`.
+///
+/// The one thing it costs is the canonical constructor: a public record cannot
+/// hide one, so users can fabricate a `Value`. It carries no invariant to
+/// protect (any tuple of outputs is a legitimate reading), and in exchange the
+/// type destructures in record patterns and binds in JSON mappers with no
+/// configuration.
 fn emit_value_class(o: &mut String, func: &FuncDef) {
     if !has_value_class(func) {
         return;
     }
-    let _ = writeln!(
-        o,
-        "\n      /** One output set, in batch output order. Immutable. */"
-    );
-    let _ = writeln!(o, "      public static final class Value {{");
-    for out in &func.outputs {
-        let t = out_java_type(func, &out.name);
-        let _ = writeln!(o, "         public final {t} {};", value_field_name(&out.name));
-    }
-    let params: Vec<String> = func
+    let components: Vec<String> = func
         .outputs
         .iter()
         .map(|out| format!("{} {}", out_java_type(func, &out.name), value_field_name(&out.name)))
         .collect();
-    let _ = writeln!(o, "         Value( {} ) {{", params.join(", "));
-    for out in &func.outputs {
-        let f = value_field_name(&out.name);
-        let _ = writeln!(o, "            this.{f} = {f};");
-    }
-    let _ = writeln!(o, "         }}");
-    // toString: "Value[slowK=…, slowD=…]".
-    let fmt: Vec<String> = func
-        .outputs
-        .iter()
-        .map(|out| {
-            let f = value_field_name(&out.name);
-            format!("\"{f}=\" + {f}")
-        })
-        .collect();
-    let _ = writeln!(o, "         @Override public String toString() {{");
+    let _ = writeln!(o, "\n      /**");
+    let _ = writeln!(o, "       * One output set, in batch output order. Immutable.");
+    let _ = writeln!(o, "       *");
     let _ = writeln!(
         o,
-        "            return \"Value[\" + {} + \"]\";",
-        fmt.join(" + \", \" + ")
+        "       * <p>{{@code equals}} compares every component bitwise, so {{@code NaN}}\n\
+         \x20      * equals {{@code NaN}} and {{@code 0.0}} does not equal {{@code -0.0}}.\n\
+         \x20      * {{@code hashCode}} is consistent with it but its exact value is\n\
+         \x20      * unspecified — do not persist it or compare it across JVM versions.\n\
+         \x20      *"
     );
-    let _ = writeln!(o, "         }}");
-    // equals/hashCode: bit-based double semantics (NaN/-0.0-safe, what a
-    // record would generate).
-    let eqs: Vec<String> = func
-        .outputs
-        .iter()
-        .map(|out| {
-            let f = value_field_name(&out.name);
-            if out_is_int(func, &out.name) {
-                format!("this.{f} == v.{f}")
-            } else {
-                format!("Double.doubleToLongBits(this.{f}) == Double.doubleToLongBits(v.{f})")
-            }
-        })
-        .collect();
-    let _ = writeln!(o, "         @Override public boolean equals( Object o ) {{");
-    let _ = writeln!(o, "            if( !(o instanceof Value) ) return false;");
-    let _ = writeln!(o, "            Value v = (Value) o;");
-    let _ = writeln!(o, "            return {};", eqs.join(" && "));
-    let _ = writeln!(o, "         }}");
-    let _ = writeln!(o, "         @Override public int hashCode() {{");
-    let _ = writeln!(o, "            int h = 17;");
     for out in &func.outputs {
-        let f = value_field_name(&out.name);
-        if out_is_int(func, &out.name) {
-            let _ = writeln!(o, "            h = 31 * h + {f};");
-        } else {
-            let _ = writeln!(o, "            h = 31 * h + Double.hashCode({f});");
-        }
+        // Same prose the batch method's `@param out…` carries, so an output
+        // reads identically in both tiers.
+        let desc = func
+            .doc
+            .as_ref()
+            .map_or_else(|| "Output values.".to_string(), |d| super::java_doc::output_desc(out, d));
+        let _ = writeln!(o, "       * @param {} {desc}", value_field_name(&out.name));
     }
-    let _ = writeln!(o, "            return h;");
-    let _ = writeln!(o, "         }}");
-    let _ = writeln!(o, "      }}");
+    let _ = writeln!(o, "       */");
+    let _ = writeln!(o, "      public record Value({}) {{ }}", components.join(", "));
 }
 
 /// The value expression reading the current outputs off a handle variable.
@@ -723,7 +692,7 @@ fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
 
 fn emit_update_peek_value_copy(o: &mut String, func: &FuncDef) {
     let class = stream_class_name(func);
-    let base = java_base(func);
+    let base = base_name(func);
     let vt = if has_value_class(func) {
         "Value".to_string()
     } else {
@@ -739,7 +708,7 @@ fn emit_update_peek_value_copy(o: &mut String, func: &FuncDef) {
          \x20      */"
     );
     let _ = writeln!(o, "      public {vt} update( {sig_bars} ) {{");
-    let _ = writeln!(o, "         core.{base}StreamStep(this, {fwd_bars});");
+    let _ = writeln!(o, "         core.{base}_StreamStep(this, {fwd_bars});");
     if has_value_class(func) {
         let _ = writeln!(o, "         this.cachedValue = {};", fresh_value_expr(func, "this"));
         let _ = writeln!(o, "         return this.cachedValue;");
@@ -760,7 +729,7 @@ fn emit_update_peek_value_copy(o: &mut String, func: &FuncDef) {
     );
     let _ = writeln!(o, "      public {vt} peek( {sig_bars} ) {{");
     let _ = writeln!(o, "         {class} scratch = new {class}(this);");
-    let _ = writeln!(o, "         core.{base}StreamStep(scratch, {fwd_bars});");
+    let _ = writeln!(o, "         core.{base}_StreamStep(scratch, {fwd_bars});");
     let _ = writeln!(o, "         return {};", fresh_value_expr(func, "scratch"));
     let _ = writeln!(o, "      }}");
 
@@ -840,10 +809,10 @@ fn emit_step(
 /// The step signature line, shared by every tier (dispatch/period-bank steps
 /// hand-roll their bodies but keep the identical surface).
 fn emit_step_sig(o: &mut String, func: &FuncDef) {
-    let base = java_base(func);
+    let base = base_name(func);
     let class = stream_class_name(func);
     let (sig_bars, _) = bar_params(func);
-    let _ = writeln!(o, "   void {base}StreamStep( {class} sp, {sig_bars} )\n   {{");
+    let _ = writeln!(o, "   void {base}_StreamStep( {class} sp, {sig_bars} )\n   {{");
 }
 
 /// One model's per-bar step body at a given indent: temp decls, the extrema
@@ -1031,7 +1000,7 @@ fn emit_open_body(
 /// inputs + opts + batch output tail (no startIdx — pinning bar 0 is what
 /// makes the fill bit-exact).
 fn emit_open_body_sig(o: &mut String, func: &FuncDef, mode: OutMode) {
-    let base = java_base(func);
+    let base = base_name(func);
     let class = stream_class_name(func);
     let mut params: Vec<String> = vec![format!("{class} sp")];
     for input in streaming::input_array_names(func) {
@@ -1044,14 +1013,14 @@ fn emit_open_body_sig(o: &mut String, func: &FuncDef, mode: OutMode) {
         params.push(format!("{} {}", opt_param_java_type(&p.param_type), p.name));
     }
     let name = match mode {
-        OutMode::Scalar => format!("{base}OpenBody"),
+        OutMode::Scalar => format!("{base}_OpenBody"),
         OutMode::Fill => {
             params.push("MInteger outBegIdx".to_string());
             params.push("MInteger outNBElement".to_string());
             for out in &func.outputs {
                 params.push(format!("{} {}[]", out_java_type(func, &out.name), out.name));
             }
-            format!("{base}OpenAndFillBody")
+            format!("{base}_OpenAndFillBody")
         }
     };
     let _ = writeln!(o, "   private RetCode {name}( {} )\n   {{", params.join(", "));
@@ -1161,6 +1130,13 @@ fn emit_open_validation(o: &mut String, func: &FuncDef, mode: OutMode) {
     }
     let _ = writeln!(o, "      if( {} ) {{", checks.join(" || "));
     let _ = writeln!(o, "         return RetCode.BadParam;");
+    let _ = writeln!(o, "      }}");
+    // The fill covers bars 0..historyLen-1, so its last bar is an index like any
+    // other and MAX_INDEX bounds it too (#180). Without this the streaming
+    // entry points would compute over exactly the ranges the batch call refuses,
+    // and the two are required to agree bit for bit.
+    let _ = writeln!(o, "      if( historyLen > MAX_INDEX + 1 ) {{");
+    let _ = writeln!(o, "         return RetCode.OutOfRangeEndIndex;");
     let _ = writeln!(o, "      }}");
     o.push_str(&emit_opt_param_validation(func, "RetCode.BadParam"));
     if mode == OutMode::Fill {
@@ -1303,12 +1279,12 @@ fn emit_identity_fast_path(
     mode: OutMode,
 ) {
     let Some(idp) = &model.identity else { return };
-    let base = java_base(func);
+    let base = base_name(func);
     let empty = HashSet::new();
     let ctx = stream_ctx(&empty, counter, stream_fma);
     let cond = render_expr(&idp.condition, &ctx, registry, helpers);
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let lb_call = format!("{base}Lookback({})", lb_args.join(", "));
+    let lb_call = format!("{base}_Lookback({})", lb_args.join(", "));
     let _ = writeln!(o, "      if( {cond} ) {{");
     let _ = writeln!(o, "         if( historyLen < {lb_call} + 1 ) {{");
     let _ = writeln!(o, "            return RetCode.OutOfRangeEndIndex;");
@@ -1598,19 +1574,19 @@ fn emit_reject_conversion(o: &mut String, func: &FuncDef, what: &str) {
     let _ = writeln!(o, "      if( retCode == RetCode.OutOfRangeEndIndex ) {{");
     let _ = writeln!(
         o,
-        "         throw new InsufficientHistoryException(\"TA_{n} {what}: history shorter than lookback + 1\");"
+        "         throw new InsufficientHistoryException(\"{n} {what}: history shorter than lookback + 1\");"
     );
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      if( retCode == RetCode.InternalError ) {{");
-    let _ = writeln!(o, "         throw new IllegalStateException(\"TA_{n} {what}: internal error\");");
+    let _ = writeln!(o, "         throw new IllegalStateException(\"{n} {what}: internal error\");");
     let _ = writeln!(o, "      }}");
-    let _ = writeln!(o, "      throw new IllegalArgumentException(\"TA_{n} {what}: \" + retCode);");
+    let _ = writeln!(o, "      throw new IllegalArgumentException(\"{n} {what}: \" + retCode);");
 }
 
 /// `openInternal` (composition seam), the public `<base>Open`, and the public
 /// `<base>OpenAndFill`. Shared by every tier (the bodies differ, these don't).
 fn emit_open_wrappers(o: &mut String, func: &FuncDef) {
-    let base = java_base(func);
+    let base = base_name(func);
     let class = stream_class_name(func);
     let n = func.name.to_uppercase();
 
@@ -1632,17 +1608,17 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef) {
     // openInternal: startIdx-anchored composition seam (package-private).
     let _ = writeln!(
         o,
-        "   /* Internal startIdx-anchored open behind {base}Open (composition seam). */"
+        "   /* Internal startIdx-anchored open behind {base}_Open (composition seam). */"
     );
     let _ = writeln!(
         o,
-        "   {class} {base}OpenInternal( {}, int startIdx{opt_sig_str} )\n   {{",
+        "   {class} {base}_OpenInternal( {}, int startIdx{opt_sig_str} )\n   {{",
         in_sig.join(", ")
     );
     let _ = writeln!(o, "      {class} sp = new {class}(this);");
     let _ = writeln!(
         o,
-        "      RetCode retCode = {base}OpenBody(sp, {}, startIdx{opt_fwd_str});",
+        "      RetCode retCode = {base}_OpenBody(sp, {}, startIdx{opt_fwd_str});",
         in_fwd.join(", ")
     );
     emit_reject_conversion(o, func, "open");
@@ -1655,7 +1631,7 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef) {
          \x20   * Open a live {n} stream over the warm-up history; the handle's\n\
          \x20   * {{@code value()}} starts at the last history bar's value — bit-identical\n\
          \x20   * to {{@link Core#{base}}} at that bar.\n\
-         \x20   * <p>The history must hold at least {{@code {base}Lookback(...) + 1}} bars\n\
+         \x20   * <p>The history must hold at least {{@code {base}_Lookback(...) + 1}} bars\n\
          \x20   * (unstable-period aware), or {{@link InsufficientHistoryException}} is\n\
          \x20   * thrown. Out-of-range parameters throw {{@link IllegalArgumentException}}\n\
          \x20   * ({{@code Integer.MIN_VALUE}} selects an integer parameter's documented\n\
@@ -1664,12 +1640,12 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef) {
     );
     let _ = writeln!(
         o,
-        "   public {class} {base}Open( {}{opt_sig_str} )\n   {{",
+        "   public {class} {base}_Open( {}{opt_sig_str} )\n   {{",
         in_sig.join(", ")
     );
     let _ = writeln!(
         o,
-        "      return {base}OpenInternal({}, 0{opt_fwd_str});",
+        "      return {base}_OpenInternal({}, 0{opt_fwd_str});",
         in_fwd.join(", ")
     );
     let _ = writeln!(o, "   }}");
@@ -1693,7 +1669,7 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef) {
     let _ = writeln!(
         o,
         "   /**\n\
-         \x20   * {{@link Core#{base}Open}} that also fills the output array(s) bit-identically\n\
+         \x20   * {{@link Core#{base}_Open}} that also fills the output array(s) bit-identically\n\
          \x20   * to {{@link Core#{base}}} over the whole history in the same single pass\n\
          \x20   * (no separate batch call needed for the warm-up plot). Output arrays must\n\
          \x20   * not alias the inputs or each other, and must hold\n\
@@ -1704,7 +1680,7 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef) {
     );
     let _ = writeln!(
         o,
-        "   public {class} {base}OpenAndFill( {} )\n   {{",
+        "   public {class} {base}_OpenAndFill( {} )\n   {{",
         fill_sig.join(", ")
     );
     let _ = writeln!(o, "      {class} sp = new {class}(this);");
@@ -1712,7 +1688,7 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef) {
     let _ = writeln!(o, "      MInteger outNBElement = new MInteger();");
     let _ = writeln!(
         o,
-        "      RetCode retCode = {base}OpenAndFillBody(sp, {});",
+        "      RetCode retCode = {base}_OpenAndFillBody(sp, {});",
         fill_fwd.join(", ")
     );
     let _ = writeln!(
@@ -1802,11 +1778,6 @@ fn emit_dual_mode(
 ) {
     let ma = &dmp.mode_a;
     let mb = &dmp.mode_b;
-    assert!(
-        ma.identity.is_none() && mb.identity.is_none(),
-        "{}: dual-mode arms must not carry an identity path",
-        func.name
-    );
     let mut step_settings = detect_candle_settings(&ma.steady_stmts);
     step_settings.extend(detect_candle_settings(&mb.steady_stmts));
 
@@ -1843,6 +1814,10 @@ fn emit_dual_mode(
         emit_open_body_sig(o, func, mode);
         emit_open_head(o, func, &ma.outputs, mode);
         emit_open_validation(o, func, mode);
+        // Identity (HMA period 1) short-circuits ahead of the predicate: the
+        // whole union sits at its defaults, and both modes' steps short-circuit
+        // on the same guard, so which arm the predicate would pick is moot.
+        emit_identity_fast_path(o, func, ma, &fields, registry, helpers, stream_fma, counter, mode);
         let pred = render_predicate(&dmp.predicate, &ctx, registry, helpers);
         let _ = writeln!(o, "      if( {pred} ) {{");
         for (k, arm) in [ma, mb].into_iter().enumerate() {
@@ -1911,10 +1886,10 @@ fn emit_fastpath_skip(
 // param (the C `void *sub` model — Java has no payload enums at release 9).
 // ---------------------------------------------------------------------------
 
-/// `SmaStream` for callee `sma` — from the callee's JAVA base name (the same
-/// authority as the callee's own generated handle: `ma` -> `MovingAverageStream`).
+/// `SMA_Stream` for callee `sma` — from the callee's own base name, the same
+/// authority as the callee's generated handle.
 fn callee_stream_class(registry: &Registry, callee: &str) -> String {
-    format!("{}Stream", capitalize_first(&registry.java_base(callee)))
+    format!("{}_Stream", registry.name_of(callee))
 }
 
 /// `sp.cur_<out>` / `Value` member routing for one forwarded callee slot.
@@ -1958,14 +1933,14 @@ fn emit_dispatch(
     let outputs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
     let inputs = streaming::input_array_names(func);
     let bar_args = inputs.join(", ");
-    let base = java_base(func);
+    let base = base_name(func);
     let empty = HashSet::new();
     let mut ctx = stream_ctx(&empty, counter, stream_fma);
     // The dispatch identity guard can compare `optInMAType == TA_MAType_*`
     // (TA_MAType_DISABLED, #93); resolve those to their constant like batch.
     ctx.matype_map = build_matype_map(enums);
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let lb_call = format!("{base}Lookback({})", lb_args.join(", "));
+    let lb_call = format!("{base}_Lookback({})", lb_args.join(", "));
 
     // --- handle class -------------------------------------------------------
     let fields = base_fields(func);
@@ -2038,7 +2013,7 @@ fn emit_dispatch(
                 if let streaming::OutSlot::Forward(k) = slot {
                     let _ = writeln!(
                         o,
-                        "         sp.cur_{} = subValue.{};",
+                        "         sp.cur_{} = subValue.{}();",
                         outputs[*k],
                         callee_value_field(registry, &arm.callee, i)
                     );
@@ -2060,9 +2035,9 @@ fn emit_dispatch(
         let _ = writeln!(o, "      int historyLen = {first}.length;");
         emit_open_validation(o, func, mode);
         // Own-lookback precheck BEFORE delegating: the callee's open would
-        // reject too, but with ITS message prefix ("TA_SMA open:" for a TA_MA
-        // call) — the documented stable "TA_<NAME> open:" contract requires
-        // the reject to carry this function's name.
+        // reject too, but with ITS message prefix ("SMA open:" for a MA call)
+        // — the documented stable "<NAME> open:" contract requires the reject
+        // to carry this function's name.
         let _ = writeln!(o, "      if( historyLen < {lb_call} + 1 ) {{");
         let _ = writeln!(o, "         return RetCode.OutOfRangeEndIndex;");
         let _ = writeln!(o, "      }}");
@@ -2112,7 +2087,7 @@ fn emit_dispatch(
             let label = super::java::render_java_switch_label(&arm.label, enums);
             if arm.supported {
                 let cls = callee_stream_class(registry, &arm.callee);
-                let callee_base = registry.java_base(&arm.callee);
+                let callee_base = registry.name_of(&arm.callee);
                 let opts: Vec<String> = arm
                     .opt_args
                     .iter()
@@ -2128,7 +2103,7 @@ fn emit_dispatch(
                         };
                         let _ = writeln!(
                             o,
-                            "         {cls} sub = {callee_base}OpenInternal({bar_args}, startIdx{opts});"
+                            "         {cls} sub = {callee_base}_OpenInternal({bar_args}, startIdx{opts});"
                         );
                     }
                     OutMode::Fill => {
@@ -2157,7 +2132,7 @@ fn emit_dispatch(
                         // the MInteger pair, so copy it back out.
                         let _ = writeln!(
                             o,
-                            "         {cls} sub = {callee_base}OpenAndFill({bar_args}, {opts}{fill_outs});"
+                            "         {cls} sub = {callee_base}_OpenAndFill({bar_args}, {opts}{fill_outs});"
                         );
                         let _ = writeln!(o, "         outBegIdx.value = sub.fillRange().begIdx();");
                         let _ = writeln!(
@@ -2206,7 +2181,7 @@ fn emit_period_bank(
 ) {
     let _ = helpers;
     let callee = plan.callee.as_str();
-    let callee_base = registry.java_base(callee);
+    let callee_base = registry.name_of(callee);
     let subty = callee_stream_class(registry, callee);
     let callee_out0 = registry.callee_outputs(callee)[0].clone();
     let min = plan.min_param.as_str();
@@ -2264,8 +2239,8 @@ fn emit_period_bank(
 
     // --- open body (Scalar) -------------------------------------------------
     let own_lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let base = java_base(func);
-    let own_lb_call = format!("{base}Lookback({})", own_lb_args.join(", "));
+    let base = base_name(func);
+    let own_lb_call = format!("{base}_Lookback({})", own_lb_args.join(", "));
     emit_open_body_sig(o, func, OutMode::Scalar);
     let _ = writeln!(o, "      int historyLen = {price}.length;");
     emit_open_validation(o, func, OutMode::Scalar);
@@ -2287,12 +2262,12 @@ fn emit_period_bank(
          \x20      * (smaller) lookback would seed the recurrence from a different bar and\n\
          \x20      * diverge for every period < maxPeriod. */"
     );
-    let _ = writeln!(o, "      int lookbackTotal = {callee_base}Lookback({lb_args});");
+    let _ = writeln!(o, "      int lookbackTotal = {callee_base}_Lookback({lb_args});");
     let _ = writeln!(o, "      int subStart = (startIdx < lookbackTotal)? lookbackTotal : startIdx;");
     let _ = writeln!(o, "      int nBank = {max} - {min} + 1;");
     let _ = writeln!(o, "      {subty}[] bank = new {subty}[nBank];");
     let _ = writeln!(o, "      for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {{");
-    let _ = writeln!(o, "         bank[bankIdx] = {callee_base}OpenInternal({price}, subStart, {open_opts});");
+    let _ = writeln!(o, "         bank[bankIdx] = {callee_base}_OpenInternal({price}, subStart, {open_opts});");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      int cp = (int){period}[historyLen - 1];");
     let _ = writeln!(o, "      if( cp < {min} ) {{");
@@ -2319,7 +2294,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "      if( {min} > {max} ) {{");
     let _ = writeln!(o, "         return RetCode.BadParam;");
     let _ = writeln!(o, "      }}");
-    let _ = writeln!(o, "      int lookbackTotal = {callee_base}Lookback({lb_args});");
+    let _ = writeln!(o, "      int lookbackTotal = {callee_base}_Lookback({lb_args});");
     let _ = writeln!(o, "      if( historyLen < lookbackTotal + 1 ) {{");
     let _ = writeln!(o, "         return RetCode.OutOfRangeEndIndex;");
     let _ = writeln!(o, "      }}");
@@ -2332,7 +2307,7 @@ fn emit_period_bank(
         "      double[] seedPrefix = java.util.Arrays.copyOfRange({price}, 0, lookbackTotal + 1);"
     );
     let _ = writeln!(o, "      for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {{");
-    let _ = writeln!(o, "         {subty} sub = {callee_base}OpenInternal(seedPrefix, lookbackTotal, {open_opts});");
+    let _ = writeln!(o, "         {subty} sub = {callee_base}_OpenInternal(seedPrefix, lookbackTotal, {open_opts});");
     let _ = writeln!(o, "         bank[bankIdx] = sub;");
     let _ = writeln!(o, "         scratch[bankIdx] = sub.cur_{callee_out0};");
     let _ = writeln!(o, "      }}");
@@ -2628,7 +2603,7 @@ fn emit_composed_step(
                     for (k, d) in sub.dsts.iter().enumerate() {
                         let _ = writeln!(
                             o,
-                            "         cur_{d} = subOut{sub_idx}.{};",
+                            "         cur_{d} = subOut{sub_idx}.{}();",
                             callee_value_field(registry, &callee_key, k)
                         );
                     }
@@ -2746,6 +2721,29 @@ fn emit_composed_open(
     emit_body_decls(o, func, &combined);
     emit_open_head(o, func, &[], mode);
     emit_open_validation(o, func, mode);
+    // Own-lookback precheck BEFORE opening any sub: a sub's reject would carry
+    // the CALLEE's message prefix ("MA open:" for a BBANDS call), breaking the
+    // stable "<NAME> open:" contract. Same check the dispatch and period-bank
+    // shapes already emit, for the same reason.
+    //
+    // It also makes the contract testable in the other direction: past this
+    // point a sub rejecting is a bug in THIS function's lookback, not a caller
+    // error, so it surfaces as the IllegalStateException the reject-conversion
+    // tail already maps InternalError to rather than being silently reported as
+    // the sub's insufficient history.
+    //
+    // Cost: one lookback call per OPEN, on a path that already allocates
+    // `historyLen` doubles per output; `update` is untouched. On the rejecting
+    // path it is now cheaper, because the scratch allocations below no longer
+    // happen before the reject.
+    {
+        let lb_args: Vec<String> =
+            func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+        let lb_call = format!("{}_Lookback({})", base_name(func), lb_args.join(", "));
+        let _ = writeln!(o, "      if( historyLen < {lb_call} + 1 ) {{");
+        let _ = writeln!(o, "         return RetCode.OutOfRangeEndIndex;");
+        let _ = writeln!(o, "      }}");
+    }
     emit_extras_and_candle(o, func, &combined, registry, helpers, counter, stream_fma);
     for out in outputs {
         let _ = writeln!(o, "      double[] sc_{out} = new double[historyLen];");
@@ -2777,7 +2775,7 @@ fn emit_composed_open(
         let mut t = String::new();
         let callee_key = sub.callee.to_lowercase();
         let cls = callee_stream_class(registry, &callee_key);
-        let callee_base = registry.java_base(&callee_key);
+        let callee_base = registry.name_of(&callee_key);
         let sc_rewrite = |e: &Expr| -> Expr {
             streaming::rewrite_expr(e, &|x| match x {
                 Expr::Var(v) if outputs.contains(&v) => Expr::Var(format!("sc_{v}")),
@@ -2817,7 +2815,7 @@ fn emit_composed_open(
         );
         let _ = writeln!(
             t,
-            "      {cls} sub{si} = {callee_base}OpenInternal({}, {anchor}{opt_tail});",
+            "      {cls} sub{si} = {callee_base}_OpenInternal({}, {anchor}{opt_tail});",
             srcs.join(", ")
         );
         inserts.push((region_len + sub.tail_idx, t));

@@ -66,7 +66,7 @@ use super::*;
 #[allow(unused_mut)]
 #[allow(unused_assignments)]
 impl Core {
-    /// Lookback period for [`Core::min`]: the number of leading input values consumed before the
+    /// Lookback period for [`Core::MIN`]: the number of leading input values consumed before the
     /// first output value can be produced.
     ///
     /// # Arguments
@@ -76,7 +76,7 @@ impl Core {
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
     /// to select their default value.
     #[inline]
-    pub fn min_lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn MIN_Lookback(&self, mut optInTimePeriod: i32) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
@@ -106,7 +106,8 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `endIdx < startIdx`, and
+    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
+    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
     /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
     ///
     /// # Panics
@@ -127,7 +128,7 @@ impl Core {
     /// let mut out_nb = 0;
     /// let mut out = vec![0.0; 252];
     ///
-    /// let ret = core.min(0, data.len() - 1, &data, 30, &mut out_beg, &mut out_nb, &mut out);
+    /// let ret = core.MIN(0, data.len() - 1, &data, 30, &mut out_beg, &mut out_nb, &mut out);
     /// assert_eq!(ret, RetCode::Success);
     /// assert!(out_nb > 0);
     /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
@@ -135,13 +136,13 @@ impl Core {
     ///
     /// # See also
     ///
-    /// [`Core::max`] · [`Core::minindex`] · [`Core::minmax`]
+    /// [`Core::MAX`] · [`Core::MININDEX`] · [`Core::MINMAX`]
     ///
-    /// Further reading: [ta-lib.org/functions/min](https://ta-lib.org/functions/min/)
+    /// Further reading: [ta-lib.org/functions/MIN](https://ta-lib.org/functions/MIN/)
     #[doc(alias = "Lowest")]
     #[doc(alias = "RollingMin")]
     #[doc(alias = "MinValue")]
-    pub fn min(
+    pub fn MIN(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -151,15 +152,18 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if endIdx < startIdx {
+        if startIdx > MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
+        }
+        if endIdx > MAX_INDEX || endIdx < startIdx {
+            return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.min_lookback(optInTimePeriod);
+        let _assertLb = self.MIN_Lookback(optInTimePeriod);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -226,20 +230,20 @@ impl Core {
 }
 /**** Streaming API *****/
 
-/// Live MIN stream: one value per closed bar, bit-identical to [`Core::min`]
-/// over the same series. Open with [`Core::min_open`]; dropping the handle
+/// Live MIN stream: one value per closed bar, bit-identical to [`Core::MIN`]
+/// over the same series. Open with [`Core::MIN_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MIN_Stream")]
-pub struct MinStream {
+pub struct MIN_Stream {
     core: Core,
-    state: MinStreamState,
+    state: MIN_StreamState,
 }
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
-struct MinStreamState {
+struct MIN_StreamState {
     optInTimePeriod: i32,
     lowest: f64,
     trailingIdx: i32,
@@ -257,7 +261,7 @@ struct MinStreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn min_step_internal(&self, sp: &mut MinStreamState, inReal: f64, outReal: &mut f64) {
+    fn MIN_step_internal(&self, sp: &mut MIN_StreamState, inReal: f64, outReal: &mut f64) {
         let mut tmp: f64 = 0.0_f64;
         if sp.today >= 1073741824 {
             let rebaseShift: i32 = (sp.trailingIdx / sp.xCap) * sp.xCap;
@@ -288,15 +292,15 @@ impl Core {
         sp.today += 1;
     }
 
-    /// Internal startIdx-anchored open behind [`Core::min_open`] (composition seam).
-    pub(crate) fn min_open_internal(
+    /// Internal startIdx-anchored open behind [`Core::MIN_Open`] (composition seam).
+    pub(crate) fn MIN_OpenInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32,
-    ) -> Result<(MinStream, f64), RetCode> {
+    ) -> Result<(MIN_Stream, f64), RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inReal.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
@@ -379,7 +383,7 @@ impl Core {
                 fillJ += 1;
             }
         }
-        let state = MinStreamState {
+        let state = MIN_StreamState {
             optInTimePeriod,
             lowest,
             trailingIdx: (trailingIdx) as i32,
@@ -389,11 +393,11 @@ impl Core {
             xCap: capX as i32,
             x_inReal,
         };
-        Ok((MinStream { core: self.clone(), state }, lastValue_outReal))
+        Ok((MIN_Stream { core: self.clone(), state }, lastValue_outReal))
     }
 
     /// Open a live MIN stream over the warm-up history; returns the handle and
-    /// the value at the last history bar — bit-identical to [`Core::min`] at that bar.
+    /// the value at the last history bar — bit-identical to [`Core::MIN`] at that bar.
     ///
     /// # Errors
     ///
@@ -405,28 +409,28 @@ impl Core {
     /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.min_open(&data, 30).expect("enough history");
+    /// let (mut s, _last) = core.MIN_Open(&data, 30).expect("enough history");
     /// let peeked = s.peek(100.9);
     /// let updated = s.update(100.9);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_MIN_Open")]
-    pub fn min_open(&self, inReal: &[f64], optInTimePeriod: i32) -> Result<(MinStream, f64), RetCode> {
-        self.min_open_internal(inReal, 0, optInTimePeriod)
+    pub fn MIN_Open(&self, inReal: &[f64], optInTimePeriod: i32) -> Result<(MIN_Stream, f64), RetCode> {
+        self.MIN_OpenInternal(inReal, 0, optInTimePeriod)
     }
 
-    /// [`Core::min_open`] that also fills the output array(s) bit-identically to
-    /// [`Core::min`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::MIN_Open`] that also fills the output array(s) bit-identically to
+    /// [`Core::MIN`] over `0..len` in the same single pass. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_MIN_OpenAndFill")]
-    pub fn min_open_and_fill(
+    pub fn MIN_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<MinStream, RetCode> {
+    ) -> Result<MIN_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > i32::MAX as usize {
-            return Err(RetCode::BadParam);
+        if inReal.len() > MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
@@ -509,7 +513,7 @@ impl Core {
                 fillJ += 1;
             }
         }
-        let state = MinStreamState {
+        let state = MIN_StreamState {
             optInTimePeriod,
             lowest,
             trailingIdx: (trailingIdx) as i32,
@@ -519,19 +523,19 @@ impl Core {
             xCap: capX as i32,
             x_inReal,
         };
-        Ok(MinStream { core: self.clone(), state })
+        Ok(MIN_Stream { core: self.clone(), state })
     }
 
 }
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
-impl MinStream {
+impl MIN_Stream {
     /// Commit one closed bar; always produces a value. Never allocates.
     #[doc(alias = "TA_MIN_Update")]
     pub fn update(&mut self, inReal: f64) -> f64 {
         let mut outReal: f64 = 0.0_f64;
-        self.core.min_step_internal(&mut self.state, inReal, &mut outReal);
+        self.core.MIN_step_internal(&mut self.state, inReal, &mut outReal);
         outReal
     }
 
@@ -549,7 +553,7 @@ impl MinStream {
 
 const _: () = {
     const fn _assert_auto<T: Send + Sync + Clone>() {}
-    _assert_auto::<MinStream>();
+    _assert_auto::<MIN_Stream>();
 };
 
 /***************/

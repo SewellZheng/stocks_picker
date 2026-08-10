@@ -58,7 +58,7 @@ public partial class Core
     *  112605 MF   Fix outBegIdx when startIdx != 0
     */
    /// <summary>
-   /// Number of leading input bars <c>AvgPrice</c> consumes before it can
+   /// Number of leading input bars <c>AVGPRICE</c> consumes before it can
    /// produce its first value.
    /// </summary>
    /// <remarks>
@@ -67,13 +67,13 @@ public partial class Core
    /// output.
    /// </remarks>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
-   public int AvgPriceLookback( )
+   public int AVGPRICE_Lookback( )
    {
       /* This function have no lookback needed. */
       return 0 ;
 
    }
-   internal RetCode AvgPrice( int startIdx,
+   internal RetCode AVGPRICE( int startIdx,
                               int endIdx,
                               double[] inOpen,
                               double[] inHigh,
@@ -87,10 +87,10 @@ public partial class Core
       outNBElement = 0;
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       /* Average price = (High + Low + Open + Close) / 4 */
@@ -102,7 +102,7 @@ public partial class Core
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
-   internal RetCode AvgPrice( int startIdx,
+   internal RetCode AVGPRICE( int startIdx,
                               int endIdx,
                               float[] inOpen,
                               float[] inHigh,
@@ -116,10 +116,10 @@ public partial class Core
       outNBElement = 0;
       int outIdx = 0;
       int i = 0;
-      if( startIdx < 0 ) {
+      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       outIdx = 0;
@@ -144,7 +144,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>AvgPriceLookback</c> is a <b>success
+   /// NaN. A valid range shorter than <c>AVGPRICE_Lookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -158,13 +158,13 @@ public partial class Core
    /// startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange AvgPrice( int startIdx,
+   public OutRange AVGPRICE( int startIdx,
                              int endIdx,
                              double[] inOpen,
                              double[] inHigh,
@@ -172,7 +172,7 @@ public partial class Core
                              double[] inClose,
                              double[] outReal )
    {
-      RetCode retCode = AvgPrice(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
+      RetCode retCode = AVGPRICE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("AVGPRICE", retCode);
       }
@@ -198,7 +198,7 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>AvgPriceLookback</c> is a <b>success
+   /// NaN. A valid range shorter than <c>AVGPRICE_Lookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
    /// </para>
    /// </remarks>
@@ -212,13 +212,13 @@ public partial class Core
    /// startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
-   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative, or <c>endIdx &lt;
-   /// startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
+   /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
    /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
    /// does not pre-validate nulls; the first array access throws.)</exception>
-   public OutRange AvgPrice( int startIdx,
+   public OutRange AVGPRICE( int startIdx,
                              int endIdx,
                              float[] inOpen,
                              float[] inHigh,
@@ -226,7 +226,7 @@ public partial class Core
                              float[] inClose,
                              double[] outReal )
    {
-      RetCode retCode = AvgPrice(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
+      RetCode retCode = AVGPRICE(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("AVGPRICE", retCode);
       }
