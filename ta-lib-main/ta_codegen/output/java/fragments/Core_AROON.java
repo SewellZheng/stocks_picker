@@ -377,7 +377,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class AROON_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double lowest;
       double highest;
@@ -387,7 +387,7 @@
       int highestIdx;
       int i;
       int today;
-      int xCap;
+      int xMask;
       double[] x_inHigh;
       double[] x_inLow;
       double cur_outAroonDown;
@@ -417,7 +417,7 @@
          this.highestIdx = other.highestIdx;
          this.i = other.i;
          this.today = other.today;
-         this.xCap = other.xCap;
+         this.xMask = other.xMask;
          this.x_inHigh = other.x_inHigh.clone();
          this.x_inLow = other.x_inLow.clone();
          this.cur_outAroonDown = other.cur_outAroonDown;
@@ -425,6 +425,37 @@
          this.cachedValue = other.cachedValue;
          this.fillRange = other.fillRange;
       }
+
+      void copyFrom( AROON_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.lowest = other.lowest;
+         this.highest = other.highest;
+         this.factor = other.factor;
+         this.trailingIdx = other.trailingIdx;
+         this.lowestIdx = other.lowestIdx;
+         this.highestIdx = other.highestIdx;
+         this.i = other.i;
+         this.today = other.today;
+         this.xMask = other.xMask;
+         if( this.x_inHigh != null && this.x_inHigh.length == other.x_inHigh.length ) {
+            System.arraycopy( other.x_inHigh, 0, this.x_inHigh, 0, other.x_inHigh.length );
+         } else {
+            this.x_inHigh = other.x_inHigh.clone();
+         }
+         if( this.x_inLow != null && this.x_inLow.length == other.x_inLow.length ) {
+            System.arraycopy( other.x_inLow, 0, this.x_inLow, 0, other.x_inLow.length );
+         } else {
+            this.x_inLow = other.x_inLow.clone();
+         }
+         this.cur_outAroonDown = other.cur_outAroonDown;
+         this.cur_outAroonUp = other.cur_outAroonUp;
+         this.cachedValue = other.cachedValue;
+         this.fillRange = other.fillRange;
+      }
+
+      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
+      private static final ThreadLocal<AROON_Stream> PEEK_SCRATCH = new ThreadLocal<>();
 
       /**
        * One output set, in batch output order. Immutable.
@@ -452,12 +483,20 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a scratch handle held per thread and
+       * reused, so the copy allocates nothing after the first peek of this
+       * indicator on this thread. That scratch is retained for the life of
+       * the thread.
        */
       public Value peek( double inHigh, double inLow ) {
-         AROON_Stream scratch = new AROON_Stream(this);
+         AROON_Stream scratch = PEEK_SCRATCH.get();
+         if( scratch == null ) {
+            scratch = new AROON_Stream(this);
+            PEEK_SCRATCH.set(scratch);
+         } else {
+            scratch.copyFrom(this);
+         }
          core.AROON_StreamStep(scratch, inHigh, inLow);
          return new Value(scratch.cur_outAroonDown, scratch.cur_outAroonUp);
       }
@@ -483,23 +522,23 @@
    {
       double tmp = 0.0;
       if( sp.today >= 1073741824 ) {
-         int rebaseShift = (sp.trailingIdx / sp.xCap) * sp.xCap;
+         int rebaseShift = sp.trailingIdx & ~sp.xMask;
          sp.today -= rebaseShift;
          sp.trailingIdx -= rebaseShift;
          sp.highestIdx -= rebaseShift;
          sp.i -= rebaseShift;
          sp.lowestIdx -= rebaseShift;
       }
-      sp.x_inHigh[sp.today % sp.xCap] = inHigh;
-      sp.x_inLow[sp.today % sp.xCap] = inLow;
+      sp.x_inHigh[sp.today & sp.xMask] = inHigh;
+      sp.x_inLow[sp.today & sp.xMask] = inLow;
       /* Keep track of the lowestIdx */
-      tmp = sp.x_inLow[sp.today % sp.xCap];
+      tmp = sp.x_inLow[sp.today & sp.xMask];
       if( sp.lowestIdx < sp.trailingIdx ) {
          sp.lowestIdx = sp.trailingIdx;
-         sp.lowest = sp.x_inLow[sp.lowestIdx % sp.xCap];
+         sp.lowest = sp.x_inLow[sp.lowestIdx & sp.xMask];
          sp.i = sp.lowestIdx;
          while( ++sp.i <= sp.today ) {
-            tmp = sp.x_inLow[sp.i % sp.xCap];
+            tmp = sp.x_inLow[sp.i & sp.xMask];
             if( tmp <= sp.lowest ) {
                sp.lowestIdx = sp.i;
                sp.lowest = tmp;
@@ -510,13 +549,13 @@
          sp.lowest = tmp;
       }
       /* Keep track of the highestIdx */
-      tmp = sp.x_inHigh[sp.today % sp.xCap];
+      tmp = sp.x_inHigh[sp.today & sp.xMask];
       if( sp.highestIdx < sp.trailingIdx ) {
          sp.highestIdx = sp.trailingIdx;
-         sp.highest = sp.x_inHigh[sp.highestIdx % sp.xCap];
+         sp.highest = sp.x_inHigh[sp.highestIdx & sp.xMask];
          sp.i = sp.highestIdx;
          while( ++sp.i <= sp.today ) {
-            tmp = sp.x_inHigh[sp.i % sp.xCap];
+            tmp = sp.x_inHigh[sp.i & sp.xMask];
             if( tmp >= sp.highest ) {
                sp.highestIdx = sp.i;
                sp.highest = tmp;
@@ -534,7 +573,7 @@
       sp.trailingIdx += 1;
       sp.today += 1;
    }
-   private RetCode AROON_OpenBody( AROON_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
+   private RetCode AROON_OpenCore( AROON_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outAroonDown[], double outAroonUp[], int outStride )
    {
       double lowest = 0;
       double highest = 0;
@@ -546,10 +585,6 @@
       int highestIdx = 0;
       int today = 0;
       int i = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outAroonDown = 0.0;
-      double lastValue_outAroonUp = 0.0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length ) {
@@ -631,8 +666,8 @@
          /* Note: Do not forget that input and output buffer can be the same,
           *       so writing to the output is the last thing being done here.
           */
-         lastValue_outAroonUp = factor * (optInTimePeriod - (today - highestIdx));
-         lastValue_outAroonDown = factor * (optInTimePeriod - (today - lowestIdx));
+         outAroonUp[outIdx * outStride] = factor * (optInTimePeriod - (today - highestIdx));
+         outAroonDown[outIdx * outStride] = factor * (optInTimePeriod - (today - lowestIdx));
          outIdx += 1;
          trailingIdx += 1;
          today += 1;
@@ -647,11 +682,15 @@
       if( capX < 1 || capX > historyLen ) {
          return RetCode.InternalError;
       }
-      double[] capX_inHigh = new double[capX];
-      double[] capX_inLow = new double[capX];
+      int physX = 1;
+      while( physX < capX ) {
+         physX <<= 1;
+      }
+      double[] capX_inHigh = new double[physX];
+      double[] capX_inLow = new double[physX];
       for( int fillJ = historyLen - capX; fillJ < historyLen; fillJ++ ) {
-         capX_inHigh[fillJ % capX] = inHigh[fillJ];
-         capX_inLow[fillJ % capX] = inLow[fillJ];
+         capX_inHigh[fillJ & (physX - 1)] = inHigh[fillJ];
+         capX_inLow[fillJ & (physX - 1)] = inLow[fillJ];
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.lowest = lowest;
@@ -662,149 +701,48 @@
       sp.highestIdx = highestIdx;
       sp.i = i;
       sp.today = today;
-      sp.xCap = capX;
+      sp.xMask = physX - 1;
       sp.x_inHigh = capX_inHigh;
       sp.x_inLow = capX_inLow;
-      sp.cur_outAroonDown = lastValue_outAroonDown;
-      sp.cur_outAroonUp = lastValue_outAroonUp;
+      sp.cur_outAroonDown = outAroonDown[(outNBElement.value - 1) * outStride];
+      sp.cur_outAroonUp = outAroonUp[(outNBElement.value - 1) * outStride];
       sp.cachedValue = new AROON_Stream.Value(sp.cur_outAroonDown, sp.cur_outAroonUp);
       return RetCode.Success;
    }
+   private RetCode AROON_OpenBody( AROON_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outAroonDown = new double[1];
+      double[] sink_outAroonUp = new double[1];
+      return AROON_OpenCore( sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outAroonDown, sink_outAroonUp, 0 );
+   }
    private RetCode AROON_OpenAndFillBody( AROON_Stream sp, double inHigh[], double inLow[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outAroonDown[], double outAroonUp[] )
    {
-      double lowest = 0;
-      double highest = 0;
-      double tmp = 0;
-      double factor = 0;
-      int outIdx = 0;
-      int trailingIdx = 0;
-      int lowestIdx = 0;
-      int highestIdx = 0;
-      int today = 0;
-      int i = 0;
-      int historyLen = inHigh.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inLow.length != inHigh.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 14;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outAroonDown == (Object)inHigh || (Object)outAroonDown == (Object)inLow || (Object)outAroonUp == (Object)inHigh || (Object)outAroonUp == (Object)inLow || (Object)outAroonDown == (Object)outAroonUp ) {
          return RetCode.BadParam;
       }
-      /* This function is using a speed optimized algorithm
-       * for the min/max logic.
-       *
-       * You might want to first look at how TA_MIN/TA_MAX works
-       * and this function will become easier to understand.
-       */
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < optInTimePeriod ) {
-         startIdx = optInTimePeriod;
+      return AROON_OpenCore( sp, inHigh, inLow, 0, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp, 1 );
+   }
+   private RetCode AROON_OpenAndFillInternalBody( AROON_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outAroonDown[], double outAroonUp[] )
+   {
+      return AROON_OpenCore(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp, 1);
+   }
+   /* AROON_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   AROON_Stream AROON_OpenAndFillInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outAroonDown[], double outAroonUp[] )
+   {
+      AROON_Stream sp = new AROON_Stream(this);
+      RetCode retCode = AROON_OpenAndFillInternalBody(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("AROON openAndFill: history shorter than lookback + 1");
       }
-      /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the input and
-       * output to be the same buffer.
-       */
-      outIdx = 0;
-      today = startIdx;
-      trailingIdx = startIdx - optInTimePeriod;
-      lowestIdx = 0 - 1;
-      highestIdx = 0 - 1;
-      lowest = 0.0;
-      highest = 0.0;
-      factor = (double)100.0 / (double)optInTimePeriod;
-      while( today <= endIdx ) {
-         /* Keep track of the lowestIdx */
-         tmp = inLow[today];
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
-            lowest = inLow[lowestIdx];
-            i = lowestIdx;
-            while( ++i <= today ) {
-               tmp = inLow[i];
-               if( tmp <= lowest ) {
-                  lowestIdx = i;
-                  lowest = tmp;
-               }
-            }
-         } else if( tmp <= lowest ) {
-            lowestIdx = today;
-            lowest = tmp;
-         }
-         /* Keep track of the highestIdx */
-         tmp = inHigh[today];
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
-            highest = inHigh[highestIdx];
-            i = highestIdx;
-            while( ++i <= today ) {
-               tmp = inHigh[i];
-               if( tmp >= highest ) {
-                  highestIdx = i;
-                  highest = tmp;
-               }
-            }
-         } else if( tmp >= highest ) {
-            highestIdx = today;
-            highest = tmp;
-         }
-         /* Note: Do not forget that input and output buffer can be the same,
-          *       so writing to the output is the last thing being done here.
-          */
-         outAroonUp[outIdx] = factor * (optInTimePeriod - (today - highestIdx));
-         outAroonDown[outIdx] = factor * (optInTimePeriod - (today - lowestIdx));
-         outIdx += 1;
-         trailingIdx += 1;
-         today += 1;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("AROON openAndFill: internal error");
       }
-      /* Keep the outBegIdx relative to the
-       * caller input before returning.
-       */
-      outBegIdx.value = startIdx;
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      int capX = today - trailingIdx + 1;
-      if( capX < 1 || capX > historyLen ) {
-         return RetCode.InternalError;
-      }
-      double[] capX_inHigh = new double[capX];
-      double[] capX_inLow = new double[capX];
-      for( int fillJ = historyLen - capX; fillJ < historyLen; fillJ++ ) {
-         capX_inHigh[fillJ % capX] = inHigh[fillJ];
-         capX_inLow[fillJ % capX] = inLow[fillJ];
-      }
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.lowest = lowest;
-      sp.highest = highest;
-      sp.factor = factor;
-      sp.trailingIdx = trailingIdx;
-      sp.lowestIdx = lowestIdx;
-      sp.highestIdx = highestIdx;
-      sp.i = i;
-      sp.today = today;
-      sp.xCap = capX;
-      sp.x_inHigh = capX_inHigh;
-      sp.x_inLow = capX_inLow;
-      sp.cur_outAroonDown = outAroonDown[outNBElement.value - 1];
-      sp.cur_outAroonUp = outAroonUp[outNBElement.value - 1];
-      sp.cachedValue = new AROON_Stream.Value(sp.cur_outAroonDown, sp.cur_outAroonUp);
-      return RetCode.Success;
+      throw new IllegalArgumentException("AROON openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind AROON_Open (composition seam). */
    AROON_Stream AROON_OpenInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod )

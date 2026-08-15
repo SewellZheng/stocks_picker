@@ -12,7 +12,7 @@ use ta_codegen_lib::backends;
 use ta_codegen_lib::helper_registry::HelperRegistry;
 use ta_codegen_lib::ir;
 use ta_codegen_lib::parser;
-use ta_codegen_lib::registry::Registry;
+use ta_codegen_lib::registry::{Lang, Registry};
 
 // ---------------------------------------------------------------------------
 // Test infrastructure
@@ -42,11 +42,31 @@ fn discover_indicators() -> Vec<String> {
 /// Load a function definition from its .yaml + .c files.
 /// Always loads enums.yaml since multiple indicators use enum types.
 fn load_indicator(name: &str) -> (ir::FuncDef, HashMap<String, ir::EnumDef>) {
-    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    load_from(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input"),
+        name,
+    )
+}
+
+/// Load a synthetic gate fixture from `input_synth/` — the definitions carrying
+/// generator constructs no shipped indicator uses (see `input_synth/README.md`).
+/// `scripts/synth_gate.py` runs the same fixtures end-to-end through every
+/// backend; these tests pin the rendered shape.
+fn load_synth(name: &str) -> (ir::FuncDef, HashMap<String, ir::EnumDef>) {
+    load_from(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("input_synth"),
+        name,
+    )
+}
+
+fn load_from(base: &Path, name: &str) -> (ir::FuncDef, HashMap<String, ir::EnumDef>) {
     let yaml_path = base.join(format!("{}/{}.yaml", name, name));
     let c_path = base.join(format!("{}/{}.c", name, name));
 
-    let enums_path = base.join("enums.yaml");
+    // Enums always come from the real input tree: the synthetic fixtures share it.
+    let enums_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../ta_codegen/input")
+        .join("enums.yaml");
     let enums = parser::enums::load_enums(&enums_path);
 
     let mut func_def = parser::yaml::parse_yaml(&yaml_path);
@@ -93,6 +113,15 @@ struct AllOutputs {
 
 fn make_registry() -> Registry {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    Registry::from_dir(&base)
+}
+
+/// A registry over the `input_synth/` gate fixtures. `scripts/synth_gate.py`
+/// copies them into `ta_codegen/input/` before generating, so there they are
+/// registered alongside the shipped indicators; here they are their own tree.
+/// Sufficient for the fixtures, none of which calls a shipped indicator.
+fn make_synth_registry() -> Registry {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("input_synth");
     Registry::from_dir(&base)
 }
 
@@ -504,25 +533,25 @@ fn test_c_sma_guarded_has_validation() {
 }
 
 #[test]
-fn test_c_ema_private_omits_validation() {
+fn test_c_synth_private_omits_validation() {
     // Exactly one tier validates: the guarded entry point, not `_Private`.
-    // Anchored on EMA — the one definition in ta_codegen/input/ with an
-    // explicit _private.
-    let (func, enums) = load_indicator("ema");
+    // Anchored on the SYNTH4 gate fixture — no shipped indicator declares an
+    // explicit _private (EMA's was folded away in #183).
+    let (func, enums) = load_synth("synth4");
     let out = generate_all(&func, &enums);
 
     let private = extract_section(
         &out.c,
-        "static TA_RetCode TA_EMA_Private(",
-        "TA_LIB_API TA_RetCode TA_EMA(",
+        "static TA_RetCode TA_SYNTH4_Private(",
+        "TA_LIB_API TA_RetCode TA_SYNTH4(",
     );
     assert!(
         !private.contains("TA_OUT_OF_RANGE_START_INDEX"),
-        "C EMA _Private should NOT have start index validation"
+        "C SYNTH4 _Private should NOT have start index validation"
     );
     assert!(
         !private.contains("TA_OUT_OF_RANGE_END_INDEX"),
-        "C EMA _Private should NOT have end index validation"
+        "C SYNTH4 _Private should NOT have end index validation"
     );
 }
 
@@ -543,14 +572,14 @@ fn test_java_sma_guarded_has_validation() {
 }
 
 #[test]
-fn test_java_ema_private_omits_validation() {
-    let (func, enums) = load_indicator("ema");
+fn test_java_synth_private_omits_validation() {
+    let (func, enums) = load_synth("synth4");
     let out = generate_all(&func, &enums);
 
-    let private = extract_section(&out.java, "RetCode EMA_Private(", "RetCode EMA_Internal(");
+    let private = extract_section(&out.java, "RetCode SYNTH4_Private(", "RetCode SYNTH4_Internal(");
     assert!(
         !private.contains("OutOfRangeStartIndex"),
-        "Java EMA_Private should NOT have start index validation"
+        "Java SYNTH4_Private should NOT have start index validation"
     );
 }
 
@@ -569,20 +598,20 @@ fn test_rust_sma_guarded_has_validation() {
 }
 
 #[test]
-fn test_rust_ema_private_omits_validation() {
-    let (func, enums) = load_indicator("ema");
+fn test_rust_synth_private_omits_validation() {
+    let (func, enums) = load_synth("synth4");
     let out = generate_all(&func, &enums);
 
-    // `pub(crate)`, matching C's file-`static` TA_EMA_Private (#180): skipping
+    // `pub(crate)`, matching C's file-`static` TA_SYNTH4_Private (#180): skipping
     // validation is only sound while the callers are the guarded bodies.
-    let private = extract_section(&out.rust, "pub(crate) fn EMA_Private(", "\n}\n");
+    let private = extract_section(&out.rust, "pub(crate) fn SYNTH4_Private(", "\n}\n");
     assert!(
         !private.contains("OutOfRangeStartIndex"),
-        "Rust EMA_Private should NOT have range validation"
+        "Rust SYNTH4_Private should NOT have range validation"
     );
     assert!(
-        !out.rust.contains("pub fn EMA_Private("),
-        "Rust ema_private must not be crate-public: it is the one entry point with no \
+        !out.rust.contains("pub fn SYNTH4_Private("),
+        "Rust synth4_private must not be crate-public: it is the one entry point with no \
          validation prologue, so a `pub` here bypasses the TA_MAX_INDEX bound (#180)"
     );
 }
@@ -1065,9 +1094,8 @@ fn test_all_indicators_contain_success_returns() {
         };
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // Delegation functions (e.g. EMA -> TA_EMA_Private, MACDFIX ->
-            // TA_MACD) return a RetCode from a callee without ever mentioning
-            // TA_SUCCESS literally.
+            // Delegation functions (e.g. MACDFIX -> TA_MACD) return a RetCode
+            // from a callee without ever mentioning TA_SUCCESS literally.
             // Accept: literal TA_SUCCESS OR a `return TA_<func>( ... )` delegation.
             let c_has_success = out.c.contains("TA_SUCCESS")
                 || out.c.lines().any(|l| {
@@ -1802,6 +1830,8 @@ fn backends_render_max_min_fmax_fmin_abs() {
         header_comments: vec![],
         doc: None,
         streaming: false,
+        alternates: vec![],
+        resolved_stream_body: None,
     };
 
     let enums = std::collections::HashMap::new();
@@ -2301,6 +2331,8 @@ fn make_func_with_helper_call(
         header_comments: vec![],
         doc: None,
         streaming: false,
+        alternates: vec![],
+        resolved_stream_body: None,
     }
 }
 
@@ -2448,6 +2480,8 @@ fn inlining_counter_avoids_name_collisions() {
         header_comments: vec![],
         doc: None,
         streaming: false,
+        alternates: vec![],
+        resolved_stream_body: None,
     };
     let enums = HashMap::new();
     let registry = make_registry();
@@ -3423,15 +3457,20 @@ fn rust_switch_with_enum_label_lookup() {
     let helpers = make_helpers();
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
-    // MA's switch should render as match with integer values from enum lookup
+    // MA's switch renders as a match whose arms name the enum members. This
+    // pins the member spelling rather than "some integer": the subject is the
+    // typed parameter, so a bare ordinal would not even compile.
     assert!(
         rust_out.contains("match "),
         "MA Rust should contain match statement: {rust_out}"
     );
-    // The enum variants resolve to integer values (0, 1, 2, etc.)
     assert!(
-        rust_out.contains("0 =>") || rust_out.contains("1 =>"),
-        "MA Rust match should have integer case labels from enum resolution"
+        rust_out.contains("MAType::SMA =>") && rust_out.contains("MAType::EMA =>"),
+        "MA Rust match should have qualified member case labels: {rust_out}"
+    );
+    assert!(
+        !rust_out.contains("            0 => {"),
+        "MA Rust match must not fall back to bare ordinals: {rust_out}"
     );
 }
 
@@ -3722,12 +3761,11 @@ fn rust_cross_indicator_lookback_with_pascal_case() {
 
 #[test]
 fn rust_private_cross_indicator_call() {
-    // EMA has explicit _private with extra params. Registry routes:
-    //   ema() → ema(), ema_private() → ema_private()
-    // The `_private` arm has its own resolution path and is
-    // (MACD was the original vehicle for both paths, but its lockstep fusion
-    // removed the EMA calls.) The bare-name path is exercised by MA's dispatch;
-    // the private-name path by EMA's guarded body delegating to ema_private().
+    // Two distinct call-resolution paths. The bare-name path is exercised by
+    // MA's dispatch to ema(); the private-name path (`<name>_private()` →
+    // `<Name>_Private`) by the SYNTH4 gate fixture's guarded body, which is the
+    // only definition left declaring an explicit _private with extra params
+    // (EMA's was folded away in #183).
     let registry = make_registry();
     let helpers = make_helpers();
 
@@ -3738,11 +3776,12 @@ fn rust_private_cross_indicator_call() {
         "MA Rust dispatch should call self.EMA(): {rust_out}"
     );
 
-    let (func, enums) = load_indicator("ema");
-    let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+    let synth_registry = make_synth_registry();
+    let (func, enums) = load_synth("synth4");
+    let rust_out = backends::rust_lang::generate(&func, &enums, &synth_registry, &helpers);
     assert!(
-        rust_out.contains("self.EMA_Private("),
-        "EMA Rust guarded body should delegate to self.EMA_Private(): {rust_out}"
+        rust_out.contains("self.SYNTH4_Private("),
+        "SYNTH4 Rust guarded body should delegate to self.SYNTH4_Private(): {rust_out}"
     );
 }
 
@@ -4540,6 +4579,8 @@ fn rust_lookback_param_minus() {
         header_comments: vec![],
         doc: None,
         streaming: false,
+        alternates: vec![],
+        resolved_stream_body: None,
     };
     let enums = HashMap::new();
     let registry = make_registry();
@@ -4584,6 +4625,8 @@ fn rust_lookback_none() {
         header_comments: vec![],
         doc: None,
         streaming: false,
+        alternates: vec![],
+        resolved_stream_body: None,
     };
     let enums = HashMap::new();
     let registry = make_registry();
@@ -4786,6 +4829,8 @@ fn rust_lookback_code_renders_var_types_correctly() {
         header_comments: vec![],
         doc: None,
         streaming: false,
+        alternates: vec![],
+        resolved_stream_body: None,
     };
     let enums = HashMap::new();
     let registry = make_registry();
@@ -4883,6 +4928,8 @@ fn rust_lookback_body_never_fuses_multiply_add() {
         header_comments: vec![],
         doc: None,
         streaming: false,
+        alternates: vec![],
+        resolved_stream_body: None,
     };
     let enums = HashMap::new();
     let out = backends::rust_lang::generate(&func, &enums, &make_registry(), &HelperRegistry::empty());
@@ -4968,6 +5015,8 @@ fn rust_lookback_body_types_locals_by_declaration_not_name() {
             header_comments: vec![],
             doc: None,
             streaming: false,
+            alternates: vec![],
+            resolved_stream_body: None,
         };
         let enums = HashMap::new();
         let registry = make_registry();
@@ -7111,6 +7160,43 @@ fn test_c_mama_nullable_fama_batch() {
     );
 }
 
+/// Pin where a dual-mode function's identity path is emitted. HMA is the only
+/// dual-mode function carrying one, and its mode predicate (`period == 2 ||
+/// period == 3`) EXCLUDES the identity value, so an arm-local copy of the
+/// `period == 1` guard is unreachable — the defect this pins against. The guard
+/// belongs above the predicate, once per step, the way Open already emits it.
+///
+/// Values cannot see this: an unreachable branch changes no output, so
+/// ta_regtest, the bitwise stream/OpenAndFill gates, clippy and the C build are
+/// all silent on a regression here. Only a render pin catches it.
+#[test]
+fn test_dual_mode_identity_guard_is_hoisted_above_the_predicate() {
+    let (mut func, enums) = load_indicator("hma");
+    func.streaming = true;
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+
+    let step = c
+        .split("static void TA_HMA_StepInternal(")
+        .nth(1)
+        .and_then(|s| s.split("\n}\n").next())
+        .expect("step body");
+    assert_eq!(
+        step.matches("sp->optInTimePeriod == 1").count(),
+        1,
+        "exactly one identity guard per step, not one per mode arm:\n{step}"
+    );
+    let guard = step.find("sp->optInTimePeriod == 1").expect("identity guard");
+    let pred = step
+        .find("sp->optInTimePeriod == 2 || sp->optInTimePeriod == 3")
+        .expect("mode predicate");
+    assert!(
+        guard < pred,
+        "the identity guard must precede the mode predicate, not sit inside an arm:\n{step}"
+    );
+}
+
 /// Pin the generated MINUS_DM dual-mode stream section: ONE union state struct,
 /// ONE StepInternal that branches on the stored (immutable) period param — no
 /// separate mode tag — and an OpenInternal that selects the degenerate vs the
@@ -7187,7 +7273,7 @@ fn test_c_ht_dcperiod_parity_stream_section() {
         .split("TA_HT_DCPERIOD_StepInternal")
         .nth(1)
         .expect("StepInternal emitted");
-    let step_body = &step[..step.find("TA_HT_DCPERIOD_OpenInternal").unwrap_or(step.len())];
+    let step_body = &step[..step.find("TA_HT_DCPERIOD_OpenCore").unwrap_or(step.len())];
     assert!(
         step_body.contains("*outReal= sp->smoothPeriod;"),
         "unconditional smoothPeriod output in the step"
@@ -7235,7 +7321,7 @@ fn test_c_ht_phasor_nested_gate_two_outputs_stream_section() {
         .split("TA_HT_PHASOR_StepInternal")
         .nth(1)
         .expect("StepInternal emitted");
-    let step_body = &step[..step.find("TA_HT_PHASOR_OpenInternal").unwrap_or(step.len())];
+    let step_body = &step[..step.find("TA_HT_PHASOR_OpenCore").unwrap_or(step.len())];
     // The step branches on the carried parity, and BOTH outputs are written
     // unconditionally in each arm (the nested `today >= startIdx` gate stripped).
     assert!(step_body.contains("if( sp->streamParity == 0 )"), "parity branch in the step");
@@ -7288,7 +7374,7 @@ fn test_c_ht_sine_two_sin_outputs() {
     let s = ht_stream_section("ht_sine");
     assert!(s.contains("double *cb_smoothPrice;"), "shares DCPHASE's circbuf");
     let step = s.split("TA_HT_SINE_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_HT_SINE_OpenInternal").unwrap_or(step.len())];
+    let step = &step[..step.find("TA_HT_SINE_OpenCore").unwrap_or(step.len())];
     assert!(step.contains("*outSine="), "outSine written unconditionally");
     assert!(step.contains("*outLeadSine="), "outLeadSine written unconditionally");
     assert!(!step.contains("startIdx") && !step.contains("% 2"), "no cursor leak in the step");
@@ -7302,7 +7388,7 @@ fn test_c_ht_trendline_raw_price_window() {
     assert!(s.contains("double *win_i_inReal;"), "rescan window over raw inReal");
     assert!(!s.contains("cb_smoothPrice"), "no smoothPrice circbuf (removed, issue #88)");
     let step = s.split("TA_HT_TRENDLINE_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_HT_TRENDLINE_OpenInternal").unwrap_or(step.len())];
+    let step = &step[..step.find("TA_HT_TRENDLINE_OpenCore").unwrap_or(step.len())];
     assert!(step.contains("sp->win_i_inReal[(sp->winPos_i + sp->winCap_i - sp->i >= sp->winCap_i) ?"), "de-modulo window read of bar today-i");
     assert!(step.contains("if( sp->i < sp->DCPeriodInt )"), "guarded to the first DCPeriodInt bars");
     assert!(step.contains("*outReal= sp->tempReal2;"), "unconditional trendline output");
@@ -7317,7 +7403,7 @@ fn test_c_ht_trendmode_full_union() {
     assert!(s.contains("double *cb_smoothPrice;"), "smoothPrice circbuf");
     assert!(s.contains("double *win_j_inReal;"), "raw-price rescan window (counter j)");
     let step = s.split("TA_HT_TRENDMODE_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_HT_TRENDMODE_OpenInternal").unwrap_or(step.len())];
+    let step = &step[..step.find("TA_HT_TRENDMODE_OpenCore").unwrap_or(step.len())];
     assert!(step.contains("*outInteger="), "integer trend-mode output, unconditional");
     assert!(step.contains("sp->cb_smoothPrice[sp->idx]"), "circbuf DC-phase read");
     assert!(step.contains("sp->win_j_inReal[(sp->winPos_j + sp->winCap_j - sp->j >= sp->winCap_j) ?"), "de-modulo window trendline read");
@@ -7334,7 +7420,7 @@ fn test_c_mama_two_outputs_and_params() {
     assert!(s.contains("double optInFastLimit;") && s.contains("double optInSlowLimit;"), "real params carried in the handle");
     assert!(s.contains("double mama;") && s.contains("double fama;"), "coupled mama/fama carried");
     let step = s.split("TA_MAMA_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_MAMA_OpenInternal").unwrap_or(step.len())];
+    let step = &step[..step.find("TA_MAMA_OpenCore").unwrap_or(step.len())];
     assert!(step.contains("if( sp->streamParity == 0 )"), "parity branch");
     // MAMA line always written; FAMA (nullable) write is NULL-guarded so the
     // step never dereferences a NULL FAMA pointer (the gate itself is stripped).
@@ -7412,12 +7498,16 @@ fn test_c_trima_dual_mode_rings_stream_section() {
     assert!(c.contains("ringMirror_middleIdx_inReal"), "Peek ring mirror");
 }
 
-/// Pin the generated MIDPRICE fast-path-skip stream section: the `if(period<=20)`
-/// arms are bit-identical (batch perf split), so ONLY the general (else) T4
-/// extrema arm is streamed — one StepInternal, no mode branch, and the Open does
-/// not transcribe the fast-path `period<=20` window-rescan arm.
+/// Pin the generated MIDPRICE stream section: batch runs the block scan and the
+/// stream runs `midprice_ALT1`'s T4 extrema automaton — one StepInternal, no
+/// mode branch, and no trace of the block scan inside the Open.
+///
+/// Every check here asserts on a string the generator DOES produce, in both
+/// directions — present in the batch tier, absent from the Open. An
+/// absence-only assertion starts passing for free the day the generator stops
+/// emitting the string it looks for, and says nothing from then on.
 #[test]
-fn test_c_midprice_fastpath_skip_stream_section() {
+fn test_c_midprice_stream_uses_the_declared_alternate() {
     let (mut func, enums) = load_indicator("midprice");
     func.streaming = true;
     let registry = make_registry();
@@ -7434,16 +7524,33 @@ fn test_c_midprice_fastpath_skip_stream_section() {
         c.contains("*outReal= (sp->highest + sp->lowest) / 2.0;"),
         "midprice combine in the extrema step"
     );
-    // The fast-path window-rescan then-arm is NOT transcribed into the Open: no
-    // `optInTimePeriod <= 20` branch survives (only the general else arm streams).
-    let open = c
-        .split("TA_MIDPRICE_OpenInternal")
-        .nth(1)
-        .expect("OpenInternal emitted");
+    // The generated section names the alternate it was built from.
     assert!(
-        !open.contains("optInTimePeriod <= 20"),
-        "the perf fast-path arm must be skipped, not transcribed"
+        c.contains("/* Using midprice_ALT1 for TA_ALT={STREAM,ALL_LANGUAGES} */"),
+        "the stream section must name the alternate it resolved to"
     );
+
+    // ...and the marker must be telling the truth. A marker is derived from the
+    // resolution, so on its own it would agree with a resolver that picked the
+    // wrong body; these check the emitted CODE. The block scan's scratch and
+    // block cursor appear in the batch tier and nowhere in the Open.
+    let (batch, open) = c
+        .split_once("TA_MIDPRICE_OpenCore")
+        .expect("OpenCore emitted");
+    for marker in ["sufHighest", "preHighest", "blockNext"] {
+        assert!(
+            batch.contains(marker),
+            "batch tier lost the block scan (`{marker}` absent) — the BATCH cell should \
+             resolve to the base body"
+        );
+        assert!(
+            !open.contains(marker),
+            "`{marker}` reached the Open: the STREAM cell resolved to the block scan, not to \
+             midprice_ALT1"
+        );
+    }
+    // The automaton's own state, conversely, must be there.
+    assert!(open.contains("highestIdx"), "the alternate's cached-extremum index");
 }
 
 /// Pin the generated STOCH composed stream section: producer extrema state +
@@ -7465,17 +7572,31 @@ fn test_c_stoch_composed_stream_section() {
     assert!(stream.contains("TA_MA_Stream *sub0;"));
     assert!(stream.contains("TA_MA_Stream *sub1;"));
 
-    // Open: sub0 opens on the RAW series strictly BEFORE the in-place
-    // smoothing call; sub1 after it, before the %D call.
-    let sub0 = stream.find("subRc = TA_MA_OpenInternal( &sub0, tempBuffer").expect("sub0 open");
+    // STOCH is the one shipped function that exercises BOTH sides of the
+    // issue-#192 fusion rule, which is why this assertion lives here:
+    //
+    //   sub0's %K smoothing is IN PLACE — `TA_MA( .., tempBuffer, .., tempBuffer )`
+    //   — so it must stay UNFUSED. A fused open would write tempBuffer during
+    //   the warm-up pass while the sub-MA's own capture epilogue still has to
+    //   read its input tail out of it, corrupting the handle.
+    //
+    //   sub1's %D writes a distinct destination, so it fuses: one pass that
+    //   both warms the handle and fills sc_outSlowD, instead of a warm pass
+    //   plus a batch call recomputing the same numbers.
+    let sub0 = stream.find("subRc = TA_MA_OpenInternal( &sub0, tempBuffer").expect("sub0 open (must stay unfused: in-place)");
     let ma1 = stream.find("retCode = TA_MA(0,outIdx - 1,tempBuffer").expect("in-place smoothing");
-    let sub1 = stream.find("subRc = TA_MA_OpenInternal( &sub1, tempBuffer").expect("sub1 open");
-    let ma2 = stream.find("optInSlowD_MAType,&dummyBegIdx,&dummyNBElement,sc_outSlowD").expect("%D call");
-    assert!(sub0 < ma1 && ma1 < sub1 && sub1 < ma2, "sub-open ordering");
-    // Params trail the handle+history in the new Open order (input, optional, output):
-    // slowK/slowD forwarded just before the initial-output dummy.
+    let sub1 = stream.find("subRc = TA_MA_OpenAndFillInternal( &sub1, tempBuffer").expect("sub1 open (must be fused)");
+    assert!(sub0 < ma1 && ma1 < sub1, "sub-open ordering");
+    // The fused sub1 replaced the %D batch call outright: nothing recomputes it.
+    assert!(
+        !stream.contains("optInSlowD_MAType,&dummyBegIdx,&dummyNBElement,sc_outSlowD"),
+        "%D batch sub-call survived the fusion"
+    );
+    // Params trail the handle+history in the new Open order (input, optional, output).
+    // The unfused sub0 still ends in the initial-output dummy; the fused sub1
+    // carries the batch call's own out-meta and destination instead.
     assert!(stream.contains("optInSlowK_Period, optInSlowK_MAType, &subOpenDummy"), "slowK params forwarded to sub0 open");
-    assert!(stream.contains("optInSlowD_Period, optInSlowD_MAType, &subOpenDummy"), "slowD params forwarded to sub1 open");
+    assert!(stream.contains("optInSlowD_Period, optInSlowD_MAType, &dummyBegIdx, &dummyNBElement, sc_outSlowD"), "slowD params + fill target forwarded to sub1 open");
 
     // Out-meta pointers mapped to the dummies in the transcription (the
     // Open signature has no outBegIdx/outNBElement).
@@ -7558,16 +7679,19 @@ fn test_c_composed_open_emits_one_null_check_per_intermediate() {
         let open_at = c
             .find(&format!("TA_RetCode TA_{upper}_Open"))
             .unwrap_or_else(|| panic!("{upper} composed Open"));
-        // OpenInternal and OpenAndFill each transcribe the region, so every
-        // buffer is checked exactly twice across the two — never four times.
+        // One `OpenCore` transcribes the region for both entry points, so every
+        // buffer is checked exactly once — never twice. (Before the Open family
+        // was merged this read 2, one per transcription; the invariant being
+        // pinned is unchanged: the source's own check must not be emitted
+        // alongside the injected one.)
         let opens = &c[open_at..];
         for buf in buffers {
             let n = opens.matches(&format!("if( !{buf} )")).count();
             assert_eq!(
-                n, 2,
-                "{upper}: `{buf}` must be null-checked once per composed Open \
-                 (2 across OpenInternal + OpenAndFill), found {n} — the source's \
-                 own check is being emitted alongside the injected one again"
+                n, 1,
+                "{upper}: `{buf}` must be null-checked exactly once in the composed \
+                 OpenCore, found {n} — the source's own check is being emitted \
+                 alongside the injected one again"
             );
         }
     }
@@ -7880,10 +8004,266 @@ TA_RetCode bbands( int startIdx, int endIdx,
 // passed vacuously in this repo before.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Rust enum (#179). Same standard as the C# one below: assert on EMITTED
+// CONTENT. Everything here is frozen public API the moment the crate publishes,
+// and until now none of it was asserted anywhere.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rust_matype_emits_every_yaml_variant_and_its_frozen_shape() {
+    let enums = load_enums();
+    let src = backends::rust_enums::render_matype(&enums);
+    let ma = enums.get("MAType").expect("MAType in enums.yaml");
+
+    for v in &ma.variants {
+        let decl = format!("    {} = {},", v.name, v.value);
+        assert!(
+            src.contains(&decl),
+            "Rust MAType is missing `{decl}` -- a dropped variant reorders the \
+             optInMAType ABI:\n{src}"
+        );
+        // The conversion must accept every member, or a value that is legal at
+        // the C ABI would be rejected by the Rust one.
+        let arm = format!("            {} => Self::{},", v.value, v.name);
+        assert!(
+            src.contains(&arm),
+            "TryFrom<i32> is missing `{arm}`:\n{src}"
+        );
+    }
+
+    // An EXTRA emitted member fails too.
+    let emitted = src
+        .lines()
+        .filter(|l| l.starts_with("    ") && l.contains(" = ") && l.trim_end().ends_with(','))
+        .count();
+    assert_eq!(emitted, ma.variants.len(), "emitted {emitted} members");
+
+    // `#[non_exhaustive]` is what lets a member be appended without breaking
+    // every downstream `match`; dropping it is a silent semver break.
+    assert!(src.contains("#[non_exhaustive]"), "MAType lost #[non_exhaustive]");
+
+    // No `#[repr]`: the crate has no FFI, so the layout is unobservable and the
+    // explicit discriminants carry the ABI. Adding one would freeze a size we
+    // deliberately did not promise.
+    assert!(
+        !src.contains("#[repr("),
+        "MAType gained a #[repr]; the crate has no FFI to justify one:\n{src}"
+    );
+
+    // The sentinel arm is load-bearing: the abstract tier stores the bound int
+    // verbatim as C's does, so TA_INTEGER_DEFAULT must still select the
+    // parameter's declared default rather than being rejected (#162).
+    assert!(
+        src.contains("i32::MIN => Self::DEFAULT,"),
+        "TryFrom lost the TA_INTEGER_DEFAULT arm; Rust would drop out of the \
+         choice-list sentinel contract:\n{src}"
+    );
+    assert!(
+        src.contains("_ => return Err(RetCode::BadParam),"),
+        "TryFrom lost its reject arm -- out-of-domain values would not be \
+         rejected by the library:\n{src}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The enum domain gate. A choice-list parameter declares no `range:`, so before
+// this the prologue emitted only the default substitution and each body decided
+// for itself what an out-of-domain value meant -- which is how TA_MA_Lookback
+// answered 0 for parameters TA_MA rejects. Both tiers now reject from one
+// emitter with two failure literals, the construction that already made integer
+// ranges immune. Asserted on emitted content, per this file's standard.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn enum_param_gets_a_domain_gate_in_both_tiers() {
+    let enums = load_enums();
+    let (func, _) = load_indicator("ma");
+    let registry = make_registry();
+    let helpers = make_helpers();
+
+    // The gate names the generated limit constants rather than the numbers of
+    // the day -- that is the whole point of them, so assert the spelling the
+    // enum surface declares and never a literal.
+    let ma = enums.get("MAType").expect("MAType");
+    let (c_min, c_max) =
+        backends::common::enum_limit_names_of(ma, Lang::C).expect("C declares MAType limits");
+
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let gate = format!("(int)optInMAType < {c_min} || (int)optInMAType > {c_max}");
+    // Both tiers: the lookback fails with -1, the guarded call with TA_BAD_PARAM.
+    assert!(
+        c.contains(&format!("{gate} )\n      return -1;")),
+        "C lookback lost the enum domain gate:\n{c}"
+    );
+    assert!(
+        c.contains(&format!("{gate} )\n      return TA_BAD_PARAM;")),
+        "C guarded call lost the enum domain gate:\n{c}"
+    );
+
+    let (cs_min, cs_max) = backends::common::enum_limit_names_of(ma, Lang::CSharp)
+        .expect("C# declares MAType limits");
+    let cs = backends::csharp::generate(&func, &enums, &registry, &helpers);
+    assert!(
+        cs.contains(&format!("(int)optInMAType < {cs_min} || (int)optInMAType > {cs_max}")),
+        "C# lost the enum domain gate:\n{cs}"
+    );
+
+    // And no tier carries the bound as a number any more: a reintroduced literal
+    // is a value that has to be re-edited in every prologue when a member is
+    // appended, which is the defect the constants exist to remove.
+    let hi = ma.variants.iter().map(|v| v.value).max().expect("members");
+    for (lang, src) in [("C", &c), ("C#", &cs)] {
+        assert!(
+            !src.contains(&format!("optInMAType > {hi}")),
+            "{lang} spelled the MAType bound as a literal again:\n{src}"
+        );
+    }
+}
+
+#[test]
+fn the_enum_limit_macros_are_declared_next_to_the_enum() {
+    // The declaration is where the number now lives, so it is what has to be
+    // derived. A synthetic enum that ends somewhere other than MAType's 11 is
+    // what separates a derived bound from a hard-coded one.
+    use ta_codegen_lib::ir::{EnumDef, EnumVariant};
+    let tri = EnumDef {
+        name: "Tri".to_string(),
+        c_prefix: "TA_Tri_".to_string(),
+        variants: (0..3)
+            .map(|v| EnumVariant {
+                name: format!("V{v}"),
+                c_name: format!("TA_Tri_V{v}"),
+                value: v,
+            })
+            .collect(),
+    };
+
+    let c = backends::ta_defs::render_enum_limits(&tri, "TA_Tri");
+    assert!(
+        c.contains("#define TA_TRI_MIN 0") && c.contains("#define TA_TRI_MAX 2"),
+        "the C limit macros must span the members and take the enum's own \
+         c_prefix, upper-cased:\n{c}"
+    );
+
+    // C# reaches the same numbers through the shipped enum file. Swap MAType's
+    // members for the synthetic three so a hard-coded 11 could not pass.
+    let (func, _) = load_indicator("ma");
+    let mut enums = load_enums();
+    let ma = enums.get_mut("MAType").expect("MAType");
+    ma.variants.truncate(3);
+    let cs = backends::csharp_enums::render_matype(std::slice::from_ref(&func), &enums);
+    assert!(
+        cs.contains("public const int Min = 0;") && cs.contains("public const int Max = 2;"),
+        "the C# limit companion must span the members:\n{cs}"
+    );
+    assert!(
+        cs.contains("public static class MATypes"),
+        "the C# limits must live in the enum's companion class:\n{cs}"
+    );
+}
+
+#[test]
+fn an_enum_no_parameter_is_typed_with_gets_no_limits() {
+    // FuncUnstId's pinned ALL = 65535 sits outside its member span, so limits
+    // derived from the members would describe a domain its API does not have.
+    // Nothing is typed with it, so nothing emits them -- assert that rule holds
+    // rather than that FuncUnstId in particular is spelled out somewhere.
+    let enums = load_enums();
+    let (func, _) = load_indicator("ma");
+    let param_enums = backends::common::param_enum_names(std::slice::from_ref(&func));
+    assert!(param_enums.contains("MAType"), "MA takes an optInMAType");
+    assert!(
+        !param_enums.contains("FuncUnstId"),
+        "no optional parameter is typed with FuncUnstId"
+    );
+
+    let cs = backends::csharp_enums::render_funcunstid(&enums);
+    assert!(
+        !cs.contains("Min =") && !cs.contains("Max ="),
+        "FuncUnstId gained value limits its ALL wildcard falls outside of:\n{cs}"
+    );
+}
+
+#[test]
+fn the_gate_bound_follows_the_member_set() {
+    // The bound is derived, never spelled. Asserting it against MAType's own max
+    // cannot show that -- a hard-coded 11 and a derived one read identically
+    // while the enum happens to end at 11. So span it against a synthetic enum
+    // that ends somewhere else.
+    use ta_codegen_lib::ir::{EnumDef, EnumVariant, OptInput, ParamType};
+    // (What the prologue now emits is the constant's NAME; the number it
+    // resolves to is asserted at the declaration, above.)
+    let mut enums = load_enums();
+    enums.insert(
+        "Tri".to_string(),
+        EnumDef {
+            name: "Tri".to_string(),
+            c_prefix: "TA_Tri_".to_string(),
+            variants: (0..3)
+                .map(|v| EnumVariant {
+                    name: format!("V{v}"),
+                    c_name: format!("TA_Tri_V{v}"),
+                    value: v,
+                })
+                .collect(),
+        },
+    );
+    let opt = OptInput {
+        name: "optInTri".to_string(),
+        param_type: ParamType::Enum("Tri".to_string()),
+        display_name: None,
+        hint: None,
+        range: None,
+        default: Some(0.0),
+        suggested: None,
+        flags: Vec::new(),
+        precision: None,
+    };
+    assert_eq!(
+        backends::common::enum_value_bounds_of(enums.get("Tri").expect("Tri")),
+        Some((0, 2)),
+        "the domain must span the members, not a hard-coded bound"
+    );
+    assert_eq!(
+        backends::common::int_bound_exprs(&opt, &enums, Lang::C),
+        Some(("TA_TRI_MIN".to_string(), "TA_TRI_MAX".to_string())),
+        "the prologue must name the enum's own limit macros, not MAType's"
+    );
+}
+
+#[test]
+fn a_declared_range_still_wins_over_the_member_span() {
+    // The precedence branch in `int_bound_exprs`: an `enum:` parameter that DID
+    // declare a range must keep it, or a narrower intent would be silently
+    // widened to the whole enum. A declared range is per-parameter, so it stays
+    // a literal -- the limit constants describe the TYPE's domain, which is not
+    // the same thing. Nothing in the shipped input exercises this.
+    use ta_codegen_lib::ir::{OptInput, ParamType};
+    let enums = load_enums();
+    let opt = OptInput {
+        name: "optInMAType".to_string(),
+        param_type: ParamType::Enum("MAType".to_string()),
+        display_name: None,
+        hint: None,
+        range: Some((0.0, 2.0)),
+        default: Some(0.0),
+        suggested: None,
+        flags: Vec::new(),
+        precision: None,
+    };
+    assert_eq!(
+        backends::common::int_bound_exprs(&opt, &enums, Lang::C),
+        Some(("0".to_string(), "2".to_string())),
+        "a declared range must win over the member span"
+    );
+}
+
 #[test]
 fn csharp_matype_emits_every_yaml_variant_with_its_value() {
     let enums = load_enums();
-    let src = backends::csharp_enums::render_matype(&enums);
+    let (func, _) = load_indicator("ma");
+    let src = backends::csharp_enums::render_matype(std::slice::from_ref(&func), &enums);
     let ma = enums.get("MAType").expect("MAType in enums.yaml");
 
     for v in &ma.variants {
@@ -7993,9 +8373,10 @@ fn csharp_resolve_call_agrees_with_the_emitted_method_names() {
 fn rust_fma_dispatch_fires_for_exactly_the_fusing_functions() {
     const FUSING: &[&str] = &[
         "adosc", "bbands", "cdlabandonedbaby", "cdlmorningdojistar", "cdlmorningstar",
-        "cdlpiercing", "cdlthrusting", "dema", "ht_dcperiod", "ht_dcphase", "ht_phasor",
-        "ht_sine", "ht_trendline", "ht_trendmode", "kama", "linearreg", "macd", "macdfix",
-        "mama", "sar", "sarext", "t3", "tema", "trix", "tsf", "wclprice",
+        "cdlpiercing", "cdlthrusting", "dema", "efi", "ema", "ht_dcperiod", "ht_dcphase",
+        "ht_phasor", "ht_sine", "ht_trendline", "ht_trendmode", "kama", "linearreg",
+        "macd", "macdfix", "mama", "sar", "sarext", "t3", "tema", "trix", "tsf",
+        "wclprice",
     ];
     let registry = make_registry();
     let helpers = make_helpers();
@@ -8833,19 +9214,26 @@ fn rust_batch_stream_halves(name: &str) -> (String, String) {
 #[test]
 fn rust_circbuf_batch_is_hybrid_and_stream_stays_vec() {
     let mut carriers: Vec<(String, Vec<String>)> = Vec::new();
+    let mut stream_checked: Vec<String> = Vec::new();
 
     for name in discover_indicators() {
         let Some((func, enums)) = try_load_indicator(&name) else { continue };
         // CIRCBUF ids come from the IR, not from the rendered text, so a
-        // rendering bug cannot hide a function from this sweep.
-        let ids: Vec<String> = func
-            .body
-            .iter()
-            .filter_map(|s| match s {
-                ir::Statement::CircBuf(ir::CircBuf::Prolog { id, .. }) => Some(id.clone()),
-                _ => None,
-            })
-            .collect();
+        // rendering bug cannot hide a function from this sweep. Per tier,
+        // because the two tiers need not run the same algorithm: the six
+        // rolling-extremum functions carry the block scan's scratch in the
+        // batch body only, and their `PRAGMA TA_ALT={STREAM,...}` alternate
+        // declares no CIRCBUF at all.
+        let prolog_ids = |body: &[ir::Statement]| -> Vec<String> {
+            body.iter()
+                .filter_map(|s| match s {
+                    ir::Statement::CircBuf(ir::CircBuf::Prolog { id, .. }) => Some(id.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let ids = prolog_ids(&func.body);
+        let stream_ids = prolog_ids(func.resolved_for(ir::Lang::Rust).stream_source());
         if ids.is_empty() {
             continue;
         }
@@ -8890,7 +9278,7 @@ fn rust_circbuf_batch_is_hybrid_and_stream_stays_vec() {
             );
 
             // --- stream: owning Vec, and none of the batch's borrowed shape.
-            if !stream.is_empty() {
+            if !stream.is_empty() && stream_ids.contains(id) {
                 assert!(
                     !stream.contains(&format!("local_{id}")),
                     "{name}: stream CIRCBUF `{id}` took the batch stack array — it is moved \
@@ -8910,18 +9298,41 @@ fn rust_circbuf_batch_is_hybrid_and_stream_stays_vec() {
                 );
             }
         }
+        if !stream_ids.is_empty() {
+            stream_checked.push(name.clone());
+        }
         carriers.push((name, ids));
     }
 
-    // Anti-vacuity: the eight carriers that exist today must all be swept. A
-    // filter or discovery regression fails here instead of passing an empty run.
+    // Anti-vacuity: the carriers that exist today must all be swept. A filter or
+    // discovery regression fails here instead of passing an empty run.
     let names: Vec<&str> = carriers.iter().map(|(n, _)| n.as_str()).collect();
     for expected in [
         "cci", "cmf", "mfi", "ultosc", "hma", "ht_dcphase", "ht_sine", "ht_trendmode",
+        "min", "max", "minmax", "midpoint", "midprice", "willr",
     ] {
         assert!(
             names.contains(&expected),
             "CIRCBUF sweep missed {expected}; swept {names:?}"
+        );
+    }
+    // The stream half is now conditional on the id reaching the stream tier, so
+    // pin the functions whose stream genuinely carries one — otherwise a bug
+    // that emptied every stream body would turn that half into a silent skip.
+    let streamed: Vec<&str> = stream_checked.iter().map(String::as_str).collect();
+    for expected in ["cci", "cmf", "mfi", "ultosc"] {
+        assert!(
+            streamed.contains(&expected),
+            "CIRCBUF stream half never ran for {expected}; ran for {streamed:?}"
+        );
+    }
+    // ...and the six rolling-extremum functions must NOT reach it: their scratch
+    // belongs to the batch block scan, and their alternate declares none.
+    for absent in ["min", "max", "minmax", "midpoint", "midprice", "willr"] {
+        assert!(
+            !streamed.contains(&absent),
+            "{absent}: a CIRCBUF reached the stream tier — the STREAM alternate should \
+             declare none"
         );
     }
 }
@@ -9082,4 +9493,289 @@ fn ta_max_index_agrees_across_every_surface() {
     // Pin the shipped value too, so raising the cap is a deliberate edit here
     // and not something a backend picks up silently.
     assert_eq!(first, 100_000_000, "TA_MAX_INDEX changed; update the docs and CHANGELOG with it");
+}
+
+/// Every `CIRCBUF_INIT` allocation-failure path must release the buffers the
+/// CIRCBUFs before it already took.
+///
+/// `CIRCBUF_INIT` heap-allocates when the runtime size outgrows its stack
+/// buffer and returns `TA_ALLOC_ERR` straight out of the function on failure —
+/// so in a function holding more than one CIRCBUF, the later ones' failure
+/// paths leak the earlier ones unless the cascade is emitted. Issue #147's
+/// rolling-extremum block scan brought the first 2- and 4-CIRCBUF functions
+/// into the tree (MIN/MAX take two, MINMAX/MIDPOINT/MIDPRICE/WILLR take four),
+/// which is what made a latent generator gap live.
+///
+/// Swept over every indicator rather than a name list, so a new multi-CIRCBUF
+/// function is covered the day it lands.
+#[test]
+fn c_circbuf_alloc_failure_frees_the_circbufs_before_it() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let registry = make_registry();
+    let helpers = make_helpers();
+
+    let mut names: Vec<String> = std::fs::read_dir(&base)
+        .expect("input dir")
+        .filter_map(|e| {
+            let path = e.ok()?.path();
+            let name = path.file_name()?.to_str()?.to_string();
+            (path.join(format!("{name}.yaml")).is_file() && path.join(format!("{name}.c")).is_file())
+                .then_some(name)
+        })
+        .collect();
+    names.sort();
+    assert!(names.len() > 100, "expected the full indicator set, got {}", names.len());
+
+    let mut multi_circbuf_functions = 0usize;
+    for name in &names {
+        let (func, enums) = load_indicator(name);
+        let c_out = backends::c::generate(&func, &enums, &registry, &helpers);
+
+        // `declared` resets at each function body: the emitter puts a bare `{`
+        // at column 0 to open one.
+        let mut declared: Vec<String> = Vec::new();
+        let mut pending_alloc: Option<String> = None;
+        let mut in_failure_block: Option<(String, Vec<String>)> = None;
+
+        for line in c_out.lines() {
+            if line == "{" {
+                declared.clear();
+                continue;
+            }
+            let t = line.trim();
+
+            // `double *sufLowest = &local_sufLowest[0];`
+            if let Some(rest) = t.strip_prefix("double *").or_else(|| t.strip_prefix("int *")) {
+                if let Some(storage) = rest.split(" = &local_").next() {
+                    if rest.contains(" = &local_") {
+                        declared.push(storage.to_string());
+                    }
+                }
+            }
+
+            if let Some(rest) = t.strip_prefix("if( !") {
+                if let Some(storage) = rest.split(&[' ', ')'][..]).next() {
+                    if pending_alloc.as_deref() == Some(storage) {
+                        in_failure_block = Some((storage.to_string(), Vec::new()));
+                    }
+                }
+            } else if let Some((_, freed)) = in_failure_block.as_mut() {
+                if t.contains("TA_Free( ") {
+                    let f = t.rsplit("TA_Free( ").next().unwrap_or("");
+                    if let Some(v) = f.split(' ').next() {
+                        freed.push(v.to_string());
+                    }
+                }
+                if t == "return TA_ALLOC_ERR;" {
+                    let (storage, freed) = in_failure_block.take().expect("in block");
+                    let at = declared.iter().position(|d| *d == storage);
+                    if let Some(at) = at {
+                        if at > 0 {
+                            multi_circbuf_functions += 1;
+                        }
+                        for earlier in &declared[..at] {
+                            assert!(
+                                freed.iter().any(|f| f == earlier),
+                                "{name}: allocation failure for `{storage}` returns \
+                                 TA_ALLOC_ERR without releasing `{earlier}`, which was \
+                                 allocated before it — that leaks up to one full scratch \
+                                 buffer per CIRCBUF. Freed here: {freed:?}"
+                            );
+                        }
+                    }
+                }
+            }
+
+            pending_alloc = t
+                .contains("= TA_Malloc(")
+                .then(|| t.split(" = TA_Malloc(").next().unwrap_or("").trim().to_string());
+        }
+    }
+
+    // Guard the gate itself: if the cascade never had a case to cover, the
+    // sweep above would pass vacuously.
+    assert!(
+        multi_circbuf_functions >= 12,
+        "expected the rolling-extremum family's multi-CIRCBUF failure paths to be \
+         swept, saw only {multi_circbuf_functions}"
+    );
+}
+
+/// A CIRCBUF whose cursor is never read gets no cursor.
+///
+/// `CIRCBUF_PROLOG` used to declare `<id>_Idx` and `maxIdx_<id>` unconditionally
+/// and `CIRCBUF_INIT` to assign them, which is right for a ring (the body
+/// advances with `CIRCBUF_NEXT` and indexes with the cursor) and wrong for a
+/// CIRCBUF used only as a period-sized scratch buffer. The #147 block scan
+/// indexes its arrays directly, so the six rolling-extremum functions were
+/// emitting eight write-only ints apiece — 80 `-Wunused-but-set-variable`
+/// across the family in any consumer building with `-Wall -Wextra`.
+///
+/// Both halves are asserted: the scratch users must NOT carry the pair, and the
+/// ring users must still carry it. Dropping it from a ring would not compile,
+/// but this says so at the generator rather than in a downstream build.
+#[test]
+fn c_circbuf_omits_the_cursor_when_nothing_reads_it() {
+    let registry = make_registry();
+    let helpers = make_helpers();
+
+    for name in ["min", "max", "minmax", "midpoint", "midprice", "willr"] {
+        let (func, enums) = load_indicator(name);
+        let c_out = backends::c::generate(&func, &enums, &registry, &helpers);
+        for decl in ["_Idx;", "maxIdx_"] {
+            assert!(
+                !c_out.contains(decl),
+                "{name} uses its CIRCBUFs as plain scratch, so `{decl}` must not be \
+                 emitted — a write-only int is a -Wunused-but-set-variable in every \
+                 consumer's build: {c_out}"
+            );
+        }
+        // The buffers themselves must survive: this trims the cursor, not the scratch.
+        assert!(
+            c_out.contains("= &local_") && c_out.contains("TA_Malloc("),
+            "{name} must still declare and size its scratch buffers: {c_out}"
+        );
+    }
+
+    // The ring users are the control arm — if the predicate went blanket-true,
+    // these would lose a cursor they genuinely read and this test would say so.
+    for name in ["cci", "ultosc"] {
+        let (func, enums) = load_indicator(name);
+        let c_out = backends::c::generate(&func, &enums, &registry, &helpers);
+        assert!(
+            c_out.contains("_Idx;") && c_out.contains("maxIdx_"),
+            "{name} advances a real ring, so it must keep its cursor: {c_out}"
+        );
+    }
+}
+
+/// A local read ONLY by a `CIRCBUF_INIT` size must survive the dead-store pass.
+///
+/// `drop_unused_decls` (c_stream) removes a hoisted prologue decl the arm never
+/// reads — HMA's degenerate arm inherits `halfPeriod = optInTimePeriod / 2` and
+/// never uses it. The trap is that `walk_stmt_exprs` treats `Statement::CircBuf`
+/// as opaque, so a use-analysis built on it alone cannot see `CIRCBUF_INIT`'s
+/// size expression. HMA's general arm sizes its de-lag ring with `ringSize`,
+/// which is otherwise only ever assigned — miss that read and the pass deletes a
+/// live declaration, emitting C that does not compile.
+///
+/// Both directions are asserted so the pass cannot pass by doing nothing.
+#[test]
+fn c_stream_keeps_a_local_read_only_by_a_circbuf_size() {
+    let registry = make_registry();
+    let helpers = make_helpers();
+    let (func, enums) = load_indicator("hma");
+    let stream_c = backends::c_stream::generate(&func, &enums, &registry, &helpers);
+
+    // Read only through CIRCBUF_INIT's size — the case a naive walker misses.
+    assert!(
+        stream_c.contains("int ringSize;") && stream_c.contains("ringSize = sqrtPeriod - 1;"),
+        "`ringSize` is read only by CIRCBUF_INIT's size expression, so a use-analysis \
+         that does not descend into Statement::CircBuf will drop it and emit C that \
+         references an undeclared variable: {stream_c}"
+    );
+
+    // ...and the dead store the pass exists for is gone. HMA's stream section
+    // carries exactly one `halfPeriod` assignment: the general arm's. The
+    // degenerate arm's copy is the dead one.
+    assert_eq!(
+        stream_c.matches("halfPeriod = optInTimePeriod / 2;").count(),
+        1,
+        "the degenerate arm must not carry a write-only `halfPeriod` (that is a \
+         -Wunused-but-set-variable in the consumer's build), and the general arm \
+         must keep the one it reads: {stream_c}"
+    );
+}
+
+/// Every composed function's Open must FUSE its sub-calls: one
+/// `OpenAndFillInternal` that both warms the sub-handle and fills the sub-call's
+/// destination, instead of a warm pass plus a batch call recomputing the same
+/// numbers (issue #192).
+///
+/// This needs its own gate because no value gate can see it. The fusion is
+/// output-preserving by construction, so `stream_verify`, `--xlang-hash` and the
+/// frozen-oracle suites all stay green whether or not it happens — a regression
+/// would surface only as a benchmark drifting back towards ~1.7x, which nothing
+/// fails on. What is pinned here is the SHAPE.
+///
+/// One sub-call is deliberately left unfused: STOCH's slow-K `TA_MA` writes its
+/// own source in place, where a fused open would overwrite the buffer the
+/// sub-handle's capture still has to read. `test_c_stoch_composed_stream_section`
+/// pins which one; this test pins that it is the ONLY one.
+#[test]
+fn test_composed_open_fuses_every_sub_call() {
+    const COMPOSED: &[&str] = &[
+        "bbands", "macdext", "ppo", "pvo", "stddev",
+        "stoch", "stochf", "adxr", "stochrsi", "apo",
+    ];
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let mut fused_total = 0usize;
+    let mut unfused_total = 0usize;
+
+    for name in COMPOSED {
+        let (mut func, enums) = load_indicator(name);
+        func.streaming = true;
+        let c = backends::c::generate(&func, &enums, &registry, &helpers);
+        let stream = &c[c.find("/**** Streaming API *****/").expect("stream section")..];
+
+        let fused = stream.matches("_OpenAndFillInternal( &sub").count();
+        let unfused = stream.matches("_OpenInternal( &sub").count();
+        // The other two backends must reach the SAME split. They render the call
+        // differently (Rust slices; Java passes the array itself wherever the
+        // sub-range is already the whole array, #203) but the decision is shared
+        // — `SubCallStep::is_fusable` — so a per-backend divergence here means one
+        // emitter silently stopped fusing, which no value gate can see.
+        // Anchored on the first ARGUMENT so these count call sites, not the
+        // wrapper definitions (Rust sub-opens pass `&series[..n]`; both
+        // definitions break the line right after the paren).
+        let r = backends::rust_stream::generate(&func, &enums, &registry, &helpers);
+        assert_eq!(
+            (r.matches("_OpenAndFillInternal(&").count(), r.matches("_OpenInternal(&").count()),
+            (fused, unfused),
+            "{name}: Rust fused/unfused split differs from C"
+        );
+        // Java's first argument is no longer a reliable anchor — since #203 a
+        // sub-open passes a bare `inReal` where the copy carried nothing — so
+        // count the lines that ASSIGN a `sub<n>` handle instead. That is what
+        // separates a sub-open both from the wrapper definitions and from the
+        // public `_Open`'s own delegation to `_OpenInternal`.
+        let j = backends::java_stream::generate(&func, &enums, &registry, &helpers);
+        let sub_opens = |needle: &str| {
+            j.lines().filter(|l| l.contains("sub") && l.contains(needle)).count()
+        };
+        assert_eq!(
+            (sub_opens("_OpenAndFillInternal("), sub_opens("_OpenInternal(")),
+            (fused, unfused),
+            "{name}: Java fused/unfused split differs from C"
+        );
+        assert!(
+            fused + unfused > 0,
+            "{name}: composed Open emitted no sub-stream open at all"
+        );
+        // A fused sub-open replaces the batch sub-call with `<var> = subRc;`, so
+        // every fused sub must have left exactly one of those substitutions.
+        assert_eq!(
+            stream.matches("= subRc;").count(),
+            fused,
+            "{name}: fused sub-opens ({fused}) and retCode substitutions disagree \
+             — either a batch sub-call survived the fusion, or one was dropped \
+             without leaving a retCode behind for the transcribed error handling"
+        );
+        fused_total += fused;
+        unfused_total += unfused;
+    }
+
+    assert_eq!(
+        unfused_total, 1,
+        "expected exactly ONE unfused sub-call across the composed tier (STOCH's \
+         in-place slow-K); found {unfused_total}. A new unfused sub-call means \
+         either an aliasing sub-call was added — legitimate, but record it here — \
+         or the fusion silently stopped applying."
+    );
+    assert_eq!(
+        fused_total, 17,
+        "expected 17 fused sub-calls across the composed tier; found {fused_total}. \
+         Adding a composed indicator moves this number: update it deliberately."
+    );
 }

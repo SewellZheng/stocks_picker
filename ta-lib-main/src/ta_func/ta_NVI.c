@@ -78,6 +78,7 @@ TA_LIB_API TA_RetCode TA_NVI( int    startIdx,
    double prevVolume;
    double tempClose;
    double tempVolume;
+   double tempNVI;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
       return TA_OUT_OF_RANGE_START_INDEX;
@@ -108,7 +109,23 @@ TA_LIB_API TA_RetCode TA_NVI( int    startIdx,
        */
       if( tempVolume < prevVolume && prevClose != 0.0 )
       {
-         prevNVI += (tempClose - prevClose) / prevClose * prevNVI;
+         /* The index is a running product, so it has no upper bound: enough
+          * compounding gains push it past the largest double. Keep the last
+          * representable value instead of writing +/-Inf, which no caller can
+          * chart and which poisons every arithmetic downstream of it. Real
+          * price series never come close.
+          *
+          * Written as a compound assignment on the copy, exactly as the update
+          * was before the guard: spelling it `a + r*a` would match the FMA
+          * fusion detector and silently re-round every bar, not just the
+          * overflowing one.
+          */
+         tempNVI = prevNVI;
+         tempNVI += (tempClose - prevClose) / prevClose * tempNVI;
+         if( TA_IS_FINITE(tempNVI) )
+         {
+            prevNVI = tempNVI;
+         }
       }
       outReal[outIdx++] = prevNVI;
       prevClose = tempClose;
@@ -134,6 +151,7 @@ TA_RetCode TA_S_NVI( int    startIdx,
    double prevVolume;
    double tempClose;
    double tempVolume;
+   double tempNVI;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
       return TA_OUT_OF_RANGE_START_INDEX;
@@ -157,7 +175,12 @@ TA_RetCode TA_S_NVI( int    startIdx,
       tempVolume = (double)inVolume[i];
       if( tempVolume < prevVolume && prevClose != 0.0 )
       {
-         prevNVI += (tempClose - prevClose) / prevClose * prevNVI;
+         tempNVI = prevNVI;
+         tempNVI += (tempClose - prevClose) / prevClose * tempNVI;
+         if( TA_IS_FINITE(tempNVI) )
+         {
+            prevNVI = tempNVI;
+         }
       }
       outReal[outIdx++] = prevNVI;
       prevClose = tempClose;
@@ -174,6 +197,7 @@ struct TA_NVI_Stream {
    double prevNVI;
    double prevClose;
    double prevVolume;
+   double tempNVI;
 };
 
 /* Private function, not in public API. */
@@ -190,21 +214,35 @@ static void TA_NVI_StepInternal( struct TA_NVI_Stream *sp, double inClose, doubl
     */
    if( tempVolume < sp->prevVolume && sp->prevClose != 0.0 )
    {
-      sp->prevNVI += (tempClose - sp->prevClose) / sp->prevClose * sp->prevNVI;
+      /* The index is a running product, so it has no upper bound: enough
+       * compounding gains push it past the largest double. Keep the last
+       * representable value instead of writing +/-Inf, which no caller can
+       * chart and which poisons every arithmetic downstream of it. Real
+       * price series never come close.
+       *
+       * Written as a compound assignment on the copy, exactly as the update
+       * was before the guard: spelling it `a + r*a` would match the FMA
+       * fusion detector and silently re-round every bar, not just the
+       * overflowing one.
+       */
+      sp->tempNVI = sp->prevNVI;
+      sp->tempNVI += (tempClose - sp->prevClose) / sp->prevClose * sp->tempNVI;
+      if( TA_IS_FINITE(sp->tempNVI) )
+      {
+         sp->prevNVI = sp->tempNVI;
+      }
    }
    *outReal= sp->prevNVI;
    sp->prevClose = tempClose;
    sp->prevVolume = tempVolume;
 }
 
-/* Private function, not in public API. */
-TA_RetCode TA_NVI_OpenInternal( struct TA_NVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, double *outReal )
+static TA_RetCode TA_NVI_OpenCore( struct TA_NVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_NVI_Stream *sp;
    int endIdx;
    int dummyBegIdx;
    int dummyNBElement;
-   double lastValue_outReal;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -215,7 +253,6 @@ TA_RetCode TA_NVI_OpenInternal( struct TA_NVI_Stream **stream, const double inCl
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
    dummyNBElement = 0;
-   lastValue_outReal = 0.0;
    (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
@@ -226,6 +263,7 @@ TA_RetCode TA_NVI_OpenInternal( struct TA_NVI_Stream **stream, const double inCl
       double prevVolume = 0.0;
       double tempClose;
       double tempVolume;
+      double tempNVI = 0.0;
       /* The index is a running cumulative value seeded at 1000, updated only on
        * bars whose volume decreased versus the prior bar (Negative Volume).
        */
@@ -243,82 +281,25 @@ TA_RetCode TA_NVI_OpenInternal( struct TA_NVI_Stream **stream, const double inCl
           */
          if( tempVolume < prevVolume && prevClose != 0.0 )
          {
-            prevNVI += (tempClose - prevClose) / prevClose * prevNVI;
+            /* The index is a running product, so it has no upper bound: enough
+             * compounding gains push it past the largest double. Keep the last
+             * representable value instead of writing +/-Inf, which no caller can
+             * chart and which poisons every arithmetic downstream of it. Real
+             * price series never come close.
+             *
+             * Written as a compound assignment on the copy, exactly as the update
+             * was before the guard: spelling it `a + r*a` would match the FMA
+             * fusion detector and silently re-round every bar, not just the
+             * overflowing one.
+             */
+            tempNVI = prevNVI;
+            tempNVI += (tempClose - prevClose) / prevClose * tempNVI;
+            if( TA_IS_FINITE(tempNVI) )
+            {
+               prevNVI = tempNVI;
+            }
          }
-         lastValue_outReal = prevNVI;
-         prevClose = tempClose;
-         prevVolume = tempVolume;
-      }
-      dummyBegIdx = startIdx;
-      dummyNBElement = outIdx;
-
-      /* Capture the live batch state into the handle. */
-      sp = (struct TA_NVI_Stream *)TA_Malloc( sizeof(*sp) );
-      if( !sp ) { return TA_ALLOC_ERR; }
-      memset( sp, 0, sizeof(*sp) );
-      sp->prevNVI = prevNVI;
-      sp->prevClose = prevClose;
-      sp->prevVolume = prevVolume;
-      *outReal = lastValue_outReal;
-      *stream = sp;
-      return TA_SUCCESS;
-   }
-}
-
-TA_LIB_API TA_RetCode TA_NVI_Open( TA_NVI_Stream **stream, const double inClose[], const double inVolume[], int historyLen, double *outReal )
-{
-   return TA_NVI_OpenInternal( stream, inClose, inVolume, 0, historyLen, outReal );
-}
-
-TA_LIB_API TA_RetCode TA_NVI_OpenAndFill( TA_NVI_Stream **stream, const double inClose[], const double inVolume[], int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
-{
-   struct TA_NVI_Stream *sp;
-   int endIdx;
-   int startIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( !inClose || !inVolume || !outReal || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
-
-   endIdx = historyLen - 1;
-   startIdx = 0;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
-
-   {
-      int i;
-      int outIdx;
-      double prevNVI = 0.0;
-      double prevClose = 0.0;
-      double prevVolume = 0.0;
-      double tempClose;
-      double tempVolume;
-      /* The index is a running cumulative value seeded at 1000, updated only on
-       * bars whose volume decreased versus the prior bar (Negative Volume).
-       */
-      prevNVI = 1000.0;
-      prevClose = inClose[startIdx];
-      prevVolume = inVolume[startIdx];
-      outIdx = 0;
-      for( i = startIdx; i <= endIdx; i += 1 )
-      {
-         tempClose = inClose[i];
-         tempVolume = inVolume[i];
-         /* prevClose != 0 guards the percentage-change division: a zero previous
-          * close is a degenerate input that would otherwise emit NaN/Inf; carry
-          * the index forward unchanged instead. Never triggers on real prices.
-          */
-         if( tempVolume < prevVolume && prevClose != 0.0 )
-         {
-            prevNVI += (tempClose - prevClose) / prevClose * prevNVI;
-         }
-         outReal[outIdx++] = prevNVI;
+         outReal[outIdx++ * outStride] = prevNVI;
          prevClose = tempClose;
          prevVolume = tempVolume;
       }
@@ -332,9 +313,45 @@ TA_LIB_API TA_RetCode TA_NVI_OpenAndFill( TA_NVI_Stream **stream, const double i
       sp->prevNVI = prevNVI;
       sp->prevClose = prevClose;
       sp->prevVolume = prevVolume;
+      sp->tempNVI = tempNVI;
       *stream = sp;
       return TA_SUCCESS;
    }
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_NVI_OpenInternal( struct TA_NVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_NVI_OpenCore( stream, inClose, inVolume, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+TA_LIB_API TA_RetCode TA_NVI_Open( TA_NVI_Stream **stream, const double inClose[], const double inVolume[], int historyLen, double *outReal )
+{
+   return TA_NVI_OpenInternal( stream, inClose, inVolume, 0, historyLen, outReal );
+}
+
+TA_LIB_API TA_RetCode TA_NVI_OpenAndFill( TA_NVI_Stream **stream, const double inClose[], const double inVolume[], int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
+   return TA_NVI_OpenCore( stream, inClose, inVolume, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_NVI_OpenAndFillInternal( struct TA_NVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_NVI_OpenCore( stream, inClose, inVolume, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_NVI_Update( TA_NVI_Stream *stream, double inClose, double inVolume, double *outReal )

@@ -32,7 +32,8 @@
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type used for both MAs (default 1 = EMA;
     *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED).
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT; {@code MAType.DEFAULT} selects the
+    *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int APO_Lookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
@@ -46,6 +47,9 @@
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return -1;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.EMA;
       }
       /* The slow MA is the key factor determining the lookback period. */
       return MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
@@ -83,6 +87,9 @@
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.EMA;
       }
       /* Allocate an intermediate buffer. */
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
@@ -149,6 +156,9 @@
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return RetCode.BadParam;
       }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.EMA;
+      }
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
       if( optInSlowPeriod < optInFastPeriod ) {
          tempInteger = optInSlowPeriod;
@@ -179,6 +189,10 @@
     * $APO = MA_{fast}(inReal) - MA_{slow}(inReal)$, both MAs of type optInMAType
     * The standard form is exponential — APO with EMA and periods 12/26 is the fast-minus-slow EMA construction underlying the MACD (in price units). `optInMAType` therefore **defaults to EMA** — the moving average Gerald Appel used for the original MACD; pass another type (e.g. `TA_MAType_SMA`) to override.
     * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical and the output is zero at every bar.</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -194,7 +208,8 @@
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type used for both MAs (default 1 = EMA;
     *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED).
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT; {@code MAType.DEFAULT} selects the
+    *        default).
     * @param outReal Fast MA minus slow MA. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -237,6 +252,10 @@
     * $APO = MA_{fast}(inReal) - MA_{slow}(inReal)$, both MAs of type optInMAType
     * The standard form is exponential — APO with EMA and periods 12/26 is the fast-minus-slow EMA construction underlying the MACD (in price units). `optInMAType` therefore **defaults to EMA** — the moving average Gerald Appel used for the original MACD; pass another type (e.g. `TA_MAType_SMA`) to override.
     * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical and the output is zero at every bar.</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -255,7 +274,8 @@
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type used for both MAs (default 1 = EMA;
     *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED).
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT; {@code MAType.DEFAULT} selects the
+    *        default).
     * @param outReal Fast MA minus slow MA. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -305,7 +325,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class APO_Stream {
-      final Core core;
+      Core core;
       int optInFastPeriod;
       int optInSlowPeriod;
       MAType optInMAType;
@@ -336,6 +356,28 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( APO_Stream other ) {
+         this.core = other.core;
+         this.optInFastPeriod = other.optInFastPeriod;
+         this.optInSlowPeriod = other.optInSlowPeriod;
+         this.optInMAType = other.optInMAType;
+         this.cur_outReal = other.cur_outReal;
+         if( this.sub0 == null ) {
+            this.sub0 = new MA_Stream(other.sub0);
+         } else {
+            this.sub0.copyFrom(other.sub0);
+         }
+         if( this.sub1 == null ) {
+            this.sub1 = new MA_Stream(other.sub1);
+         } else {
+            this.sub1.copyFrom(other.sub1);
+         }
+         this.fillRange = other.fillRange;
+      }
+
+      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
+      private static final ThreadLocal<APO_Stream> PEEK_SCRATCH = new ThreadLocal<>();
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -348,12 +390,20 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a scratch handle held per thread and
+       * reused, so the copy allocates nothing after the first peek of this
+       * indicator on this thread. That scratch is retained for the life of
+       * the thread.
        */
       public double peek( double inReal ) {
-         APO_Stream scratch = new APO_Stream(this);
+         APO_Stream scratch = PEEK_SCRATCH.get();
+         if( scratch == null ) {
+            scratch = new APO_Stream(this);
+            PEEK_SCRATCH.set(scratch);
+         } else {
+            scratch.copyFrom(this);
+         }
          core.APO_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
       }
@@ -386,7 +436,7 @@
       cur_outReal = cur_tempBuffer - cur_outReal;
       sp.cur_outReal = cur_outReal;
    }
-   private RetCode APO_OpenBody( APO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   private RetCode APO_OpenCore( APO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -395,8 +445,6 @@
       MInteger fastNb = new MInteger();
       int offset = 0;
       int i = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -414,6 +462,9 @@
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.EMA;
       }
       if( historyLen < APO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -433,16 +484,16 @@
       /* Calculate the fast MA into the tempBuffer. */
       /* Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      MA_Stream sub0 = MA_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInFastPeriod, optInMAType);
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+      MA_Stream sub0 = MA_OpenAndFillInternal(inReal, startIdx, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
       /* Calculate the slow MA into the output. */
       /* Sub-stream 1: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      MA_Stream sub1 = MA_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInSlowPeriod, optInMAType);
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sc_outReal);
+      MA_Stream sub1 = MA_OpenAndFillInternal(inReal, startIdx, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sc_outReal);
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -465,91 +516,42 @@
       sp.sub0 = sub0;
       sp.sub1 = sub1;
       sp.cur_outReal = sc_outReal[outNBElement.value - 1];
+      if( outStride == 1 ) System.arraycopy(sc_outReal, 0, outReal, 0, outNBElement.value);
       return RetCode.Success;
+   }
+   private RetCode APO_OpenBody( APO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return APO_OpenCore( sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode APO_OpenAndFillBody( APO_Stream sp, double inReal[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      double[] tempBuffer;
-      RetCode retCode;
-      int tempInteger = 0;
-      MInteger fastBeg = new MInteger();
-      MInteger fastNb = new MInteger();
-      int offset = 0;
-      int i = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInFastPeriod == Integer.MIN_VALUE ) {
-         optInFastPeriod = 12;
-      } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
-      if( optInSlowPeriod == Integer.MIN_VALUE ) {
-         optInSlowPeriod = 26;
-      } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      if( historyLen < APO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+      return APO_OpenCore( sp, inReal, 0, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode APO_OpenAndFillInternalBody( APO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return APO_OpenCore(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* APO_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   APO_Stream APO_OpenAndFillInternal( double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      APO_Stream sp = new APO_Stream(this);
+      RetCode retCode = APO_OpenAndFillInternalBody(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      double[] sc_outReal = new double[historyLen];
-      /* Allocate an intermediate buffer. */
-      tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
-      /* Make sure slow is really slower than
-       * the fast period! if not, swap...
-       */
-      if( optInSlowPeriod < optInFastPeriod ) {
-         /* swap */
-         tempInteger = optInSlowPeriod;
-         optInSlowPeriod = optInFastPeriod;
-         optInFastPeriod = tempInteger;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("APO openAndFill: history shorter than lookback + 1");
       }
-      /* Calculate the fast MA into the tempBuffer. */
-      /* Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
-       * sub-call's own startIdx (the seeding point). */
-      MA_Stream sub0 = MA_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInFastPeriod, optInMAType);
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
-      if( retCode != RetCode.Success ) {
-         return retCode ;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("APO openAndFill: internal error");
       }
-      /* Calculate the slow MA into the output. */
-      /* Sub-stream 1: ma over `inReal`, warmed from bar 0 up to the
-       * sub-call's own startIdx (the seeding point). */
-      MA_Stream sub1 = MA_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInSlowPeriod, optInMAType);
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sc_outReal);
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
-      /* fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
-       * many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
-       * outReal[i], with a non-negative index. An empty slow MA skips the loop.
-       */
-      offset = fastNb.value - outNBElement.value;
-      /* Calculate (fast MA)-(slow MA) in the output. */
-      for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-         sc_outReal[i] = tempBuffer[i + offset] - sc_outReal[i];
-      }
-      /* Capture the live producer state + sub handles. */
-      if( outNBElement.value < 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      sp.optInFastPeriod = optInFastPeriod;
-      sp.optInSlowPeriod = optInSlowPeriod;
-      sp.optInMAType = optInMAType;
-      sp.sub0 = sub0;
-      sp.sub1 = sub1;
-      sp.cur_outReal = sc_outReal[outNBElement.value - 1];
-      System.arraycopy(sc_outReal, 0, outReal, 0, outNBElement.value);
-      return RetCode.Success;
+      throw new IllegalArgumentException("APO openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind APO_Open (composition seam). */
    APO_Stream APO_OpenInternal( double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )

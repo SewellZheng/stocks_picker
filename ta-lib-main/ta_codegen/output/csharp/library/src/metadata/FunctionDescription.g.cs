@@ -86,9 +86,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>20</DefaultValue>
 			</OptionalInputArgument>
@@ -126,6 +126,7 @@ public static class FunctionDescription
 		<GroupId>Math Transform</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -249,9 +250,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>3</DefaultValue>
 			</OptionalInputArgument>
@@ -262,9 +263,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>10</DefaultValue>
 			</OptionalInputArgument>
@@ -312,9 +313,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -361,9 +362,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -402,9 +403,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>12</DefaultValue>
 			</OptionalInputArgument>
@@ -415,9 +416,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>26</DefaultValue>
 			</OptionalInputArgument>
@@ -466,9 +467,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -518,9 +519,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -544,6 +545,7 @@ public static class FunctionDescription
 		<GroupId>Math Transform</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -620,9 +622,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -662,9 +664,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -743,9 +745,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>20</DefaultValue>
 			</OptionalInputArgument>
@@ -836,9 +838,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>5</DefaultValue>
 			</OptionalInputArgument>
@@ -923,9 +925,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -3493,9 +3495,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>20</DefaultValue>
 			</OptionalInputArgument>
@@ -3535,9 +3537,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -3576,9 +3578,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -3621,9 +3623,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -3700,6 +3702,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3715,9 +3718,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -3741,6 +3744,7 @@ public static class FunctionDescription
 		<GroupId>Math Operators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3795,11 +3799,56 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- EFI -->
+	<FinancialFunction>
+		<Abbreviation>EFI</Abbreviation>
+		<ShortDescription>Elder&apos;s Force Index</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>13</DefaultValue>
 			</OptionalInputArgument>
 		</OptionalInputArguments>
 		<OutputArguments>
@@ -3823,6 +3872,7 @@ public static class FunctionDescription
 			<Flag>Overlap</Flag>
 			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3838,9 +3888,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -3917,6 +3967,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -3932,9 +3983,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>20</DefaultValue>
 			</OptionalInputArgument>
@@ -4154,9 +4205,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -4182,6 +4233,7 @@ public static class FunctionDescription
 			<Flag>Overlap</Flag>
 			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4197,9 +4249,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -4239,9 +4291,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -4280,9 +4332,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -4322,9 +4374,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -4363,9 +4415,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -4389,6 +4441,7 @@ public static class FunctionDescription
 		<GroupId>Math Transform</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4415,6 +4468,7 @@ public static class FunctionDescription
 		<GroupId>Math Transform</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4442,6 +4496,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4457,9 +4512,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -4504,9 +4559,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>12</DefaultValue>
 			</OptionalInputArgument>
@@ -4517,9 +4572,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>26</DefaultValue>
 			</OptionalInputArgument>
@@ -4530,9 +4585,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>9</DefaultValue>
 			</OptionalInputArgument>
@@ -4585,9 +4640,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>12</DefaultValue>
 			</OptionalInputArgument>
@@ -4604,9 +4659,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>26</DefaultValue>
 			</OptionalInputArgument>
@@ -4623,9 +4678,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>9</DefaultValue>
 			</OptionalInputArgument>
@@ -4684,9 +4739,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>9</DefaultValue>
 			</OptionalInputArgument>
@@ -4783,6 +4838,40 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- MARKETFI -->
+	<FinancialFunction>
+		<Abbreviation>MARKETFI</Abbreviation>
+		<ShortDescription>Market Facilitation Index</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- MAVP -->
 	<FinancialFunction>
 		<Abbreviation>MAVP</Abbreviation>
@@ -4810,9 +4899,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>2</DefaultValue>
 			</OptionalInputArgument>
@@ -4823,9 +4912,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -4871,9 +4960,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -4912,9 +5001,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -4996,9 +5085,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -5038,9 +5127,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -5084,9 +5173,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -5126,9 +5215,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -5167,9 +5256,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -5209,9 +5298,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -5257,9 +5346,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -5314,9 +5403,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -5360,9 +5449,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -5401,9 +5490,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>10</DefaultValue>
 			</OptionalInputArgument>
@@ -5481,9 +5570,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -5593,9 +5682,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -5639,9 +5728,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -5680,9 +5769,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>12</DefaultValue>
 			</OptionalInputArgument>
@@ -5693,9 +5782,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>26</DefaultValue>
 			</OptionalInputArgument>
@@ -5771,9 +5860,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>12</DefaultValue>
 			</OptionalInputArgument>
@@ -5784,9 +5873,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>26</DefaultValue>
 			</OptionalInputArgument>
@@ -5795,6 +5884,51 @@ public static class FunctionDescription
 				<ShortDescription>Type of Moving Average</ShortDescription>
 				<Type>MA Type</Type>
 				<DefaultValue>1</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- QSTICK -->
+	<FinancialFunction>
+		<Abbreviation>QSTICK</Abbreviation>
+		<ShortDescription>Qstick</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Open</Type>
+				<Name>Open</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
 			</OptionalInputArgument>
 		</OptionalInputArguments>
 		<OutputArguments>
@@ -5831,9 +5965,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>10</DefaultValue>
 			</OptionalInputArgument>
@@ -5872,9 +6006,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>10</DefaultValue>
 			</OptionalInputArgument>
@@ -5913,9 +6047,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>10</DefaultValue>
 			</OptionalInputArgument>
@@ -5954,9 +6088,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>10</DefaultValue>
 			</OptionalInputArgument>
@@ -5996,9 +6130,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -6283,6 +6417,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6298,9 +6433,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -6324,6 +6459,7 @@ public static class FunctionDescription
 		<GroupId>Math Transform</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6365,9 +6501,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>5</DefaultValue>
 			</OptionalInputArgument>
@@ -6428,9 +6564,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>5</DefaultValue>
 			</OptionalInputArgument>
@@ -6441,9 +6577,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>3</DefaultValue>
 			</OptionalInputArgument>
@@ -6460,9 +6596,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>3</DefaultValue>
 			</OptionalInputArgument>
@@ -6522,9 +6658,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>5</DefaultValue>
 			</OptionalInputArgument>
@@ -6535,9 +6671,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>3</DefaultValue>
 			</OptionalInputArgument>
@@ -6589,9 +6725,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -6602,9 +6738,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>5</DefaultValue>
 			</OptionalInputArgument>
@@ -6615,9 +6751,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>3</DefaultValue>
 			</OptionalInputArgument>
@@ -6699,9 +6835,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -6727,6 +6863,7 @@ public static class FunctionDescription
 			<Flag>Overlap</Flag>
 			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6742,9 +6879,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>5</DefaultValue>
 			</OptionalInputArgument>
@@ -6835,6 +6972,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6850,9 +6988,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -6911,6 +7049,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6926,9 +7065,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -6967,9 +7106,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
@@ -7009,9 +7148,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -7093,9 +7232,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>7</DefaultValue>
 			</OptionalInputArgument>
@@ -7106,9 +7245,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -7119,9 +7258,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>28</DefaultValue>
 			</OptionalInputArgument>
@@ -7160,9 +7299,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>5</DefaultValue>
 			</OptionalInputArgument>
@@ -7201,6 +7340,8 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -7220,13 +7361,48 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>
 		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- WAD -->
+	<FinancialFunction>
+		<Abbreviation>WAD</Abbreviation>
+		<ShortDescription>Williams&apos; Accumulation/Distribution (no volume)</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+			<Flag>Path Dependent</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
 		<OutputArguments>
 			<OutputArgument>
 				<Type>Double Array</Type>
@@ -7304,9 +7480,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>2</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
 			</OptionalInputArgument>
@@ -7331,6 +7507,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -7346,9 +7523,9 @@ public static class FunctionDescription
 				<Range>
 					<Minimum>1</Minimum>
 					<Maximum>100000</Maximum>
-					<SuggestedStart>100000</SuggestedStart>
-					<SuggestedEnd>100000</SuggestedEnd>
-					<SuggestedIncrement>100000</SuggestedIncrement>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>30</DefaultValue>
 			</OptionalInputArgument>

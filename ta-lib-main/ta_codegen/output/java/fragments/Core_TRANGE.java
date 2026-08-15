@@ -276,7 +276,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class TRANGE_Stream {
-      final Core core;
+      Core core;
       double val3;
       double lag1_inClose;
       double cur_outReal;
@@ -301,6 +301,14 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( TRANGE_Stream other ) {
+         this.core = other.core;
+         this.val3 = other.val3;
+         this.lag1_inClose = other.lag1_inClose;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -313,9 +321,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
          TRANGE_Stream scratch = new TRANGE_Stream(this);
@@ -364,7 +372,7 @@
       sp.cur_outReal = greatest;
       sp.lag1_inClose = inClose;
    }
-   private RetCode TRANGE_OpenBody( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode TRANGE_OpenCore( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int today = 0;
       int outIdx = 0;
@@ -374,9 +382,6 @@
       double tempCY = 0;
       double tempLT = 0;
       double tempHT = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
@@ -427,7 +432,7 @@
          if( val3 > greatest ) {
             greatest = val3;
          }
-         lastValue_outReal = greatest;
+         outReal[outIdx++ * outStride] = greatest;
          today += 1;
       }
       outNBElement.value = outIdx;
@@ -435,83 +440,42 @@
       /* Capture the live batch state into the handle. */
       sp.val3 = val3;
       sp.lag1_inClose = inClose[historyLen - 1];
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode TRANGE_OpenBody( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return TRANGE_OpenCore( sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode TRANGE_OpenAndFillBody( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int today = 0;
-      int outIdx = 0;
-      double val2 = 0;
-      double val3 = 0;
-      double greatest = 0;
-      double tempCY = 0;
-      double tempLT = 0;
-      double tempHT = 0;
-      int historyLen = inHigh.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      /* True Range is the greatest of the following:
-       *
-       *  val1 = distance from today's high to today's low.
-       *  val2 = distance from yesterday's close to today's high.
-       *  val3 = distance from yesterday's close to today's low.
-       *
-       * Some books and software makes the first TR value to be
-       * the (high - low) of the first bar. This function instead
-       * ignore the first price bar, and only output starting at the
-       * second price bar are valid. This is done for avoiding
-       * inconsistency.
-       */
-      /* Move up the start index if there is not
-       * enough initial data.
-       * Always one price bar gets consumed.
-       */
-      if( startIdx < 1 ) {
-         startIdx = 1;
+      return TRANGE_OpenCore( sp, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode TRANGE_OpenAndFillInternalBody( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return TRANGE_OpenCore(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* TRANGE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   TRANGE_Stream TRANGE_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      TRANGE_Stream sp = new TRANGE_Stream(this);
+      RetCode retCode = TRANGE_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("TRANGE openAndFill: history shorter than lookback + 1");
       }
-      outIdx = 0;
-      today = startIdx;
-      while( today <= endIdx ) {
-         /* Find the greatest of the 3 values. */
-         tempLT = inLow[today];
-         tempHT = inHigh[today];
-         tempCY = inClose[today - 1];
-         greatest = tempHT - tempLT;
-         /* val1 */
-         val2 = Math.abs(tempCY - tempHT);
-         if( val2 > greatest ) {
-            greatest = val2;
-         }
-         val3 = Math.abs(tempCY - tempLT);
-         if( val3 > greatest ) {
-            greatest = val3;
-         }
-         outReal[outIdx++] = greatest;
-         today += 1;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("TRANGE openAndFill: internal error");
       }
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Capture the live batch state into the handle. */
-      sp.val3 = val3;
-      sp.lag1_inClose = inClose[historyLen - 1];
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("TRANGE openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind TRANGE_Open (composition seam). */
    TRANGE_Stream TRANGE_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx )

@@ -76,6 +76,10 @@
     * <pre>{@code
     * outReal[i] = acos(inReal[i])
     * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Outside [-1, 1] there is no angle whose cosine is that value, so those elements come out NaN.</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -119,6 +123,10 @@
     * <pre>{@code
     * outReal[i] = acos(inReal[i])
     * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Outside [-1, 1] there is no angle whose cosine is that value, so those elements come out NaN.</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -175,7 +183,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class ACOS_Stream {
-      final Core core;
+      Core core;
       double cur_outReal;
       OutRange fillRange = OutRange.EMPTY;
 
@@ -196,6 +204,12 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( ACOS_Stream other ) {
+         this.core = other.core;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -208,9 +222,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
          ACOS_Stream scratch = new ACOS_Stream(this);
@@ -239,13 +253,10 @@
    {
       sp.cur_outReal = Math.acos(inReal);
    }
-   private RetCode ACOS_OpenBody( ACOS_Stream sp, double inReal[], int startIdx )
+   private RetCode ACOS_OpenCore( ACOS_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -255,38 +266,47 @@
          return RetCode.OutOfRangeEndIndex;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
-         lastValue_outReal = Math.acos(inReal[i]);
+         outReal[outIdx * outStride] = Math.acos(inReal[i]);
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode ACOS_OpenBody( ACOS_Stream sp, double inReal[], int startIdx )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return ACOS_OpenCore( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode ACOS_OpenAndFillBody( ACOS_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int outIdx = 0;
-      int i = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
-         outReal[outIdx] = Math.acos(inReal[i]);
+      return ACOS_OpenCore( sp, inReal, 0, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode ACOS_OpenAndFillInternalBody( ACOS_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return ACOS_OpenCore(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* ACOS_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   ACOS_Stream ACOS_OpenAndFillInternal( double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      ACOS_Stream sp = new ACOS_Stream(this);
+      RetCode retCode = ACOS_OpenAndFillInternalBody(sp, inReal, startIdx, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Capture the live batch state into the handle. */
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("ACOS openAndFill: history shorter than lookback + 1");
+      }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("ACOS openAndFill: internal error");
+      }
+      throw new IllegalArgumentException("ACOS openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind ACOS_Open (composition seam). */
    ACOS_Stream ACOS_OpenInternal( double inReal[], int startIdx )

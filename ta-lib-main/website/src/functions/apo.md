@@ -13,6 +13,10 @@ $APO = MA_{fast}(inReal) - MA_{slow}(inReal)$, both MAs of type optInMAType
 
 The standard form is exponential — APO with EMA and periods 12/26 is the fast-minus-slow EMA construction underlying the MACD (in price units). `optInMAType` therefore **defaults to EMA** — the moving average Gerald Appel used for the original MACD; pass another type (e.g. `TA_MAType_SMA`) to override.
 
+## Notes
+
+- `optInMAType` applies to both the fast and slow moving average. `TA_MAType_MAMA` ignores its period argument, so with `optInMAType = TA_MAType_MAMA` the fast and slow MAs are identical and the output is zero at every bar.
+
 ## Inputs
 
 - `inReal` — Source data series
@@ -29,17 +33,23 @@ The standard form is exponential — APO with EMA and periods 12/26 is the fast-
 | `optInSlowPeriod` | integer | 26 | 2–100000 | Period of the slow moving average |
 | `optInMAType` | MAType | EMA (1) | any MAType | Moving-average type used for both MAs |
 
-*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED*
+*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED · 11 DEFAULT*
 
 ## Properties
 
 **Numerical Stability:** [Depends on MA Type](/functions/stability.md#depends-on-ma-type) — This function's default, EMA, has an initial unstable period.
 
-| Display<br>Flags |
+<div class="flag-table">
+
+|  |
 | :-- |
 | <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
 | <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
 | <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Can Output NaN or ±Inf</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Identity at Period 1</span> |
+
+</div>
 
 ## Implementation
 

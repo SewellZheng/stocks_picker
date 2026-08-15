@@ -151,7 +151,13 @@ static TA_RetCode CallTestFunction( RangeTestFunction testFunction,
                                     unsigned int *isOutputInteger );
 
 /**** Local variables definitions.     ****/
-/* None */
+
+/* The range sweeps skip combinations at random to stay affordable; this divides
+ * every skip, so one run samples that much more of the sweep. At 1 a defect
+ * needing a particular (startIdx, fixSize, unstablePeriod) cell showed up in
+ * about half of the runs, which made a single green run weak evidence. 16 is
+ * ~40s and caught such a defect 6 times out of 6. */
+#define TA_SWEEP_DENSITY 16
 
 /**** Global functions definitions.   ****/
 static int ta_g_val = 0;
@@ -317,18 +323,23 @@ ErrorNumber checkForNAN( const TA_Real *buffer,
     */
    for( i=0; i < nbElement; i++,idx++ )
    {
-      /* TODO Add back some nan/inf checking
-      if( trio_isnan(theBuffer[idx]) )
+      /* The callers of this pass an INPUT buffer (checkDataSame asserts the
+       * function did not scribble on its own input), and every input the suite
+       * builds is finite, so this needs no TA_FUNC_FLG_NAN_INF_OUT exemption:
+       * a NaN or Inf here is a function writing where it must not. Kept as two
+       * checks so each keeps its own error number, as before.
+       */
+      if( isnan(theBuffer[idx]) )
       {
          printf( "Fail: Not a number find within the data (%d,%f)\n", i, theBuffer[idx] );
          return TA_TEST_TFRR_OVERLAP_OR_NAN_1;
       }
 
-      if( trio_isinf(theBuffer[idx]) )
+      if( isinf(theBuffer[idx]) )
       {
-         printf( "Fail: Not a number find within the data (%d,%f)\n", i, theBuffer[idx] );
+         printf( "Fail: Infinity find within the data (%d,%f)\n", i, theBuffer[idx] );
          return TA_TEST_TFRR_OVERLAP_OR_NAN_2;
-      }*/
+      }
 
       if( theBuffer[idx] == RESV_PATTERN_PREFIX )
       {
@@ -372,7 +383,6 @@ ErrorNumber checkForNAN( const TA_Real *buffer,
    return TA_TEST_PASS;
 }
 
-/* Return 1 on success */
 ErrorNumber checkSameContent( TA_Real *buffer1,
                               TA_Real *buffer2 )
 {
@@ -386,19 +396,41 @@ ErrorNumber checkSameContent( TA_Real *buffer1,
 
    for( i=0; i < TA_BUF_SIZE; i++ )
    {
-        /* TODO Add back nan/inf checking
-          (!trio_isnan(theBuffer1[i])) &&
-          (!trio_isinf(theBuffer1[i])) &&
-         */
-
       if( (theBuffer1[i] != RESV_PATTERN_SUFFIX) &&
           (theBuffer1[i] != RESV_PATTERN_PREFIX) )
       {
-
-         if(!TA_REAL_EQ( theBuffer1[i], theBuffer2[i], 0.000001))
+         if( memcmp( &theBuffer1[i], &theBuffer2[i], sizeof(TA_Real) ) != 0 )
          {
-            printf( "Fail: Large difference found between two value expected identical (%f,%f,%d)\n",
-                     theBuffer1[i], theBuffer2[i], i );
+            printf( "Fail: two values expected identical differ at [%d]: %.17g (%a) vs %.17g (%a)\n",
+                     i, theBuffer1[i], theBuffer1[i], theBuffer2[i], theBuffer2[i] );
+            return TA_TEST_TFRR_CHECK_SAME_CONTENT;
+         }
+      }
+   }
+
+   return TA_TEST_PASS;
+}
+
+ErrorNumber checkSameContentApprox( TA_Real *buffer1,
+                                    TA_Real *buffer2 )
+{
+   const TA_Real *theBuffer1;
+   const TA_Real *theBuffer2;
+
+   unsigned int i;
+
+   theBuffer1 = buffer1 - TA_BUF_PREFIX;
+   theBuffer2 = buffer2 - TA_BUF_PREFIX;
+
+   for( i=0; i < TA_BUF_SIZE; i++ )
+   {
+      if( (theBuffer1[i] != RESV_PATTERN_SUFFIX) &&
+          (theBuffer1[i] != RESV_PATTERN_PREFIX) )
+      {
+         if(!TA_REAL_EQ( theBuffer1[i], theBuffer2[i], 1e-12 ))
+         {
+            printf( "Fail: two implementations differ at [%d]: %.17g vs %.17g\n",
+                     i, theBuffer1[i], theBuffer2[i] );
             return TA_TEST_TFRR_CHECK_SAME_CONTENT;
          }
       }
@@ -446,6 +478,8 @@ ErrorNumber checkExpectedValue( const TA_Real *data,
                                 TA_Real oneOfTheExpectedOutReal,
                                 unsigned int oneOfTheExpectedOutRealIndex )
 {
+   unsigned int i;
+
    if( retCode != expectedRetCode )
    {
       printf( "Fail: RetCode %d different than expected %d\n", retCode, expectedRetCode );
@@ -468,16 +502,21 @@ ErrorNumber checkExpectedValue( const TA_Real *data,
    }
 
 
-   /* Make sure the range of output does not contains NAN. */
-   /* TODO Add back nan/inf checking
+   /* Make sure the range of output is finite.
+    *
+    * No TA_FUNC_FLG_NAN_INF_OUT exemption: this path carries no function
+    * identity, and none of the flagged functions has a hand-written
+    * expected-value test. Should one ever get one, either feed it in-domain
+    * data or thread the function's flags in -- do not weaken this for all 168.
+    */
    for( i=0; i < outNbElement; i++ )
    {
-      if( trio_isnan(data[i]) )
+      if( !isfinite(data[i]) )
       {
-         printf( "Fail: Not a number find within the data (%d,%f)\n", i, data[i] );
+         printf( "Fail: Non-finite value find within the data (%d,%f)\n", i, data[i] );
          return TA_TEST_TFRR_OVERLAP_OR_NAN_3;
       }
-   }*/
+   }
 
    /* Verify that the expected output is there. */
 
@@ -505,6 +544,14 @@ ErrorNumber checkExpectedValue( const TA_Real *data,
          return TA_TESTUTIL_TFRR_BAD_BEGIDX;
       }
    }
+   else if( outBegIdx != 0 )
+   {
+      /* A success with no output leaves outBegIdx at 0. Asserted against the
+       * contract rather than expectedBegIdx: some tables carry a stale non-zero
+       * there, never read until now. */
+      printf( "Fail: outBegIdx expected 0 with no output but got %d\n", outBegIdx );
+      return TA_TESTUTIL_TFRR_BAD_BEGIDX;
+   }
 
    /* Succeed. */
    return TA_TEST_PASS;
@@ -517,7 +564,7 @@ ErrorNumber checkExpectedValue( const TA_Real *data,
  *   - integerTolerance == TA_DO_NOT_COMPARE -> TA_STABLE_SKIP
  *   - unstId != TA_TEST_UNST_NONE           -> TA_STABLE_CONVERGING
  *   - otherwise                             -> TA_STABLE_EPSILON
- * It never yields TA_STABLE_EXACT: a legacy site asking for the tight (~1e-9)
+ * It never yields TA_STABLE_EXACT: a legacy site asking for the tight (~1e-10)
  * comparison is a safe superset of bit-exact, so nothing regresses. Sites that
  * want strict bit-exactness call doRangeTestEx(TA_STABLE_EXACT, ...) directly
  * (e.g. test_imi.c), and the generic codegen gate classifies each function
@@ -740,7 +787,7 @@ static ErrorNumber doRangeTestForOneOutput( RangeTestFunction testFunction,
                /* Randomly skips from 0 to 239 tests. Never
                 * make unstablePeriod exceed 240.
                 */
-               temp = (rand() % 240);
+               temp = (rand() % (240/TA_SWEEP_DENSITY));
                unstablePeriod += temp;
                if( unstablePeriod > 240 )
                   unstablePeriod = 240;
@@ -756,7 +803,7 @@ static ErrorNumber doRangeTestForOneOutput( RangeTestFunction testFunction,
             /* Randomly skips from 0 to 239 tests. Never
              * make fixSize exceed 240.
              */
-            temp = (rand() % 239);
+            temp = (rand() % (239/TA_SWEEP_DENSITY));
             fixSize += temp;
             if( fixSize > 240 )
                fixSize = 240;
@@ -956,7 +1003,7 @@ static ErrorNumber doRangeTestFixSize( RangeTestFunction testFunction,
                      /* Randomly skips from 0 to 200 verification.
                       * Never make it skip the last 20 values.
                       */
-                     i += (rand() % 200);
+                     i += (rand() % (200/TA_SWEEP_DENSITY));
                      if( i > temp )
                         i = temp;
                   }
@@ -1050,7 +1097,7 @@ static ErrorNumber doRangeTestFixSize( RangeTestFunction testFunction,
          if( (startIdx > 30) && ((startIdx+100) <= (MAX_RANGE_SIZE-fixSize)) )
          {
             /* Randomly skips from 40 to 100 tests. */
-            temp = (rand() % 100)+40;
+            temp = (rand() % (100/TA_SWEEP_DENSITY))+(40/TA_SWEEP_DENSITY);
             startIdx += temp;
          }
       }
@@ -1061,6 +1108,20 @@ static ErrorNumber doRangeTestFixSize( RangeTestFunction testFunction,
    TA_Free( outputBuffer );
    TA_Free( outputBufferInt );
    return TA_TEST_PASS;
+}
+
+/* Relative to the larger MAGNITUDE, floored: dividing by the larger SIGNED
+ * value went negative when both operands were, and an oscillator crossing zero
+ * turns a normal converging residual into a huge ratio.
+ */
+static TA_Real relDifference( TA_Real val1, TA_Real val2 )
+{
+   TA_Real scale = fabs(val1);
+   if( fabs(val2) > scale )
+      scale = fabs(val2);
+   if( scale < 0.2 )
+      scale = 0.2;
+   return fabs(val1-val2)/scale;
 }
 
 /* This function compares two value.
@@ -1074,7 +1135,8 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
                                       unsigned int integerTolerance )
 {
    TA_Real difference, tolerance, temp;
-   unsigned int val1_int, val2_int, tempInt, periodToIgnore;
+   long long val1_int, val2_int;
+   unsigned int tempInt, periodToIgnore;
 
    /* TA_STABLE_SKIP: the function is a non-converging accumulation seeded at
     * startIdx or a path-dependent state machine, so recomputing a bar from a
@@ -1100,7 +1162,7 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
     * differs only by floating-point rounding -- a tight fixed epsilon. This is
     * the tier every function without an unstable period used to get. */
    if( stability == TA_STABLE_EPSILON )
-      return TA_REAL_EQ( val1, val2, 0.000000001 );
+      return TA_REAL_EQ( val1, val2, 1e-10 );
 
    /* TA_STABLE_CONVERGING (everything below): recursive / IIR output whose value
     * depends on how far back the recursion started. The unstable period bounds
@@ -1114,7 +1176,7 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
     *  unsignificant at that level, so no tolerance
     *  check is being done).
     */
-    if( (val1 < 0.00001) && (val2 < 0.00001) )
+    if( (fabs(val1) < 0.00001) && (fabs(val2) < 0.00001) )
       return 1;
 
    /* When the function is unstable, the comparison
@@ -1154,10 +1216,6 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
     *
     * Value 10      -> A tolerance of 1/10  is used.
     *
-    * Value 100     -> A tolerance of 1/100 is used.
-    *
-    * Value 1000    -> A tolerance of 1/1000 is used.
-    *
     * Value 360     -> Useful when the output are
     *                  degrees. In that case, a fix
     *                  tolerance of 1 degree is used.
@@ -1184,58 +1242,10 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
       break;
    }
 
-   if( integerTolerance == 1000 )
+   if( integerTolerance == 10 )
    {
       /* Check for no difference of more
-       * than 1/1000
-       */
-      if( val1 > val2 )
-         difference = (val1-val2);
-      else
-         difference = (val2-val1);
-
-      difference *= 1000.0;
-
-      temp = outputPosition+TA_GetUnstablePeriod(unstId)+1;
-      if( temp <= periodToIgnore )
-      {
-         /* Pretend it is fine. */
-         return 1;
-      }
-      else if( (int)difference > 1 )
-      {
-         printf( "\nFail: Value diffferent by more than 1/1000 (%f)\n", difference );
-         return 0;
-      }
-   }
-   else if( integerTolerance == 100 )
-   {
-      /* Check for no difference of more
-       * than 1/1000
-       */
-      if( val1 > val2 )
-         difference = (val1-val2);
-      else
-         difference = (val2-val1);
-
-      difference *= 100.0;
-
-      temp = outputPosition+TA_GetUnstablePeriod(unstId)+1;
-      if( temp <= periodToIgnore )
-      {
-         /* Pretend it is fine. */
-         return 1;
-      }
-      else if( (int)difference > 1 )
-      {
-         printf( "\nFail: Value diffferent by more than 1/100 (%f)\n", difference );
-         return 0;
-      }
-   }
-   else if( integerTolerance == 10 )
-   {
-      /* Check for no difference of more
-       * than 1/1000
+       * than 1/10
        */
       if( val1 > val2 )
          difference = (val1-val2);
@@ -1264,17 +1274,15 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
        *
        * Difference of less than 1 degree are not significant.
        */
-      val1_int = (unsigned int)val1;
-      val2_int = (unsigned int)val2;
+      /* Signed: (unsigned)(-1.17) is undefined and lands on 4294967295. */
+      val1_int = (long long)val1;
+      val2_int = (long long)val2;
       if( val1_int > val2_int )
-         tempInt = val1_int - val2_int;
+         tempInt = (unsigned int)( val1_int - val2_int );
       else
-         tempInt = val2_int - val1_int;
+         tempInt = (unsigned int)( val2_int - val1_int );
 
-      if( val1 > val2 )
-         difference = (val1-val2)/val1;
-      else
-         difference = (val2-val1)/val2;
+      difference = relDifference( val1, val2 );
 
       temp = outputPosition+TA_GetUnstablePeriod(unstId)+1;
       if( temp <= periodToIgnore )
@@ -1294,12 +1302,13 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
        * is not different more than the specified
        * integerTolerance.
        */
-      val1_int = (unsigned int)val1;
-      val2_int = (unsigned int)val2;
+      /* Signed: (unsigned)(-1.17) is undefined and lands on 4294967295. */
+      val1_int = (long long)val1;
+      val2_int = (long long)val2;
       if( val1_int > val2_int )
-         tempInt = val1_int - val2_int;
+         tempInt = (unsigned int)( val1_int - val2_int );
       else
-         tempInt = val2_int - val1_int;
+         tempInt = (unsigned int)( val2_int - val1_int );
 
       temp = outputPosition+TA_GetUnstablePeriod(unstId)+1;
       if( temp <= periodToIgnore )
@@ -1339,10 +1348,7 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
    }
    else
    {
-      if( val1 > val2 )
-         difference = (val1-val2)/val1;
-      else
-         difference = (val2-val1)/val2;
+      difference = relDifference( val1, val2 );
 
       temp = outputPosition+TA_GetUnstablePeriod(unstId)+1;
       if( temp <= periodToIgnore )

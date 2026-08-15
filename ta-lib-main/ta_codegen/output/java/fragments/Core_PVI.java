@@ -43,6 +43,7 @@
       double prevVolume = 0;
       double tempClose = 0;
       double tempVolume = 0;
+      double tempPVI = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -64,7 +65,22 @@
           * the index forward unchanged instead. Never triggers on real prices.
           */
          if( tempVolume > prevVolume && prevClose != 0.0 ) {
-            prevPVI += (tempClose - prevClose) / prevClose * prevPVI;
+            /* The index is a running product, so it has no upper bound: enough
+             * compounding gains push it past the largest double. Keep the last
+             * representable value instead of writing +/-Inf, which no caller can
+             * chart and which poisons every arithmetic downstream of it. Real
+             * price series never come close.
+             *
+             * Written as a compound assignment on the copy, exactly as the update
+             * was before the guard: spelling it `a + r*a` would match the FMA
+             * fusion detector and silently re-round every bar, not just the
+             * overflowing one.
+             */
+            tempPVI = prevPVI;
+            tempPVI += (tempClose - prevClose) / prevClose * tempPVI;
+            if( (Double.isFinite(tempPVI)) ) {
+               prevPVI = tempPVI;
+            }
          }
          outReal[outIdx++] = prevPVI;
          prevClose = tempClose;
@@ -89,6 +105,7 @@
       double prevVolume = 0;
       double tempClose = 0;
       double tempVolume = 0;
+      double tempPVI = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -103,7 +120,11 @@
          tempClose = (double)inClose[i];
          tempVolume = (double)inVolume[i];
          if( tempVolume > prevVolume && prevClose != 0.0 ) {
-            prevPVI += (tempClose - prevClose) / prevClose * prevPVI;
+            tempPVI = prevPVI;
+            tempPVI += (tempClose - prevClose) / prevClose * tempPVI;
+            if( (Double.isFinite(tempPVI)) ) {
+               prevPVI = tempPVI;
+            }
          }
          outReal[outIdx++] = prevPVI;
          prevClose = tempClose;
@@ -129,6 +150,10 @@
     * The index carries forward unchanged on bars whose volume did not rise (and on the
     * degenerate case of a zero previous close, which would otherwise divide by zero).
     * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>The index compounds, so it has no upper bound. If a run of large rises ever pushes it past the largest representable number, the last representable value is carried forward instead of returning infinity. Real price series stay far away from that.</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -179,6 +204,10 @@
     * The index carries forward unchanged on bars whose volume did not rise (and on the
     * degenerate case of a zero previous close, which would otherwise divide by zero).
     * }</pre>
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>The index compounds, so it has no upper bound. If a run of large rises ever pushes it past the largest representable number, the last representable value is carried forward instead of returning infinity. Real price series stay far away from that.</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -233,10 +262,11 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class PVI_Stream {
-      final Core core;
+      Core core;
       double prevPVI;
       double prevClose;
       double prevVolume;
+      double tempPVI;
       double cur_outReal;
       OutRange fillRange = OutRange.EMPTY;
 
@@ -256,6 +286,17 @@
          this.prevPVI = other.prevPVI;
          this.prevClose = other.prevClose;
          this.prevVolume = other.prevVolume;
+         this.tempPVI = other.tempPVI;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      void copyFrom( PVI_Stream other ) {
+         this.core = other.core;
+         this.prevPVI = other.prevPVI;
+         this.prevClose = other.prevClose;
+         this.prevVolume = other.prevVolume;
+         this.tempPVI = other.tempPVI;
          this.cur_outReal = other.cur_outReal;
          this.fillRange = other.fillRange;
       }
@@ -272,9 +313,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inClose, double inVolume ) {
          PVI_Stream scratch = new PVI_Stream(this);
@@ -310,13 +351,28 @@
        * the index forward unchanged instead. Never triggers on real prices.
        */
       if( tempVolume > sp.prevVolume && sp.prevClose != 0.0 ) {
-         sp.prevPVI += (tempClose - sp.prevClose) / sp.prevClose * sp.prevPVI;
+         /* The index is a running product, so it has no upper bound: enough
+          * compounding gains push it past the largest double. Keep the last
+          * representable value instead of writing +/-Inf, which no caller can
+          * chart and which poisons every arithmetic downstream of it. Real
+          * price series never come close.
+          *
+          * Written as a compound assignment on the copy, exactly as the update
+          * was before the guard: spelling it `a + r*a` would match the FMA
+          * fusion detector and silently re-round every bar, not just the
+          * overflowing one.
+          */
+         sp.tempPVI = sp.prevPVI;
+         sp.tempPVI += (tempClose - sp.prevClose) / sp.prevClose * sp.tempPVI;
+         if( (Double.isFinite(sp.tempPVI)) ) {
+            sp.prevPVI = sp.tempPVI;
+         }
       }
       sp.cur_outReal = sp.prevPVI;
       sp.prevClose = tempClose;
       sp.prevVolume = tempVolume;
    }
-   private RetCode PVI_OpenBody( PVI_Stream sp, double inClose[], double inVolume[], int startIdx )
+   private RetCode PVI_OpenCore( PVI_Stream sp, double inClose[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int i = 0;
       int outIdx = 0;
@@ -325,9 +381,7 @@
       double prevVolume = 0;
       double tempClose = 0;
       double tempVolume = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
+      double tempPVI = 0;
       int historyLen = inClose.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inVolume.length != inClose.length ) {
@@ -351,9 +405,24 @@
           * the index forward unchanged instead. Never triggers on real prices.
           */
          if( tempVolume > prevVolume && prevClose != 0.0 ) {
-            prevPVI += (tempClose - prevClose) / prevClose * prevPVI;
+            /* The index is a running product, so it has no upper bound: enough
+             * compounding gains push it past the largest double. Keep the last
+             * representable value instead of writing +/-Inf, which no caller can
+             * chart and which poisons every arithmetic downstream of it. Real
+             * price series never come close.
+             *
+             * Written as a compound assignment on the copy, exactly as the update
+             * was before the guard: spelling it `a + r*a` would match the FMA
+             * fusion detector and silently re-round every bar, not just the
+             * overflowing one.
+             */
+            tempPVI = prevPVI;
+            tempPVI += (tempClose - prevClose) / prevClose * tempPVI;
+            if( (Double.isFinite(tempPVI)) ) {
+               prevPVI = tempPVI;
+            }
          }
-         lastValue_outReal = prevPVI;
+         outReal[outIdx++ * outStride] = prevPVI;
          prevClose = tempClose;
          prevVolume = tempVolume;
       }
@@ -363,59 +432,43 @@
       sp.prevPVI = prevPVI;
       sp.prevClose = prevClose;
       sp.prevVolume = prevVolume;
-      sp.cur_outReal = lastValue_outReal;
+      sp.tempPVI = tempPVI;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode PVI_OpenBody( PVI_Stream sp, double inClose[], double inVolume[], int startIdx )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return PVI_OpenCore( sp, inClose, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode PVI_OpenAndFillBody( PVI_Stream sp, double inClose[], double inVolume[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int i = 0;
-      int outIdx = 0;
-      double prevPVI = 0;
-      double prevClose = 0;
-      double prevVolume = 0;
-      double tempClose = 0;
-      double tempVolume = 0;
-      int historyLen = inClose.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inVolume.length != inClose.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
       if( (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
          return RetCode.BadParam;
       }
-      /* The index is a running cumulative value seeded at 1000, updated only on
-       * bars whose volume increased versus the prior bar (Positive Volume).
-       */
-      prevPVI = 1000.0;
-      prevClose = inClose[startIdx];
-      prevVolume = inVolume[startIdx];
-      outIdx = 0;
-      for( i = startIdx; i <= endIdx; i += 1 ) {
-         tempClose = inClose[i];
-         tempVolume = inVolume[i];
-         /* prevClose != 0 guards the percentage-change division: a zero previous
-          * close is a degenerate input that would otherwise emit NaN/Inf; carry
-          * the index forward unchanged instead. Never triggers on real prices.
-          */
-         if( tempVolume > prevVolume && prevClose != 0.0 ) {
-            prevPVI += (tempClose - prevClose) / prevClose * prevPVI;
-         }
-         outReal[outIdx++] = prevPVI;
-         prevClose = tempClose;
-         prevVolume = tempVolume;
+      return PVI_OpenCore( sp, inClose, inVolume, 0, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode PVI_OpenAndFillInternalBody( PVI_Stream sp, double inClose[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return PVI_OpenCore(sp, inClose, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* PVI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   PVI_Stream PVI_OpenAndFillInternal( double inClose[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      PVI_Stream sp = new PVI_Stream(this);
+      RetCode retCode = PVI_OpenAndFillInternalBody(sp, inClose, inVolume, startIdx, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      outBegIdx.value = startIdx;
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      sp.prevPVI = prevPVI;
-      sp.prevClose = prevClose;
-      sp.prevVolume = prevVolume;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("PVI openAndFill: history shorter than lookback + 1");
+      }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("PVI openAndFill: internal error");
+      }
+      throw new IllegalArgumentException("PVI openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind PVI_Open (composition seam). */
    PVI_Stream PVI_OpenInternal( double inClose[], double inVolume[], int startIdx )

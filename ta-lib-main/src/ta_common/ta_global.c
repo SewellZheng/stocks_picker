@@ -37,6 +37,8 @@
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
  *  AC       Angelo Ciceri
+ *  KL       Kevin Lin (@kevinlincg)
+ *  CC       Claude Code
  *
  *
  * Change history:
@@ -48,6 +50,8 @@
  *              and call to TA_RestoreCandleDefaultSettings in TA_Initialize
  *  041106 MF   Add prefix to theGlobals to avoid clash with other libs.
  *  040707 MF   Change global initialization to eliminate Mac OS X link error.
+ *  081126 KL,MF,CC Validate every TA_SetCandleSettings argument, not just the
+ *                settingType (#185)
  */
 
 /* Description:
@@ -89,6 +93,8 @@ TA_LibcPriv *TA_Globals = &ta_theGlobals;
 /**** Global functions definitions.   ****/
 TA_RetCode TA_Initialize( void )
 {
+   TA_RetCode retCode;
+
    /* Initialize the "global variable" used to manage the global
     * variables of all other modules...
     */
@@ -97,8 +103,13 @@ TA_RetCode TA_Initialize( void )
 
    /*** At this point, TA_Shutdown can be called to clean-up. ***/
 
-   /* Set the default value to global variables */
-   TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+   /* Set the default value to global variables. The return is checked: it is
+    * how the defaults table's own completeness guard reaches a caller, and a
+    * library initialized with unset candle settings silently changes every
+    * CDL* result rather than failing. */
+   retCode = TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
+   if( retCode != TA_SUCCESS )
+      return retCode;
 
    return TA_SUCCESS;
 }
@@ -120,8 +131,36 @@ TA_RetCode TA_SetCandleSettings( TA_CandleSettingType settingType,
                                  double factor )
 {
     /*printf("setcdlset:%d  ",settingType);*/
-    if( settingType >= TA_AllCandleSettings )
+
+    /* Unsigned compares, as in TA_SetUnstablePeriod (#144), so a negative value
+     * cannot index behind candleSettings[] where the compiler gives the enum a
+     * signed underlying type. TA_AllCandleSettings is the count as well as the
+     * "all" selector of TA_RestoreCandleDefaultSettings, so it is not a target
+     * here; an out-of-domain rangeType would reach TA_CANDLERANGE's
+     * fall-through arm and measure every range as zero. */
+    if( (unsigned int)settingType >= (unsigned int)TA_AllCandleSettings )
         return TA_BAD_PARAM;
+    if( (unsigned int)rangeType > (unsigned int)TA_RangeType_Shadows )
+        return TA_BAD_PARAM;
+
+    /* avgPeriod IS the lookback of every function that reads this setting, so
+     * it is bounded like one (#185). A negative one starts the main loop that
+     * many bars late while *outBegIdx still reports startIdx -- every value
+     * shifted under a correct-looking index, and a lookback reporting negative
+     * while the call returns TA_SUCCESS. TA_MAX_INDEX is the ceiling
+     * TA_SetUnstablePeriod already uses for the same reason: above it the
+     * `max(...)+N` lookbacks overflow signed-negative into that same state, and
+     * a warm-up longer than the largest addressable series could never produce
+     * output. */
+    if( avgPeriod < 0 || avgPeriod > TA_MAX_INDEX )
+        return TA_BAD_PARAM;
+
+    /* factor scales a threshold, never an index, so any finite value is legal
+     * (a negative one simply never matches). NaN is refused because it silences
+     * every comparison it feeds without being asked to. */
+    if( factor != factor )
+        return TA_BAD_PARAM;
+
     TA_Globals->candleSettings[settingType].settingType = settingType;
     TA_Globals->candleSettings[settingType].rangeType = rangeType;
     TA_Globals->candleSettings[settingType].avgPeriod = avgPeriod;
@@ -162,7 +201,19 @@ TA_RetCode TA_RestoreCandleDefaultSettings( TA_CandleSettingType settingType )
     };
 
     int i;
-    if( settingType > TA_AllCandleSettings )
+
+    /* One row per setting, or the indexing below reads past the end:
+     * TA_AllCandleSettings is the member count as well as the "all" selector.
+     * Constant-folded away when it holds; a setting appended to the enum
+     * without a row here becomes a clean error instead of an over-read.
+     * The enum itself is pinned by testEnumValueContract (ta_regtest). */
+    if( sizeof(TA_CandleDefaultSettings)/sizeof(TA_CandleDefaultSettings[0])
+        != (size_t)TA_AllCandleSettings )
+        return TA_INTERNAL_ERROR;
+
+    /* Unsigned compare as above -- except that here TA_AllCandleSettings IS a
+     * valid argument (it selects "all"), so the bound is the count itself. */
+    if( (unsigned int)settingType > (unsigned int)TA_AllCandleSettings )
         return TA_BAD_PARAM;
     if( settingType == TA_AllCandleSettings )
         for( i = 0; i < TA_AllCandleSettings; ++i )

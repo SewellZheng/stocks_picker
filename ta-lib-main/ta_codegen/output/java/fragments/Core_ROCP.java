@@ -281,7 +281,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class ROCP_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       int ringPos_trailingIdx;
       int ringCap_trailingIdx;
@@ -310,6 +310,20 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( ROCP_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
+         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
+         if( this.ring_trailingIdx_inReal != null && this.ring_trailingIdx_inReal.length == other.ring_trailingIdx_inReal.length ) {
+            System.arraycopy( other.ring_trailingIdx_inReal, 0, this.ring_trailingIdx_inReal, 0, other.ring_trailingIdx_inReal.length );
+         } else {
+            this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
+         }
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -322,9 +336,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
          ROCP_Stream scratch = new ROCP_Stream(this);
@@ -367,15 +381,12 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode ROCP_OpenBody( ROCP_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode ROCP_OpenCore( ROCP_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int inIdx = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       double tempReal = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -439,9 +450,9 @@
       while( inIdx <= endIdx ) {
          tempReal = inReal[trailingIdx++];
          if( tempReal != 0.0 ) {
-            lastValue_outReal = (inReal[inIdx] - tempReal) / tempReal;
+            outReal[outIdx++ * outStride] = (inReal[inIdx] - tempReal) / tempReal;
          } else {
-            lastValue_outReal = 0.0;
+            outReal[outIdx++ * outStride] = 0.0;
          }
          inIdx += 1;
       }
@@ -460,105 +471,42 @@
       sp.ringPos_trailingIdx = 0;
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode ROCP_OpenBody( ROCP_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return ROCP_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode ROCP_OpenAndFillBody( ROCP_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int inIdx = 0;
-      int outIdx = 0;
-      int trailingIdx = 0;
-      double tempReal = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 10;
-      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      /* The interpretation of the rate of change varies widely depending
-       * which software and/or books you are refering to.
-       *
-       * The following is the table of Rate-Of-Change implemented in TA-LIB:
-       *       MOM     = (price - prevPrice)         [Momentum]
-       *       ROC     = ((price/prevPrice)-1)*100   [Rate of change]
-       *       ROCP    = (price-prevPrice)/prevPrice [Rate of change Percentage]
-       *       ROCR    = (price/prevPrice)           [Rate of change ratio]
-       *       ROCR100 = (price/prevPrice)*100       [Rate of change ratio 100 Scale]
-       *
-       * Here are the equivalent function in other software:
-       *       TA-Lib  |   Tradestation   |    Metastock
-       *       =================================================
-       *       MOM     |   Momentum       |    ROC (Point)
-       *       ROC     |   ROC            |    ROC (Percent)
-       *       ROCP    |   PercentChange  |    -
-       *       ROCR    |   -              |    -
-       *       ROCR100 |   -              |    MO
-       *
-       * The MOM function is the only one who is not normalized, and thus
-       * should be avoided for comparing different time serie of prices.
-       *
-       * ROC and ROCP are centered at zero and can have positive and negative
-       * value. Here are some equivalence:
-       *    ROC = ROCP/100
-       *        = ((price-prevPrice)/prevPrice)/100
-       *        = ((price/prevPrice)-1)*100
-       *
-       * ROCR and ROCR100 are ratio respectively centered at 1 and 100 and are
-       * always positive values.
-       */
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < optInTimePeriod ) {
-         startIdx = optInTimePeriod;
+      return ROCP_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode ROCP_OpenAndFillInternalBody( ROCP_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return ROCP_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* ROCP_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   ROCP_Stream ROCP_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      ROCP_Stream sp = new ROCP_Stream(this);
+      RetCode retCode = ROCP_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("ROCP openAndFill: history shorter than lookback + 1");
       }
-      /* Calculate Rate of change Ratio: (price / prevPrice) */
-      outIdx = 0;
-      inIdx = startIdx;
-      trailingIdx = startIdx - optInTimePeriod;
-      while( inIdx <= endIdx ) {
-         tempReal = inReal[trailingIdx++];
-         if( tempReal != 0.0 ) {
-            outReal[outIdx++] = (inReal[inIdx] - tempReal) / tempReal;
-         } else {
-            outReal[outIdx++] = 0.0;
-         }
-         inIdx += 1;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("ROCP openAndFill: internal error");
       }
-      /* Set output limits. */
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Capture the live batch state into the handle. */
-      int cap_trailingIdx = inIdx - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-         return RetCode.InternalError;
-      }
-      int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
-      double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
-      System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.ringPos_trailingIdx = 0;
-      sp.ringCap_trailingIdx = cap_trailingIdx;
-      sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("ROCP openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind ROCP_Open (composition seam). */
    ROCP_Stream ROCP_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )

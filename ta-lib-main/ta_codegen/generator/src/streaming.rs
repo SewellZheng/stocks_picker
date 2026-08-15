@@ -336,6 +336,75 @@ pub struct SubCallStep {
     pub dsts: Vec<String>,
 }
 
+impl SubCallStep {
+    /// Whether the sub-open and the batch sub-call that follows it can be
+    /// emitted as ONE `OpenAndFillInternal` pass instead of two (issue #192).
+    ///
+    /// They compute the same numbers over the same range by construction — the
+    /// open is anchored to this very call's `s_arg`/`e_arg` — so the only thing
+    /// that can make the fusion unsound is ALIASING. The fused call writes the
+    /// destination DURING the warm-up pass, and a stream's capture epilogue
+    /// reads its input tail AFTER the outputs are written (the same hazard the
+    /// public `OpenAndFill` rejects, #108/#130): if a destination is also a
+    /// source, the handle would capture from a buffer the pass has already
+    /// overwritten. Today the two passes are what keeps that safe — the open
+    /// runs on the pristine buffer at stride 0, writing only its own scalar
+    /// sink, and the in-place overwrite happens afterwards in the batch call.
+    ///
+    /// One shipped sub-call is in place and so stays unfused: STOCH's slow-K
+    /// `TA_MA( 0, outIdx-1, tempBuffer, ..., tempBuffer )`. Two destinations
+    /// aliasing each other is rejected for the same reason.
+    ///
+    /// NOT checked here: whether the callee's tier actually emits the fused
+    /// entry point. Every tier does except PeriodBank
+    /// ([`emits_open_and_fill_internal`]), and the emission site has only a
+    /// [`CalleeLookup`] — signature facts from the YAML — which cannot decide a
+    /// tier. Composing over MAVP is the one thing that would emit a call to an
+    /// undefined symbol, no shipped function does it, and the failure would be
+    /// a link error naming the exact symbol: loud, immediate, and impossible to
+    /// mistake for a numerical difference. The private header is filtered by
+    /// that same predicate, so it never declares what it does not define.
+    pub fn is_fusable(&self) -> bool {
+        let distinct_dsts = self
+            .dsts
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            == self.dsts.len();
+        distinct_dsts && !self.dsts.iter().any(|d| self.srcs.contains(d))
+    }
+}
+
+/// The out-meta and destination argument expressions of a composed tail's batch
+/// sub-call, taken from the END of its argument list — `[startIdx, endIdx,
+/// inputs.., opts.., outBegIdx, outNBElement, outputs..]`. Counting backwards
+/// from `sub.dsts.len()` is what makes this independent of how many inputs and
+/// optional params the callee has.
+///
+/// Every backend fusing a sub-call needs exactly these expressions, and they are
+/// NOT uniformly the dummies — MACDEXT reads `outNbElement1`, APO/PPO/PVO read
+/// `fastNb`, STOCHRSI mixes `outBegIdx2` with `dummyNBElement` — so re-deriving
+/// them per backend would be three chances to feed the wrong lengths downstream.
+///
+/// `None` when the statement is not the expected `<var> = <callee>( .. )` shape
+/// or the argument count cannot account for the outputs; the caller then falls
+/// back to the unfused two-pass emission rather than guessing.
+pub fn batch_call_out_args<'a>(
+    stmt: &'a Statement,
+    sub: &SubCallStep,
+) -> Option<(Vec<&'a Expr>, Vec<&'a Expr>)> {
+    let Statement::Assign { value: Expr::FuncCall(_, args), .. } = stmt else {
+        return None;
+    };
+    let n_dst = sub.dsts.len();
+    // startIdx + endIdx + at least one input, then the out triplet.
+    if n_dst == 0 || args.len() < n_dst + 2 + 2 {
+        return None;
+    }
+    let split = args.len() - n_dst;
+    Some((args[split - 2..split].iter().collect(), args[split..].iter().collect()))
+}
+
 /// One per-bar step of a composed Update pipeline, in tail order.
 #[derive(Debug, Clone)]
 pub enum UpdateStep {
@@ -422,7 +491,6 @@ pub enum StreamPlan<'a> {
     Dispatch(DispatchPlan<'a>),
     Composed(ComposedPlan<'a>),
     DualMode(DualModePlan<'a>),
-    FastPathSkip(FastPathSkipPlan<'a>),
     PeriodBank(PeriodBankPlan<'a>),
 }
 
@@ -465,27 +533,6 @@ pub struct PeriodBankPlan<'a> {
     pub matype_param: String,
     /// The single real output.
     pub output: String,
-}
-
-/// A recognized param fast-path split whose two arms are bit-identical (a pure
-/// batch perf optimization): `<prologue> if (<param> <= <literal>) { fast-path }
-/// else { general } <epilogue>` (MIDPRICE rescans a short window but caches the
-/// running extremum for long periods; both paths produce identical output).
-/// ONLY the general (else) arm is streamed, for EVERY param — the fast-path
-/// `then` arm is a batch-only specialization skipped by the stream, and the
-/// stream_verify gate enforces bit-exactness across the threshold. The `<=
-/// literal` threshold predicate distinguishes this from a genuine dual-mode
-/// branch (TRIMA's `% 2`, whose arms differ and must both be streamed).
-#[derive(Debug)]
-pub struct FastPathSkipPlan<'a> {
-    pub func: &'a FuncDef,
-    /// The shared prologue (`body[..if_idx]`).
-    pub prologue: &'a [Statement],
-    /// The general (else) arm's stream model (`model.body` is the else slice).
-    pub model: StreamModel<'a>,
-    /// The shared epilogue (`body[if_idx+1..]`): out-meta writes + final return,
-    /// transcribed after the general arm.
-    pub epilogue: &'a [Statement],
 }
 
 /// A recognized param-selected dual-mode body: a shared prologue, then a
@@ -611,6 +658,15 @@ pub struct StreamModel<'a> {
     pub steady: Steady,
     /// Recognized param==1 identity path, if the batch body has one.
     pub identity: Option<IdentityPath>,
+    /// Set when the surface enclosing this model already emits the identity
+    /// short-circuit, so the transition must NOT repeat it. Only the dual-mode
+    /// step sets it: the identity is a property of the whole function, not of a
+    /// mode, so the step tests it once above the mode predicate (mirroring the
+    /// batch and Open). Repeated per arm it would sit inside a param-pure
+    /// predicate that can exclude the identity value — HMA's `period == 1`
+    /// inside its `period == 2 || period == 3` arm, unreachable by
+    /// construction.
+    pub identity_hoisted: bool,
     /// Cursor-parity carry (`cursor % 2` odd/even branch), if the batch body
     /// has one. Seeded in open, flipped each update; see [`ParitySpec`].
     pub parity: Option<ParitySpec>,
@@ -1336,17 +1392,38 @@ fn is_stateful_call(name: &str) -> bool {
         || name == "TA_Free"
 }
 
+/// The whole-function period-1 identity arm, if the batch body carries one.
+///
+/// [`detect_identity_path`]'s three internal callers each ask this about the body
+/// slice they are building a stream surface out of; this asks it about the
+/// function, which is the question the `period1_identity` YAML flag answers. It
+/// is the same detector rather than a second one on purpose: the flag gate
+/// (`tests/period1_suite.rs`) and the stream surfaces must not be able to
+/// disagree about what an identity arm is.
+///
+/// A `None` here is not a claim that the function fails the identity — `SMA` and
+/// `TRIMA` honour it with no arm at all, their window math being exact at a
+/// period of 1. It means only that no arm was *found*, which is why the gate
+/// reads it in one direction: an arm obliges the flag, the flag does not oblige
+/// an arm.
+#[must_use]
+pub fn identity_path(func: &FuncDef) -> Option<IdentityPath> {
+    let params: Vec<String> = func
+        .optional_inputs
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
+    let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
+    detect_identity_path(&func.body, &input_array_names(func), &outputs, &params).0
+}
+
 /// Analyze one function's batch IR into a [`StreamModel`].
 ///
 /// Errors classify *why* the function is outside stage 1 (ring needed,
 /// composed body, non-scalar state, ...), which drives both the YAML
 /// validation and the census.
 pub fn analyze(func: &FuncDef) -> Result<StreamModel<'_>, StreamError> {
-    let body: &[Statement] = if func.has_explicit_private {
-        &func.private_body
-    } else {
-        &func.body
-    };
+    let body: &[Statement] = func.stream_source();
     let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
     for o in &func.outputs {
         if !matches!(o.param_type, ParamType::Real | ParamType::Integer) {
@@ -1526,6 +1603,7 @@ pub fn analyze_region_scoped<'a>(
         lags: lag_slots,
         steady,
         identity,
+        identity_hoisted: false,
         parity,
     };
     // Drift-proof the cached tier: re-derive it from the FINAL model (through
@@ -1561,11 +1639,7 @@ pub fn analyze_region_scoped<'a>(
 /// dual-mode body may carry one too (HMA): it is recognized, excluded from the
 /// arm scan, and attached to BOTH modes.
 pub fn analyze_dual_mode(func: &FuncDef) -> Result<DualModePlan<'_>, StreamError> {
-    let body: &[Statement] = if func.has_explicit_private {
-        &func.private_body
-    } else {
-        &func.body
-    };
+    let body: &[Statement] = func.stream_source();
     let params: BTreeSet<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
     let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
 
@@ -1629,16 +1703,20 @@ pub fn analyze_dual_mode(func: &FuncDef) -> Result<DualModePlan<'_>, StreamError
             found = Some((i, false));
             break;
         }
-        // If/else form (TRIMA): a real else, each arm is a steady loop, NEITHER
-        // returns (both fall through to a shared epilogue), and NOT a `<= literal`
-        // threshold — that shape is fast-path-skip's (a bit-identical perf split
-        // streams one arm; here the two arms genuinely differ and both stream).
+        // If/else form (TRIMA): a real else, each arm is a steady loop, and
+        // NEITHER returns (both fall through to a shared epilogue).
+        //
+        // A `<param> <= <literal>` threshold is nothing special here. Two
+        // interchangeable bodies — one a perf specialization of the other — are
+        // declared as `<name>` plus a `PRAGMA TA_ALT` alternate, never as two
+        // arms of a branch, so a threshold if/else in a body means what any
+        // other predicate means: two genuinely different arms, both of which
+        // stream.
         if !else_body.is_empty()
             && has_loop(then_body)
             && has_loop(else_body)
             && !ends_in_success(then_body)
             && !ends_in_success(else_body)
-            && !is_threshold_pred(condition, &params)
         {
             found = Some((i, true));
             break;
@@ -1674,8 +1752,15 @@ pub fn analyze_dual_mode(func: &FuncDef) -> Result<DualModePlan<'_>, StreamError
     // The identity lives in the shared prologue, so neither region-scoped
     // analysis can see it; hand it to both so every mode-selected surface
     // (step, Open, OpenAndFill) short-circuits exactly as the batch does.
+    // Every one of those surfaces tests it ONCE, above the mode predicate, so
+    // the arms themselves must not re-test it: an arm's predicate is param-pure
+    // and can exclude the identity value outright (HMA's `period == 2 ||
+    // period == 3`), which would leave a `period == 1` branch that no input can
+    // reach.
     mode_a.identity.clone_from(&identity);
     mode_b.identity = identity;
+    mode_a.identity_hoisted = true;
+    mode_b.identity_hoisted = true;
 
     Ok(DualModePlan {
         func,
@@ -1684,68 +1769,6 @@ pub fn analyze_dual_mode(func: &FuncDef) -> Result<DualModePlan<'_>, StreamError
         mode_a,
         mode_b,
         epilogue,
-    })
-}
-
-/// Recognize a param fast-path split whose two arms are bit-identical (see
-/// [`FastPathSkipPlan`]): `<prologue> if (<param> <= <lit>) { fast } else {
-/// general } <epilogue>`. Streams the GENERAL (else) arm for every param and
-/// skips the fast-path `then` arm (a batch-only perf specialization); the
-/// stream_verify gate enforces bit-exactness across the threshold. Tried after
-/// [`analyze_dual_mode`], so an early-return degenerate arm is handled there;
-/// the `<= literal` threshold predicate excludes a genuine dual-mode branch
-/// (e.g. TRIMA's `period % 2`, whose arms differ and are not interchangeable).
-pub fn analyze_fastpath_skip(func: &FuncDef) -> Result<FastPathSkipPlan<'_>, StreamError> {
-    let body: &[Statement] = if func.has_explicit_private {
-        &func.private_body
-    } else {
-        &func.body
-    };
-    let params: BTreeSet<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
-
-    let ends_in_return = |b: &[Statement]| matches!(b.last(), Some(Statement::Return { .. }));
-    let mut found: Option<usize> = None;
-    for (i, s) in body.iter().enumerate() {
-        let Statement::If {
-            condition,
-            then_body,
-            else_body,
-            ..
-        } = s
-        else {
-            continue;
-        };
-        // A `param <= literal` (or `<`) threshold, a real else, and NEITHER arm
-        // returns (both fall through to the shared epilogue — the early-return
-        // form is dual-mode's).
-        let is_threshold = matches!(
-            condition,
-            Expr::BinOp(l, BinOp::LessEq | BinOp::Less, r)
-                if matches!(l.as_ref(), Expr::Var(v) if params.contains(v))
-                    && matches!(r.as_ref(), Expr::IntLiteral(_))
-        );
-        if is_threshold
-            && !else_body.is_empty()
-            && !ends_in_return(then_body)
-            && !ends_in_return(else_body)
-        {
-            found = Some(i);
-            break;
-        }
-    }
-    let Some(idx) = found else {
-        return Err(StreamError::NoSteadyLoop);
-    };
-    let Statement::If { else_body, .. } = &body[idx] else {
-        unreachable!("idx indexes the recognized If")
-    };
-    let model = analyze_region_scoped(func, else_body, body, outputs)?;
-    Ok(FastPathSkipPlan {
-        func,
-        prologue: &body[..idx],
-        model,
-        epilogue: &body[idx + 1..],
     })
 }
 
@@ -1762,11 +1785,7 @@ pub fn analyze_dispatch<'a>(
     func: &'a FuncDef,
     lookup: &dyn CalleeLookup,
 ) -> Result<DispatchPlan<'a>, StreamError> {
-    let body: &[Statement] = if func.has_explicit_private {
-        &func.private_body
-    } else {
-        &func.body
-    };
+    let body: &[Statement] = func.stream_source();
     let bar_inputs = input_array_names(func);
     let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
     let params: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
@@ -1882,11 +1901,7 @@ pub fn analyze_composed<'a>(
     func: &'a FuncDef,
     lookup: &dyn CalleeLookup,
 ) -> Result<ComposedPlan<'a>, StreamError> {
-    let body: &[Statement] = if func.has_explicit_private {
-        &func.private_body
-    } else {
-        &func.body
-    };
+    let body: &[Statement] = func.stream_source();
     let bar_inputs = input_array_names(func);
     let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
 
@@ -2541,18 +2556,6 @@ fn cursor_plus_expr(idx: &Expr, cursors: &BTreeSet<String>) -> Option<Expr> {
 /// series, pointers, cursors or calls. A sub-output lag depth must be such a
 /// constant-per-stream parameter expression (`optInTimePeriod - 1`).
 /// A `<param> <= <literal>` (or `<`) threshold predicate — the shape of a batch
-/// perf fast-path split ([`analyze_fastpath_skip`], MIDPRICE), as opposed to a
-/// genuine dual-mode branch (TRIMA's `period % 2 == 1`). Used to route the
-/// two if/else recognizers apart.
-fn is_threshold_pred(cond: &Expr, params: &BTreeSet<String>) -> bool {
-    matches!(
-        cond,
-        Expr::BinOp(l, BinOp::LessEq | BinOp::Less, r)
-            if matches!(l.as_ref(), Expr::Var(v) if params.contains(v))
-                && matches!(r.as_ref(), Expr::IntLiteral(_))
-    )
-}
-
 fn expr_is_param_pure(e: &Expr, params: &BTreeSet<String>) -> bool {
     let mut ok = true;
     walk_expr(e, &mut |x| match x {
@@ -3243,7 +3246,7 @@ pub fn analyze_period_bank<'a>(
     }
     // A single streaming callee, itself a 1-input / 1-output / 2-opt MAType
     // dispatch (so a per-period sub-MA can be opened from its public stream).
-    let streaming_names: Vec<String> = find_indicator_calls(&func.body, lookup)
+    let streaming_names: Vec<String> = find_indicator_calls(func.stream_source(), lookup)
         .into_iter()
         .filter(|c| lookup.callee(c).is_some_and(|s| s.streaming))
         .collect();
@@ -3255,7 +3258,7 @@ pub fn analyze_period_bank<'a>(
         return Err(StreamError::NoSteadyLoop);
     }
     // Extract the callee's actual args to learn its price input and opt roles.
-    let args = find_call_args(&func.body, callee, &sig).ok_or(StreamError::NoSteadyLoop)?;
+    let args = find_call_args(func.stream_source(), callee, &sig).ok_or(StreamError::NoSteadyLoop)?;
     let Expr::Var(price_input) = &args[2] else {
         return Err(StreamError::NoSteadyLoop);
     };
@@ -3293,6 +3296,30 @@ pub fn analyze_period_bank<'a>(
         matype_param: matype.name.clone(),
         output: func.outputs[0].name.clone(),
     })
+}
+
+/// Whether this function's tier emits an `OpenAndFillInternal` — the
+/// startIdx-anchored one-pass open+fill a composed caller fuses its sub-call
+/// into (issue #192).
+///
+/// True for every tier that owns an `OpenCore` (Loop, Composed, DualMode) and
+/// for Dispatch, which hand-rolls one over its arms'. False for PeriodBank
+/// (MAVP alone): its fill is a genuinely different warm-up — seed the bank at
+/// `lookbackTotal`, then replay `Update` over the rest — with no `startIdx` to
+/// anchor and, today, no composed caller that would pass one.
+///
+/// The private header is filtered by this, so it never declares a prototype
+/// the library does not define. [`SubCallStep::is_fusable`] does NOT read it —
+/// see the note there for why, and for what happens if a future function
+/// composes over MAVP. Deriving the answer from the tier rather than from a
+/// name list is what keeps a new dispatch- or bank-tier indicator from being
+/// mis-declared silently.
+pub fn emits_open_and_fill_internal(func: &FuncDef, lookup: &dyn CalleeLookup) -> bool {
+    func.streaming
+        && !matches!(
+            validate_streamable(func, lookup),
+            Ok(StreamPlan::PeriodBank(_))
+        )
 }
 
 /// Validate that a `streaming: true` function is still analyzable. Any
@@ -3342,8 +3369,8 @@ pub fn validate_streamable<'a>(
         fn extrema_buf(&self, array: &str) -> String {
             format!("sp->x_{array}")
         }
-        fn extrema_cap(&self) -> String {
-            "sp->xCap".to_string()
+        fn extrema_mask(&self) -> String {
+            "sp->xMask".to_string()
         }
     }
     // Loop tier first (the established 131), dispatch second: a body with a
@@ -3389,27 +3416,6 @@ pub fn validate_streamable<'a>(
         Err(dual_err) => {
             return Err(format!(
                 "{}: YAML declares `streaming: true` but the dual-mode body is not streamable: {dual_err}",
-                func.name
-            ));
-        }
-    }
-    // General-arm (MIDPRICE): a `param <= literal` fast-path split whose arms are
-    // bit-identical — stream only the general (else) arm. After dual-mode (the
-    // early-return / genuine-branch forms), before dispatch/composed.
-    match analyze_fastpath_skip(func) {
-        Ok(plan) => {
-            build_transition(&plan.model, &GateNames).map_err(|e| {
-                format!(
-                    "{}: general-arm streamable by analysis but the transition cannot be built: {e}",
-                    func.name
-                )
-            })?;
-            return Ok(StreamPlan::FastPathSkip(plan));
-        }
-        Err(StreamError::NoSteadyLoop) => {}
-        Err(arm_err) => {
-            return Err(format!(
-                "{}: YAML declares `streaming: true` but the general-arm body is not streamable: {arm_err}",
                 func.name
             ));
         }
@@ -4715,8 +4721,116 @@ pub trait NameMap {
     fn circ_buf(&self, storage: &str) -> String;
     /// The extrema-automaton ring buffer for `array`.
     fn extrema_buf(&self, array: &str) -> String;
-    /// The extrema-automaton ring capacity.
-    fn extrema_cap(&self) -> String;
+    /// The extrema-automaton ring mask: every backend's Open rounds the ring up
+    /// to a power of two at or above the logical capacity and stores that size
+    /// minus one here.
+    fn extrema_mask(&self) -> String;
+    /// Map an absolute bar index onto its extrema-ring slot.
+    fn extrema_slot(&self, idx: Expr) -> Expr {
+        Expr::BinOp(
+            Box::new(idx),
+            BinOp::BitwiseAnd,
+            Box::new(Expr::Var(self.extrema_mask())),
+        )
+    }
+}
+
+/// Drop the batch body's own identity branch from an Open transcription: the
+/// open head short-circuits the very same condition before this region runs, so
+/// the copy is unreachable there (and reads as a bug, since the return mapping
+/// rewrites its `return SUCCESS` into `return BAD_PARAM`). The comment block
+/// introducing the branch goes with it — kept, it would document code that is
+/// no longer there. Only the comment IMMEDIATELY above it: that is the whole of
+/// the attachment the IR carries, so an input comment that forward-references
+/// the branch from further up has to be fixed in the input prose.
+///
+/// Panics unless exactly one statement matched, so both ways of getting this
+/// wrong are loud: matching none silently reinstates the dead branch, matching
+/// several silently deletes live code, and dead code is invisible to every value
+/// gate. Carrying the index `detect_identity_path` already computes would not
+/// help — the region handed here is a DERIVED list (`prologue ++ arm ++
+/// epilogue`, and C's dual-mode path runs `drop_unused_decls` over it first), so
+/// a position from the original body can address a different statement.
+///
+/// # Panics
+/// If the body does not contain exactly one transcription of `identity`.
+#[must_use]
+pub fn strip_identity_branch(body: &[Statement], identity: Option<&IdentityPath>) -> Vec<Statement> {
+    let Some(idp) = identity else {
+        return body.to_vec();
+    };
+    let mut out: Vec<Statement> = Vec::with_capacity(body.len());
+    let mut hits = 0_usize;
+    for st in body {
+        if matches!(st, Statement::If { condition, .. } if *condition == idp.condition) {
+            hits += 1;
+            if matches!(out.last(), Some(Statement::Comment(_))) {
+                out.pop();
+            }
+            continue;
+        }
+        out.push(st.clone());
+    }
+    assert_eq!(
+        hits, 1,
+        "identity strip matched {hits} statements, expected exactly 1 (guard: {:?})",
+        idp.condition
+    );
+    out
+}
+
+/// Everything the transition reads off the handle instead of as a local: the
+/// loop-carried scalars plus every optional/private-extra parameter.
+fn transition_state_names(model: &StreamModel) -> BTreeSet<String> {
+    model
+        .state
+        .iter()
+        .map(|(n, _)| n.clone())
+        .chain(model.func.optional_inputs.iter().map(|p| p.name.clone()))
+        .chain(
+            model
+                .func
+                .private_extra_params
+                .iter()
+                .map(|(n, _)| n.clone()),
+        )
+        .collect()
+}
+
+/// The step's identity short-circuit as one statement: `if( <guard, params read
+/// off the handle> ) { <out = bar>...; return; }`. `None` when the batch body
+/// has no identity path.
+///
+/// One check per FUNCTION, never per mode. [`analyze_dual_mode`] hands the same
+/// path to both arms — a region-scoped model cannot see the shared prologue it
+/// lives in — so the dual-mode step emits this ABOVE its mode predicate, the
+/// way its Open head already does, and marks both arms
+/// [`StreamModel::identity_hoisted`] so [`build_transition`] leaves it out of
+/// the arm bodies.
+#[must_use]
+pub fn identity_step_branch(model: &StreamModel, names: &dyn NameMap) -> Option<Statement> {
+    let idp = model.identity.as_ref()?;
+    let state_names = transition_state_names(model);
+    let condition = rewrite_expr(&idp.condition, &|e| match e {
+        Expr::Var(n) if state_names.contains(&n) => Expr::Var(names.state(&n)),
+        other => other,
+    });
+    let mut then_body: Vec<Statement> = idp
+        .pairs
+        .iter()
+        .map(|(out, inp)| Statement::Assign {
+            target: names.output(out),
+            value: Expr::Var(names.bar(inp)),
+            compound: false,
+        })
+        .collect();
+    then_body.push(Statement::Return { value: None });
+    Some(Statement::If {
+        condition,
+        then_body,
+        else_body: vec![],
+        cond_comments: vec![],
+    })
 }
 
 /// Build the transition statements: the steady-loop body with
@@ -4732,19 +4846,7 @@ pub trait NameMap {
 #[allow(clippy::too_many_lines)]
 pub fn build_transition(model: &StreamModel, names: &dyn NameMap) -> Result<Vec<Statement>, String> {
     let dropped = model.dropped_vars();
-    let state_names: BTreeSet<String> = model
-        .state
-        .iter()
-        .map(|(n, _)| n.clone())
-        .chain(model.func.optional_inputs.iter().map(|p| p.name.clone()))
-        .chain(
-            model
-                .func
-                .private_extra_params
-                .iter()
-                .map(|(n, _)| n.clone()),
-        )
-        .collect();
+    let state_names = transition_state_names(model);
 
     let rewritten = rewrite_stmts(
         &model.steady_stmts,
@@ -4771,29 +4873,13 @@ pub fn build_transition(model: &StreamModel, names: &dyn NameMap) -> Result<Vec<
     );
 
     // param==1 identity short-circuit, mirroring the batch's explicit path
-    // (bit-exact: both sides copy the input).
-    let identity_branch = model.identity.as_ref().map(|idp| {
-        let condition = rewrite_expr(&idp.condition, &|e| match e {
-            Expr::Var(n) if state_names.contains(&n) => Expr::Var(names.state(&n)),
-            other => other,
-        });
-        let mut then_body: Vec<Statement> = idp
-            .pairs
-            .iter()
-            .map(|(out, inp)| Statement::Assign {
-                target: names.output(out),
-                value: Expr::Var(names.bar(inp)),
-                compound: false,
-            })
-            .collect();
-        then_body.push(Statement::Return { value: None });
-        Statement::If {
-            condition,
-            then_body,
-            else_body: vec![],
-            cond_comments: vec![],
-        }
-    });
+    // (bit-exact: both sides copy the input). Skipped when the enclosing
+    // surface emits it above this model — see [`StreamModel::identity_hoisted`].
+    let identity_branch = if model.identity_hoisted {
+        None
+    } else {
+        identity_step_branch(model, names)
+    };
 
     // Safety: no dropped variable may survive.
     let mut leaked = BTreeSet::new();
@@ -4928,11 +5014,7 @@ fn insert_transition_prologue(
                 Statement::Assign {
                     target: Expr::ArrayAccess(
                         names.extrema_buf(arr),
-                        Box::new(Expr::BinOp(
-                            Box::new(Expr::Var(names.state(&model.cursor))),
-                            BinOp::Mod,
-                            Box::new(Expr::Var(names.extrema_cap())),
-                        )),
+                        Box::new(names.extrema_slot(Expr::Var(names.state(&model.cursor)))),
                     ),
                     value: Expr::Var(names.bar(arr)),
                     compound: false,
@@ -5437,10 +5519,7 @@ fn rewrite_expr_for_transition(
             // Absolute-index automaton: every input read maps to the ring
             // slot of its absolute position (the index expression's vars
             // were already state-mapped bottom-up).
-            Expr::ArrayAccess(
-                names.extrema_buf(&n),
-                Box::new(Expr::BinOp(idx, BinOp::Mod, Box::new(Expr::Var(names.extrema_cap())))),
-            )
+            Expr::ArrayAccess(names.extrema_buf(&n), Box::new(names.extrema_slot(*idx)))
         }
         Expr::ArrayAccess(n, idx)
             if model.out_feedback.contains(&n) && is_prev_output_read(&idx) =>
@@ -5877,6 +5956,8 @@ mod tests {
             header_comments: vec![],
             doc: None,
             streaming: false,
+            alternates: vec![],
+            resolved_stream_body: None,
         }
     }
 
@@ -6250,8 +6331,8 @@ mod tests {
         fn extrema_buf(&self, array: &str) -> String {
             format!("sp->x_{array}")
         }
-        fn extrema_cap(&self) -> String {
-            "sp->xCap".to_string()
+        fn extrema_mask(&self) -> String {
+            "sp->xMask".to_string()
         }
     }
 

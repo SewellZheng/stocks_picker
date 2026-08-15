@@ -30,7 +30,8 @@
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Which moving-average algorithm to dispatch to (default
     *        0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA,
-    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED).
+    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT; {@code MAType.DEFAULT}
+    *        selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int MA_Lookback( int optInTimePeriod, MAType optInMAType )
@@ -39,6 +40,9 @@
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return -1;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
       }
       int retValue;
       if( optInTimePeriod <= 1 || optInMAType == MAType.DISABLED ) {
@@ -106,6 +110,9 @@
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
       }
       /* No-smoothing identity: period 1 (every MA type) or the explicit
        * TA_MAType_DISABLED (any period, issue #93). One copy path, lookback 0.
@@ -185,6 +192,9 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
+      }
       if( optInTimePeriod == 1 || optInMAType == MAType.DISABLED ) {
          nbElement = endIdx - startIdx + 1;
          outNBElement.value = nbElement;
@@ -244,6 +254,7 @@
     * <ul>
     * <li>A period of 1 performs no smoothing for every MAType: the output is a copy of the input.</li>
     * <li>{@code TA_MAType_DISABLED} bypasses smoothing explicitly, for any period: the output is a copy of the input with a lookback of 0. Every function that takes an MAType parameter accepts it.</li>
+    * <li>{@code TA_MAType_DEFAULT} selects the documented default of the parameter it is passed to — SMA here, EMA for APO, PPO and PVO. Every function that takes an MAType parameter accepts it.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -258,7 +269,8 @@
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Which moving-average algorithm to dispatch to (default
     *        0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA,
-    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED).
+    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT; {@code MAType.DEFAULT}
+    *        selects the default).
     * @param outReal Selected moving average of the input. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -307,6 +319,7 @@
     * <ul>
     * <li>A period of 1 performs no smoothing for every MAType: the output is a copy of the input.</li>
     * <li>{@code TA_MAType_DISABLED} bypasses smoothing explicitly, for any period: the output is a copy of the input with a lookback of 0. Every function that takes an MAType parameter accepts it.</li>
+    * <li>{@code TA_MAType_DEFAULT} selects the documented default of the parameter it is passed to — SMA here, EMA for APO, PPO and PVO. Every function that takes an MAType parameter accepts it.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -324,7 +337,8 @@
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Which moving-average algorithm to dispatch to (default
     *        0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA,
-    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED).
+    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT; {@code MAType.DEFAULT}
+    *        selects the default).
     * @param outReal Selected moving average of the input. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -378,7 +392,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MA_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       MAType optInMAType;
       double cur_outReal;
@@ -444,6 +458,96 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( MA_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.optInMAType = other.optInMAType;
+         this.cur_outReal = other.cur_outReal;
+         if( other.sub == null ) {
+            this.sub = null;
+         } else {
+            switch( this.optInMAType )
+            {
+            case SMA:
+               if( this.sub instanceof SMA_Stream ) {
+                  ((SMA_Stream) this.sub).copyFrom((SMA_Stream) other.sub);
+               } else {
+                  this.sub = new SMA_Stream((SMA_Stream) other.sub);
+               }
+               break;
+            case EMA:
+               if( this.sub instanceof EMA_Stream ) {
+                  ((EMA_Stream) this.sub).copyFrom((EMA_Stream) other.sub);
+               } else {
+                  this.sub = new EMA_Stream((EMA_Stream) other.sub);
+               }
+               break;
+            case WMA:
+               if( this.sub instanceof WMA_Stream ) {
+                  ((WMA_Stream) this.sub).copyFrom((WMA_Stream) other.sub);
+               } else {
+                  this.sub = new WMA_Stream((WMA_Stream) other.sub);
+               }
+               break;
+            case DEMA:
+               if( this.sub instanceof DEMA_Stream ) {
+                  ((DEMA_Stream) this.sub).copyFrom((DEMA_Stream) other.sub);
+               } else {
+                  this.sub = new DEMA_Stream((DEMA_Stream) other.sub);
+               }
+               break;
+            case TEMA:
+               if( this.sub instanceof TEMA_Stream ) {
+                  ((TEMA_Stream) this.sub).copyFrom((TEMA_Stream) other.sub);
+               } else {
+                  this.sub = new TEMA_Stream((TEMA_Stream) other.sub);
+               }
+               break;
+            case TRIMA:
+               if( this.sub instanceof TRIMA_Stream ) {
+                  ((TRIMA_Stream) this.sub).copyFrom((TRIMA_Stream) other.sub);
+               } else {
+                  this.sub = new TRIMA_Stream((TRIMA_Stream) other.sub);
+               }
+               break;
+            case KAMA:
+               if( this.sub instanceof KAMA_Stream ) {
+                  ((KAMA_Stream) this.sub).copyFrom((KAMA_Stream) other.sub);
+               } else {
+                  this.sub = new KAMA_Stream((KAMA_Stream) other.sub);
+               }
+               break;
+            case MAMA:
+               if( this.sub instanceof MAMA_Stream ) {
+                  ((MAMA_Stream) this.sub).copyFrom((MAMA_Stream) other.sub);
+               } else {
+                  this.sub = new MAMA_Stream((MAMA_Stream) other.sub);
+               }
+               break;
+            case T3:
+               if( this.sub instanceof T3_Stream ) {
+                  ((T3_Stream) this.sub).copyFrom((T3_Stream) other.sub);
+               } else {
+                  this.sub = new T3_Stream((T3_Stream) other.sub);
+               }
+               break;
+            case HMA:
+               if( this.sub instanceof HMA_Stream ) {
+                  ((HMA_Stream) this.sub).copyFrom((HMA_Stream) other.sub);
+               } else {
+                  this.sub = new HMA_Stream((HMA_Stream) other.sub);
+               }
+               break;
+            default:
+               throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
+            }
+         }
+         this.fillRange = other.fillRange;
+      }
+
+      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
+      private static final ThreadLocal<MA_Stream> PEEK_SCRATCH = new ThreadLocal<>();
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -456,12 +560,20 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a scratch handle held per thread and
+       * reused, so the copy allocates nothing after the first peek of this
+       * indicator on this thread. That scratch is retained for the life of
+       * the thread.
        */
       public double peek( double inReal ) {
-         MA_Stream scratch = new MA_Stream(this);
+         MA_Stream scratch = PEEK_SCRATCH.get();
+         if( scratch == null ) {
+            scratch = new MA_Stream(this);
+            PEEK_SCRATCH.set(scratch);
+         } else {
+            scratch.copyFrom(this);
+         }
          core.MA_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
       }
@@ -549,6 +661,9 @@
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
       }
       if( historyLen < MA_Lookback(optInTimePeriod, optInMAType) + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -645,6 +760,9 @@
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
       }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
@@ -757,6 +875,115 @@
       sp.optInMAType = optInMAType;
       return RetCode.Success;
    }
+   private RetCode MA_OpenAndFillInternalBody( MA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      int historyLen = inReal.length;
+      if( historyLen < 1 ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == Integer.MIN_VALUE ) {
+         optInTimePeriod = 30;
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
+      }
+      if( historyLen < MA_Lookback(optInTimePeriod, optInMAType) + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == 1 || optInMAType == MAType.DISABLED ) {
+         if( historyLen < MA_Lookback(optInTimePeriod, optInMAType) + 1 ) {
+            return RetCode.OutOfRangeEndIndex;
+         }
+         sp.optInTimePeriod = optInTimePeriod;
+         sp.optInMAType = optInMAType;
+         sp.sub = null;
+         int fillLb = MA_Lookback(optInTimePeriod, optInMAType);
+         if( startIdx > fillLb ) fillLb = startIdx;
+         if( historyLen < fillLb + 1 ) {
+            return RetCode.OutOfRangeEndIndex;
+         }
+         outBegIdx.value = fillLb;
+         outNBElement.value = historyLen - fillLb;
+         for( int fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ ) {
+            outReal[fillIdx] = inReal[fillLb + fillIdx];
+         }
+         sp.cur_outReal = outReal[outNBElement.value - 1];
+         return RetCode.Success;
+      }
+      switch( optInMAType )
+      {
+      case SMA: {
+         SMA_Stream sub = SMA_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case EMA: {
+         EMA_Stream sub = EMA_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case WMA: {
+         WMA_Stream sub = WMA_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case DEMA: {
+         DEMA_Stream sub = DEMA_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case TEMA: {
+         TEMA_Stream sub = TEMA_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case TRIMA: {
+         TRIMA_Stream sub = TRIMA_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case KAMA: {
+         KAMA_Stream sub = KAMA_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case MAMA: {
+         MAMA_Stream sub = MAMA_OpenAndFillInternal(inReal, startIdx, 0.5, 0.05, outBegIdx, outNBElement, outReal, new double[historyLen]);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outMAMA;
+         break;
+      }
+      case T3: {
+         T3_Stream sub = T3_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case HMA: {
+         HMA_Stream sub = HMA_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      default:
+         return RetCode.BadParam;
+      }
+      sp.optInTimePeriod = optInTimePeriod;
+      sp.optInMAType = optInMAType;
+      return RetCode.Success;
+   }
    /* Internal startIdx-anchored open behind MA_Open (composition seam). */
    MA_Stream MA_OpenInternal( double inReal[], int startIdx, int optInTimePeriod, MAType optInMAType )
    {
@@ -803,6 +1030,22 @@
       MInteger outNBElement = new MInteger();
       RetCode retCode = MA_OpenAndFillBody(sp, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("MA openAndFill: history shorter than lookback + 1");
+      }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("MA openAndFill: internal error");
+      }
+      throw new IllegalArgumentException("MA openAndFill: " + retCode);
+   }
+   /* MA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   MA_Stream MA_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      MA_Stream sp = new MA_Stream(this);
+      RetCode retCode = MA_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, optInMAType, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }

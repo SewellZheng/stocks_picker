@@ -142,6 +142,8 @@ Each backend renders enums appropriately:
 | `candlestick` | Output is a candlestick pattern signal | `TA_FUNC_FLG_CANDLESTICK` |
 | `stream` | Generate the streaming API (Open/Update/Peek/…) | `TA_FUNC_FLG_STREAM` |
 | `path_dependent` | Absolute output depends on `startIdx` and never converges across ranges (a running accumulation seeded at the first bar, or a path-dependent state machine); the same bar computed from a different `startIdx` can differ | `TA_FUNC_FLG_PATH_DEP` |
+| `nan_inf_output` | Some inputs of ordinary magnitude have no finite result, so a successful call can write NaN or ±Inf | `TA_FUNC_FLG_NAN_INF_OUT` |
+| `period1_identity` | A period of 1 performs no smoothing: the lookback is 0 and every output value is a bit-exact copy of its input value | `TA_FUNC_FLG_PERIOD1_IDENTITY` |
 
 ```yaml
 flags: [overlap, unstable_period]
@@ -152,6 +154,66 @@ it from `TA_FuncInfo.flags`, and the `ta_regtest` range sweep reads the same bit
 to decide it cannot cross-compare the function's values across ranges. Dropping
 it is fail-safe — the sweep then value-compares the function and fails loudly if
 it is genuinely start-dependent (issue #98).
+
+`nan_inf_output` (issue #191) marks the seven functions with a hole in their own
+domain — `ACOS`/`ASIN` outside [-1,1], `LN`/`LOG10`/`SQRT` on a negative value
+(and `LN`/`LOG10` on zero, which is -Inf), `DIV` on 0/0 or x/0, `VWMA` on a
+window with no volume at all. Each one's `<name>.md` says when, in a `## Notes`
+bullet, and the website renders the flag as a `Can Output NaN or ±Inf` display
+flag. It is not set for a non-finite value that only appears once the
+intermediate arithmetic overflows on the *input* magnitudes themselves (around
+1e160 and up), which is a property of `double`, not of the indicator.
+
+`NVI` and `PVI` were the eighth and ninth candidates and are deliberately not
+flagged: they are running *products* with no upper bound, so sustained gains on
+their qualifying bars used to compound past the range of a double (reachable in
+~460 bars with prices held inside [1, 100], and hit for real by the 2000-bar
+random dataset). Rather than declare that, both now carry the last representable
+value forward instead of writing Inf — the `IS_FINITE(...)` guard in
+`input/nvi/nvi.c` and `input/pvi/pvi.c`. No other library guards this (Tulip,
+ta4j and bukosabino/ta all compound unguarded; pandas-ta side-steps it by
+summing returns instead of compounding them), so the choice was ours to make.
+
+The flag is a **contract, not an annotation**: `test_abstract.c` holds every
+function *without* it to finite output across all five of its datasets
+(negative, zero, two epsilon sets, random), so adding a function that emits NaN
+or Inf on ordinary input fails the suite until the flag — and the `## Notes`
+sentence explaining when — are written.
+
+`period1_identity` (issue #184) is the same shape of contract, for the promise
+that a period of 1 returns the input untouched. It has to be *declared* because
+the two ways of honouring it are indistinguishable in the source: `SMA`'s window
+math is already exact at a period of 1, while `EMA`'s recurrence reduces to
+`(x - prev) + prev` and needs an explicit arm — so a generator cannot tell "needs
+no arm" from "forgot one". What the declaration buys is that the promise is
+checked: `test_period_boundary.c` sweeps every flagged function at a period of 1
+and requires lookback 0 plus a bit-exact copy, on the reference series and on two
+series built to break the naive forms, through the batch, `TA_S_`, streaming and
+cross-language surfaces.
+
+Membership is gated from both ends in `ta_codegen/generator/tests/period1_suite.rs`:
+
+- Every `MAType` member that resolves to a function with a period must carry it.
+  A moving average that does not copy its input at a period of 1 is not a moving
+  average. (`MAMA` is exempt — its parameters are the real fast/slow limits, so it
+  has no period to set to 1.)
+- Every function whose `.c` carries a recognisable identity arm must carry it,
+  which is the half that catches the real omissions: `VWMA` hand-copied the arm
+  and stayed outside the sweep for a release, because it is not a `MAType` and
+  nothing tied the two together.
+
+The reverse implication does not hold and is not asserted — a flagged function
+need not have an arm (`SMA`, `TRIMA`), and `MACD`/`MACDFIX` have an arm shape
+that is deliberately *not* this flag: only their signal stage degenerates at
+`signalPeriod == 1`, the MACD line is still computed, so their output is not a
+copy of anything.
+
+The flag states what the **public domain** offers, not what the body contains, and
+the two can differ: `RSI` and `CMO` carry the arm but declare `range: [2, …]`, so a
+period of 1 is rejected before any of it runs. They are therefore unflagged and
+outside the sweep, and the arm gate pins that (`UNREACHABLE_ARM`) rather than
+leaving it to be rediscovered — flagging them would have the metadata promise a
+call that returns `TA_BAD_PARAM`.
 
 ### Optional Input Flags
 

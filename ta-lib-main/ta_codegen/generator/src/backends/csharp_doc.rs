@@ -52,6 +52,9 @@ pub fn guarded_docs(
             }
         }
         b.raw("</code>");
+        if let Some(note) = &doc.formula_note {
+            b.text(&csdoc(note));
+        }
     }
     if !doc.notes.is_empty() {
         b.raw("<list type=\"bullet\">");
@@ -216,9 +219,18 @@ fn param_doc(opt: &OptInput, doc: &DocDef, enums: &HashMap<String, EnumDef>) -> 
             meta.push(format!("values: {}", values.join(", ")));
         }
         // Unlike Java's, a C# enum is an `int` with names, so the sentinel IS
-        // expressible here and the typed API resolves it (issue #162). Same
-        // clause, same position, as the period parameter beside it.
-        meta.push("<c>int.MinValue</c> selects the default".to_string());
+        // expressible here and the typed API resolves it (issue #162). It needs
+        // an explicit cast at this parameter though, so the member (#182) is
+        // named first: it is the spelling that compiles as written.
+        if let ParamType::Enum(name) = &opt.param_type {
+            match super::common::enum_default_variant(enums, name) {
+                Some(v) => meta.push(format!(
+                    "<c>{name}.{}</c> (or <c>({name})int.MinValue</c>) selects the default",
+                    v.name
+                )),
+                None => meta.push(format!("<c>({name})int.MinValue</c> selects the default")),
+            }
+        }
     } else {
         if let Some(d) = &m.default {
             meta.push(format!("default {d}"));

@@ -1,6 +1,6 @@
 ---
 title: Unstable Period
-description: "How many warm-up bars TA-Lib discards from recursive indicators such as EMA, RSI and ADX before reporting their output, and how to set it in C and Rust."
+description: "How many warm-up bars TA-Lib discards from recursive indicators such as EMA, RSI and ADX before reporting their output, and how to set it in C, Rust and C#."
 toc: false
 ---
 
@@ -60,15 +60,23 @@ use ta_lib::{Core, FuncUnstId};
 // Strip 30 extra bars from every EMA-based calculation:
 let core = Core::builder()
     .unstable_period(FuncUnstId::EMA, 30)
-    .build();
+    .build()?;
 
 // Apply the same unstable period to ALL affected functions at once:
 let core = Core::builder()
     .unstable_period(FuncUnstId::ALL, 30)
-    .build();
+    .build()?;
 
-let n = core.get_unstable_period(FuncUnstId::EMA);   // read it back
+let n = core.get_unstable_period(FuncUnstId::EMA)?;   // read it back
 ```
+
+The period is a `u32` — C's parameter is an `unsigned int`, so a negative
+warm-up is not rejected but unrepresentable — and must be no greater than
+`MAX_INDEX`. The setters chain, so they cannot report a rejection where it
+happens; `build()` reports it once, as `RetCode::BadParam`. Reading back the
+wildcard `FuncUnstId::ALL` is an error rather than a value: it names no single
+function, and C's answer of `0` for it is indistinguishable from a genuine
+reading.
 
 Ids are spelled `FuncUnstId::<NAME>`, so `TA_FUNC_UNST_HT_DCPERIOD` is
 `FuncUnstId::HT_DCPERIOD`.
@@ -76,6 +84,29 @@ Ids are spelled `FuncUnstId::<NAME>`, so `TA_FUNC_UNST_HT_DCPERIOD` is
 There is no global to guard here: the period is fixed when the [`Core`](/api/rust/)
 is built and cannot change afterwards, which is what makes a `Core` `Send + Sync`.
 To use a different period, build another `Core` (or derive one with `to_builder()`).
+
+@tab C#
+
+```csharp
+using TALib;
+
+// Strip 30 extra bars from every EMA-based calculation:
+Core core = Core.Builder()
+    .UnstablePeriod(FuncUnstId.EMA, 30)
+    .Build();
+
+// Apply the same unstable period to ALL affected functions at once:
+Core all = Core.Builder()
+    .UnstablePeriod(FuncUnstId.ALL, 30)
+    .Build();
+
+int n = core.UnstablePeriod(FuncUnstId.EMA);   // read it back
+```
+
+The same `0`..`MAX_INDEX` domain applies; a value outside it throws
+`ArgumentOutOfRangeException`, as does reading back the `ALL` wildcard, which
+names no single function. Like Rust's, a C# `Core` is immutable once built, so
+its settings cannot change under a concurrent call.
 
 :::
 

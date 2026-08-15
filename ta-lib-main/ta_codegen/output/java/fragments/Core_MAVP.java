@@ -31,7 +31,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type applied (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED).
+    *        10=DISABLED, 11=DEFAULT; {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int MAVP_Lookback( int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
@@ -45,6 +45,16 @@
          optInMaxPeriod = 30;
       } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
          return -1;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
+      }
+      /* The same cross-parameter constraint mavp() rejects on. Each period is in
+       * range on its own, so no prologue check can catch it, and without this the
+       * lookback answers a usable number for a call that cannot run.
+       */
+      if( optInMinPeriod > optInMaxPeriod ) {
+         return 0 - 1 ;
       }
       return MA_Lookback(optInMaxPeriod, optInMAType) ;
 
@@ -96,6 +106,9 @@
          optInMaxPeriod = 30;
       } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
       }
       /* An inverted period window (min above max) is an invalid parameter
        * combination: the per-bar clamp below would push a period above
@@ -360,6 +373,9 @@
       } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
          return RetCode.BadParam;
       }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
+      }
       if( optInMinPeriod > optInMaxPeriod ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
@@ -515,7 +531,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type applied (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED).
+    *        10=DISABLED, 11=DEFAULT; {@code MAType.DEFAULT} selects the default).
     * @param outReal variable-period moving average. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -580,7 +596,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type applied (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED).
+    *        10=DISABLED, 11=DEFAULT; {@code MAType.DEFAULT} selects the default).
     * @param outReal variable-period moving average. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -630,7 +646,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MAVP_Stream {
-      final Core core;
+      Core core;
       int optInMinPeriod;
       int optInMaxPeriod;
       MAType optInMAType;
@@ -663,6 +679,28 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( MAVP_Stream other ) {
+         this.core = other.core;
+         this.optInMinPeriod = other.optInMinPeriod;
+         this.optInMaxPeriod = other.optInMaxPeriod;
+         this.optInMAType = other.optInMAType;
+         this.cur_outReal = other.cur_outReal;
+         if( this.bank != null && this.bank.length == other.bank.length ) {
+            for( int bankIdx = 0; bankIdx < other.bank.length; bankIdx++ ) {
+               this.bank[bankIdx].copyFrom(other.bank[bankIdx]);
+            }
+         } else {
+            this.bank = new MA_Stream[other.bank.length];
+            for( int bankIdx = 0; bankIdx < other.bank.length; bankIdx++ ) {
+               this.bank[bankIdx] = new MA_Stream(other.bank[bankIdx]);
+            }
+         }
+         this.fillRange = other.fillRange;
+      }
+
+      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
+      private static final ThreadLocal<MAVP_Stream> PEEK_SCRATCH = new ThreadLocal<>();
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -675,12 +713,20 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a scratch handle held per thread and
+       * reused, so the copy allocates nothing after the first peek of this
+       * indicator on this thread. That scratch is retained for the life of
+       * the thread.
        */
       public double peek( double inReal, double inPeriods ) {
-         MAVP_Stream scratch = new MAVP_Stream(this);
+         MAVP_Stream scratch = PEEK_SCRATCH.get();
+         if( scratch == null ) {
+            scratch = new MAVP_Stream(this);
+            PEEK_SCRATCH.set(scratch);
+         } else {
+            scratch.copyFrom(this);
+         }
          core.MAVP_StreamStep(scratch, inReal, inPeriods);
          return scratch.cur_outReal;
       }
@@ -737,6 +783,9 @@
       } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
          return RetCode.BadParam;
       }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
+      }
       /* An inverted [min, max] period window is invalid (batch rejects). */
       if( optInMinPeriod > optInMaxPeriod ) {
          return RetCode.BadParam;
@@ -787,6 +836,9 @@
          optInMaxPeriod = 30;
       } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
       }
       if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inPeriods ) {
          return RetCode.BadParam;

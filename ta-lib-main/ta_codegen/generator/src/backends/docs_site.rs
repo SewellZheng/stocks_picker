@@ -266,8 +266,7 @@ fn join_and(names: &[String]) -> String {
 /// outlined empty box (U+2610, not a filled square, so it does not read as a bullet)
 /// plus a dimmed label. Each cell trails a focusable `.flag-tip` help badge carrying
 /// `tip` in `data-tip`/`aria-label` (styled in `.vuepress/styles/index.scss` as a
-/// hover/focus tooltip). Shared by both `## Stability` and `## Display Flags` so they
-/// read identically; the dim uses `opacity` (not a fixed color) so it lightens
+/// hover/focus tooltip). The dim uses `opacity` (not a fixed color) so it lightens
 /// correctly against either the light or dark site theme.
 fn flag_cell(label: &str, on: bool, tip: &str) -> String {
     if on {
@@ -282,20 +281,26 @@ fn flag_cell(label: &str, on: bool, tip: &str) -> String {
     }
 }
 
-/// Inject the per-function `## Properties` table before `## Implementation` (present
-/// on every page), computed from the raw YAML flags — a two-column table, checked
-/// cells bold and the rest dimmed, each column's items stacked as rows:
+/// Inject the per-function `## Properties` section before `## Implementation` (present
+/// on every page), computed from the raw YAML flags — a stability line followed by a
+/// headerless list of checkboxes, checked cells bold and the rest dimmed:
 ///
-/// * **`Numerical Stability`** column — how much the value at a bar depends on the
+/// * The **numerical-stability** line — how much the value at a bar depends on the
 ///   past, folded from two disjoint flags into three mutually-exclusive states
-///   (exactly one checked): `Start-Independent` (neither flag; compare across any
+///   (exactly one applies): `Start-Independent` (neither flag; compare across any
 ///   window), `Initial Unstable Period` (`unstable_period`; converges after a
 ///   warm-up), `Path-Dependent` (`path_dependent`; a running accumulation or
 ///   path-dependent state machine that never converges — the behavior behind
 ///   ta-lib-python issues like #513).
-/// * **`Display Flags`** column — `Overlap Input` (output shares the input price
+/// * The **checkbox list** — `Overlap Input` (output shares the input price
 ///   scale, drawn over price) and its complement `Independent Y-Axis` (own pane) —
-///   one of the two is always checked — plus `Candlestick` (integer pattern signal).
+///   one of the two is always checked — plus `Candlestick` (integer pattern signal),
+///   `Can Output NaN or ±Inf` (`nan_inf_output`; a value the chart has no
+///   point to plot, so the caller has to decide what to draw there — the page's
+///   `## Notes` say which inputs cause it) and `Identity at Period 1`
+///   (`period1_identity`). Not all of them are display hints, which is why the
+///   list carries no header: they are per-function properties of one shape — a
+///   checkbox a caller reads off the page.
 ///
 /// `stream` (internal codegen concern) and `volume` (in the ABI but set by no
 /// function) are not surfaced.
@@ -308,7 +313,7 @@ fn inject_flags(
     let has = |w: &str| func.flags.iter().any(|f| f == w);
     let overlap = has("overlap");
 
-    // Display flags stay a table: they are a two-way pick plus a marker, and nothing about
+    // These stay a table: they are a two-way pick plus markers, and nothing about
     // them is stated by negation. Tooltips are emitted for checked cells only -- an
     // unchecked cell carrying its definition puts a sentence describing a property the
     // function does NOT have into the page text, where a crawler or a language model reads
@@ -329,15 +334,34 @@ fn inject_flags(
             has("candlestick"),
             "Output is an integer candlestick-pattern signal (e.g. -100 / 0 / +100).",
         ),
+        (
+            "Can Output NaN or ±Inf",
+            has("nan_inf_output"),
+            "Some inputs have no finite result, so a successful call can return NaN or ±Inf — \
+             a gap with nothing to plot. See Notes for when.",
+        ),
+        (
+            "Identity at Period 1",
+            has("period1_identity"),
+            "A period of 1 performs no smoothing: the lookback is 0 and every output value is \
+             a bit-exact copy of its input value.",
+        ),
     ];
 
     let mut block = String::from("## Properties\n\n");
     block.push_str(&stability_line(func, enums, all));
-    block.push_str("\n\n| Display<br>Flags |\n| :-- |\n");
+    // Headerless: no one label covers the set (`Identity at Period 1` is not a display
+    // hint), and a wrong header is worse than none. Markdown cannot express a table
+    // without a header row, so the cell is emitted empty and the row it renders as is
+    // hidden via the `.flag-table` wrapper, which also releases the theme's
+    // `overflow-x: auto` on tables so the first row's tooltip is not clipped away
+    // (`.vuepress/styles/index.scss`). The blank lines around the table are what keep
+    // markdown-it parsing markdown inside the raw HTML block.
+    block.push_str("\n\n<div class=\"flag-table\">\n\n|  |\n| :-- |\n");
     for (label, on, tip) in display {
         block.push_str(&format!("| {} |\n", flag_cell(label, on, tip)));
     }
-    block.push('\n');
+    block.push_str("\n</div>\n\n");
 
     match body.find("\n## Implementation") {
         Some(pos) => {
@@ -898,9 +922,20 @@ fn build_stability_page(
         for v in &variants {
             let name = &v.name;
             let (state, why) = match stability.get(name.as_str()) {
+                // A member that is not an average has no stability of its own.
+                // DISABLED copies its input, so it is start-independent; DEFAULT
+                // takes the stability of whatever it resolves to, which differs
+                // per parameter, so it names no category. The prose is the
+                // member's own `doc:` either way.
                 None => (
-                    "Start-Independent",
-                    "Not a moving average: the input is copied through unchanged.".to_string(),
+                    if name == super::common::ENUM_DEFAULT_VARIANT {
+                        "&mdash;"
+                    } else {
+                        "Start-Independent"
+                    },
+                    super::common::ma_pseudo_member_doc(name)
+                        .unwrap_or("Not a moving average.")
+                        .to_string(),
                 ),
                 Some(st) if st.intrinsic => (
                     "Initial Unstable Period",
@@ -997,6 +1032,8 @@ mod tests {
             header_comments: vec![],
             doc: None,
             streaming: false,
+            alternates: vec![],
+            resolved_stream_body: None,
         }
     }
 

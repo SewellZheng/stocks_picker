@@ -93,6 +93,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_DEMA.c \
 	ta_DIV.c \
 	ta_DX.c \
+	ta_EFI.c \
 	ta_EMA.c \
 	ta_EXP.c \
 	ta_FLOOR.c \
@@ -116,6 +117,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_MACDEXT.c \
 	ta_MACDFIX.c \
 	ta_MAMA.c \
+	ta_MARKETFI.c \
 	ta_MAVP.c \
 	ta_MAX.c \
 	ta_MAXINDEX.c \
@@ -139,6 +141,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_PPO.c \
 	ta_PVI.c \
 	ta_PVO.c \
+	ta_QSTICK.c \
 	ta_ROC.c \
 	ta_ROCP.c \
 	ta_ROCR.c \
@@ -168,6 +171,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_ULTOSC.c \
 	ta_VAR.c \
 	ta_VWMA.c \
+	ta_WAD.c \
 	ta_WCLPRICE.c \
 	ta_WILLR.c \
 	ta_WMA.c

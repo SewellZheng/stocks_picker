@@ -116,6 +116,7 @@
 #include "ta_DEMA.c"
 #include "ta_DIV.c"
 #include "ta_DX.c"
+#include "ta_EFI.c"
 #include "ta_EMA.c"
 #include "ta_EXP.c"
 #include "ta_FLOOR.c"
@@ -138,6 +139,7 @@
 #include "ta_MACDEXT.c"
 #include "ta_MACDFIX.c"
 #include "ta_MAMA.c"
+#include "ta_MARKETFI.c"
 #include "ta_MAVP.c"
 #include "ta_MAX.c"
 #include "ta_MAXINDEX.c"
@@ -161,6 +163,7 @@
 #include "ta_PPO.c"
 #include "ta_PVI.c"
 #include "ta_PVO.c"
+#include "ta_QSTICK.c"
 #include "ta_ROC.c"
 #include "ta_ROCP.c"
 #include "ta_ROCR.c"
@@ -190,6 +193,7 @@
 #include "ta_ULTOSC.c"
 #include "ta_VAR.c"
 #include "ta_VWMA.c"
+#include "ta_WAD.c"
 #include "ta_WCLPRICE.c"
 #include "ta_WILLR.c"
 #include "ta_WMA.c"
@@ -1739,6 +1743,22 @@ static void bench_all(const char *filter, int iters) {
         printf("DX %lld\n", best / iters);
         fflush(stdout);
     }
+    if( func_matches(filter, "EFI") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_EFI(0, g_nPoints - 1, g_close, g_volume, 13, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+        }
+        printf("EFI %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "EMA") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -2116,6 +2136,22 @@ static void bench_all(const char *filter, int iters) {
         printf("MAMA %lld\n", best / iters);
         fflush(stdout);
     }
+    if( func_matches(filter, "MARKETFI") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_MARKETFI(0, g_nPoints - 1, g_high, g_low, g_volume, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+        }
+        printf("MARKETFI %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "MAVP") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -2484,6 +2520,22 @@ static void bench_all(const char *filter, int iters) {
             g_sink += (int)g_outBuf0[0];
         }
         printf("PVO %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "QSTICK") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_QSTICK(0, g_nPoints - 1, g_open, g_close, 10, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+        }
+        printf("QSTICK %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "ROC") ) {
@@ -2951,6 +3003,22 @@ static void bench_all(const char *filter, int iters) {
             g_sink += (int)g_outBuf0[0];
         }
         printf("VWMA %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "WAD") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_WAD(0, g_nPoints - 1, g_high, g_low, g_close, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+        }
+        printf("WAD %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "WCLPRICE") ) {

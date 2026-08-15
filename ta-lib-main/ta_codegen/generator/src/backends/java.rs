@@ -158,7 +158,10 @@ pub(crate) fn is_boolean_expr(expr: &Expr, helpers: &HelperRegistry) -> bool {
         ),
         Expr::Not(_) => true,
         Expr::FuncCall(name, args) => {
-            if matches!(name.as_str(), "IS_ZERO" | "IS_ZERO_SCALED" | "IS_ZERO_OR_NEG") {
+            if matches!(
+                name.as_str(),
+                "IS_ZERO" | "IS_ZERO_SCALED" | "IS_ZERO_OR_NEG" | "IS_FINITE"
+            ) {
                 return true;
             }
             if let Some(helper) = helpers.get(name) {
@@ -448,11 +451,18 @@ pub fn generate(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
+    // Resolve `PRAGMA TA_ALT` for this language (ir::FuncDef::resolved_for).
+    let resolved = func.resolved_for(crate::ir::Lang::Java);
+    let func: &FuncDef = &resolved;
     let mut out = String::new();
     // File-level comments carried from the input .c (e.g. contributors/history).
     for block in &func.header_comments {
         out.push_str(&super::stmt_walk::block_comment(block, 0));
         out.push('\n');
+    }
+    // Name the alternate that won the batch cell, if one did.
+    if let Some(m) = func.alt_marker(crate::ir::Tier::Batch, crate::ir::Lang::Java) {
+        out.push_str(&format!("/* {m} */\n\n"));
     }
     out.push_str(&gen_lookback(func, enums, registry, helpers));
     if func.has_explicit_private {
@@ -496,21 +506,41 @@ pub(crate) fn java_type_str(var_type: &VarType) -> &'static str {
 /// functions fail with `RetCode.BadParam`, lookback functions fail with `-1`
 /// (the classic lookback bad-param contract).
 ///
-/// Enum params (e.g. MAType) are the one place Java needs neither half of this
-/// prologue, and the type system genuinely is the reason: a Java enum reference
-/// cannot hold an arbitrary int, so there is no out-of-range value to reject and
-/// no `INTEGER_DEFAULT` to substitute. `Integer.MIN_VALUE` is not a `MAType`
-/// and cannot be made into one, so "use the documented default" is discharged by
-/// the signature rather than by a check. C, Rust and C# all surface that
-/// parameter as an integer instead, so all three must substitute — see
-/// `backends::csharp::emit_opt_param_validation` (issue #162).
+/// An `enum:` param substitutes its type's `DEFAULT` member (#182) and nothing
+/// else: a Java enum reference cannot hold an arbitrary int, so there is no
+/// out-of-range value to reject, and `Integer.MIN_VALUE` — the spelling C, Rust
+/// and C# also accept because all three surface the parameter as an integer — is
+/// not a `MAType` and cannot be made into one (issue #162).
 // Integer optional-param defaults/ranges are `f64` in the IR; the integer-valued
 // casts to `i32` for literal emission are exact, not truncating.
 #[allow(clippy::cast_possible_truncation)]
-pub(crate) fn emit_opt_param_validation(func: &FuncDef, fail: &str) -> String {
+pub(crate) fn emit_opt_param_validation(
+    func: &FuncDef,
+    fail: &str,
+    enums: &HashMap<String, EnumDef>,
+) -> String {
     let mut out = String::new();
     for opt in &func.optional_inputs {
         match &opt.param_type {
+            ParamType::Enum(enum_name) => {
+                if let (Some(default_val), Some(def_variant)) = (
+                    opt.default,
+                    super::common::enum_default_variant(enums, enum_name),
+                ) {
+                    // A declared default always names a member, so the literal
+                    // resolves; Java has no int->enum cast to fall back on.
+                    let Some(val) =
+                        super::common::enum_member_literal(enums, enum_name, default_val as i32)
+                    else {
+                        continue;
+                    };
+                    out.push_str(&format!(
+                        "      if( {name} == {enum_name}.{member} ) {{\n         {name} = {val};\n      }}\n",
+                        name = opt.name,
+                        member = def_variant.name
+                    ));
+                }
+            }
             ParamType::Integer => {
                 if let Some(default_val) = opt.default {
                     out.push_str(&format!(
@@ -548,7 +578,7 @@ pub(crate) fn emit_opt_param_validation(func: &FuncDef, fail: &str) -> String {
                     out.push('\n');
                 }
             }
-            ParamType::Enum(_) | ParamType::Price(_) => {}
+            ParamType::Price(_) => {}
         }
     }
     out
@@ -584,7 +614,7 @@ fn gen_lookback(
 
     // Same param validation as the guarded function, with the lookback
     // bad-param contract: out-of-range returns -1.
-    let validation = emit_opt_param_validation(func, "-1");
+    let validation = emit_opt_param_validation(func, "-1", enums);
 
     let body = match &func.lookback {
         Some(LookbackExpr::Literal(n)) => format!("{validation}      return {n};"),
@@ -736,8 +766,10 @@ fn gen_private(
 }
 
 /// Generate the Private method float overload (for Java method overloading).
-/// Java needs this because float[] is not assignable to double[] — S_ callers
-/// of EMA_Private(float_input, k) need a float overload.
+/// Java needs this because float[] is not assignable to double[] — an S_ caller
+/// of `<N>_Private(float_input, k)` needs a float overload. No shipped indicator
+/// declares a `_private`; the construct is carried by the SYNTH4 gate fixture
+/// (`input_synth/README.md`).
 fn gen_private_sp(
     func: &FuncDef,
     enums: &HashMap<String, EnumDef>,
@@ -973,7 +1005,7 @@ fn gen_func_inner(
         out.push_str("         return RetCode.OutOfRangeEndIndex ;\n");
         out.push_str("      }\n");
         // Optional parameter validation (default + range)
-        out.push_str(&emit_opt_param_validation(func, "RetCode.BadParam"));
+        out.push_str(&emit_opt_param_validation(func, "RetCode.BadParam", enums));
         // Output-distinctness (issue #108): aliasing two different output arrays
         // has no correct result, so reject it. Input == output stays allowed.
         if func.outputs.len() >= 2 {
@@ -2026,8 +2058,8 @@ pub(crate) fn render_expr(
     JavaExpr { ctx, registry, helpers }.walk(expr)
 }
 
-/// Render one of the boolean near-zero builtins (IS_ZERO / IS_ZERO_SCALED /
-/// IS_ZERO_OR_NEG) in Java from already-rendered argument strings. Single source
+/// Render one of the boolean value builtins (the near-zero trio IS_ZERO /
+/// IS_ZERO_SCALED / IS_ZERO_OR_NEG, plus the exact IS_FINITE) in Java from already-rendered argument strings. Single source
 /// of the Java form for these predicates — used by both the indicator render path
 /// and the `eval_predicate` server handler (see the C backend for the rationale).
 pub(crate) fn java_predicate_expr(which: SpecialBuiltin, args: &[String]) -> String {
@@ -2046,6 +2078,9 @@ pub(crate) fn java_predicate_expr(which: SpecialBuiltin, args: &[String]) -> Str
         SpecialBuiltin::IsZeroOrNeg => args
             .first()
             .map_or_else(|| "false".to_string(), |x| format!("({x} < 0.00000000000001)")),
+        SpecialBuiltin::IsFinite => args
+            .first()
+            .map_or_else(|| "false".to_string(), |x| format!("(Double.isFinite({x}))")),
         _ => "false".to_string(),
     }
 }
@@ -2166,8 +2201,9 @@ fn render_func_call(
             }
             pred @ (SpecialBuiltin::IsZero
                    | SpecialBuiltin::IsZeroScaled
-                   | SpecialBuiltin::IsZeroOrNeg) => {
-                // IS_ZERO / IS_ZERO_SCALED / IS_ZERO_OR_NEG -> the Java epsilon form.
+                   | SpecialBuiltin::IsZeroOrNeg
+                   | SpecialBuiltin::IsFinite) => {
+                // The near-zero trio -> the Java epsilon form; IS_FINITE -> Double.isFinite.
                 // java_predicate_expr is the single source of that form (also used by
                 // the eval_predicate server handler).
                 let rendered: Vec<String> = args

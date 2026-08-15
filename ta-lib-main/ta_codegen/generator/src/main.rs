@@ -262,6 +262,10 @@ fn stream_census(seed_yaml: bool) -> i32 {
     let mut seeded = 0usize;
 
     for func in &funcs {
+        // Reported for C. A `PRAGMA TA_ALT={STREAM,<lang>}` claim can give one
+        // backend a different plan; the generate-time gate is what holds every
+        // language to being streamable, so the census stays one line per function.
+        let func = &func.resolved_for(ir::Lang::C);
         // Full validation (analysis + transition build) — the same gate
         // generate() enforces, so census can never seed a function the
         // emitter cannot actually build.
@@ -325,16 +329,6 @@ fn stream_census(seed_yaml: bool) -> i32 {
                             dm.mode_a.state.len(),
                             dm.mode_b.tier.as_str(),
                             dm.mode_b.state.len()
-                        );
-                    }
-                    ta_codegen_lib::streaming::StreamPlan::FastPathSkip(ga) => {
-                        derived_tc += 1;
-                        println!(
-                            "{:<10} {:<14} TC fastpath-skip {} state={}",
-                            status,
-                            func.name,
-                            ga.model.tier.as_str(),
-                            ga.model.state.len()
                         );
                     }
                     ta_codegen_lib::streaming::StreamPlan::PeriodBank(pb) => {
@@ -545,11 +539,19 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         // Streaming maintenance-coupling gate (docs/streaming-api-proposal.md):
         // a YAML-declared tier must match the IR-derived shape, so a batch
         // rewrite that breaks stream analyzability fails HERE, not at release.
+        // Run it once per language: a `PRAGMA TA_ALT={STREAM,<lang>}` claim can
+        // hand one backend a different body, so "streamable" is a per-language
+        // property even though today every function resolves the same way for
+        // all four.
         if func_def.streaming {
-            if let Err(e) = ta_codegen_lib::streaming::validate_streamable(&func_def, &registry) {
-                eprintln!("error: {e}");
-                eprintln!("       (run `ta_codegen stream-census` for the full audit)");
-                std::process::exit(1);
+            for lang in ir::ALL_LANGS {
+                let resolved = func_def.resolved_for(lang);
+                if let Err(e) = ta_codegen_lib::streaming::validate_streamable(&resolved, &registry)
+                {
+                    eprintln!("error: [{}] {e}", lang.as_str());
+                    eprintln!("       (run `ta_codegen stream-census` for the full audit)");
+                    std::process::exit(1);
+                }
             }
         }
 
@@ -585,7 +587,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     // break the crate.
     if backends_to_run.contains(&"rust") {
         let templates = root.join("ta_codegen/generator/templates/rust");
-        generate_rust_crate_scaffolding(&out_base, all_funcs, &templates);
+        generate_rust_crate_scaffolding(&out_base, all_funcs, &templates, &enums);
     }
 
     backends::func_list::generate(all_funcs, &root.join("ta_func_list.txt"));
@@ -655,7 +657,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         // Take over gen_code's two remaining C-side scalar generators:
         //   - the FuncUnstId enum (GENCODE SECTION 1) in the public header ta_defs.h
         //   - the TA_SetRetCodeInfo table in ta_common/ta_retcode.c (from the csv)
-        backends::ta_defs::generate(&enums, &root.join("include/ta_defs.h"));
+        backends::ta_defs::generate(all_funcs, &enums, &root.join("include/ta_defs.h"));
         backends::retcode::generate(
             &root.join("ta_codegen/generator/templates/c/ta_retcode.c.template"),
             &root.join("src/ta_common/ta_retcode.csv"),
@@ -711,7 +713,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         let csharp_src = root.join("ta_codegen/output/csharp/library/src");
         std::fs::create_dir_all(&csharp_src).unwrap();
         backends::csharp_enums::generate(&enums, &csharp_src.join("FuncUnstId.cs"));
-        backends::csharp_enums::generate_matype(&enums, &csharp_src.join("MAType.cs"));
+        backends::csharp_enums::generate_matype(all_funcs, &enums, &csharp_src.join("MAType.cs"));
         // The catalogue IS whole-corpus, so it renders `all_funcs` rather than
         // the filtered set — the same source `rust_abstract` uses. Java's
         // registry instead SKIPS under `--func` because its Core.java splice
@@ -894,8 +896,22 @@ fn generate_bench(backend_filter: Option<&str>) {
 /// for the FMA contract (PR #96), matching the CMake/autotools library build:
 /// without it the single-TU `target_clones` `.fma` clone auto-contracts the
 /// un-fused `a*b+c` sites, breaking bitwise batch-vs-stream stream_verify.
-const COMMON_GCC_FLAGS: &[&str] =
-    &["-lm", "-O3", "-flto", "-DNDEBUG", "-ffp-contract=off", "-Wno-parentheses-equality"];
+///
+/// `-fno-math-errno` (issue #192) also matches those builds. It frees `sqrt()`
+/// from the ISO C obligation to set `errno`, which is the only reason GCC kept
+/// it scalar and out of vectorized loops; the library never reads `errno`. It
+/// cannot change a computed value, so it does not weaken the bitwise gates these
+/// binaries feed — but it is not free of observable effects: see the FE_INVALID
+/// note in CMakeLists.txt.
+const COMMON_GCC_FLAGS: &[&str] = &[
+    "-lm",
+    "-O3",
+    "-flto",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-math-errno",
+    "-Wno-parentheses-equality",
+];
 
 /// Verify the hand-maintained Rust `FuncUnstId` enum matches enums.yaml.
 ///
@@ -1789,19 +1805,58 @@ const RUST_TEMPLATE_MODULES: &[&str] = &["types", "scratch_election"];
 /// are declared `#[cfg(test)]` in the generated `mod.rs`.
 const RUST_TEST_ONLY_MODULES: &[&str] = &["scratch_election"];
 
-fn generate_rust_crate_scaffolding(out_base: &Path, funcs: &[ir::FuncDef], templates: &Path) {
+/// Version of the `ta-lib-dispatch` support crate — deliberately decoupled from
+/// the repo `VERSION` the other three members track, because it changes only
+/// when its one macro does.
+///
+/// Bumped 0.1.1 -> 0.1.2 to carry a LICENSE file and crates.io
+/// `keywords`/`categories` (#179 A3/A4): a published `.crate` is immutable, so
+/// altering what 0.1.1 contains is only expressible as a new version. **The
+/// consequence is a publish order, not just a number** — `ta-lib` pins
+/// `=DISPATCH_VERSION`, so `cargo publish` of dispatch has to land first or
+/// ta-lib's dependency does not resolve.
+const DISPATCH_VERSION: &str = "0.1.2";
+
+fn generate_rust_crate_scaffolding(
+    out_base: &Path,
+    funcs: &[ir::FuncDef],
+    templates: &Path,
+    enums: &std::collections::HashMap<String, ir::EnumDef>,
+) {
     // Single source of truth for the crate version: the VERSION file at the
     // repo root (kept in sync across all packaging by scripts/sync.py).
     // Hardcoding it here once made a release bump fail the regen-check gate.
-    let version_path = out_base
+    let repo_root = out_base
         .parent()
         .and_then(|p| p.parent())
-        .map(|root| root.join("VERSION"))
-        .expect("cannot derive repo root from output dir");
+        .expect("cannot derive repo root from output dir")
+        .to_path_buf();
+    let version_path = repo_root.join("VERSION");
     let crate_version = std::fs::read_to_string(&version_path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", version_path.display()))
         .trim()
         .to_string();
+    // The crate's shop window — the Cargo.toml description (the crates.io
+    // search-result tagline), the lib.rs crate docs and README.md — quotes an
+    // indicator count and an install requirement. Derive both, never re-type
+    // them: three independent copies of "161" survived seven added indicators
+    // (#179 A2), and the install line said `ta-lib = "0.6"`, which resolves to
+    // nothing at all (#179 A1). `funcs` is every definition even under
+    // `--func=`, so the counts are whole-corpus by construction.
+    let n_funcs = funcs.len();
+    let n_candles = funcs.iter().filter(|f| f.group == "Pattern Recognition").count();
+    // The caret requirement a user should pin: the released major.minor.
+    let install_req = crate_version
+        .rsplit_once('.')
+        .map_or_else(|| crate_version.clone(), |(major_minor, _)| major_minor.to_string());
+    // Applied to the two long prose literals below, which hold Rust and TOML
+    // samples and so cannot be `format!` strings (every brace would need
+    // doubling, in text that is read far more often than it is edited).
+    let fill = |text: &str| {
+        text.replace("$N_FUNCS", &n_funcs.to_string())
+            .replace("$N_CANDLES", &n_candles.to_string())
+            .replace("$INSTALL_REQ", &install_req)
+    };
     // Two-crate Cargo workspace: `library/` is the published `ta-lib` crate;
     // `tools/` holds the JSON-RPC server/bench — a layer on top of the library.
     let rust_dir = out_base.join("rust"); // workspace root
@@ -1813,6 +1868,18 @@ fn generate_rust_crate_scaffolding(out_base: &Path, funcs: &[ir::FuncDef], templ
 
     std::fs::create_dir_all(&ta_func_dir).unwrap();
     std::fs::create_dir_all(&bin_dir).unwrap();
+
+    // --- LICENSE, one copy per published crate (#179 A3) ---
+    // A `.crate` is a source redistribution, and BSD-3 clause 1 requires the
+    // notice to travel with it; `license = "BSD-3-Clause"` is only an SPDX
+    // label and cargo injects no file for it. Neither manifest has
+    // include/exclude, so a copy at the package root is packaged as-is.
+    // `tools/` is `publish = false` and is therefore not a redistribution.
+    let license_text = std::fs::read_to_string(repo_root.join("LICENSE")).unwrap_or_else(|e| {
+        panic!("cannot read {}: {e}", repo_root.join("LICENSE").display())
+    });
+    std::fs::write(lib_dir.join("LICENSE"), &license_text).unwrap();
+    println!("  Scaffolding -> {}", lib_dir.join("LICENSE").display());
 
     // --- workspace Cargo.toml (virtual manifest — profiles apply at the root) ---
     let workspace_toml = "[workspace]\nmembers = [\"dispatch\", \"library\", \"tools\"]\nresolver = \"2\"\n\n\
@@ -1827,13 +1894,20 @@ fn generate_rust_crate_scaffolding(out_base: &Path, funcs: &[ir::FuncDef], templ
     let dispatch_dir = rust_dir.join("dispatch");
     let dispatch_src = dispatch_dir.join("src");
     std::fs::create_dir_all(&dispatch_src).unwrap();
-    let dispatch_toml = "[package]\nname = \"ta-lib-dispatch\"\nversion = \"0.1.1\"\nedition = \"2021\"\nrust-version = \"1.86\"\n\
+    std::fs::write(dispatch_dir.join("LICENSE"), &license_text).unwrap();
+    let dispatch_toml = format!(
+        "[package]\nname = \"ta-lib-dispatch\"\nversion = \"{DISPATCH_VERSION}\"\nedition = \"2021\"\nrust-version = \"1.86\"\n\
         description = \"Runtime CPU-feature dispatch macro for the ta-lib crate (internal support crate).\"\n\
         license = \"BSD-3-Clause\"\nhomepage = \"https://ta-lib.org\"\nrepository = \"https://github.com/TA-Lib/ta-lib\"\n\
-        documentation = \"https://docs.rs/ta-lib-dispatch\"\nreadme = \"README.md\"\n\n\
-        [lib]\nname = \"ta_lib_dispatch\"\npath = \"src/lib.rs\"\n";
+        documentation = \"https://docs.rs/ta-lib-dispatch\"\nreadme = \"README.md\"\n\
+        keywords = [\"fma\", \"target-feature\", \"cpu-features\", \"dispatch\", \"ta-lib\"]\n\
+        categories = [\"hardware-support\", \"mathematics\"]\n\n\
+        [lib]\nname = \"ta_lib_dispatch\"\npath = \"src/lib.rs\"\n"
+    );
     std::fs::write(dispatch_dir.join("Cargo.toml"), dispatch_toml).unwrap();
     let dispatch_readme = r#"# ta-lib-dispatch
+
+[![crates.io](https://img.shields.io/crates/v/ta-lib-dispatch.svg)](https://crates.io/crates/ta-lib-dispatch) [![docs.rs](https://docs.rs/ta-lib-dispatch/badge.svg)](https://docs.rs/ta-lib-dispatch)
 
 Runtime CPU-feature dispatch for fused multiply-add (FMA), used internally
 by the [`ta-lib`](https://crates.io/crates/ta-lib) crate — part of the
@@ -1908,10 +1982,12 @@ macro_rules! dispatch_fma {
     // stabilized in 1.86 — declare the floor so pre-1.86 toolchains get a
     // clear MSRV message instead of an opaque E0658.
     let lib_toml_head = format!(
-        "[package]\nname = \"ta-lib\"\nversion = \"{crate_version}\"\nedition = \"2021\"\nrust-version = \"1.86\""
+        "[package]\nname = \"ta-lib\"\nversion = \"{crate_version}\"\nedition = \"2021\"\nrust-version = \"1.86\"\n\
+         description = \"Technical analysis library: {n_funcs} indicators (SMA, EMA, RSI, MACD, \
+         Bollinger Bands, ATR, Stochastic, candlestick patterns) — the official Rust port of \
+         TA-Lib, verified against the C reference.\""
     );
     let lib_toml_tail = r#"
-description = "Technical analysis library: 161 indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, Stochastic, candlestick patterns) — the official Rust port of TA-Lib, verified against the C reference."
 license = "BSD-3-Clause"
 homepage = "https://ta-lib.org"
 repository = "https://github.com/TA-Lib/ta-lib"
@@ -1929,10 +2005,21 @@ path = "src/lib.rs"
 # internal contract, so a published ta-lib must never float onto a newer
 # dispatch release. Publish order when releasing to crates.io: dispatch
 # first, then ta-lib (cargo strips `path` and resolves by version).
-ta-lib-dispatch = { path = "../dispatch", version = "=0.1.1" }
+#
+# While the pinned dispatch version is not on crates.io yet, `cargo package -p
+# ta-lib` on its own cannot resolve it. Package the pair — `cargo package -p
+# ta-lib-dispatch -p ta-lib` — and cargo verifies ta-lib against a temporary
+# registry built from the sibling.
 "#;
+    let lib_toml_dep = format!(
+        "ta-lib-dispatch = {{ path = \"../dispatch\", version = \"={DISPATCH_VERSION}\" }}\n"
+    );
     let lib_cargo_path = lib_dir.join("Cargo.toml");
-    std::fs::write(&lib_cargo_path, format!("{lib_toml_head}{lib_toml_tail}")).unwrap();
+    std::fs::write(
+        &lib_cargo_path,
+        format!("{lib_toml_head}{lib_toml_tail}{lib_toml_dep}"),
+    )
+    .unwrap();
     println!("  Scaffolding -> {}", lib_cargo_path.display());
 
     // --- tools/Cargo.toml (server/bench crate; depends on the library) ---
@@ -1976,9 +2063,9 @@ ta-lib-dispatch = { path = "../dispatch", version = "=0.1.1" }
     // --- src/lib.rs ---
     let lib_rs = r#"//! # TA-Lib: Technical Analysis Library
 //!
-//! 161 technical-analysis indicators — moving averages, momentum oscillators,
+//! $N_FUNCS technical-analysis indicators — moving averages, momentum oscillators,
 //! volatility bands, volume studies, Hilbert Transform cycle analysis, statistics,
-//! price transforms, and 61 candlestick-pattern recognizers — as a pure-Rust crate.
+//! price transforms, and $N_CANDLES candlestick-pattern recognizers — as a pure-Rust crate.
 //!
 //! This is the official Rust port of [TA-Lib](https://ta-lib.org): every function is
 //! generated from the same canonical definitions as the C library and verified
@@ -2013,8 +2100,9 @@ ta-lib-dispatch = { path = "../dispatch", version = "=0.1.1" }
 //!   before producing output — query it with the matching `*_Lookback` method
 //!   (e.g. [`Core::SMA_Lookback`]).
 //! * Integer parameters accept `i32::MIN`, and real parameters `-4e37`, to select their
-//!   default value. A parameter outside its documented range returns
-//!   [`RetCode::BadParam`].
+//!   default value; a moving-average type takes [`MAType::DEFAULT`] instead, the
+//!   sentinel being unrepresentable at a typed enum. A parameter outside its
+//!   documented range returns [`RetCode::BadParam`].
 //! * Every call returns a [`RetCode`]; anything other than [`RetCode::Success`]
 //!   means no output was produced.
 //!
@@ -2028,8 +2116,12 @@ ta-lib-dispatch = { path = "../dispatch", version = "=0.1.1" }
 //!
 //! let core = Core::builder()
 //!     .unstable_period(FuncUnstId::EMA, 10)
-//!     .build();
+//!     .build()?;
+//! # Ok::<(), ta_lib::RetCode>(())
 //! ```
+//!
+//! The setters are infallible so that they chain; a rejected argument is
+//! reported once, by `build()`, as [`RetCode::BadParam`].
 //!
 //! To change a setting, build a new `Core` (cloning is cheap); [`Core::to_builder()`]
 //! seeds a builder from an existing instance.
@@ -2058,7 +2150,7 @@ pub mod abstract_api;
 pub use ta_func::*;
 "#;
     let lib_path = src_dir.join("lib.rs");
-    std::fs::write(&lib_path, lib_rs).unwrap();
+    std::fs::write(&lib_path, fill(lib_rs)).unwrap();
     println!("  Scaffolding -> {}", lib_path.display());
 
     // --- README.md (crates.io / GitHub front page for the crate) ---
@@ -2066,10 +2158,12 @@ pub use ta_func::*;
 
 # TA-Lib for Rust
 
+[![crates.io](https://img.shields.io/crates/v/ta-lib.svg)](https://crates.io/crates/ta-lib) [![docs.rs](https://docs.rs/ta-lib/badge.svg)](https://docs.rs/ta-lib)
+
 [TA-Lib](https://ta-lib.org) — the widely used technical-analysis library — as a
-pure-Rust crate: 161 indicators covering moving averages, momentum oscillators
+pure-Rust crate: $N_FUNCS indicators covering moving averages, momentum oscillators
 (RSI, MACD, Stochastic), volatility (Bollinger Bands, ATR), volume, Hilbert
-Transform cycle analysis, statistics, price transforms, and 61 candlestick
+Transform cycle analysis, statistics, price transforms, and $N_CANDLES candlestick
 patterns.
 
 Every function is generated from the same canonical definitions as the C library
@@ -2079,7 +2173,7 @@ and verified against the C reference implementation.
 
 ```toml
 [dependencies]
-ta-lib = "0.6"
+ta-lib = "$INSTALL_REQ"
 ```
 
 ## Quick start
@@ -2113,8 +2207,11 @@ use ta_lib::{Core, FuncUnstId};
 
 let core = Core::builder()
     .unstable_period(FuncUnstId::EMA, 10)
-    .build();
+    .build()?;
 ```
+
+The setters are infallible so that they chain; a rejected argument is reported
+once, by `build()`, as `RetCode::BadParam`.
 
 Because a configured `Core` only ever reads its settings, it is `Send + Sync` and
 can be shared read-only across threads (e.g. an `Arc<Core>` with concurrent
@@ -2131,7 +2228,7 @@ indicator calls) without locking. To change a setting, build a new `Core`.
 BSD-3-Clause — see [LICENSE](https://github.com/TA-Lib/ta-lib/blob/main/LICENSE).
 "#;
     let readme_path = lib_dir.join("README.md");
-    std::fs::write(&readme_path, readme).unwrap();
+    std::fs::write(&readme_path, fill(readme)).unwrap();
     println!("  Scaffolding -> {}", readme_path.display());
 
     // --- Copy the hand-written modules from ta_codegen/generator/templates/rust/ ---
@@ -2155,6 +2252,11 @@ mod types;
 pub use types::*;
 "#,
     );
+
+    // The MAType enum. Rendered by `backends::rust_enums` and spliced here so it
+    // lands in an already-generated file -- see that module for why it carries
+    // no `#[repr]` and why `#[non_exhaustive]` is load-bearing.
+    mod_rs.push_str(&backends::rust_enums::render_matype(enums));
 
     // Hand-written test-only modules (not generated; see templates/rust/).
     if !RUST_TEST_ONLY_MODULES.is_empty() {

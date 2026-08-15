@@ -9,7 +9,7 @@
  *
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  071626 MF,CC  Initial version.
+ *  071626 MF,CC  Initial version (#124).
  */
 
    /**
@@ -386,7 +386,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CMOU_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double upSum;
       double downSum;
@@ -425,6 +425,25 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( CMOU_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.upSum = other.upSum;
+         this.downSum = other.downSum;
+         this.sum = other.sum;
+         this.prevValue = other.prevValue;
+         this.trailingValue = other.trailingValue;
+         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
+         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
+         if( this.ring_trailingIdx_inReal != null && this.ring_trailingIdx_inReal.length == other.ring_trailingIdx_inReal.length ) {
+            System.arraycopy( other.ring_trailingIdx_inReal, 0, this.ring_trailingIdx_inReal, 0, other.ring_trailingIdx_inReal.length );
+         } else {
+            this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
+         }
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -437,9 +456,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
          CMOU_Stream scratch = new CMOU_Stream(this);
@@ -505,7 +524,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode CMOU_OpenBody( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode CMOU_OpenCore( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int today = 0;
@@ -519,9 +538,6 @@
       double tempReal = 0;
       double prevValue = 0;
       double trailingValue = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -591,9 +607,9 @@
       outIdx = 0;
       sum = upSum + downSum;
       if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
-         lastValue_outReal = 100.0 * (upSum - downSum) / sum;
+         outReal[outIdx++ * outStride] = 100.0 * (upSum - downSum) / sum;
       } else {
-         lastValue_outReal = 0.0;
+         outReal[outIdx++ * outStride] = 0.0;
       }
       /* Slide the window forward one bar at a time. */
       today += 1;
@@ -623,9 +639,9 @@
          }
          sum = upSum + downSum;
          if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
-            lastValue_outReal = 100.0 * (upSum - downSum) / sum;
+            outReal[outIdx++ * outStride] = 100.0 * (upSum - downSum) / sum;
          } else {
-            lastValue_outReal = 0.0;
+            outReal[outIdx++ * outStride] = 0.0;
          }
          today += 1;
       }
@@ -648,155 +664,42 @@
       sp.ringPos_trailingIdx = 0;
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode CMOU_OpenBody( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return CMOU_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode CMOU_OpenAndFillBody( CMOU_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int outIdx = 0;
-      int today = 0;
-      int trailingIdx = 0;
-      int lookbackTotal = 0;
-      int i = 0;
-      double upSum = 0;
-      double downSum = 0;
-      double sum = 0;
-      double diff = 0;
-      double tempReal = 0;
-      double prevValue = 0;
-      double trailingValue = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 14;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      /* CMOU -- unsmoothed Chande Momentum Oscillator (as in TradingView ta.cmo,
-       * QuantConnect, pandas-ta default). Over the trailing optInTimePeriod changes
-       * d = inReal[i]-inReal[i-1]: Su = sum of up-moves (d>0), Sd = sum of
-       * |down-moves| (d<0); CMOU = 100*(Su-Sd)/(Su+Sd), 0 for a flat window. A plain
-       * moving-window sum (drop oldest change, add newest), NOT TA_CMO's Wilder
-       * smoothing -- hence no unstable period.
-       *
-       * In-place safe (outReal == inReal): the trailing read inReal[trailingIdx]
-       * precedes this iteration's write (trailingIdx >= outIdx), and the oldest
-       * change's older endpoint comes from the `trailingValue` cache, not a re-read.
-       */
-      outBegIdx.value = 0;
-      outNBElement.value = 0;
-      lookbackTotal = CMOU_Lookback(optInTimePeriod);
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
+      return CMOU_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode CMOU_OpenAndFillInternalBody( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return CMOU_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* CMOU_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   CMOU_Stream CMOU_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      CMOU_Stream sp = new CMOU_Stream(this);
+      RetCode retCode = CMOU_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("CMOU openAndFill: history shorter than lookback + 1");
       }
-      /* Accumulate the up/down sums over the first window: the optInTimePeriod
-       * changes ending at startIdx (prices inReal[startIdx-optInTimePeriod ..
-       * startIdx]). `trailingValue` caches the oldest price so the window's oldest
-       * change can later be dropped by reading only the newer of its two prices.
-       * `trailingIdx` points AT that newer price (one past the cached one).
-       */
-      today = startIdx - lookbackTotal;
-      trailingIdx = today + 1;
-      prevValue = inReal[today];
-      trailingValue = prevValue;
-      upSum = 0.0;
-      downSum = 0.0;
-      for( i = 0; i < optInTimePeriod; i += 1 ) {
-         today += 1;
-         tempReal = inReal[today];
-         diff = tempReal - prevValue;
-         prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("CMOU openAndFill: internal error");
       }
-      /* Emit the first output (bar startIdx). Su+Sd is a sum of non-negative
-       * magnitudes, so it is zero only for an exactly flat window; guard the 0/0
-       * with TA_IS_ZERO (as TA_CMO does for its own gain+loss) and emit 0.0.
-       *
-       * Scale-then-divide -- (100*(Su-Sd))/(Su+Sd), NOT the 100*((Su-Sd)/(Su+Sd))
-       * order TA_CMO/RSI use -- so CMOU is BIT-IDENTICAL to the reference unsmoothed
-       * CMO of Tulip Indicators (ti_cmo) and pandas-ta-classic (cmo, talib=False),
-       * which both scale before dividing. The two orders differ by <=1 ULP.
-       */
-      outIdx = 0;
-      sum = upSum + downSum;
-      if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
-         outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
-      } else {
-         outReal[outIdx++] = 0.0;
-      }
-      /* Slide the window forward one bar at a time. */
-      today += 1;
-      while( today <= endIdx ) {
-         /* Drop the oldest change: inReal[trailingIdx] - inReal[trailingIdx-1].
-          * inReal[trailingIdx-1] comes from the cache (already overwritten when
-          * outReal == inReal); inReal[trailingIdx] is read here, before this
-          * iteration writes outReal[outIdx], so it is still the original price.
-          */
-         tempReal = inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
-         /* Add the newest change: inReal[today] - inReal[today-1]. */
-         tempReal = inReal[today];
-         diff = tempReal - prevValue;
-         prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         sum = upSum + downSum;
-         if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
-            outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
-         } else {
-            outReal[outIdx++] = 0.0;
-         }
-         today += 1;
-      }
-      outBegIdx.value = startIdx;
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      int cap_trailingIdx = today - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-         return RetCode.InternalError;
-      }
-      int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
-      double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
-      System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.upSum = upSum;
-      sp.downSum = downSum;
-      sp.sum = sum;
-      sp.prevValue = prevValue;
-      sp.trailingValue = trailingValue;
-      sp.ringPos_trailingIdx = 0;
-      sp.ringCap_trailingIdx = cap_trailingIdx;
-      sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("CMOU openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind CMOU_Open (composition seam). */
    CMOU_Stream CMOU_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )

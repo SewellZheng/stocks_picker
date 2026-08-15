@@ -65,7 +65,7 @@
 
 TA_LIB_API int TA_ADXR_Lookback( int optInTimePeriod )
 {
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return -1;
@@ -105,7 +105,7 @@ TA_LIB_API TA_RetCode TA_ADXR( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -196,7 +196,7 @@ TA_RetCode TA_S_ADXR( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -270,8 +270,7 @@ static void TA_ADXR_StepInternal( struct TA_ADXR_Stream *sp, double inHigh, doub
    *outReal = cur_outReal;
 }
 
-/* Private function, not in public API. */
-TA_RetCode TA_ADXR_OpenInternal( struct TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+static TA_RetCode TA_ADXR_OpenCore( struct TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_ADXR_Stream *sp;
    int endIdx;
@@ -287,7 +286,7 @@ TA_RetCode TA_ADXR_OpenInternal( struct TA_ADXR_Stream **stream, const double in
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -349,7 +348,7 @@ TA_RetCode TA_ADXR_OpenInternal( struct TA_ADXR_Stream **stream, const double in
       /* Sub-stream 0: adx over `inHigh, inLow, inClose`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       {
-         subRc = TA_ADX_OpenInternal( &sub0, inHigh, inLow, inClose, (startIdx - (optInTimePeriod - 1)), (endIdx) + 1, optInTimePeriod, &subOpenDummy );
+         subRc = TA_ADX_OpenAndFillInternal( &sub0, inHigh, inLow, inClose, (startIdx - (optInTimePeriod - 1)), (endIdx) + 1, optInTimePeriod, &dummyBegIdx, &dummyNBElement, adx );
          if( subRc != TA_SUCCESS )
          {
             free(adx);
@@ -357,146 +356,7 @@ TA_RetCode TA_ADXR_OpenInternal( struct TA_ADXR_Stream **stream, const double in
             return subRc;
          }
       }
-      retCode = TA_ADX(startIdx - (optInTimePeriod - 1),endIdx,inHigh,inLow,inClose,optInTimePeriod,&dummyBegIdx,&dummyNBElement,adx);
-      if( retCode != TA_SUCCESS )
-      {
-         free(adx);
-         TA_ADX_Close( sub0 ); TA_Free( sc_outReal );
-         return retCode;
-      }
-      /* ADXR[k] = (ADX[k] + ADX[k-(period-1)]) / 2. Walking a single cursor over
-       * the ADXR output, the current ADX is adx[k+(period-1)] and the lagged one
-       * is adx[k]; the ADX range holds (period-1) more elements than the output.
-       */
-      nbElement = dummyNBElement - (optInTimePeriod - 1);
-      for( outIdx = 0; outIdx < nbElement; outIdx += 1 )
-      {
-         sc_outReal[outIdx] = ((adx[outIdx + (optInTimePeriod - 1)] + adx[outIdx]) / 2.0);
-      }
-      dummyBegIdx = startIdx;
-      dummyNBElement = nbElement;
-
-      /* Capture the live producer state + sub handles. */
-      if( dummyNBElement < 1 ) { free( adx ); TA_ADX_Close( sub0 ); TA_Free( sc_outReal ); return TA_BAD_PARAM; }
-      sp = (struct TA_ADXR_Stream *)TA_Malloc( sizeof(*sp) );
-      if( !sp ) { free( adx ); TA_ADX_Close( sub0 ); TA_Free( sc_outReal ); return TA_ALLOC_ERR; }
-      memset( sp, 0, sizeof(*sp) );
-      sp->optInTimePeriod = optInTimePeriod;
-      sp->lagRingCap_adx = optInTimePeriod - 1;
-      sp->lagRing_adx = (double *)TA_Malloc( sizeof(double) * (size_t)sp->lagRingCap_adx );
-      if( !sp->lagRing_adx ) { TA_Free( sp ); free( adx ); TA_ADX_Close( sub0 ); TA_Free( sc_outReal ); return TA_ALLOC_ERR; }
-      sp->lagRingMirror_adx = (double *)TA_Malloc( sizeof(double) * (size_t)sp->lagRingCap_adx );
-      if( !sp->lagRingMirror_adx ) { TA_Free( sp->lagRing_adx ); TA_Free( sp ); free( adx ); TA_ADX_Close( sub0 ); TA_Free( sc_outReal ); return TA_ALLOC_ERR; }
-      {
-         int lagI;
-         for( lagI = 0; lagI < sp->lagRingCap_adx; lagI++ )
-            sp->lagRing_adx[lagI] = adx[dummyNBElement + lagI];
-      }
-      sp->lagRingPos_adx = 0;
-      free( adx );
-      sp->sub0 = sub0;
-      *outReal = sc_outReal[dummyNBElement - 1];
-      TA_Free( sc_outReal );
-      *stream = sp;
-      return TA_SUCCESS;
-   }
-}
-
-TA_LIB_API TA_RetCode TA_ADXR_Open( TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, double *outReal )
-{
-   return TA_ADXR_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal );
-}
-
-TA_LIB_API TA_RetCode TA_ADXR_OpenAndFill( TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
-{
-   struct TA_ADXR_Stream *sp;
-   int endIdx;
-   int startIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
-   TA_RetCode subRc;
-   double subOpenDummy;
-   double *sc_outReal;
-   TA_ADX_Stream *sub0;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outReal || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
-      return TA_BAD_PARAM;
-
-   endIdx = historyLen - 1;
-   startIdx = 0;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   subRc = TA_SUCCESS;
-   subOpenDummy = 0.0;
-   sub0 = NULL;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement; (void)subRc; (void)subOpenDummy;
-   sc_outReal = (double *)TA_Malloc( sizeof(double) * (size_t)historyLen );
-   if( !sc_outReal ) { return TA_ALLOC_ERR; }
-
-   {
-      double *adx;
-      int adxrLookback;
-      int outIdx;
-      int nbElement;
-      TA_RetCode retCode;
-      /* Original implementation from Wilder's book was doing some integer
-       * rounding in its calculations.
-       *
-       * This was understandable in the context that at the time the book
-       * was written, most user were doing the calculation by hand.
-       *
-       * For a computer, rounding is unnecessary (and even problematic when inputs
-       * are close to 1).
-       *
-       * TA-Lib does not do the rounding. Still, if you want to reproduce Wilder's examples,
-       * you can comment out the following #undef/#define and rebuild the library.
-       */
-      /* Move up the start index if there is not
-       * enough initial data.
-       * Always one price bar gets consumed.
-       */
-      adxrLookback = TA_ADXR_Lookback(optInTimePeriod);
-      if( startIdx < adxrLookback )
-      {
-         startIdx = adxrLookback;
-      }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx )
-      {
-         dummyBegIdx = 0;
-         dummyNBElement = 0;
-         TA_ADX_Close( sub0 ); TA_Free( sc_outReal );
-         return TA_BAD_PARAM;
-      }
-      adx = malloc((endIdx - startIdx + optInTimePeriod) * sizeof(double));
-      if( !adx )
-      {
-         TA_ADX_Close( sub0 ); TA_Free( sc_outReal );
-         return TA_ALLOC_ERR;
-      }
-      /* Compute ADX over a range that starts (period-1) bars earlier, so each
-       * ADXR bar can pair the current ADX with the ADX from (period-1) bars ago.
-       */
-      /* Sub-stream 0: adx over `inHigh, inLow, inClose`, warmed from bar 0 up to the
-       * sub-call's own startIdx (the seeding point). */
-      {
-         subRc = TA_ADX_OpenInternal( &sub0, inHigh, inLow, inClose, (startIdx - (optInTimePeriod - 1)), (endIdx) + 1, optInTimePeriod, &subOpenDummy );
-         if( subRc != TA_SUCCESS )
-         {
-            free(adx);
-            TA_ADX_Close( sub0 ); TA_Free( sc_outReal );
-            return subRc;
-         }
-      }
-      retCode = TA_ADX(startIdx - (optInTimePeriod - 1),endIdx,inHigh,inLow,inClose,optInTimePeriod,&dummyBegIdx,&dummyNBElement,adx);
+      retCode = subRc;
       if( retCode != TA_SUCCESS )
       {
          free(adx);
@@ -536,11 +396,47 @@ TA_LIB_API TA_RetCode TA_ADXR_OpenAndFill( TA_ADXR_Stream **stream, const double
       sp->sub0 = sub0;
       *outBegIdx = dummyBegIdx;
       *outNBElement = dummyNBElement;
-      memcpy( outReal, sc_outReal, sizeof(double) * (size_t)dummyNBElement );
+      if( outStride ) memcpy( outReal, sc_outReal, sizeof(double) * (size_t)dummyNBElement );
+      else outReal[0] = sc_outReal[dummyNBElement - 1];
       TA_Free( sc_outReal );
       *stream = sp;
       return TA_SUCCESS;
    }
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_ADXR_OpenInternal( struct TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_ADXR_OpenCore( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+TA_LIB_API TA_RetCode TA_ADXR_Open( TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, double *outReal )
+{
+   return TA_ADXR_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal );
+}
+
+TA_LIB_API TA_RetCode TA_ADXR_OpenAndFill( TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
+   return TA_ADXR_OpenCore( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_ADXR_OpenAndFillInternal( struct TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_ADXR_OpenCore( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_ADXR_Update( TA_ADXR_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )

@@ -178,6 +178,7 @@ public final class Functions {
       put(m, f_DEMA());
       put(m, f_DIV());
       put(m, f_DX());
+      put(m, f_EFI());
       put(m, f_EMA());
       put(m, f_EXP());
       put(m, f_FLOOR());
@@ -201,6 +202,7 @@ public final class Functions {
       put(m, f_MACDEXT());
       put(m, f_MACDFIX());
       put(m, f_MAMA());
+      put(m, f_MARKETFI());
       put(m, f_MAVP());
       put(m, f_MAX());
       put(m, f_MAXINDEX());
@@ -224,6 +226,7 @@ public final class Functions {
       put(m, f_PPO());
       put(m, f_PVI());
       put(m, f_PVO());
+      put(m, f_QSTICK());
       put(m, f_ROC());
       put(m, f_ROCP());
       put(m, f_ROCR());
@@ -253,6 +256,7 @@ public final class Functions {
       put(m, f_ULTOSC());
       put(m, f_VAR());
       put(m, f_VWMA());
+      put(m, f_WAD());
       put(m, f_WCLPRICE());
       put(m, f_WILLR());
       put(m, f_WMA());
@@ -285,7 +289,7 @@ public final class Functions {
 
    private static FunctionInfo f_ACOS() {
       return new FunctionInfo(
-         "ACOS", "Math Transform", "Vector Trigonometric ACos", 0x02000000,
+         "ACOS", "Math Transform", "Vector Trigonometric ACos", 0x42000000,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -400,7 +404,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInMAType", 0x00000000,
                "MA Type", "Type of Moving Average", 1.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
@@ -446,7 +450,7 @@ public final class Functions {
 
    private static FunctionInfo f_ASIN() {
       return new FunctionInfo(
-         "ASIN", "Math Transform", "Vector Trigonometric ASin", 0x02000000,
+         "ASIN", "Math Transform", "Vector Trigonometric ASin", 0x42000000,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -542,7 +546,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInMAType", 0x00000000,
                "MA Type", "Type of Moving Average", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outRealUpperBand", 0x00000800),
@@ -1485,7 +1489,7 @@ public final class Functions {
 
    private static FunctionInfo f_DEMA() {
       return new FunctionInfo(
-         "DEMA", "Overlap Studies", "Double Exponential Moving Average", 0x03000000,
+         "DEMA", "Overlap Studies", "Double Exponential Moving Average", 0x03000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -1503,7 +1507,7 @@ public final class Functions {
 
    private static FunctionInfo f_DIV() {
       return new FunctionInfo(
-         "DIV", "Math Operators", "Vector Arithmetic Div", 0x02000000,
+         "DIV", "Math Operators", "Vector Arithmetic Div", 0x42000000,
          List.of(
             new InputInfo(InputType.REAL, "inReal0", 0x00000000),
             new InputInfo(InputType.REAL, "inReal1", 0x00000000)
@@ -1532,9 +1536,27 @@ public final class Functions {
          ));
    }
 
+   private static FunctionInfo f_EFI() {
+      return new FunctionInfo(
+         "EFI", "Volume Indicators", "Elder's Force Index", 0x02000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceCV", 0x00000018)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTimePeriod", 0x00000000,
+               "Time Period", "Time period", 13.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 1, 200, 1, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
    private static FunctionInfo f_EMA() {
       return new FunctionInfo(
-         "EMA", "Overlap Studies", "Exponential Moving Average", 0x0B000000,
+         "EMA", "Overlap Studies", "Exponential Moving Average", 0x0B000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -1576,7 +1598,7 @@ public final class Functions {
 
    private static FunctionInfo f_HMA() {
       return new FunctionInfo(
-         "HMA", "Overlap Studies", "Hull Moving Average", 0x03000000,
+         "HMA", "Overlap Studies", "Hull Moving Average", 0x03000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -1686,7 +1708,7 @@ public final class Functions {
 
    private static FunctionInfo f_KAMA() {
       return new FunctionInfo(
-         "KAMA", "Overlap Studies", "Kaufman Adaptive Moving Average", 0x0B000000,
+         "KAMA", "Overlap Studies", "Kaufman Adaptive Moving Average", 0x0B000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -1776,7 +1798,7 @@ public final class Functions {
 
    private static FunctionInfo f_LN() {
       return new FunctionInfo(
-         "LN", "Math Transform", "Vector Log Natural", 0x02000000,
+         "LN", "Math Transform", "Vector Log Natural", 0x42000000,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -1788,7 +1810,7 @@ public final class Functions {
 
    private static FunctionInfo f_LOG10() {
       return new FunctionInfo(
-         "LOG10", "Math Transform", "Vector Log10", 0x02000000,
+         "LOG10", "Math Transform", "Vector Log10", 0x42000000,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -1800,7 +1822,7 @@ public final class Functions {
 
    private static FunctionInfo f_MA() {
       return new FunctionInfo(
-         "MA", "Overlap Studies", "Moving average", 0x03000000,
+         "MA", "Overlap Studies", "Moving average", 0x03000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -1814,7 +1836,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInMAType", 0x00000000,
                "MA Type", "Type of Moving Average", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
@@ -1867,7 +1889,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInFastMAType", 0x00000000,
                "Fast MA", "Type of Moving Average for fast MA", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED"),
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT"),
             new OptInputInfo(
                OptInputType.INTEGER_RANGE, "optInSlowPeriod", 0x00000000,
                "Slow Period", "Period of the slow MA", 26.0,
@@ -1877,7 +1899,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInSlowMAType", 0x00000000,
                "Slow MA", "Type of Moving Average for slow MA", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED"),
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT"),
             new OptInputInfo(
                OptInputType.INTEGER_RANGE, "optInSignalPeriod", 0x00000000,
                "Signal Period", "Smoothing for the signal line (period length)", 9.0,
@@ -1887,7 +1909,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInSignalMAType", 0x00000000,
                "Signal MA", "Type of Moving Average for signal line", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outMACD", 0x00000001),
@@ -1940,6 +1962,18 @@ public final class Functions {
          ));
    }
 
+   private static FunctionInfo f_MARKETFI() {
+      return new FunctionInfo(
+         "MARKETFI", "Volume Indicators", "Market Facilitation Index", 0x02000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHLV", 0x00000016)
+         ),
+         List.of(),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
    private static FunctionInfo f_MAVP() {
       return new FunctionInfo(
          "MAVP", "Overlap Studies", "Moving average with variable period", 0x03000000,
@@ -1962,7 +1996,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInMAType", 0x00000000,
                "MA Type", "Type of Moving Average", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
@@ -2312,7 +2346,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInMAType", 0x00000000,
                "MA Type", "Type of Moving Average", 1.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
@@ -2352,7 +2386,25 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInMAType", 0x00000000,
                "MA Type", "Type of Moving Average", 1.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
+   private static FunctionInfo f_QSTICK() {
+      return new FunctionInfo(
+         "QSTICK", "Momentum Indicators", "Qstick", 0x02000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceOC", 0x00000009)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTimePeriod", 0x00000000,
+               "Time Period", "Time period", 10.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 4, 200, 1, null)
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
@@ -2551,7 +2603,7 @@ public final class Functions {
 
    private static FunctionInfo f_SMA() {
       return new FunctionInfo(
-         "SMA", "Overlap Studies", "Simple Moving Average", 0x03000000,
+         "SMA", "Overlap Studies", "Simple Moving Average", 0x03000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2569,7 +2621,7 @@ public final class Functions {
 
    private static FunctionInfo f_SQRT() {
       return new FunctionInfo(
-         "SQRT", "Math Transform", "Vector Square Root", 0x02000000,
+         "SQRT", "Math Transform", "Vector Square Root", 0x42000000,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2623,7 +2675,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInSlowK_MAType", 0x00000000,
                "Slow-K MA", "Type of Moving Average for Slow-K", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED"),
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT"),
             new OptInputInfo(
                OptInputType.INTEGER_RANGE, "optInSlowD_Period", 0x00000000,
                "Slow-D Period", "Smoothing for making the Slow-D line", 3.0,
@@ -2633,7 +2685,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInSlowD_MAType", 0x00000000,
                "Slow-D MA", "Type of Moving Average for Slow-D", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outSlowK", 0x00000004),
@@ -2662,7 +2714,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInFastD_MAType", 0x00000000,
                "Fast-D MA", "Type of Moving Average for Fast-D", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outFastK", 0x00000001),
@@ -2696,7 +2748,7 @@ public final class Functions {
                OptInputType.INTEGER_LIST, "optInFastD_MAType", 0x00000000,
                "Fast-D MA", "Type of Moving Average for Fast-D", 0.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
-               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED")
+               0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT")
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outFastK", 0x00000001),
@@ -2737,7 +2789,7 @@ public final class Functions {
 
    private static FunctionInfo f_T3() {
       return new FunctionInfo(
-         "T3", "Overlap Studies", "Triple Exponential Moving Average (T3)", 0x0B000000,
+         "T3", "Overlap Studies", "Triple Exponential Moving Average (T3)", 0x0B000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2784,7 +2836,7 @@ public final class Functions {
 
    private static FunctionInfo f_TEMA() {
       return new FunctionInfo(
-         "TEMA", "Overlap Studies", "Triple Exponential Moving Average", 0x03000000,
+         "TEMA", "Overlap Studies", "Triple Exponential Moving Average", 0x03000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2814,7 +2866,7 @@ public final class Functions {
 
    private static FunctionInfo f_TRIMA() {
       return new FunctionInfo(
-         "TRIMA", "Overlap Studies", "Triangular Moving Average", 0x03000000,
+         "TRIMA", "Overlap Studies", "Triangular Moving Average", 0x03000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2931,7 +2983,7 @@ public final class Functions {
 
    private static FunctionInfo f_VWMA() {
       return new FunctionInfo(
-         "VWMA", "Overlap Studies", "Volume Weighted Moving Average", 0x03000000,
+         "VWMA", "Overlap Studies", "Volume Weighted Moving Average", 0x43000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000),
             new InputInfo(InputType.PRICE, "inPriceV", 0x00000010)
@@ -2943,6 +2995,18 @@ public final class Functions {
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
                1, 100000, 1, 200, 1, null)
          ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
+   private static FunctionInfo f_WAD() {
+      return new FunctionInfo(
+         "WAD", "Volume Indicators", "Williams' Accumulation/Distribution (no volume)", 0x22000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHLC", 0x0000000E)
+         ),
+         List.of(),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
          ));
@@ -2980,7 +3044,7 @@ public final class Functions {
 
    private static FunctionInfo f_WMA() {
       return new FunctionInfo(
-         "WMA", "Overlap Studies", "Weighted Moving Average", 0x03000000,
+         "WMA", "Overlap Studies", "Weighted Moving Average", 0x03000001,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),

@@ -1,6 +1,6 @@
 //! # TA-Lib: Technical Analysis Library
 //!
-//! 161 technical-analysis indicators — moving averages, momentum oscillators,
+//! 172 technical-analysis indicators — moving averages, momentum oscillators,
 //! volatility bands, volume studies, Hilbert Transform cycle analysis, statistics,
 //! price transforms, and 61 candlestick-pattern recognizers — as a pure-Rust crate.
 //!
@@ -37,8 +37,9 @@
 //!   before producing output — query it with the matching `*_Lookback` method
 //!   (e.g. [`Core::SMA_Lookback`]).
 //! * Integer parameters accept `i32::MIN`, and real parameters `-4e37`, to select their
-//!   default value. A parameter outside its documented range returns
-//!   [`RetCode::BadParam`].
+//!   default value; a moving-average type takes [`MAType::DEFAULT`] instead, the
+//!   sentinel being unrepresentable at a typed enum. A parameter outside its
+//!   documented range returns [`RetCode::BadParam`].
 //! * Every call returns a [`RetCode`]; anything other than [`RetCode::Success`]
 //!   means no output was produced.
 //!
@@ -52,8 +53,12 @@
 //!
 //! let core = Core::builder()
 //!     .unstable_period(FuncUnstId::EMA, 10)
-//!     .build();
+//!     .build()?;
+//! # Ok::<(), ta_lib::RetCode>(())
 //! ```
+//!
+//! The setters are infallible so that they chain; a rejected argument is
+//! reported once, by `build()`, as [`RetCode::BadParam`].
 //!
 //! To change a setting, build a new `Core` (cloning is cheap); [`Core::to_builder()`]
 //! seeds a builder from an existing instance.

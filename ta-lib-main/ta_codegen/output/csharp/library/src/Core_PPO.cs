@@ -76,7 +76,8 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Moving average type used for both MAs (default 1 = EMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED; <c>int.MinValue</c> selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT; <c>MAType.DEFAULT</c> (or
+   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int PPO_Lookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
@@ -90,8 +91,10 @@ public partial class Core
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return -1;
       }
-      if( (int)optInMAType == int.MinValue ) {
+      if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.EMA;
+      } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
+         return -1;
       }
       /* Lookback is driven by the slowest MA. */
       return MA_Lookback(Math.Max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
@@ -133,8 +136,10 @@ public partial class Core
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( (int)optInMAType == int.MinValue ) {
+      if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.EMA;
+      } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
+         return RetCode.BadParam;
       }
       /* Allocate an intermediate buffer. */
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
@@ -209,8 +214,10 @@ public partial class Core
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( (int)optInMAType == int.MinValue ) {
+      if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.EMA;
+      } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
+         return RetCode.BadParam;
       }
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
       if( optInSlowPeriod < optInFastPeriod ) {
@@ -250,6 +257,9 @@ public partial class Core
    /// PPO = ((fastMA(inReal) - slowMA(inReal)) / slowMA(inReal)) * 100, both MAs of type optInMAType; output = 0 when slowMA == 0
    /// The standard form is exponential with periods 12 and 26 — ((12-day EMA - 26-day EMA) / 26-day EMA) * 100, i.e. the MACD oscillator expressed as a percentage. `optInMAType` therefore **defaults to EMA** — the moving average Gerald Appel used for the original PPO/MACD; pass another type (e.g. `TA_MAType_SMA`) to override.
    /// </code>
+   /// <list type="bullet">
+   /// <item><description><c>optInMAType</c> applies to both the fast and slow moving average. <c>TA_MAType_MAMA</c> ignores its period argument, so with <c>optInMAType = TA_MAType_MAMA</c> the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</description></item>
+   /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
@@ -267,7 +277,8 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Moving average type used for both MAs (default 1 = EMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED; <c>int.MinValue</c> selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT; <c>MAType.DEFAULT</c> (or
+   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
    /// <param name="outReal">PPO value in percent. Must hold at least <c>endIdx - startIdx + 1</c>
    /// values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
@@ -305,6 +316,9 @@ public partial class Core
    /// PPO = ((fastMA(inReal) - slowMA(inReal)) / slowMA(inReal)) * 100, both MAs of type optInMAType; output = 0 when slowMA == 0
    /// The standard form is exponential with periods 12 and 26 — ((12-day EMA - 26-day EMA) / 26-day EMA) * 100, i.e. the MACD oscillator expressed as a percentage. `optInMAType` therefore **defaults to EMA** — the moving average Gerald Appel used for the original PPO/MACD; pass another type (e.g. `TA_MAType_SMA`) to override.
    /// </code>
+   /// <list type="bullet">
+   /// <item><description><c>optInMAType</c> applies to both the fast and slow moving average. <c>TA_MAType_MAMA</c> ignores its period argument, so with <c>optInMAType = TA_MAType_MAMA</c> the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</description></item>
+   /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
    /// <c>double</c> as they are read and all arithmetic is performed in
@@ -328,7 +342,8 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Moving average type used for both MAs (default 1 = EMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED; <c>int.MinValue</c> selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT; <c>MAType.DEFAULT</c> (or
+   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
    /// <param name="outReal">PPO value in percent. Must hold at least <c>endIdx - startIdx + 1</c>
    /// values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,

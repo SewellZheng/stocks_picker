@@ -92,6 +92,7 @@ static int doCodegenTest = 0;
 static int doFuzz064 = 0;
 static int doXlangHash = 0;
 static const char *codegenLanguageFilter = NULL;
+static unsigned int randSeed = 0;   /* 0 = pick one from the clock */
 
 /**** Local declarations.              ****/
 /* None */
@@ -178,6 +179,10 @@ int main( int argc, char **argv )
          {
             doXlangHash = 1;
          }
+         else if( strncmp(argv[i], "--seed=", 7) == 0 )
+         {
+            randSeed = (unsigned int)strtoul( argv[i] + 7, NULL, 10 );
+         }
          else if( strcmp(argv[i], "--no-guarded") == 0 )
          {
             extern int g_hideGuarded;
@@ -191,8 +196,13 @@ int main( int argc, char **argv )
       }
    }
 
-   /* Some tests are using randomness. */
-   srand( (unsigned)time( NULL ) );
+   /* Some tests are using randomness: the range sweeps pick their startIdx and
+    * sizes with rand(), so each run covers a different subset. Printed so a
+    * failure can be replayed with --seed=N. */
+   if( randSeed == 0 )
+      randSeed = (unsigned int)time( NULL );
+   printf( "Random seed: %u  (replay with --seed=%u)\n", randSeed, randSeed );
+   srand( randSeed );
 
    /* Opt-in bit-exact differential fuzz vs released v0.6.4 (ta_064_serve).
     * Self-contained: init the lib, run the fuzz, done — skips the rest. */
@@ -679,7 +689,7 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_1in_1out, "MATH,VECTOR,DCPERIOD/PHASE,TRENDLINE/MODE" );
    DO_TEST( test_func_ma,       "All Moving Averages" );
    DO_TEST( test_func_per_hl,   "AROON,CORREL,BETA,MIDPRICE" );
-   DO_TEST( test_func_per_hlc,  "CCI,WILLR,ULTOSC,NATR" );
+   DO_TEST( test_func_per_hlc,  "CCI,WILLR,ULTOSC,NATR,ACCBANDS,WAD" );
    DO_TEST( test_func_per_ohlc, "BOP,AVGPRICE" );
    DO_TEST( test_func_rsi,      "RSI,CMO" );
    DO_TEST( test_func_imi, "IMI" );
@@ -705,11 +715,15 @@ static ErrorNumber testTAFunction_ALL( void )
    /* The tag is what --function= substring-matches, so every function the
     * group covers must appear in it: --function=VWMA matched nothing before
     * VWMA was named here (issue #137). */
-   DO_TEST( test_func_composite, "PVO,VWMA,CMF,HMA,COMPOSITE" );
+   DO_TEST( test_func_composite, "PVO,VWMA,CMF,HMA,EFI,QSTICK,COMPOSITE" );
+   DO_TEST( test_func_marketfi, "MARKETFI" );
    DO_TEST( test_func_cmf,       "CMF" );
    DO_TEST( test_func_cmou,      "CMOU" );
    DO_TEST( test_func_variants,  "TA_S_,VARIANT" );
    DO_TEST( test_candle_precision, "CDLDOJI,CANDLE,VARIANT,PRECISION" );
+   DO_TEST( test_func_rolling_extremum,
+            "MIN,MAX,MINMAX,MIDPOINT,MIDPRICE,WILLR,ROLLING,BLOCKSCAN" );
+   DO_TEST( test_func_legacy,    "LEGACY,064,FROZEN" );
 
    return TA_TEST_PASS; /* All tests succeeded. */
 }
@@ -755,6 +769,10 @@ static void printUsage(void)
       printf( "       seed-generated inputs, comparing full-precision output hashes\n" );
       printf( "       with no tolerance. Honors --function and --language (rust today).\n" );
       printf( "       Run from the bin directory (needs the language servers).\n" );
+      printf( "\n" );
+      printf( "    --seed=N\n" );
+      printf( "       Seed the range sweeps, replaying a previous run. Each run\n" );
+      printf( "       otherwise picks its own seed and prints it.\n" );
       printf( "\n" );
       printf( "   On success, the exit code is 0.\n" );
       printf( "   On failure, the exit code is a number that can be\n" );

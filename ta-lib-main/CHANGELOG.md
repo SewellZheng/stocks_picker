@@ -19,14 +19,21 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
   - VWMA: Volume Weighted Moving Average (#131)
   - CMF: Chaikin Money Flow (#134)
   - HMA: Hull Moving Average (#139).
+  - WAD: Williams' Accumulation/Distribution, the no-volume Achelis form (#200)
+  - EFI: Elder's Force Index (#206)
+  - QSTICK: Qstick (ta-lib-proposal-drafts#24)
+  - MARKETFI: Market Facilitation Index, a bar's range per unit of volume (ta-lib-proposal-drafts#23)
 - New MAType (for MA, BBANDS, STOCK etc...):
   - TA_MAType_HMA (#139)
+  - TA_MAType_DEFAULT — selects that parameter's documented MA type (#182)
 
 ### Faster
 - ~3x to 7x: DEMA, TEMA and TRIX
 - ~8x: MACD and MACDFIX
 - ~8x: MACDEXT when MA types are EMA.
 - ~2.4x: ACCBANDS
+- ~2x: SQRT (#192). Thanks @kevinlincg !
+- ~1.6x to 15x: MIN, MAX, MINMAX, MIDPOINT, MIDPRICE and WILLR (#147). Thanks @kevinlincg !
 - ~40%: ULTOSC (#154). Thanks @dexhunter !
 - ~30%: MAVP (#143). Thanks @dexhunter !
 - ~27% Apple, ~8% GCC: MIN, MAX, MINMAX, MININDEX, MAXINDEX, MINMAXINDEX, MIDPOINT, MIDPRICE, AROON, AROONOSC and WILLR (#128). Thanks @dexhunter !
@@ -34,43 +41,26 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - ~10%: ATR and NATR
 
 ### Changed
-- (#179) API: every function is now spelled the same way in every language. The name in
-  the definition is the identity, used verbatim; C alone prefixes `TA_`, and suffixed
-  variants are separated by an underscore. So `TA_SMA` / `TA_SMA_Lookback` in C are `SMA` /
-  `SMA_Lookback` in Rust, Java and C#, where they were `sma` / `sma_lookback`, `sma` /
-  `smaLookback` and `Sma` / `SmaLookback`. Enum members follow the same rule: `MAType.SMA`
-  and `FuncUnstId.EMA`, not `MAType.Sma` and `FuncUnstId.Ema`. The unstable-period wildcard
-  is `ALL` in all three (`TA_FUNC_UNST_ALL` in C), where each had spelled it differently.
-  The C library is unaffected. Rust, Java and C# are unpublished, so no released package
-  changes — this is the last version in which the spelling can settle without a migration.
-- (#179) C API: `TA_FuncInfo` no longer carries `camelCaseName`, and `ta_func_api.xml` no
-  longer emits `<CamelCaseName>`. It held a second, hand-authored spelling of a name the
-  struct already carries in `name`, and it had frozen two typos (`CdlHignWave`,
-  `CdlSeperatingLines`) into the field. Read `name`. This changes the layout of a public
-  struct: recompile against the new `ta_abstract.h` rather than relinking.
-- (#180) API: `startIdx` and `endIdx` are now capped at the new `TA_MAX_INDEX` (100,000,000);
-  above it a call returns `TA_OUT_OF_RANGE_START_INDEX` / `TA_OUT_OF_RANGE_END_INDEX` instead
-  of computing. 100 million bars is ~190 years of 24/7 one-minute data; series longer than
-  that are tick data, better served by the streaming API. The same limit now applies in Rust
-  (`ta_lib::MAX_INDEX`) and in Java and C# (`Core.MAX_INDEX` — the managed bindings carry no
-  `TA_` prefix), so a call is accepted or rejected identically in all four.
-  The streaming `OpenAndFill` entry points reject an over-long `historyLen` the same way.
-  The cap bounds the valid index range only — it is not an accuracy guarantee.
+- (#202) VAR no longer returns a tiny negative variance on a flat stretch, where the
+  calculation cancels to either side of zero; it returns 0. `sqrt(VAR(...))` was NaN
+  there. STDDEV is unaffected — it already reported 0 for those bars.
 - (#133) BBANDS default `optInTimePeriod` changed from 5 to 20, as intended by John Bollinger.
 - (#120) PPO and APO now default `optInMAType` to EMA (was SMA), matching Gerald Appel's original PPO/MACD definition. Pass `TA_MAType_SMA` explicitly to keep the previous behavior.
 - (#96) Fused multiply-add and other floating-point re-ordering produce minor output differences; an intentional modernization.
+- (#183) EMA now uses a fused multiply-add in its recursion, as the EMA cascades inside
+  DEMA, TEMA, TRIX, MACD and MACDFIX already did. Values move by at most 2.8e-16 relative
+  from the reference series, and the same shift reaches MA, BBANDS, APO, PPO, PVO, MAVP,
+  STOCH, STOCHF and STOCHRSI when the MAtype is EMA.
 - (#4,#14) API: `TA_FUNC_UNST_MFI` and `TA_FUNC_UNST_IMI` enum constants removed
 - (#129) API: `TA_FUNC_UNST_ADXR` and `TA_FUNC_UNST_STOCHRSI` enum constants removed.
-- (#144) API: `TA_FUNC_UNST_ALL` is now `65535` instead of tracking the number of
-  functions. It previously moved every time an indicator gained an unstable period,
-  silently breaking callers that had recorded the old value; it is now fixed forever.
-  Use the new `TA_FUNC_UNST_COUNT` macro to size a table of unstable periods.
+- (#180) API: `startIdx` and `endIdx` are now capped at the new `TA_MAX_INDEX` (100,000,000);
+  above it a call returns `TA_OUT_OF_RANGE_START_INDEX` / `TA_OUT_OF_RANGE_END_INDEX`.
 - (#144) API: `TA_FUNC_UNST_NONE` enum constant removed. It could not be passed in
   (it is rejected) and was never returned, so it had no use in the public API.
 - (#122) Removed the `ide/` directory (Visual Studio/Xcode/MSVC project files). Use autotools, CMake and vcpkg instead.
 
 ### Deprecated
-- `TA_SetCompatibility()` and `TA_GetCompatibility()`. The notion of variant (e.g. MetaStock compatibility) is not actively maintained and will be removed in a future release. Default behavior is unaffected.
+- `TA_SetCompatibility()` and `TA_GetCompatibility()`. The notion of variant (e.g. MetaStock compatibility) is not actively maintained and will be removed in a future release. Default behavior is unaffected. Moving forward TA-Lib will create separate TA functions for distinct behaviors.
 
 ### Fixed
 - (#130) In-place calls (same buffer as input and output) returned wrong values for STOCH, STOCHF and MAVP. Regular (separate-buffer) calls were always correct.
@@ -87,19 +77,6 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - (#77) CMake shared library now links libm directly, so it declares its own math-library dependency instead of relying on the consuming program to provide it. Thanks @BwL1289 !
 - (#102) Fixed ULTOSC and CDL3INSIDE performance regression (only in 0.7.1)
 - (#112) IMI returned NaN on an all-flat window (every bar `close == open`); now returns 50.0.
-- Real optional parameters lost their range check in 0.7.0. Values far outside the
-  documented bounds were accepted — `TA_SAR` with a negative acceleration, or
-  `TA_CDLDARKCLOUDCOVER` with a penetration of `1e100`, returned `TA_SUCCESS` and a
-  meaningless result; `TA_BBANDS` with an infinite `optInNbDevUp` returned
-  `TA_SUCCESS` with a non-finite band. All 21 of them are validated again, exactly as
-  in 0.6.x, so these calls return `TA_BAD_PARAM`. Affects `TA_BBANDS`, `TA_STDDEV`,
-  `TA_VAR`, `TA_SAR`, `TA_SAREXT`, `TA_MAMA`, `TA_T3` and the seven `TA_CDL*` patterns
-  that take a penetration.
-
-### Removed
-- (#166) The `TA_*_Unguarded` / `TA_S_*_Unguarded` functions, and their Java `xxxUnguarded` and C# `XxxUnguarded` equivalents. Introduced in 0.7.1 as a faster tier that skipped parameter validation; measurement across four toolchains found it is not measurably faster at any range size (one was 20-45% slower) while costing 15.5% of the library's `.text`. Use the ordinary function — `TA_SMA`, `core.SMA(..)`, `SMA(..)` — which returns the same values for the same valid inputs.
-- (#166) `include/ta_func_unguarded.h`. Half of it declared the functions above and the rest was never public API. `include/ta_func.h` already carries the complete stream surface.
-- (#166) `TA_EMA_Private` and `TA_S_EMA_Private` are no longer exported.
 
 ## [0.7.1] 2026-07-03
 ### Added

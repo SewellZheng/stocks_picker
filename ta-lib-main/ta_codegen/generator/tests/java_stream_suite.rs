@@ -50,12 +50,20 @@ fn test_java_sma_ring_stream_section() {
     let s = java_stream_section("sma");
     // Nested handle class shape: package-private fields, no public ctor.
     assert!(s.contains("public static final class SMA_Stream {"));
-    assert!(s.contains("final Core core;"));
+    assert!(s.contains("Core core;"));
     assert!(s.contains("double[] ring_trailingIdx_inReal;"));
     assert!(s.contains("int ringPos_trailingIdx;"));
     assert!(!s.contains("public SMA_Stream("), "handle ctors stay non-public");
     // Deep-copy constructor clones the ring array.
     assert!(s.contains("this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();"));
+    // ...and every class gets its in-place twin (#201), because any of them can
+    // be some other handle's sub-stream.
+    assert!(s.contains("void copyFrom( SMA_Stream other ) {"));
+    assert!(s.contains("System.arraycopy( other.ring_trailingIdx_inReal, 0, this.ring_trailingIdx_inReal, 0, other.ring_trailingIdx_inReal.length );"));
+    // One array and no sub-stream: peek keeps the plain copy, because the
+    // scratch lookup would cost more than the allocation it saves.
+    assert!(!s.contains("PEEK_SCRATCH"));
+    assert!(s.contains("SMA_Stream scratch = new SMA_Stream(this);"));
     // The C mirror/peekMode machinery is deleted by design (copy-peek).
     assert!(!s.contains("Mirror"), "no peek mirrors in the Java tier");
     assert!(!s.contains("peekMode"), "no peekMode in the Java tier");
@@ -88,7 +96,7 @@ fn test_java_sma_ring_stream_section() {
 }
 
 #[test]
-fn test_java_ema_private_extra_param_and_compat() {
+fn test_java_ema_derived_state_and_compat() {
     let s = java_stream_section("ema");
     // The k factor is captured state, computed after default substitution.
     assert!(s.contains("double optInK_1;"));
@@ -125,6 +133,11 @@ fn test_java_mama_value_class_protocol() {
 #[test]
 fn test_java_cdl_candle_snapshot() {
     let s = java_stream_section("cdl3blackcrows");
+    // A candle handle owns a ring per price per averaged setting, so peek runs
+    // on the reused per-thread scratch rather than allocating a peer (#201).
+    assert!(s.contains("private static final ThreadLocal<CDL3BLACKCROWS_Stream> PEEK_SCRATCH = new ThreadLocal<>();"));
+    assert!(s.contains("CDL3BLACKCROWS_Stream scratch = PEEK_SCRATCH.get();"));
+    assert!(s.contains("scratch.copyFrom(this);"));
     // Candle settings snapshot: primitive fields captured at open...
     assert!(s.contains("int cs_ShadowVeryShort_rangeType;"));
     assert!(s.contains("sp.cs_ShadowVeryShort_avgPeriod = ShadowVeryShort_avgPeriod;"));
@@ -139,7 +152,7 @@ fn test_java_cdl_candle_snapshot() {
 }
 
 // ---------------------------------------------------------------------------
-// Dual-mode / fast-path-skip tiers
+// Dual-mode tier
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -154,11 +167,21 @@ fn test_java_trima_dual_mode() {
 }
 
 #[test]
-fn test_java_midprice_fastpath_skip() {
+fn test_java_midprice_stream_uses_the_declared_alternate() {
     let s = java_stream_section("midprice");
-    // The stream always runs the general arm; the batch fast path never
-    // appears as a param-selected branch in the step.
+    // The stream runs `midprice_ALT1`'s automaton, one unconditional step — the
+    // batch block scan never appears as a param-selected branch.
     assert!(s.contains("void MIDPRICE_StreamStep( MIDPRICE_Stream sp, double inHigh, double inLow )"));
+    assert!(
+        s.contains("/* Using midprice_ALT1 for TA_ALT={STREAM,ALL_LANGUAGES} */"),
+        "the stream section must name the alternate it resolved to"
+    );
+    for marker in ["sufHighest", "preHighest", "blockNext"] {
+        assert!(
+            !s.contains(marker),
+            "`{marker}` reached the Java stream: it resolved to the block scan, not the alternate"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +251,99 @@ fn test_java_stoch_composed() {
     assert!(s.contains("public record Value(double slowK, double slowD) { }"));
 }
 
+/// The sub-open range materialization (issue #203). Java has no slice type, so
+/// the range the callee may read is conveyed by copying it out — except where
+/// the range is already the whole array, which is decidable here: the source is
+/// one of the function's own inputs (all `historyLen` long, checked by the open
+/// validation) and the range ends at `endIdx`.
+///
+/// **No value gate can see this.** The callee reads the same numbers either
+/// way, so the servers, `stream_verify` and the cross-language hashes all agree
+/// whichever shape is emitted; the shape is the only observable. Both
+/// directions are therefore pinned, and both can fail: restoring the copy fails
+/// the elision half, and eliding unconditionally fails the retention half —
+/// the latter would truncate nothing and hand `MA` a `tempBuffer` far longer
+/// than the sub-call's own `endIdx`.
+#[test]
+fn test_java_composed_sub_open_elides_only_whole_array_copies() {
+    // Elided: three own price inputs, each at `endIdx`.
+    let adxr = java_stream_section("adxr");
+    assert!(
+        adxr.contains(
+            "ADX_OpenAndFillInternal(inHigh, inLow, inClose, startIdx - (optInTimePeriod - 1)"
+        ),
+        "own inputs at endIdx pass straight through"
+    );
+    // Retained: an intermediate buffer at a computed sub-range, in the same
+    // function family — the copy is what carries the length there. STOCH's
+    // slow-K is also the one sub-call the #192 fusion declines (in place), so
+    // this pins the unfused shape and the ADXR row above pins the fused one.
+    let stoch = java_stream_section("stoch");
+    assert!(
+        stoch.contains("MA_OpenInternal(java.util.Arrays.copyOfRange(tempBuffer, 0, (outIdx - 1) + 1)"),
+        "an intermediate sub-range keeps its copy"
+    );
+    // Both shapes inside ONE function, so the rule cannot be satisfied by a
+    // per-function switch: STOCHRSI's RSI sub reads the whole input, its STOCHF
+    // sub a prefix of the RSI series.
+    let stochrsi = java_stream_section("stochrsi");
+    assert!(
+        stochrsi.contains("RSI_OpenAndFillInternal(inReal, startIdx - lookbackSTOCHF"),
+        "STOCHRSI's own input is elided"
+    );
+    assert!(
+        stochrsi.contains(
+            "STOCHF_OpenAndFillInternal(java.util.Arrays.copyOfRange(tempRSIBuffer, 0, (tempArraySize - 1) + 1)"
+        ),
+        "STOCHRSI's intermediate prefix keeps its copy"
+    );
+
+    // Sweep: no whole-array copy of an own input survives anywhere, and the
+    // genuine sub-ranges are still there (a blanket elision would pass the
+    // first half alone).
+    let registry = Registry::from_dir(&input_dir());
+    let helpers = HelperRegistry::from_dir(&input_dir().join("helpers"));
+    let enums = parser::enums::load_enums(&input_dir().join("enums.yaml"));
+    let mut retained = 0usize;
+    for entry in std::fs::read_dir(input_dir()).expect("input dir") {
+        let dir = entry.expect("entry").path();
+        let Some(name) = dir.file_name().map(|n| n.to_string_lossy().to_string()) else {
+            continue;
+        };
+        let yaml = dir.join(format!("{name}.yaml"));
+        if !dir.is_dir() || !yaml.exists() {
+            continue;
+        }
+        let mut func = parser::yaml::parse_yaml(&yaml);
+        if !func.streaming {
+            continue;
+        }
+        let parsed = parser::c_source::parse_c_source(&dir.join(format!("{name}.c")));
+        parser::c_source::wire_parsed_source(&mut func, &parsed);
+        let out = backends::java::generate(&func, &enums, &registry, &helpers);
+        for input in ta_codegen_lib::streaming::input_array_names(&func) {
+            assert!(
+                !out.contains(&format!("copyOfRange({input}, 0, (endIdx) + 1)")),
+                "{name}: whole-array copy of own input `{input}` — the array already says its length"
+            );
+        }
+        // Both sub-open shapes: fused (#192) and the in-place one it declines.
+        // Counted only when the line still carries the `, 0, (` the negative
+        // needle above assumes, so a re-rendering of the copy cannot quietly
+        // turn that assertion vacuous — it fails this floor instead.
+        retained += out
+            .lines()
+            .filter(|l| l.contains("Internal(java.util.Arrays.copyOfRange(") && l.contains(", 0, ("))
+            .count();
+    }
+    assert!(
+        retained >= 5,
+        "the genuine sub-range copies vanished ({retained} left), or the copy is no longer \
+         rendered as `copyOfRange(x, 0, (e) + 1)` — in which case the whole-array assertion \
+         above is matching nothing and must be respelled"
+    );
+}
+
 #[test]
 fn test_java_adxr_sub_lag_ring() {
     let s = java_stream_section("adxr");
@@ -283,5 +399,121 @@ fn test_java_stream_emit_ratchet() {
     assert!(
         emitted >= 168,
         "Java stream emit count fell below the 168 floor — a tier or `stream` flag was silently dropped (raise the floor deliberately as the family grows)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Merged Open family (`OpenCore` + stride)
+// ---------------------------------------------------------------------------
+//
+// `<base>_OpenBody` and `<base>_OpenAndFillBody` are one emission,
+// `<base>_OpenCore(..., int outStride)`. Fill passes stride 1 and the caller's
+// arrays; the scalar path passes stride 0 and a one-element sink, so every write
+// collapses onto slot 0 and that slot ends holding the last history value —
+// which is also what makes the `sp.cur_*` capture resolve with no special case.
+// `Dispatch` (MA) and `PeriodBank` (MAVP) are exempt.
+
+#[test]
+fn java_open_family_is_one_core_with_two_wrappers() {
+    let s = java_stream_section("cdlhammer");
+    assert_eq!(
+        s.matches("private RetCode CDLHAMMER_OpenCore(").count(),
+        1,
+        "the core is emitted exactly once"
+    );
+    assert!(s.contains("int outStride )"), "the core takes a stride");
+    for w in [
+        "private RetCode CDLHAMMER_OpenBody(",
+        "private RetCode CDLHAMMER_OpenAndFillBody(",
+    ] {
+        let at = s.find(w).unwrap_or_else(|| panic!("missing {w}"));
+        let body = &s[at..at + 800.min(s.len() - at)];
+        assert!(body.contains("CDLHAMMER_OpenCore("), "{w} delegates to the core");
+        assert!(
+            !body.contains("BodyPeriodTotal"),
+            "{w} must not re-transcribe the algorithm"
+        );
+    }
+}
+
+#[test]
+fn java_scalar_wrapper_uses_a_one_element_sink_at_stride_zero() {
+    let s = java_stream_section("cdlhammer");
+    let at = s.find("private RetCode CDLHAMMER_OpenBody(").expect("scalar wrapper");
+    let body = &s[at..at + 800.min(s.len() - at)];
+    assert!(body.contains("new int[1]"), "an int output sinks into a 1-element array:\n{body}");
+    assert!(body.contains(", 0 );"), "scalar passes stride 0:\n{body}");
+}
+
+#[test]
+fn java_output_writes_are_stride_scaled() {
+    let s = java_stream_section("cdlhammer");
+    assert!(
+        s.contains("outInteger[outIdx++ * outStride] = 100;"),
+        "per-bar output writes scale by the stride"
+    );
+}
+
+#[test]
+fn java_fill_wrapper_keeps_the_aliasing_guards() {
+    // #108/#130: Java is the one managed backend where `out == in` compiles, so
+    // the fill must reject it by reference. The scalar sink is a fresh array and
+    // has no hazard.
+    let s = java_stream_section("accbands");
+    let at = s
+        .find("private RetCode ACCBANDS_OpenAndFillBody(")
+        .expect("fill wrapper");
+    let body = &s[at..at + 1600.min(s.len() - at)];
+    assert!(
+        body.contains("(Object)outRealUpperBand == (Object)inHigh"),
+        "output-vs-input guard survives on the fill wrapper:\n{body}"
+    );
+    assert!(
+        body.contains("(Object)outRealUpperBand == (Object)outRealMiddleBand"),
+        "output-vs-output guard survives on the fill wrapper:\n{body}"
+    );
+    let sat = s.find("private RetCode ACCBANDS_OpenBody(").expect("scalar wrapper");
+    let sbody = &s[sat..sat + 800.min(s.len() - sat)];
+    assert!(
+        !sbody.contains("(Object)"),
+        "Open has no aliasing hazard and must not carry the guard:\n{sbody}"
+    );
+}
+
+#[test]
+fn java_exempt_tiers_keep_two_bodies() {
+    for (name, base) in [("ma", "MA"), ("mavp", "MAVP")] {
+        let s = java_stream_section(name);
+        assert!(
+            !s.contains(&format!("{base}_OpenCore(")),
+            "{base} is an exempt tier and must keep two bodies"
+        );
+        assert!(s.contains(&format!("{base}_OpenBody(")));
+        assert!(s.contains(&format!("{base}_OpenAndFillBody(")));
+    }
+}
+
+#[test]
+fn java_composed_copy_out_is_stride_guarded() {
+    let s = java_stream_section("adxr");
+    assert!(
+        s.contains("if( outStride == 1 ) System.arraycopy("),
+        "the composed copy-out is guarded by the stride"
+    );
+}
+
+#[test]
+fn java_identity_fast_path_short_circuits_at_stride_zero() {
+    // Java has no inliner guarantee here — a cold Open runs the loop in full —
+    // so the stride-0 short-circuit matters more than in C/Rust, not less.
+    let s = java_stream_section("t3");
+    assert!(s.contains("if( outStride == 0 ) {"), "identity arm short-circuits at stride 0");
+    assert!(
+        s.contains("outReal[0] = inReal[historyLen - 1];"),
+        "stride-0 arm takes the last bar directly"
+    );
+    assert!(
+        s.contains("outReal[fillIdx] = inReal[fillLb + fillIdx];"),
+        "fill arm indexes plainly"
     );
 }

@@ -101,15 +101,18 @@ ErrorNumber checkDataSame( const TA_Real *data,
                            const TA_Real *originalInput,
                            unsigned int nbElement );
 
-/* Check that the content of the first buffer
- * is found in the second buffer (when the elements
- * in the first buffer is NAN, no check is done for
- * this paricular element).
+/* Two runs of the SAME call (separate output buffer vs in-place): bit-identical.
+ * Elements holding a reserved buffer pattern are skipped.
  *
  * Return TA_TEST_PASS if no difference are found.
  */
 ErrorNumber checkSameContent( TA_Real *buffer1,
                               TA_Real *buffer2 );
+
+/* Two DIFFERENT implementations of one function (naive reference vs shipped):
+ * the contract is a tolerance, not bit-identity. */
+ErrorNumber checkSameContentApprox( TA_Real *buffer1,
+                                    TA_Real *buffer2 );
 
 ErrorNumber checkExpectedValue( const TA_Real *data,
                                 TA_RetCode retCode, TA_RetCode expectedRetCode,
@@ -234,7 +237,7 @@ typedef enum
    TA_STABLE_EXACT,      /* Fresh-recomputed finite window -> bit-exact across
                           * ranges; any difference is a bug (e.g. IMI). */
    TA_STABLE_EPSILON,    /* Finite window via a running accumulator / algebraic
-                          * re-order -> ~1e-9 FP drift only (e.g. MFI, running-
+                          * re-order -> ~1e-10 FP drift only (e.g. MFI, running-
                           * sum MAs). */
    TA_STABLE_CONVERGING, /* Recursive / IIR -> the value depends on how far back
                           * the recursion started; the unstable period bounds the

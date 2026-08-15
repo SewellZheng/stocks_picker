@@ -18,6 +18,7 @@ Hist = MACD - Signal
 
 - If the slow period is set smaller than the fast period, the fast and slow periods and their MA types are swapped so the slow moving average is always the longer one.
 - A signal period of 1 disables signal-line smoothing for every signal MAType: the signal equals the MACD line and the histogram is zero.
+- `TA_MAType_MAMA` ignores its period argument, so it always produces the same series regardless of the period requested. If both `optInFastMAType` and `optInSlowMAType` are set to MAMA, the fast and slow lines are therefore identical and MACD, Signal, and Hist are all zero at every bar. Select MAMA for only one side to get a meaningful spread.
 
 ## Inputs
 
@@ -40,17 +41,23 @@ Hist = MACD - Signal
 | `optInSignalPeriod` | integer | 9 | 1–100000 | Period of the signal-line MA |
 | `optInSignalMAType` | MAType | SMA (0) | any MAType | MA type for the signal line |
 
-*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED*
+*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED · 11 DEFAULT*
 
 ## Properties
 
 **Numerical Stability:** [Depends on MA Type](/functions/stability.md#depends-on-ma-type) — This function's default, SMA, is start-independent.
 
-| Display<br>Flags |
+<div class="flag-table">
+
+|  |
 | :-- |
 | <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
 | <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
 | <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Can Output NaN or ±Inf</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Identity at Period 1</span> |
+
+</div>
 
 ## Implementation
 

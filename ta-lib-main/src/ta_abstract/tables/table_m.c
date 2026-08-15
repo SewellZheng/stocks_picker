@@ -60,7 +60,7 @@ static const TA_OptInputParameterInfo *TA_MA_OptInputs[] =
 DEF_FUNCTION( MA,
               TA_GroupId_OverlapStudies,
               "Moving average",
-              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM | TA_FUNC_FLG_PERIOD1_IDENTITY
              );
 /* MA END */
 
@@ -343,6 +343,29 @@ DEF_FUNCTION( MAMA,
               TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
              );
 /* MAMA END */
+
+/* MARKETFI BEGIN */
+static const TA_InputParameterInfo    *TA_MARKETFI_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Price_HLV,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_MARKETFI_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_MARKETFI_OptInputs[] =
+{ NULL };
+
+DEF_FUNCTION( MARKETFI,
+              TA_GroupId_VolumeIndicators,
+              "Market Facilitation Index",
+              TA_FUNC_FLG_STREAM
+             );
+/* MARKETFI END */
 
 /* MAVP BEGIN */
 static const TA_OptInputParameterInfo TA_DEF_UI_D_MAVP_MinPeriod =
@@ -772,6 +795,7 @@ const TA_FuncDef *TA_DEF_TableM[] =
    ADD_TO_TABLE(MACDEXT),
    ADD_TO_TABLE(MACDFIX),
    ADD_TO_TABLE(MAMA),
+   ADD_TO_TABLE(MARKETFI),
    ADD_TO_TABLE(MAVP),
    ADD_TO_TABLE(MAX),
    ADD_TO_TABLE(MAXINDEX),

@@ -90,6 +90,12 @@ public partial class Core
    {
       outBegIdx = 0;
       outNBElement = 0;
+      double[] sufHighest;
+      int sufHighest_Idx = 0;
+      int maxIdx_sufHighest = (30)-1;
+      double[] preHighest;
+      int preHighest_Idx = 0;
+      int maxIdx_preHighest = (30)-1;
       double highest = 0;
       double tmp = 0;
       int outIdx = 0;
@@ -97,7 +103,9 @@ public partial class Core
       int trailingIdx = 0;
       int today = 0;
       int i = 0;
-      int highestIdx = 0;
+      int blockStart = 0;
+      int nAvail = 0;
+      int m = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -129,32 +137,91 @@ public partial class Core
       /* Proceed with the calculation for the requested range.
        * Note that this algorithm allows the input and
        * output to be the same buffer.
+       *
+       * Van Herk / Gil-Werman block scan, block-batched form. The p outputs
+       * belonging to one block boundary are produced together: one backward
+       * pass builds the older block's suffix extrema, one forward pass builds
+       * the newer block's prefix extrema, and a third pass combines them.
+       * All the loops are straight-line with no data-dependent branching,
+       * which is what lets a compiler vectorize them, and the work per bar is
+       * a fixed number of comparisons regardless of period. Every scratch
+       * array holds COPIES, so input and output may alias.
+       *
+       * Producing a whole block at a time is also why this cannot be turned
+       * into a per-bar automaton, so the streaming tier runs max_ALT1
+       * below. See issue #147.
        */
       outIdx = 0;
       today = startIdx;
       trailingIdx = startIdx - nbInitialElementNeeded;
-      highestIdx = 0 - 1;
-      highest = 0.0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      sufHighest = new double[optInTimePeriod];
+      maxIdx_sufHighest = (optInTimePeriod)-1;
+      sufHighest_Idx = 0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      preHighest = new double[optInTimePeriod];
+      maxIdx_preHighest = (optInTimePeriod)-1;
+      preHighest_Idx = 0;
+      blockStart = trailingIdx;
       while( today <= endIdx ) {
-         tmp = inReal[today];
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
-            highest = inReal[highestIdx];
-            i = highestIdx;
-            while( ++i <= today ) {
-               tmp = inReal[i];
-               if( tmp > highest ) {
-                  highestIdx = i;
-                  highest = tmp;
-               }
+         /* Suffix extrema of the block [blockStart, blockStart+p-1], which
+          * is fully available here: today == blockStart+p-1 <= endIdx.
+          * Scanning backward while keeping the incumbent on a tie
+          * leaves the later element holding a tie, which is what lets this
+          * compile to a single max instruction.
+          */
+         i = blockStart + optInTimePeriod - 1;
+         highest = inReal[i];
+         sufHighest[optInTimePeriod - 1] = highest;
+         while( i > blockStart ) {
+            i -= 1;
+            tmp = inReal[i];
+            if( tmp > highest ) {
+               highest = tmp;
             }
-         } else if( tmp >= highest ) {
-            highestIdx = today;
-            highest = tmp;
+            sufHighest[i - blockStart] = highest;
          }
+         highest = sufHighest[0];
          outReal[outIdx++] = highest;
          trailingIdx += 1;
          today += 1;
+         if( today > endIdx ) {
+            blockStart = blockStart + optInTimePeriod;
+         } else {
+            /* Prefix extrema of the next block, clamped to what remains.
+             * Forward, keeping the incumbent on a tie: earliest wins again.
+             */
+            nAvail = endIdx - (blockStart + optInTimePeriod) + 1;
+            if( nAvail > optInTimePeriod - 1 ) {
+               nAvail = optInTimePeriod - 1;
+            }
+            highest = inReal[blockStart + optInTimePeriod];
+            preHighest[0] = highest;
+            i = 1;
+            while( i < nAvail ) {
+               tmp = inReal[blockStart + optInTimePeriod + i];
+               if( tmp > highest ) {
+                  highest = tmp;
+               }
+               preHighest[i] = highest;
+               i += 1;
+            }
+            /* Combine. The suffix half is the older one, so preferring it
+             * on a tie keeps the earliest-wins rule.
+             */
+            m = 1;
+            while( m <= nAvail ) {
+               highest = sufHighest[m];
+               if( preHighest[m - 1] > highest ) {
+                  highest = preHighest[m - 1];
+               }
+               outReal[outIdx++] = highest;
+               m += 1;
+            }
+            trailingIdx = trailingIdx + nAvail;
+            today = today + nAvail;
+            blockStart = blockStart + optInTimePeriod;
+         }
       }
       /* Keep the outBegIdx relative to the
        * caller input before returning.
@@ -173,6 +240,12 @@ public partial class Core
    {
       outBegIdx = 0;
       outNBElement = 0;
+      double[] sufHighest;
+      int sufHighest_Idx = 0;
+      int maxIdx_sufHighest = (30)-1;
+      double[] preHighest;
+      int preHighest_Idx = 0;
+      int maxIdx_preHighest = (30)-1;
       double highest = 0;
       double tmp = 0;
       int outIdx = 0;
@@ -180,7 +253,9 @@ public partial class Core
       int trailingIdx = 0;
       int today = 0;
       int i = 0;
-      int highestIdx = 0;
+      int blockStart = 0;
+      int nAvail = 0;
+      int m = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -204,28 +279,62 @@ public partial class Core
       outIdx = 0;
       today = startIdx;
       trailingIdx = startIdx - nbInitialElementNeeded;
-      highestIdx = 0 - 1;
-      highest = 0.0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      sufHighest = new double[optInTimePeriod];
+      maxIdx_sufHighest = (optInTimePeriod)-1;
+      sufHighest_Idx = 0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      preHighest = new double[optInTimePeriod];
+      maxIdx_preHighest = (optInTimePeriod)-1;
+      preHighest_Idx = 0;
+      blockStart = trailingIdx;
       while( today <= endIdx ) {
-         tmp = (double)inReal[today];
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
-            highest = (double)inReal[highestIdx];
-            i = highestIdx;
-            while( ++i <= today ) {
-               tmp = (double)inReal[i];
-               if( tmp > highest ) {
-                  highestIdx = i;
-                  highest = tmp;
-               }
+         i = blockStart + optInTimePeriod - 1;
+         highest = (double)inReal[i];
+         sufHighest[optInTimePeriod - 1] = highest;
+         while( i > blockStart ) {
+            i -= 1;
+            tmp = (double)inReal[i];
+            if( tmp > highest ) {
+               highest = tmp;
             }
-         } else if( tmp >= highest ) {
-            highestIdx = today;
-            highest = tmp;
+            sufHighest[i - blockStart] = highest;
          }
+         highest = sufHighest[0];
          outReal[outIdx++] = highest;
          trailingIdx += 1;
          today += 1;
+         if( today > endIdx ) {
+            blockStart = blockStart + optInTimePeriod;
+         } else {
+            nAvail = endIdx - (blockStart + optInTimePeriod) + 1;
+            if( nAvail > optInTimePeriod - 1 ) {
+               nAvail = optInTimePeriod - 1;
+            }
+            highest = (double)inReal[blockStart + optInTimePeriod];
+            preHighest[0] = highest;
+            i = 1;
+            while( i < nAvail ) {
+               tmp = (double)inReal[blockStart + optInTimePeriod + i];
+               if( tmp > highest ) {
+                  highest = tmp;
+               }
+               preHighest[i] = highest;
+               i += 1;
+            }
+            m = 1;
+            while( m <= nAvail ) {
+               highest = sufHighest[m];
+               if( preHighest[m - 1] > highest ) {
+                  highest = preHighest[m - 1];
+               }
+               outReal[outIdx++] = highest;
+               m += 1;
+            }
+            trailingIdx = trailingIdx + nAvail;
+            today = today + nAvail;
+            blockStart = blockStart + optInTimePeriod;
+         }
       }
       outBegIdx = startIdx;
       outNBElement = outIdx;

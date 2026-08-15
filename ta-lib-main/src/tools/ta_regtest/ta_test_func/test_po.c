@@ -163,7 +163,12 @@ static TA_Test tableTest[] =
    /*    PPO TEST - SIMPLE - CLASSIC */
    /**********************************/
    { 1, 1, 0, 251, 2, 3, TA_MAType_SMA, TA_COMPATIBILITY_DEFAULT, TA_SUCCESS,   0,  1.10264, 2,  252-2 }, /* First Value */
-   { 0, 1, 0, 251, 2, 3, TA_MAType_SMA, TA_COMPATIBILITY_DEFAULT, TA_SUCCESS,   1, -0.02813, 2,  252-2 },
+   /* Was -0.02813 (#188). Closes 94.815 / 94.375 / 95.095 give SMA2 = 94.735 and
+    * SMA3 = 94.7616666..., so (SMA2-SMA3)/SMA3*100 = -0.0281407742230402. A
+    * search over percentage-oscillator variants (/slow, /fast, /mean, absolute)
+    * across period pairs and bars finds nothing yielding -0.02813. PPO over SMA
+    * has no compatibility dependence, so the METASTOCK row below is identical. */
+   { 0, 1, 0, 251, 2, 3, TA_MAType_SMA, TA_COMPATIBILITY_DEFAULT, TA_SUCCESS,   1, -0.0281407742, 2,  252-2 },
    { 0, 1, 0, 251, 2, 3, TA_MAType_SMA, TA_COMPATIBILITY_DEFAULT, TA_SUCCESS, 249, -0.21191, 2,  252-2 }, /* Last Value */
 
    { 0, 1, 0,   1, 2, 3, TA_MAType_SMA, TA_COMPATIBILITY_DEFAULT, TA_SUCCESS,   0,        0,   0,  0 }, /* Out of range value */
@@ -175,7 +180,7 @@ static TA_Test tableTest[] =
    /*    PPO TEST - SIMPLE - METASTOCK */
    /************************************/
    { 0, 1, 0, 251, 3, 2, TA_MAType_SMA, TA_COMPATIBILITY_METASTOCK, TA_SUCCESS,   0,  1.10264, 2,  252-2 }, /* First Value */
-   { 0, 1, 0, 251, 2, 3, TA_MAType_SMA, TA_COMPATIBILITY_METASTOCK, TA_SUCCESS,   1, -0.02813, 2,  252-2 },
+   { 0, 1, 0, 251, 2, 3, TA_MAType_SMA, TA_COMPATIBILITY_METASTOCK, TA_SUCCESS,   1, -0.0281407742, 2,  252-2 },   /* see #188 note above */
    { 0, 1, 0, 251, 3, 2, TA_MAType_SMA, TA_COMPATIBILITY_METASTOCK, TA_SUCCESS, 249, -0.21191, 2,  252-2 }, /* Last Value */
 
    { 0, 1, 0,   1, 2, 3, TA_MAType_SMA, TA_COMPATIBILITY_METASTOCK, TA_SUCCESS,   0,        0,   0,  0 }, /* Out of range value */
@@ -420,9 +425,6 @@ static ErrorNumber do_test( const TA_History *history,
 
    /* The previous call should have the same output
     * as this call.
-    *
-    * checkSameContent verify that all value different than NAN in
-    * the first parameter is identical in the second parameter.
     */
    errNb = checkSameContent( gBuffer[0].out0, gBuffer[1].in );
    if( errNb != TA_TEST_PASS )

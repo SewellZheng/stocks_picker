@@ -50,6 +50,18 @@
                               MInteger outNBElement,
                               double outReal[] )
    {
+      double[] sufHighest;
+      int sufHighest_Idx = 0;
+      int maxIdx_sufHighest = (30)-1;
+      double[] preHighest;
+      int preHighest_Idx = 0;
+      int maxIdx_preHighest = (30)-1;
+      double[] sufLowest;
+      int sufLowest_Idx = 0;
+      int maxIdx_sufLowest = (30)-1;
+      double[] preLowest;
+      int preLowest_Idx = 0;
+      int maxIdx_preLowest = (30)-1;
       double lowest = 0;
       double highest = 0;
       double tmpLow = 0;
@@ -57,10 +69,12 @@
       int outIdx = 0;
       int nbInitialElementNeeded = 0;
       int trailingIdx = 0;
-      int lowestIdx = 0;
-      int highestIdx = 0;
       int today = 0;
       int i = 0;
+      int blockStart = 0;
+      int nAvail = 0;
+      int m = 0;
+      int blockNext = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -98,92 +112,116 @@
        * Note that this algorithm allows the input and
        * output to be the same buffer.
        *
-       * Two equivalent algorithms, picked by period. Their outputs are
-       * bit-identical; only the scan strategy differs:
+       * Van Herk / Gil-Werman block scan, block-batched form. The p outputs
+       * belonging to one block boundary are produced together: one backward
+       * pass builds the older block's suffix extrema, one forward pass builds
+       * the newer block's prefix extrema, and a third pass combines them.
+       * Both extrema travel in the same passes.
+       * All the loops are straight-line with no data-dependent branching,
+       * which is what lets a compiler vectorize them, and the work per bar is
+       * a fixed number of comparisons regardless of period. Every scratch
+       * array holds COPIES, so input and output may alias.
        *
-       * - Small periods (<= 20): rescan the whole window on every bar.
-       *   The two independent comparison chains auto-vectorize on modern
-       *   compilers, which beats any per-bar bookkeeping while the window
-       *   is short. The threshold sits near the measured crossover
-       *   (~period 19-20 with gcc/clang -O3 on x86-64).
-       *
-       * - Larger periods: cache the highest high/lowest low with its
-       *   index; the window is rescanned only when the cached extremum
-       *   drops out of the window. That is O(1) per bar while the
-       *   extremum sits away from the trailing edge, but it is not
-       *   amortized O(1): an extremum on the oldest in-window bar drops
-       *   out on the very next bar, so the rescan repeats and the cost
-       *   stays O(period) per bar for as long as that persists.
-       *
-       *   Tracking both extrema keeps that state going through a trend:
-       *   while the highest high is refreshed by each new bar, the
-       *   lowest low stays pinned at the oldest bar for the whole leg
-       *   (and the reverse on the way down). A flat stretch pins both.
-       *   Random-walk input is the favourable case, where rescans are
-       *   rare. See issue #147.
+       * Producing a whole block at a time is also why this cannot be turned
+       * into a per-bar automaton, so the streaming tier runs midprice_ALT1
+       * below. See issue #147.
        */
       outIdx = 0;
       today = startIdx;
       trailingIdx = startIdx - nbInitialElementNeeded;
-      if( optInTimePeriod <= 20 ) {
-         while( today <= endIdx ) {
-            lowest = inLow[trailingIdx];
-            highest = inHigh[trailingIdx];
-            trailingIdx += 1;
-            for( i = trailingIdx; i <= today; i += 1 ) {
-               tmpLow = inLow[i];
-               if( tmpLow < lowest ) {
-                  lowest = tmpLow;
-               }
-               tmpHigh = inHigh[i];
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      sufHighest = new double[optInTimePeriod];
+      maxIdx_sufHighest = (optInTimePeriod)-1;
+      sufHighest_Idx = 0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      preHighest = new double[optInTimePeriod];
+      maxIdx_preHighest = (optInTimePeriod)-1;
+      preHighest_Idx = 0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      sufLowest = new double[optInTimePeriod];
+      maxIdx_sufLowest = (optInTimePeriod)-1;
+      sufLowest_Idx = 0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      preLowest = new double[optInTimePeriod];
+      maxIdx_preLowest = (optInTimePeriod)-1;
+      preLowest_Idx = 0;
+      blockStart = trailingIdx;
+      while( today <= endIdx ) {
+         /* Suffix extrema of the block [blockStart, blockStart+p-1], which
+          * is fully available here: today == blockStart+p-1 <= endIdx.
+          * Scanning backward while keeping the incumbent on a tie
+          * leaves the later element holding a tie, which is what lets this
+          * compile to a single min/max instruction.
+          */
+         i = blockStart + optInTimePeriod - 1;
+         highest = inHigh[i];
+         lowest = inLow[i];
+         sufHighest[optInTimePeriod - 1] = highest;
+         sufLowest[optInTimePeriod - 1] = lowest;
+         while( i > blockStart ) {
+            i -= 1;
+            tmpHigh = inHigh[i];
+            if( tmpHigh > highest ) {
+               highest = tmpHigh;
+            }
+            tmpLow = inLow[i];
+            if( tmpLow < lowest ) {
+               lowest = tmpLow;
+            }
+            sufHighest[i - blockStart] = highest;
+            sufLowest[i - blockStart] = lowest;
+         }
+         outReal[outIdx++] = (sufHighest[0] + sufLowest[0]) / 2.0;
+         trailingIdx += 1;
+         today += 1;
+         if( today > endIdx ) {
+            blockStart = blockStart + optInTimePeriod;
+         } else {
+            /* Prefix extrema of the next block, clamped to what remains.
+             * Forward, keeping the incumbent on a tie: earliest wins again.
+             */
+            blockNext = blockStart + optInTimePeriod;
+            nAvail = endIdx - blockNext + 1;
+            if( nAvail > optInTimePeriod - 1 ) {
+               nAvail = optInTimePeriod - 1;
+            }
+            highest = inHigh[blockNext];
+            lowest = inLow[blockNext];
+            preHighest[0] = highest;
+            preLowest[0] = lowest;
+            i = 1;
+            while( i < nAvail ) {
+               tmpHigh = inHigh[blockNext + i];
                if( tmpHigh > highest ) {
                   highest = tmpHigh;
                }
-            }
-            outReal[outIdx++] = (highest + lowest) / 2.0;
-            today += 1;
-         }
-      } else {
-         highestIdx = 0 - 1;
-         highest = 0.0;
-         lowestIdx = 0 - 1;
-         lowest = 0.0;
-         while( today <= endIdx ) {
-            tmpHigh = inHigh[today];
-            tmpLow = inLow[today];
-            if( highestIdx < trailingIdx ) {
-               highestIdx = trailingIdx;
-               highest = inHigh[highestIdx];
-               i = highestIdx;
-               while( ++i <= today ) {
-                  tmpHigh = inHigh[i];
-                  if( tmpHigh > highest ) {
-                     highestIdx = i;
-                     highest = tmpHigh;
-                  }
+               tmpLow = inLow[blockNext + i];
+               if( tmpLow < lowest ) {
+                  lowest = tmpLow;
                }
-            } else if( tmpHigh >= highest ) {
-               highestIdx = today;
-               highest = tmpHigh;
+               preHighest[i] = highest;
+               preLowest[i] = lowest;
+               i += 1;
             }
-            if( lowestIdx < trailingIdx ) {
-               lowestIdx = trailingIdx;
-               lowest = inLow[lowestIdx];
-               i = lowestIdx;
-               while( ++i <= today ) {
-                  tmpLow = inLow[i];
-                  if( tmpLow < lowest ) {
-                     lowestIdx = i;
-                     lowest = tmpLow;
-                  }
+            /* Combine. The suffix half is the older one, so preferring it
+             * on a tie keeps the earliest-wins rule.
+             */
+            m = 1;
+            while( m <= nAvail ) {
+               highest = sufHighest[m];
+               if( preHighest[m - 1] > highest ) {
+                  highest = preHighest[m - 1];
                }
-            } else if( tmpLow <= lowest ) {
-               lowestIdx = today;
-               lowest = tmpLow;
+               lowest = sufLowest[m];
+               if( preLowest[m - 1] < lowest ) {
+                  lowest = preLowest[m - 1];
+               }
+               outReal[outIdx++] = (highest + lowest) / 2.0;
+               m += 1;
             }
-            outReal[outIdx++] = (highest + lowest) / 2.0;
-            trailingIdx += 1;
-            today += 1;
+            trailingIdx = trailingIdx + nAvail;
+            today = today + nAvail;
+            blockStart = blockStart + optInTimePeriod;
          }
       }
       /* Keep the outBegIdx relative to the
@@ -202,6 +240,18 @@
                               MInteger outNBElement,
                               double outReal[] )
    {
+      double[] sufHighest;
+      int sufHighest_Idx = 0;
+      int maxIdx_sufHighest = (30)-1;
+      double[] preHighest;
+      int preHighest_Idx = 0;
+      int maxIdx_preHighest = (30)-1;
+      double[] sufLowest;
+      int sufLowest_Idx = 0;
+      int maxIdx_sufLowest = (30)-1;
+      double[] preLowest;
+      int preLowest_Idx = 0;
+      int maxIdx_preLowest = (30)-1;
       double lowest = 0;
       double highest = 0;
       double tmpLow = 0;
@@ -209,10 +259,12 @@
       int outIdx = 0;
       int nbInitialElementNeeded = 0;
       int trailingIdx = 0;
-      int lowestIdx = 0;
-      int highestIdx = 0;
       int today = 0;
       int i = 0;
+      int blockStart = 0;
+      int nAvail = 0;
+      int m = 0;
+      int blockNext = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -236,65 +288,87 @@
       outIdx = 0;
       today = startIdx;
       trailingIdx = startIdx - nbInitialElementNeeded;
-      if( optInTimePeriod <= 20 ) {
-         while( today <= endIdx ) {
-            lowest = (double)inLow[trailingIdx];
-            highest = (double)inHigh[trailingIdx];
-            trailingIdx += 1;
-            for( i = trailingIdx; i <= today; i += 1 ) {
-               tmpLow = (double)inLow[i];
-               if( tmpLow < lowest ) {
-                  lowest = tmpLow;
-               }
-               tmpHigh = (double)inHigh[i];
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      sufHighest = new double[optInTimePeriod];
+      maxIdx_sufHighest = (optInTimePeriod)-1;
+      sufHighest_Idx = 0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      preHighest = new double[optInTimePeriod];
+      maxIdx_preHighest = (optInTimePeriod)-1;
+      preHighest_Idx = 0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      sufLowest = new double[optInTimePeriod];
+      maxIdx_sufLowest = (optInTimePeriod)-1;
+      sufLowest_Idx = 0;
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      preLowest = new double[optInTimePeriod];
+      maxIdx_preLowest = (optInTimePeriod)-1;
+      preLowest_Idx = 0;
+      blockStart = trailingIdx;
+      while( today <= endIdx ) {
+         i = blockStart + optInTimePeriod - 1;
+         highest = (double)inHigh[i];
+         lowest = (double)inLow[i];
+         sufHighest[optInTimePeriod - 1] = highest;
+         sufLowest[optInTimePeriod - 1] = lowest;
+         while( i > blockStart ) {
+            i -= 1;
+            tmpHigh = (double)inHigh[i];
+            if( tmpHigh > highest ) {
+               highest = tmpHigh;
+            }
+            tmpLow = (double)inLow[i];
+            if( tmpLow < lowest ) {
+               lowest = tmpLow;
+            }
+            sufHighest[i - blockStart] = highest;
+            sufLowest[i - blockStart] = lowest;
+         }
+         outReal[outIdx++] = (sufHighest[0] + sufLowest[0]) / 2.0;
+         trailingIdx += 1;
+         today += 1;
+         if( today > endIdx ) {
+            blockStart = blockStart + optInTimePeriod;
+         } else {
+            blockNext = blockStart + optInTimePeriod;
+            nAvail = endIdx - blockNext + 1;
+            if( nAvail > optInTimePeriod - 1 ) {
+               nAvail = optInTimePeriod - 1;
+            }
+            highest = (double)inHigh[blockNext];
+            lowest = (double)inLow[blockNext];
+            preHighest[0] = highest;
+            preLowest[0] = lowest;
+            i = 1;
+            while( i < nAvail ) {
+               tmpHigh = (double)inHigh[blockNext + i];
                if( tmpHigh > highest ) {
                   highest = tmpHigh;
                }
-            }
-            outReal[outIdx++] = (highest + lowest) / 2.0;
-            today += 1;
-         }
-      } else {
-         highestIdx = 0 - 1;
-         highest = 0.0;
-         lowestIdx = 0 - 1;
-         lowest = 0.0;
-         while( today <= endIdx ) {
-            tmpHigh = (double)inHigh[today];
-            tmpLow = (double)inLow[today];
-            if( highestIdx < trailingIdx ) {
-               highestIdx = trailingIdx;
-               highest = (double)inHigh[highestIdx];
-               i = highestIdx;
-               while( ++i <= today ) {
-                  tmpHigh = (double)inHigh[i];
-                  if( tmpHigh > highest ) {
-                     highestIdx = i;
-                     highest = tmpHigh;
-                  }
+               tmpLow = (double)inLow[blockNext + i];
+               if( tmpLow < lowest ) {
+                  lowest = tmpLow;
                }
-            } else if( tmpHigh >= highest ) {
-               highestIdx = today;
-               highest = tmpHigh;
+               preHighest[i] = highest;
+               preLowest[i] = lowest;
+               i += 1;
             }
-            if( lowestIdx < trailingIdx ) {
-               lowestIdx = trailingIdx;
-               lowest = (double)inLow[lowestIdx];
-               i = lowestIdx;
-               while( ++i <= today ) {
-                  tmpLow = (double)inLow[i];
-                  if( tmpLow < lowest ) {
-                     lowestIdx = i;
-                     lowest = tmpLow;
-                  }
+            m = 1;
+            while( m <= nAvail ) {
+               highest = sufHighest[m];
+               if( preHighest[m - 1] > highest ) {
+                  highest = preHighest[m - 1];
                }
-            } else if( tmpLow <= lowest ) {
-               lowestIdx = today;
-               lowest = tmpLow;
+               lowest = sufLowest[m];
+               if( preLowest[m - 1] < lowest ) {
+                  lowest = preLowest[m - 1];
+               }
+               outReal[outIdx++] = (highest + lowest) / 2.0;
+               m += 1;
             }
-            outReal[outIdx++] = (highest + lowest) / 2.0;
-            trailingIdx += 1;
-            today += 1;
+            trailingIdx = trailingIdx + nAvail;
+            today = today + nAvail;
+            blockStart = blockStart + optInTimePeriod;
          }
       }
       outBegIdx.value = startIdx;
@@ -404,6 +478,8 @@
    }
 /**** Streaming API *****/
 
+/* Using midprice_ALT1 for TA_ALT={STREAM,ALL_LANGUAGES} */
+
    /**
     * A live MIDPRICE stream (unrelated to {@code java.util.stream}): one value per
     * closed bar, bit-identical to {@link Core#MIDPRICE} over the same series.
@@ -419,7 +495,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MIDPRICE_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double lowest;
       double highest;
@@ -428,7 +504,7 @@
       int highestIdx;
       int i;
       int today;
-      int xCap;
+      int xMask;
       double[] x_inHigh;
       double[] x_inLow;
       double cur_outReal;
@@ -455,12 +531,40 @@
          this.highestIdx = other.highestIdx;
          this.i = other.i;
          this.today = other.today;
-         this.xCap = other.xCap;
+         this.xMask = other.xMask;
          this.x_inHigh = other.x_inHigh.clone();
          this.x_inLow = other.x_inLow.clone();
          this.cur_outReal = other.cur_outReal;
          this.fillRange = other.fillRange;
       }
+
+      void copyFrom( MIDPRICE_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.lowest = other.lowest;
+         this.highest = other.highest;
+         this.trailingIdx = other.trailingIdx;
+         this.lowestIdx = other.lowestIdx;
+         this.highestIdx = other.highestIdx;
+         this.i = other.i;
+         this.today = other.today;
+         this.xMask = other.xMask;
+         if( this.x_inHigh != null && this.x_inHigh.length == other.x_inHigh.length ) {
+            System.arraycopy( other.x_inHigh, 0, this.x_inHigh, 0, other.x_inHigh.length );
+         } else {
+            this.x_inHigh = other.x_inHigh.clone();
+         }
+         if( this.x_inLow != null && this.x_inLow.length == other.x_inLow.length ) {
+            System.arraycopy( other.x_inLow, 0, this.x_inLow, 0, other.x_inLow.length );
+         } else {
+            this.x_inLow = other.x_inLow.clone();
+         }
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
+      private static final ThreadLocal<MIDPRICE_Stream> PEEK_SCRATCH = new ThreadLocal<>();
 
       /**
        * Commit one closed bar; always produces the new current value.
@@ -474,12 +578,20 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a scratch handle held per thread and
+       * reused, so the copy allocates nothing after the first peek of this
+       * indicator on this thread. That scratch is retained for the life of
+       * the thread.
        */
       public double peek( double inHigh, double inLow ) {
-         MIDPRICE_Stream scratch = new MIDPRICE_Stream(this);
+         MIDPRICE_Stream scratch = PEEK_SCRATCH.get();
+         if( scratch == null ) {
+            scratch = new MIDPRICE_Stream(this);
+            PEEK_SCRATCH.set(scratch);
+         } else {
+            scratch.copyFrom(this);
+         }
          core.MIDPRICE_StreamStep(scratch, inHigh, inLow);
          return scratch.cur_outReal;
       }
@@ -506,23 +618,23 @@
       double tmpLow = 0.0;
       double tmpHigh = 0.0;
       if( sp.today >= 1073741824 ) {
-         int rebaseShift = (sp.trailingIdx / sp.xCap) * sp.xCap;
+         int rebaseShift = sp.trailingIdx & ~sp.xMask;
          sp.today -= rebaseShift;
          sp.trailingIdx -= rebaseShift;
          sp.highestIdx -= rebaseShift;
          sp.i -= rebaseShift;
          sp.lowestIdx -= rebaseShift;
       }
-      sp.x_inHigh[sp.today % sp.xCap] = inHigh;
-      sp.x_inLow[sp.today % sp.xCap] = inLow;
-      tmpHigh = sp.x_inHigh[sp.today % sp.xCap];
-      tmpLow = sp.x_inLow[sp.today % sp.xCap];
+      sp.x_inHigh[sp.today & sp.xMask] = inHigh;
+      sp.x_inLow[sp.today & sp.xMask] = inLow;
+      tmpHigh = sp.x_inHigh[sp.today & sp.xMask];
+      tmpLow = sp.x_inLow[sp.today & sp.xMask];
       if( sp.highestIdx < sp.trailingIdx ) {
          sp.highestIdx = sp.trailingIdx;
-         sp.highest = sp.x_inHigh[sp.highestIdx % sp.xCap];
+         sp.highest = sp.x_inHigh[sp.highestIdx & sp.xMask];
          sp.i = sp.highestIdx;
          while( ++sp.i <= sp.today ) {
-            tmpHigh = sp.x_inHigh[sp.i % sp.xCap];
+            tmpHigh = sp.x_inHigh[sp.i & sp.xMask];
             if( tmpHigh > sp.highest ) {
                sp.highestIdx = sp.i;
                sp.highest = tmpHigh;
@@ -534,10 +646,10 @@
       }
       if( sp.lowestIdx < sp.trailingIdx ) {
          sp.lowestIdx = sp.trailingIdx;
-         sp.lowest = sp.x_inLow[sp.lowestIdx % sp.xCap];
+         sp.lowest = sp.x_inLow[sp.lowestIdx & sp.xMask];
          sp.i = sp.lowestIdx;
          while( ++sp.i <= sp.today ) {
-            tmpLow = sp.x_inLow[sp.i % sp.xCap];
+            tmpLow = sp.x_inLow[sp.i & sp.xMask];
             if( tmpLow < sp.lowest ) {
                sp.lowestIdx = sp.i;
                sp.lowest = tmpLow;
@@ -551,7 +663,7 @@
       sp.trailingIdx += 1;
       sp.today += 1;
    }
-   private RetCode MIDPRICE_OpenBody( MIDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
+   private RetCode MIDPRICE_OpenCore( MIDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double lowest = 0;
       double highest = 0;
@@ -564,9 +676,6 @@
       int highestIdx = 0;
       int today = 0;
       int i = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length ) {
@@ -606,29 +715,22 @@
        * Note that this algorithm allows the input and
        * output to be the same buffer.
        *
-       * Two equivalent algorithms, picked by period. Their outputs are
-       * bit-identical; only the scan strategy differs:
+       * The highest high and lowest low of the window are cached with their
+       * indices; the window is rescanned only when a cached extremum drops out
+       * of it. That is O(1)
+       * per bar while the extremum sits away from the trailing edge, but it is
+       * not amortized O(1): an extremum on the oldest in-window bar drops out
+       * on the very next bar, so the rescan repeats and the cost stays
+       * O(period) per bar for as long as that persists.
        *
-       * - Small periods (<= 20): rescan the whole window on every bar.
-       *   The two independent comparison chains auto-vectorize on modern
-       *   compilers, which beats any per-bar bookkeeping while the window
-       *   is short. The threshold sits near the measured crossover
-       *   (~period 19-20 with gcc/clang -O3 on x86-64).
+       * Tracking both extrema keeps that state going through a trend: while
+       * the high is refreshed by each new bar, the low stays pinned at the
+       * oldest bar for the whole leg (and the reverse on the way down). A flat
+       * stretch pins both. Random-walk input is the favourable case, where
+       * rescans are rare.
        *
-       * - Larger periods: cache the highest high/lowest low with its
-       *   index; the window is rescanned only when the cached extremum
-       *   drops out of the window. That is O(1) per bar while the
-       *   extremum sits away from the trailing edge, but it is not
-       *   amortized O(1): an extremum on the oldest in-window bar drops
-       *   out on the very next bar, so the rescan repeats and the cost
-       *   stays O(period) per bar for as long as that persists.
-       *
-       *   Tracking both extrema keeps that state going through a trend:
-       *   while the highest high is refreshed by each new bar, the
-       *   lowest low stays pinned at the oldest bar for the whole leg
-       *   (and the reverse on the way down). A flat stretch pins both.
-       *   Random-walk input is the favourable case, where rescans are
-       *   rare. See issue #147.
+       * Slower than the block scan the batch tier runs; it is here because one
+       * bar at a time is exactly what the streaming tier needs. See issue #147.
        */
       outIdx = 0;
       today = startIdx;
@@ -670,7 +772,7 @@
             lowestIdx = today;
             lowest = tmpLow;
          }
-         lastValue_outReal = (highest + lowest) / 2.0;
+         outReal[outIdx++ * outStride] = (highest + lowest) / 2.0;
          trailingIdx += 1;
          today += 1;
       }
@@ -684,11 +786,15 @@
       if( capX < 1 || capX > historyLen ) {
          return RetCode.InternalError;
       }
-      double[] capX_inHigh = new double[capX];
-      double[] capX_inLow = new double[capX];
+      int physX = 1;
+      while( physX < capX ) {
+         physX <<= 1;
+      }
+      double[] capX_inHigh = new double[physX];
+      double[] capX_inLow = new double[physX];
       for( int fillJ = historyLen - capX; fillJ < historyLen; fillJ++ ) {
-         capX_inHigh[fillJ % capX] = inHigh[fillJ];
-         capX_inLow[fillJ % capX] = inLow[fillJ];
+         capX_inHigh[fillJ & (physX - 1)] = inHigh[fillJ];
+         capX_inLow[fillJ & (physX - 1)] = inLow[fillJ];
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.lowest = lowest;
@@ -698,165 +804,45 @@
       sp.highestIdx = highestIdx;
       sp.i = i;
       sp.today = today;
-      sp.xCap = capX;
+      sp.xMask = physX - 1;
       sp.x_inHigh = capX_inHigh;
       sp.x_inLow = capX_inLow;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode MIDPRICE_OpenBody( MIDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return MIDPRICE_OpenCore( sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode MIDPRICE_OpenAndFillBody( MIDPRICE_Stream sp, double inHigh[], double inLow[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      double lowest = 0;
-      double highest = 0;
-      double tmpLow = 0;
-      double tmpHigh = 0;
-      int outIdx = 0;
-      int nbInitialElementNeeded = 0;
-      int trailingIdx = 0;
-      int lowestIdx = 0;
-      int highestIdx = 0;
-      int today = 0;
-      int i = 0;
-      int historyLen = inHigh.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inLow.length != inHigh.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 14;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
          return RetCode.BadParam;
       }
-      /* MIDPRICE = (Highest High + Lowest Low)/2
-       *
-       * This function is equivalent to MEDPRICE when the
-       * period is 1.
-       */
-      /* Identify the minimum number of price bar needed
-       * to identify at least one output over the specified
-       * period.
-       */
-      nbInitialElementNeeded = optInTimePeriod - 1;
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < nbInitialElementNeeded ) {
-         startIdx = nbInitialElementNeeded;
+      return MIDPRICE_OpenCore( sp, inHigh, inLow, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode MIDPRICE_OpenAndFillInternalBody( MIDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return MIDPRICE_OpenCore(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* MIDPRICE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   MIDPRICE_Stream MIDPRICE_OpenAndFillInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      MIDPRICE_Stream sp = new MIDPRICE_Stream(this);
+      RetCode retCode = MIDPRICE_OpenAndFillInternalBody(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("MIDPRICE openAndFill: history shorter than lookback + 1");
       }
-      /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the input and
-       * output to be the same buffer.
-       *
-       * Two equivalent algorithms, picked by period. Their outputs are
-       * bit-identical; only the scan strategy differs:
-       *
-       * - Small periods (<= 20): rescan the whole window on every bar.
-       *   The two independent comparison chains auto-vectorize on modern
-       *   compilers, which beats any per-bar bookkeeping while the window
-       *   is short. The threshold sits near the measured crossover
-       *   (~period 19-20 with gcc/clang -O3 on x86-64).
-       *
-       * - Larger periods: cache the highest high/lowest low with its
-       *   index; the window is rescanned only when the cached extremum
-       *   drops out of the window. That is O(1) per bar while the
-       *   extremum sits away from the trailing edge, but it is not
-       *   amortized O(1): an extremum on the oldest in-window bar drops
-       *   out on the very next bar, so the rescan repeats and the cost
-       *   stays O(period) per bar for as long as that persists.
-       *
-       *   Tracking both extrema keeps that state going through a trend:
-       *   while the highest high is refreshed by each new bar, the
-       *   lowest low stays pinned at the oldest bar for the whole leg
-       *   (and the reverse on the way down). A flat stretch pins both.
-       *   Random-walk input is the favourable case, where rescans are
-       *   rare. See issue #147.
-       */
-      outIdx = 0;
-      today = startIdx;
-      trailingIdx = startIdx - nbInitialElementNeeded;
-      highestIdx = 0 - 1;
-      highest = 0.0;
-      lowestIdx = 0 - 1;
-      lowest = 0.0;
-      while( today <= endIdx ) {
-         tmpHigh = inHigh[today];
-         tmpLow = inLow[today];
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
-            highest = inHigh[highestIdx];
-            i = highestIdx;
-            while( ++i <= today ) {
-               tmpHigh = inHigh[i];
-               if( tmpHigh > highest ) {
-                  highestIdx = i;
-                  highest = tmpHigh;
-               }
-            }
-         } else if( tmpHigh >= highest ) {
-            highestIdx = today;
-            highest = tmpHigh;
-         }
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
-            lowest = inLow[lowestIdx];
-            i = lowestIdx;
-            while( ++i <= today ) {
-               tmpLow = inLow[i];
-               if( tmpLow < lowest ) {
-                  lowestIdx = i;
-                  lowest = tmpLow;
-               }
-            }
-         } else if( tmpLow <= lowest ) {
-            lowestIdx = today;
-            lowest = tmpLow;
-         }
-         outReal[outIdx++] = (highest + lowest) / 2.0;
-         trailingIdx += 1;
-         today += 1;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("MIDPRICE openAndFill: internal error");
       }
-      /* Keep the outBegIdx relative to the
-       * caller input before returning.
-       */
-      outBegIdx.value = startIdx;
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      int capX = today - trailingIdx + 1;
-      if( capX < 1 || capX > historyLen ) {
-         return RetCode.InternalError;
-      }
-      double[] capX_inHigh = new double[capX];
-      double[] capX_inLow = new double[capX];
-      for( int fillJ = historyLen - capX; fillJ < historyLen; fillJ++ ) {
-         capX_inHigh[fillJ % capX] = inHigh[fillJ];
-         capX_inLow[fillJ % capX] = inLow[fillJ];
-      }
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.lowest = lowest;
-      sp.highest = highest;
-      sp.trailingIdx = trailingIdx;
-      sp.lowestIdx = lowestIdx;
-      sp.highestIdx = highestIdx;
-      sp.i = i;
-      sp.today = today;
-      sp.xCap = capX;
-      sp.x_inHigh = capX_inHigh;
-      sp.x_inLow = capX_inLow;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("MIDPRICE openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind MIDPRICE_Open (composition seam). */
    MIDPRICE_Stream MIDPRICE_OpenInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod )

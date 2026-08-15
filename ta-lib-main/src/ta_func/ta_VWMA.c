@@ -54,12 +54,13 @@
  *
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  072026 MF,CC  First version.
+ *  072026 MF,CC  First version (#131).
+ *  080926 MF,CC  Allow period of 1. Just copy input into output.
  */
 
 TA_LIB_API int TA_VWMA_Lookback( int optInTimePeriod )
 {
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return -1;
@@ -94,7 +95,7 @@ TA_LIB_API TA_RetCode TA_VWMA( int    startIdx,
       return TA_BAD_PARAM;
    if( !inVolume )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -117,6 +118,23 @@ TA_LIB_API TA_RetCode TA_VWMA( int    startIdx,
    {
       *outBegIdx= 0;
       *outNBElement= 0;
+      return TA_SUCCESS;
+   }
+   /* No smoothing at period of 1: the output is a copy of the input
+    * (same convention as TA_MA for every MAType). Explicit because
+    * (P*V)/V round-trips only ~97% of the time in IEEE double, and
+    * because a lone zero volume must give the price, not NaN.
+    */
+   if( optInTimePeriod == 1 )
+   {
+      *outBegIdx= startIdx;
+      outIdx = 0;
+      i = startIdx;
+      while( i <= (int)endIdx )
+      {
+         outReal[outIdx++] = inReal[i++];
+      }
+      *outNBElement= outIdx;
       return TA_SUCCESS;
    }
    /* Add-up the initial period, except for the last value.
@@ -201,7 +219,7 @@ TA_RetCode TA_S_VWMA( int    startIdx,
       return TA_BAD_PARAM;
    if( !inVolume )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -217,6 +235,18 @@ TA_RetCode TA_S_VWMA( int    startIdx,
    {
       *outBegIdx= 0;
       *outNBElement= 0;
+      return TA_SUCCESS;
+   }
+   if( optInTimePeriod == 1 )
+   {
+      *outBegIdx= startIdx;
+      outIdx = 0;
+      i = startIdx;
+      while( i <= (int)endIdx )
+      {
+         outReal[outIdx++] = (double)inReal[i++];
+      }
+      *outNBElement= outIdx;
       return TA_SUCCESS;
    }
    sumPV = 0.0;
@@ -286,6 +316,11 @@ static void TA_VWMA_StepInternal( struct TA_VWMA_Stream *sp, double inReal, doub
 {
    double tempReal;
 
+   if( sp->optInTimePeriod == 1 )
+   {
+      *outReal= inReal;
+      return;
+   }
    if( sp->ringCap_trailingIdx == 0 )
    {
       sp->ring_trailingIdx_inReal[0] = inReal;
@@ -316,21 +351,19 @@ static void TA_VWMA_StepInternal( struct TA_VWMA_Stream *sp, double inReal, doub
    }
 }
 
-/* Private function, not in public API. */
-TA_RetCode TA_VWMA_OpenInternal( struct TA_VWMA_Stream **stream, const double inReal[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+static TA_RetCode TA_VWMA_OpenCore( struct TA_VWMA_Stream **stream, const double inReal[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_VWMA_Stream *sp;
    int endIdx;
    int dummyBegIdx;
    int dummyNBElement;
-   double lastValue_outReal;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !inReal || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -338,148 +371,49 @@ TA_RetCode TA_VWMA_OpenInternal( struct TA_VWMA_Stream **stream, const double in
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
    dummyNBElement = 0;
-   lastValue_outReal = 0.0;
    (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
+   if( optInTimePeriod == 1 )
    {
-      double sumPV = 0.0;
-      double sumV = 0.0;
-      double tempPV = 0.0;
-      double tempV = 0.0;
-      double tempReal;
-      int i;
-      int outIdx;
-      int trailingIdx;
-      int lookbackTotal;
-      /* Identify the minimum number of price bar needed
-       * to calculate at least one output.
-       */
-      lookbackTotal = (int)(optInTimePeriod - 1);
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < lookbackTotal )
-      {
-         startIdx = lookbackTotal;
-      }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx )
-      {
-         dummyBegIdx = 0;
-         dummyNBElement = 0;
-         return TA_BAD_PARAM;
-      }
-      /* Add-up the initial period, except for the last value.
-       *
-       * The price*volume product is kept in its own statement so no compiler may
-       * contract it into an FMA: that would make this function disagree with the
-       * Rust/Java backends under the cross-language bitwise gate, and with the
-       * two-TA_SMA composite reference.
-       */
-      sumPV = 0.0;
-      sumV = 0.0;
-      trailingIdx = startIdx - lookbackTotal;
-      i = trailingIdx;
-      if( optInTimePeriod > 1 )
-      {
-         while( i < startIdx )
-         {
-            tempReal = inReal[i] * inVolume[i];
-            sumPV += tempReal;
-            sumV += inVolume[i];
-            i = i + 1;
-         }
-      }
-      /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the inReal and
-       * outReal to be the same buffer.
-       */
-      outIdx = 0;
-      while( i <= endIdx )
-      {
-         tempReal = inReal[i] * inVolume[i];
-         sumPV += tempReal;
-         sumV += inVolume[i];
-         i = i + 1;
-         /* Snapshot both sums before removing the trailing bar, mirroring the
-          * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-          * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-          */
-         tempPV = sumPV;
-         tempV = sumV;
-         /* Read the trailing values before writing the output, since the caller
-          * may pass the same buffer for an input and the output.
-          */
-         tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
-         sumPV -= tempReal;
-         sumV -= inVolume[trailingIdx];
-         lastValue_outReal = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
-         trailingIdx = trailingIdx + 1;
-         outIdx = outIdx + 1;
-      }
-      /* All done. Indicate the output limits and return. */
-      dummyNBElement = outIdx;
-      dummyBegIdx = startIdx;
-
-      /* Capture the live batch state into the handle. */
+      if( historyLen < TA_VWMA_Lookback( optInTimePeriod ) + 1 ) return TA_BAD_PARAM;
       sp = (struct TA_VWMA_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       sp->optInTimePeriod = optInTimePeriod;
-      sp->sumPV = sumPV;
-      sp->sumV = sumV;
-      sp->tempPV = tempPV;
-      sp->tempV = tempV;
-      sp->ringCap_trailingIdx = (int)(i - trailingIdx);
-      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_VWMA_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      sp->ringCap_trailingIdx = 0;
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
         sp->ring_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingIdx_inReal ) { TA_VWMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
         sp->ringMirror_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ringMirror_trailingIdx_inReal ) { TA_VWMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        memcpy( sp->ring_trailingIdx_inReal, inReal + (historyLen - sp->ringCap_trailingIdx), sizeof(double) * (size_t)sp->ringCap_trailingIdx );
+        memset( sp->ring_trailingIdx_inReal, 0, sizeof(double) * allocN );
         sp->ring_trailingIdx_inVolume = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingIdx_inVolume ) { TA_VWMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
         sp->ringMirror_trailingIdx_inVolume = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ringMirror_trailingIdx_inVolume ) { TA_VWMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        memcpy( sp->ring_trailingIdx_inVolume, inVolume + (historyLen - sp->ringCap_trailingIdx), sizeof(double) * (size_t)sp->ringCap_trailingIdx );
+        memset( sp->ring_trailingIdx_inVolume, 0, sizeof(double) * allocN );
       }
       sp->ringPos_trailingIdx = 0;
-      *outReal = lastValue_outReal;
+      {
+         int fillLb = TA_VWMA_Lookback( optInTimePeriod );
+         int fillIdx;
+         *outBegIdx = fillLb;
+         *outNBElement = historyLen - fillLb;
+         if( outStride )
+         {
+            for( fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ )
+            {
+               outReal[fillIdx] = inReal[fillLb + fillIdx];
+            }
+         }
+         else
+         {
+            outReal[0] = inReal[historyLen - 1];
+         }
+      }
       *stream = sp;
       return TA_SUCCESS;
    }
-}
-
-TA_LIB_API TA_RetCode TA_VWMA_Open( TA_VWMA_Stream **stream, const double inReal[], const double inVolume[], int historyLen, int optInTimePeriod, double *outReal )
-{
-   return TA_VWMA_OpenInternal( stream, inReal, inVolume, 0, historyLen, optInTimePeriod, outReal );
-}
-
-TA_LIB_API TA_RetCode TA_VWMA_OpenAndFill( TA_VWMA_Stream **stream, const double inReal[], const double inVolume[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
-{
-   struct TA_VWMA_Stream *sp;
-   int endIdx;
-   int startIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( !inReal || !inVolume || !outReal || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (const void *)outReal == (const void *)inReal || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
-      optInTimePeriod = 30;
-   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
-      return TA_BAD_PARAM;
-
-   endIdx = historyLen - 1;
-   startIdx = 0;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
       double sumPV = 0.0;
@@ -553,7 +487,7 @@ TA_LIB_API TA_RetCode TA_VWMA_OpenAndFill( TA_VWMA_Stream **stream, const double
          tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
          sumPV -= tempReal;
          sumV -= inVolume[trailingIdx];
-         outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         outReal[outIdx * outStride] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
          trailingIdx = trailingIdx + 1;
          outIdx = outIdx + 1;
       }
@@ -588,6 +522,41 @@ TA_LIB_API TA_RetCode TA_VWMA_OpenAndFill( TA_VWMA_Stream **stream, const double
       *stream = sp;
       return TA_SUCCESS;
    }
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_VWMA_OpenInternal( struct TA_VWMA_Stream **stream, const double inReal[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_VWMA_OpenCore( stream, inReal, inVolume, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+TA_LIB_API TA_RetCode TA_VWMA_Open( TA_VWMA_Stream **stream, const double inReal[], const double inVolume[], int historyLen, int optInTimePeriod, double *outReal )
+{
+   return TA_VWMA_OpenInternal( stream, inReal, inVolume, 0, historyLen, optInTimePeriod, outReal );
+}
+
+TA_LIB_API TA_RetCode TA_VWMA_OpenAndFill( TA_VWMA_Stream **stream, const double inReal[], const double inVolume[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
+   return TA_VWMA_OpenCore( stream, inReal, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_VWMA_OpenAndFillInternal( struct TA_VWMA_Stream **stream, const double inReal[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_VWMA_OpenCore( stream, inReal, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_VWMA_Update( TA_VWMA_Stream *stream, double inReal, double inVolume, double *outReal )

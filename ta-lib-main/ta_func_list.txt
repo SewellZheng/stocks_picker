@@ -88,6 +88,7 @@ COSH                Vector Trigonometric Cosh
 DEMA                Double Exponential Moving Average
 DIV                 Vector Arithmetic Div
 DX                  Directional Movement Index
+EFI                 Elder's Force Index
 EMA                 Exponential Moving Average
 EXP                 Vector Arithmetic Exp
 FLOOR               Vector Floor
@@ -111,6 +112,7 @@ MACD                Moving Average Convergence/Divergence
 MACDEXT             MACD with controllable MA type
 MACDFIX             Moving Average Convergence/Divergence Fix 12/26
 MAMA                MESA Adaptive Moving Average
+MARKETFI            Market Facilitation Index
 MAVP                Moving average with variable period
 MAX                 Highest value over a specified period
 MAXINDEX            Index of highest value over a specified period
@@ -134,6 +136,7 @@ PLUS_DM             Plus Directional Movement
 PPO                 Percentage Price Oscillator
 PVI                 Positive Volume Index
 PVO                 Percentage Volume Oscillator
+QSTICK              Qstick
 ROC                 Rate of change : ((price/prevPrice)-1)*100
 ROCP                Rate of change Percentage: (price-prevPrice)/prevPrice
 ROCR                Rate of change ratio: (price/prevPrice)
@@ -163,6 +166,7 @@ TYPPRICE            Typical Price
 ULTOSC              Ultimate Oscillator
 VAR                 Variance
 VWMA                Volume Weighted Moving Average
+WAD                 Williams' Accumulation/Distribution (no volume)
 WCLPRICE            Weighted Close Price
 WILLR               Williams' %R
 WMA                 Weighted Moving Average

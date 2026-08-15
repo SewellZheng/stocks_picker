@@ -5,6 +5,7 @@ use serde::Deserialize;
 use crate::ir::{FuncDef, Input, OptInput, Output, ParamType, PriceComponent, PriceRef};
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct YamlFunc {
     name: String,
     group: String,
@@ -38,6 +39,7 @@ impl YamlFlags {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct YamlInput {
     name: String,
     #[serde(rename = "type")]
@@ -47,6 +49,7 @@ struct YamlInput {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct YamlOptParam {
     name: String,
     #[serde(rename = "type")]
@@ -64,6 +67,7 @@ struct YamlOptParam {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct YamlOutput {
     name: String,
     #[serde(rename = "type")]
@@ -234,5 +238,7 @@ pub fn parse_yaml(path: &Path) -> FuncDef {
         header_comments: vec![],
         doc: None,
         streaming,
+        alternates: vec![],
+        resolved_stream_body: None,
     }
 }

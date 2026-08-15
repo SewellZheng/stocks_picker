@@ -7,6 +7,7 @@ use std::time::Instant;
 use ta_lib::{Core, CoreBuilder, RetCode, FuncUnstId, MAX_INDEX};
 use ta_lib::{CandleSetting, CandleSettings, CandleSettingType};
 use ta_lib::abstract_api::{self, InputType, OutputType, OptInputType};
+use ta_lib::MAType;
 
 // ---- fuzz_data.h port (issue #113 --xlang-hash) ----
 // fuzz_data.rs — plain-Rust bit-exact port of src/tools/ta_regtest/fuzz_data.h.
@@ -831,15 +832,24 @@ fn func_unst_id_from_int(id: usize) -> Option<FuncUnstId> {
     }
 }
 
-fn apply_unstable_period(core: &mut Core, id: usize, period: i32) -> bool {
-    if id == FuncUnstId::ALL as usize {
-        *core = core.to_builder().unstable_period(FuncUnstId::ALL, period).build();
-        true
+fn apply_unstable_period(core: &mut Core, id: usize, period: i64) -> Result<(), &'static str> {
+    let Ok(period) = u32::try_from(period) else {
+        return Err("Invalid unstable period value");
+    };
+    let cb = core.to_builder();
+    let cb = if id == FuncUnstId::ALL as usize {
+        cb.unstable_period(FuncUnstId::ALL, period)
     } else if let Some(uid) = func_unst_id_from_int(id) {
-        *core = core.to_builder().unstable_period(uid, period).build();
-        true
+        cb.unstable_period(uid, period)
     } else {
-        false
+        return Err("Invalid unstable period id");
+    };
+    match cb.build() {
+        Ok(built) => {
+            *core = built;
+            Ok(())
+        }
+        Err(_) => Err("Invalid unstable period value"),
     }
 }
 
@@ -880,6 +890,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -929,6 +940,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ACCBANDS(
                 startIdx, endIdx,
                 &inHigh,
@@ -937,6 +949,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ACCBANDS_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ACCBANDS_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -962,6 +981,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -994,11 +1014,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ACOS(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ACOS_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ACOS_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1020,6 +1048,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1073,6 +1102,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.AD(
                 startIdx, endIdx,
                 &inHigh,
@@ -1081,6 +1111,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inVolume,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.AD_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &inVolume[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.AD_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &inVolume[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1102,6 +1139,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1141,12 +1179,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ADD(
                 startIdx, endIdx,
                 &inReal0,
                 &inReal1,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ADD_Open(&inReal0[..=endIdx], &inReal1[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ADD_OpenAndFill(&inReal0[..=endIdx], &inReal1[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1168,6 +1214,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1223,6 +1270,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ADOSC(
                 startIdx, endIdx,
                 &inHigh,
@@ -1233,6 +1281,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInSlowPeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ADOSC_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &inVolume[..=endIdx], optInFastPeriod, optInSlowPeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ADOSC_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &inVolume[..=endIdx], optInFastPeriod, optInSlowPeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1254,6 +1309,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1294,7 +1350,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 0, period as i32);
+                let _ = apply_unstable_period(core, 0, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -1304,6 +1360,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ADX(
                 startIdx, endIdx,
                 &inHigh,
@@ -1312,6 +1369,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ADX_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ADX_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1333,6 +1397,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1380,6 +1445,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ADXR(
                 startIdx, endIdx,
                 &inHigh,
@@ -1388,6 +1454,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ADXR_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ADXR_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1409,6 +1482,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1435,15 +1509,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInFastPeriod = params["optInFastPeriod"].as_i64().unwrap_or(12) as i32;
             let optInSlowPeriod = params["optInSlowPeriod"].as_i64().unwrap_or(26) as i32;
-            let optInMAType = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+            let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+            let optInMAType_res = MAType::try_from(optInMAType_raw);
+            let optInMAType = optInMAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBegIdx: usize = 0;
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInMAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.APO(
                 startIdx, endIdx,
                 &inReal,
@@ -1452,6 +1531,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInMAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.APO_Open(&inReal[..=endIdx], optInFastPeriod, optInSlowPeriod, optInMAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.APO_OpenAndFill(&inReal[..=endIdx], optInFastPeriod, optInSlowPeriod, optInMAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1462,7 +1549,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.APO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.APO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) as i64 };
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push('}');
@@ -1473,6 +1560,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1514,6 +1602,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.AROON(
                 startIdx, endIdx,
                 &inHigh,
@@ -1521,6 +1610,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.AROON_Open(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.AROON_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1544,6 +1640,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1584,6 +1681,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.AROONOSC(
                 startIdx, endIdx,
                 &inHigh,
@@ -1591,6 +1689,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.AROONOSC_Open(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.AROONOSC_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1612,6 +1717,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1644,11 +1750,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ASIN(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ASIN_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ASIN_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1670,6 +1784,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1702,11 +1817,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ATAN(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ATAN_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ATAN_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1728,6 +1851,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1768,7 +1892,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 2, period as i32);
+                let _ = apply_unstable_period(core, 2, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -1778,6 +1902,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ATR(
                 startIdx, endIdx,
                 &inHigh,
@@ -1786,6 +1911,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ATR_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ATR_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1807,6 +1939,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1840,12 +1973,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.AVGDEV(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.AVGDEV_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.AVGDEV_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1867,6 +2008,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1920,6 +2062,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.AVGPRICE(
                 startIdx, endIdx,
                 &inOpen,
@@ -1928,6 +2071,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.AVGPRICE_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.AVGPRICE_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -1949,6 +2099,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -1976,7 +2127,9 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
             let optInNbDevUp = params["optInNbDevUp"].as_f64().unwrap_or(2.0) as f64;
             let optInNbDevDn = params["optInNbDevDn"].as_f64().unwrap_or(2.0) as f64;
-            let optInMAType = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+            let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+            let optInMAType_res = MAType::try_from(optInMAType_raw);
+            let optInMAType = optInMAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBuf1: Vec<f64> = vec![0.0f64; out_size];
@@ -1985,8 +2138,11 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInMAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.BBANDS(
                 startIdx, endIdx,
                 &inReal,
@@ -1996,6 +2152,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInMAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.BBANDS_Open(&inReal[..=endIdx], optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.BBANDS_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2008,7 +2172,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) as i64 };
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push_str(",\"outReal1\":"); resp.push_str(&json_f64_array(&outBuf1[..outNBElement]));
@@ -2021,6 +2185,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2061,6 +2226,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.BETA(
                 startIdx, endIdx,
                 &inReal0,
@@ -2068,6 +2234,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.BETA_Open(&inReal0[..=endIdx], &inReal1[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.BETA_OpenAndFill(&inReal0[..=endIdx], &inReal1[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2089,6 +2262,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2142,6 +2316,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.BOP(
                 startIdx, endIdx,
                 &inOpen,
@@ -2150,6 +2325,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.BOP_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.BOP_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2171,6 +2353,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2218,6 +2401,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CCI(
                 startIdx, endIdx,
                 &inHigh,
@@ -2226,6 +2410,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CCI_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CCI_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2247,6 +2438,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2300,6 +2492,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDL2CROWS(
                 startIdx, endIdx,
                 &inOpen,
@@ -2308,6 +2501,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDL2CROWS_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDL2CROWS_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2329,6 +2529,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2382,6 +2583,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDL3BLACKCROWS(
                 startIdx, endIdx,
                 &inOpen,
@@ -2390,6 +2592,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDL3BLACKCROWS_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDL3BLACKCROWS_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2411,6 +2620,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2464,6 +2674,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDL3INSIDE(
                 startIdx, endIdx,
                 &inOpen,
@@ -2472,6 +2683,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDL3INSIDE_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDL3INSIDE_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2493,6 +2711,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2546,6 +2765,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDL3LINESTRIKE(
                 startIdx, endIdx,
                 &inOpen,
@@ -2554,6 +2774,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDL3LINESTRIKE_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDL3LINESTRIKE_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2575,6 +2802,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2628,6 +2856,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDL3OUTSIDE(
                 startIdx, endIdx,
                 &inOpen,
@@ -2636,6 +2865,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDL3OUTSIDE_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDL3OUTSIDE_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2657,6 +2893,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2710,6 +2947,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDL3STARSINSOUTH(
                 startIdx, endIdx,
                 &inOpen,
@@ -2718,6 +2956,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDL3STARSINSOUTH_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDL3STARSINSOUTH_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2739,6 +2984,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2792,6 +3038,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDL3WHITESOLDIERS(
                 startIdx, endIdx,
                 &inOpen,
@@ -2800,6 +3047,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDL3WHITESOLDIERS_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDL3WHITESOLDIERS_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2821,6 +3075,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2875,6 +3130,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLABANDONEDBABY(
                 startIdx, endIdx,
                 &inOpen,
@@ -2884,6 +3140,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInPenetration,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLABANDONEDBABY_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLABANDONEDBABY_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2905,6 +3168,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -2958,6 +3222,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLADVANCEBLOCK(
                 startIdx, endIdx,
                 &inOpen,
@@ -2966,6 +3231,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLADVANCEBLOCK_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLADVANCEBLOCK_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -2987,6 +3259,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3040,6 +3313,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLBELTHOLD(
                 startIdx, endIdx,
                 &inOpen,
@@ -3048,6 +3322,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLBELTHOLD_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLBELTHOLD_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3069,6 +3350,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3122,6 +3404,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLBREAKAWAY(
                 startIdx, endIdx,
                 &inOpen,
@@ -3130,6 +3413,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLBREAKAWAY_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLBREAKAWAY_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3151,6 +3441,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3204,6 +3495,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLCLOSINGMARUBOZU(
                 startIdx, endIdx,
                 &inOpen,
@@ -3212,6 +3504,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLCLOSINGMARUBOZU_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLCLOSINGMARUBOZU_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3233,6 +3532,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3286,6 +3586,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLCONCEALBABYSWALL(
                 startIdx, endIdx,
                 &inOpen,
@@ -3294,6 +3595,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLCONCEALBABYSWALL_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLCONCEALBABYSWALL_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3315,6 +3623,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3368,6 +3677,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLCOUNTERATTACK(
                 startIdx, endIdx,
                 &inOpen,
@@ -3376,6 +3686,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLCOUNTERATTACK_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLCOUNTERATTACK_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3397,6 +3714,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3451,6 +3769,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLDARKCLOUDCOVER(
                 startIdx, endIdx,
                 &inOpen,
@@ -3460,6 +3779,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInPenetration,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLDARKCLOUDCOVER_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLDARKCLOUDCOVER_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3481,6 +3807,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3534,6 +3861,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLDOJI(
                 startIdx, endIdx,
                 &inOpen,
@@ -3542,6 +3870,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLDOJI_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLDOJI_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3563,6 +3898,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3616,6 +3952,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLDOJISTAR(
                 startIdx, endIdx,
                 &inOpen,
@@ -3624,6 +3961,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLDOJISTAR_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLDOJISTAR_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3645,6 +3989,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3698,6 +4043,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLDRAGONFLYDOJI(
                 startIdx, endIdx,
                 &inOpen,
@@ -3706,6 +4052,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLDRAGONFLYDOJI_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLDRAGONFLYDOJI_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3727,6 +4080,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3780,6 +4134,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLENGULFING(
                 startIdx, endIdx,
                 &inOpen,
@@ -3788,6 +4143,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLENGULFING_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLENGULFING_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3809,6 +4171,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3863,6 +4226,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLEVENINGDOJISTAR(
                 startIdx, endIdx,
                 &inOpen,
@@ -3872,6 +4236,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInPenetration,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLEVENINGDOJISTAR_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLEVENINGDOJISTAR_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3893,6 +4264,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -3947,6 +4319,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLEVENINGSTAR(
                 startIdx, endIdx,
                 &inOpen,
@@ -3956,6 +4329,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInPenetration,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLEVENINGSTAR_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLEVENINGSTAR_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -3977,6 +4357,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4030,6 +4411,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLGAPSIDESIDEWHITE(
                 startIdx, endIdx,
                 &inOpen,
@@ -4038,6 +4420,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLGAPSIDESIDEWHITE_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLGAPSIDESIDEWHITE_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4059,6 +4448,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4112,6 +4502,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLGRAVESTONEDOJI(
                 startIdx, endIdx,
                 &inOpen,
@@ -4120,6 +4511,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLGRAVESTONEDOJI_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLGRAVESTONEDOJI_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4141,6 +4539,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4194,6 +4593,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLHAMMER(
                 startIdx, endIdx,
                 &inOpen,
@@ -4202,6 +4602,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLHAMMER_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLHAMMER_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4223,6 +4630,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4276,6 +4684,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLHANGINGMAN(
                 startIdx, endIdx,
                 &inOpen,
@@ -4284,6 +4693,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLHANGINGMAN_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLHANGINGMAN_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4305,6 +4721,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4358,6 +4775,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLHARAMI(
                 startIdx, endIdx,
                 &inOpen,
@@ -4366,6 +4784,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLHARAMI_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLHARAMI_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4387,6 +4812,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4440,6 +4866,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLHARAMICROSS(
                 startIdx, endIdx,
                 &inOpen,
@@ -4448,6 +4875,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLHARAMICROSS_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLHARAMICROSS_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4469,6 +4903,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4522,6 +4957,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLHIGHWAVE(
                 startIdx, endIdx,
                 &inOpen,
@@ -4530,6 +4966,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLHIGHWAVE_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLHIGHWAVE_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4551,6 +4994,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4604,6 +5048,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLHIKKAKE(
                 startIdx, endIdx,
                 &inOpen,
@@ -4612,6 +5057,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLHIKKAKE_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLHIKKAKE_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4633,6 +5085,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4686,6 +5139,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLHIKKAKEMOD(
                 startIdx, endIdx,
                 &inOpen,
@@ -4694,6 +5148,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLHIKKAKEMOD_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLHIKKAKEMOD_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4715,6 +5176,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4768,6 +5230,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLHOMINGPIGEON(
                 startIdx, endIdx,
                 &inOpen,
@@ -4776,6 +5239,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLHOMINGPIGEON_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLHOMINGPIGEON_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4797,6 +5267,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4850,6 +5321,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLIDENTICAL3CROWS(
                 startIdx, endIdx,
                 &inOpen,
@@ -4858,6 +5330,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLIDENTICAL3CROWS_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLIDENTICAL3CROWS_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4879,6 +5358,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -4932,6 +5412,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLINNECK(
                 startIdx, endIdx,
                 &inOpen,
@@ -4940,6 +5421,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLINNECK_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLINNECK_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -4961,6 +5449,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5014,6 +5503,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLINVERTEDHAMMER(
                 startIdx, endIdx,
                 &inOpen,
@@ -5022,6 +5512,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLINVERTEDHAMMER_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLINVERTEDHAMMER_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5043,6 +5540,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5096,6 +5594,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLKICKING(
                 startIdx, endIdx,
                 &inOpen,
@@ -5104,6 +5603,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLKICKING_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLKICKING_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5125,6 +5631,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5178,6 +5685,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLKICKINGBYLENGTH(
                 startIdx, endIdx,
                 &inOpen,
@@ -5186,6 +5694,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLKICKINGBYLENGTH_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLKICKINGBYLENGTH_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5207,6 +5722,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5260,6 +5776,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLLADDERBOTTOM(
                 startIdx, endIdx,
                 &inOpen,
@@ -5268,6 +5785,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLLADDERBOTTOM_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLLADDERBOTTOM_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5289,6 +5813,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5342,6 +5867,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLLONGLEGGEDDOJI(
                 startIdx, endIdx,
                 &inOpen,
@@ -5350,6 +5876,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLLONGLEGGEDDOJI_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLLONGLEGGEDDOJI_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5371,6 +5904,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5424,6 +5958,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLLONGLINE(
                 startIdx, endIdx,
                 &inOpen,
@@ -5432,6 +5967,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLLONGLINE_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLLONGLINE_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5453,6 +5995,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5506,6 +6049,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLMARUBOZU(
                 startIdx, endIdx,
                 &inOpen,
@@ -5514,6 +6058,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLMARUBOZU_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLMARUBOZU_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5535,6 +6086,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5588,6 +6140,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLMATCHINGLOW(
                 startIdx, endIdx,
                 &inOpen,
@@ -5596,6 +6149,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLMATCHINGLOW_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLMATCHINGLOW_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5617,6 +6177,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5671,6 +6232,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLMATHOLD(
                 startIdx, endIdx,
                 &inOpen,
@@ -5680,6 +6242,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInPenetration,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLMATHOLD_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLMATHOLD_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5701,6 +6270,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5755,6 +6325,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLMORNINGDOJISTAR(
                 startIdx, endIdx,
                 &inOpen,
@@ -5764,6 +6335,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInPenetration,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLMORNINGDOJISTAR_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLMORNINGDOJISTAR_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5785,6 +6363,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5839,6 +6418,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLMORNINGSTAR(
                 startIdx, endIdx,
                 &inOpen,
@@ -5848,6 +6428,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInPenetration,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLMORNINGSTAR_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLMORNINGSTAR_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInPenetration, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5869,6 +6456,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -5922,6 +6510,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLONNECK(
                 startIdx, endIdx,
                 &inOpen,
@@ -5930,6 +6519,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLONNECK_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLONNECK_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -5951,6 +6547,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6004,6 +6601,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLPIERCING(
                 startIdx, endIdx,
                 &inOpen,
@@ -6012,6 +6610,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLPIERCING_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLPIERCING_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6033,6 +6638,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6086,6 +6692,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLRICKSHAWMAN(
                 startIdx, endIdx,
                 &inOpen,
@@ -6094,6 +6701,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLRICKSHAWMAN_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLRICKSHAWMAN_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6115,6 +6729,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6168,6 +6783,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLRISEFALL3METHODS(
                 startIdx, endIdx,
                 &inOpen,
@@ -6176,6 +6792,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLRISEFALL3METHODS_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLRISEFALL3METHODS_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6197,6 +6820,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6250,6 +6874,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLSEPARATINGLINES(
                 startIdx, endIdx,
                 &inOpen,
@@ -6258,6 +6883,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLSEPARATINGLINES_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLSEPARATINGLINES_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6279,6 +6911,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6332,6 +6965,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLSHOOTINGSTAR(
                 startIdx, endIdx,
                 &inOpen,
@@ -6340,6 +6974,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLSHOOTINGSTAR_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLSHOOTINGSTAR_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6361,6 +7002,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6414,6 +7056,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLSHORTLINE(
                 startIdx, endIdx,
                 &inOpen,
@@ -6422,6 +7065,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLSHORTLINE_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLSHORTLINE_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6443,6 +7093,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6496,6 +7147,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLSPINNINGTOP(
                 startIdx, endIdx,
                 &inOpen,
@@ -6504,6 +7156,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLSPINNINGTOP_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLSPINNINGTOP_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6525,6 +7184,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6578,6 +7238,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLSTALLEDPATTERN(
                 startIdx, endIdx,
                 &inOpen,
@@ -6586,6 +7247,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLSTALLEDPATTERN_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLSTALLEDPATTERN_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6607,6 +7275,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6660,6 +7329,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLSTICKSANDWICH(
                 startIdx, endIdx,
                 &inOpen,
@@ -6668,6 +7338,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLSTICKSANDWICH_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLSTICKSANDWICH_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6689,6 +7366,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6742,6 +7420,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLTAKURI(
                 startIdx, endIdx,
                 &inOpen,
@@ -6750,6 +7429,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLTAKURI_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLTAKURI_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6771,6 +7457,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6824,6 +7511,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLTASUKIGAP(
                 startIdx, endIdx,
                 &inOpen,
@@ -6832,6 +7520,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLTASUKIGAP_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLTASUKIGAP_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6853,6 +7548,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6906,6 +7602,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLTHRUSTING(
                 startIdx, endIdx,
                 &inOpen,
@@ -6914,6 +7611,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLTHRUSTING_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLTHRUSTING_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -6935,6 +7639,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -6988,6 +7693,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLTRISTAR(
                 startIdx, endIdx,
                 &inOpen,
@@ -6996,6 +7702,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLTRISTAR_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLTRISTAR_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7017,6 +7730,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7070,6 +7784,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLUNIQUE3RIVER(
                 startIdx, endIdx,
                 &inOpen,
@@ -7078,6 +7793,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLUNIQUE3RIVER_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLUNIQUE3RIVER_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7099,6 +7821,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7152,6 +7875,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLUPSIDEGAP2CROWS(
                 startIdx, endIdx,
                 &inOpen,
@@ -7160,6 +7884,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLUPSIDEGAP2CROWS_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLUPSIDEGAP2CROWS_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7181,6 +7912,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7234,6 +7966,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CDLXSIDEGAP3METHODS(
                 startIdx, endIdx,
                 &inOpen,
@@ -7242,6 +7975,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CDLXSIDEGAP3METHODS_Open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CDLXSIDEGAP3METHODS_OpenAndFill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7263,6 +8003,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7295,11 +8036,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CEIL(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CEIL_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CEIL_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7321,6 +8070,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7375,6 +8125,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CMF(
                 startIdx, endIdx,
                 &inHigh,
@@ -7384,6 +8135,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CMF_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &inVolume[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CMF_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &inVolume[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7405,6 +8163,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7431,7 +8190,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 3, period as i32);
+                let _ = apply_unstable_period(core, 3, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -7441,12 +8200,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CMO(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CMO_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CMO_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7468,6 +8235,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7501,12 +8269,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CMOU(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CMOU_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CMOU_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7528,6 +8304,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7568,6 +8345,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.CORREL(
                 startIdx, endIdx,
                 &inReal0,
@@ -7575,6 +8353,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.CORREL_Open(&inReal0[..=endIdx], &inReal1[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.CORREL_OpenAndFill(&inReal0[..=endIdx], &inReal1[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7596,6 +8381,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7628,11 +8414,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.COS(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.COS_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.COS_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7654,6 +8448,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7686,11 +8481,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.COSH(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.COSH_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.COSH_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7712,6 +8515,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7745,12 +8549,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.DEMA(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.DEMA_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.DEMA_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7772,6 +8584,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7811,12 +8624,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.DIV(
                 startIdx, endIdx,
                 &inReal0,
                 &inReal1,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.DIV_Open(&inReal0[..=endIdx], &inReal1[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.DIV_OpenAndFill(&inReal0[..=endIdx], &inReal1[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7838,6 +8659,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7878,7 +8700,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 4, period as i32);
+                let _ = apply_unstable_period(core, 4, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -7888,6 +8710,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.DX(
                 startIdx, endIdx,
                 &inHigh,
@@ -7896,6 +8719,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.DX_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.DX_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7912,11 +8742,89 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             resp.push('}');
             resp
         }
+        "TA_EFI" => {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inClose: Vec<f64> = Vec::new();
+            let mut _json_inVolume: Vec<f64> = Vec::new();
+            let inClose: &[f64];
+            let inVolume: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inClose = _fz_c.clone();
+                inClose = &_json_inClose;
+                _json_inVolume = _fz_v.clone();
+                inVolume = &_json_inVolume;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inClose = &ref_data.close[..ref_data.n];
+                inVolume = &ref_data.volume[..ref_data.n];
+            } else {
+                _json_inClose = parse_f64_array(&params["inClose"]);
+                inClose = &_json_inClose;
+                _json_inVolume = parse_f64_array(&params["inVolume"]);
+                inVolume = &_json_inVolume;
+            }
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(13) as i32;
+            let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let mut start_time = Instant::now();
+            for _bi in 0..=bench_iters {
+                if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
+            rc = core.EFI(
+                startIdx, endIdx,
+                &inClose,
+                &inVolume,
+                optInTimePeriod,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.EFI_Open(&inClose[..=endIdx], &inVolume[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.EFI_OpenAndFill(&inClose[..=endIdx], &inVolume[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+            }
+            let lookback = core.EFI_Lookback(optInTimePeriod);
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push('}');
+            resp
+        }
         "TA_EMA" => {
             let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -7943,7 +8851,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(30) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 5, period as i32);
+                let _ = apply_unstable_period(core, 5, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -7953,12 +8861,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.EMA(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.EMA_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.EMA_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -7980,6 +8896,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8012,11 +8929,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.EXP(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.EXP_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.EXP_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8038,6 +8963,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8070,11 +8996,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.FLOOR(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.FLOOR_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.FLOOR_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8096,6 +9030,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8129,12 +9064,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.HMA(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.HMA_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.HMA_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8156,6 +9099,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8181,7 +9125,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 inReal = &_json_inReal;
             }
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 6, period as i32);
+                let _ = apply_unstable_period(core, 6, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -8191,11 +9135,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.HT_DCPERIOD(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.HT_DCPERIOD_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.HT_DCPERIOD_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8217,6 +9169,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8242,7 +9195,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 inReal = &_json_inReal;
             }
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 7, period as i32);
+                let _ = apply_unstable_period(core, 7, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -8252,11 +9205,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.HT_DCPHASE(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.HT_DCPHASE_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.HT_DCPHASE_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8278,6 +9239,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8303,7 +9265,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 inReal = &_json_inReal;
             }
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 8, period as i32);
+                let _ = apply_unstable_period(core, 8, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -8314,11 +9276,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.HT_PHASOR(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.HT_PHASOR_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.HT_PHASOR_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8342,6 +9312,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8367,7 +9338,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 inReal = &_json_inReal;
             }
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 9, period as i32);
+                let _ = apply_unstable_period(core, 9, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -8378,11 +9349,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.HT_SINE(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.HT_SINE_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.HT_SINE_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8406,6 +9385,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8431,7 +9411,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 inReal = &_json_inReal;
             }
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 10, period as i32);
+                let _ = apply_unstable_period(core, 10, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -8441,11 +9421,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.HT_TRENDLINE(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.HT_TRENDLINE_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.HT_TRENDLINE_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8467,6 +9455,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8492,7 +9481,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 inReal = &_json_inReal;
             }
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 11, period as i32);
+                let _ = apply_unstable_period(core, 11, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outIntBuf0: Vec<i32> = vec![0i32; out_size];
@@ -8502,11 +9491,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.HT_TRENDMODE(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.HT_TRENDMODE_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.HT_TRENDMODE_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8528,6 +9525,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8568,6 +9566,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.IMI(
                 startIdx, endIdx,
                 &inOpen,
@@ -8575,6 +9574,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.IMI_Open(&inOpen[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.IMI_OpenAndFill(&inOpen[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8596,6 +9602,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8622,7 +9629,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(30) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 13, period as i32);
+                let _ = apply_unstable_period(core, 13, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -8632,12 +9639,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.KAMA(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.KAMA_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.KAMA_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8659,6 +9674,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8692,12 +9708,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.LINEARREG(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.LINEARREG_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.LINEARREG_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8719,6 +9743,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8752,12 +9777,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.LINEARREG_ANGLE(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.LINEARREG_ANGLE_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.LINEARREG_ANGLE_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8779,6 +9812,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8812,12 +9846,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.LINEARREG_INTERCEPT(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.LINEARREG_INTERCEPT_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.LINEARREG_INTERCEPT_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8839,6 +9881,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8872,12 +9915,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.LINEARREG_SLOPE(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.LINEARREG_SLOPE_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.LINEARREG_SLOPE_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8899,6 +9950,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8931,11 +9983,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.LN(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.LN_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.LN_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -8957,6 +10017,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -8989,11 +10050,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.LOG10(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.LOG10_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.LOG10_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9015,6 +10084,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9040,15 +10110,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 inReal = &_json_inReal;
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(30) as i32;
-            let optInMAType = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+            let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+            let optInMAType_res = MAType::try_from(optInMAType_raw);
+            let optInMAType = optInMAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBegIdx: usize = 0;
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInMAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MA(
                 startIdx, endIdx,
                 &inReal,
@@ -9056,6 +10131,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInMAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MA_Open(&inReal[..=endIdx], optInTimePeriod, optInMAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MA_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, optInMAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9066,7 +10149,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.MA_Lookback(optInTimePeriod, optInMAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.MA_Lookback(optInTimePeriod, optInMAType) as i64 };
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push('}');
@@ -9077,6 +10160,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9114,6 +10198,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MACD(
                 startIdx, endIdx,
                 &inReal,
@@ -9122,6 +10207,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInSignalPeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MACD_Open(&inReal[..=endIdx], optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MACD_OpenAndFill(&inReal[..=endIdx], optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9147,6 +10239,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9172,11 +10265,17 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 inReal = &_json_inReal;
             }
             let optInFastPeriod = params["optInFastPeriod"].as_i64().unwrap_or(12) as i32;
-            let optInFastMAType = params["optInFastMAType"].as_i64().unwrap_or(0) as i32;
+            let optInFastMAType_raw = params["optInFastMAType"].as_i64().unwrap_or(0) as i32;
+            let optInFastMAType_res = MAType::try_from(optInFastMAType_raw);
+            let optInFastMAType = optInFastMAType_res.unwrap_or(MAType::SMA);
             let optInSlowPeriod = params["optInSlowPeriod"].as_i64().unwrap_or(26) as i32;
-            let optInSlowMAType = params["optInSlowMAType"].as_i64().unwrap_or(0) as i32;
+            let optInSlowMAType_raw = params["optInSlowMAType"].as_i64().unwrap_or(0) as i32;
+            let optInSlowMAType_res = MAType::try_from(optInSlowMAType_raw);
+            let optInSlowMAType = optInSlowMAType_res.unwrap_or(MAType::SMA);
             let optInSignalPeriod = params["optInSignalPeriod"].as_i64().unwrap_or(9) as i32;
-            let optInSignalMAType = params["optInSignalMAType"].as_i64().unwrap_or(0) as i32;
+            let optInSignalMAType_raw = params["optInSignalMAType"].as_i64().unwrap_or(0) as i32;
+            let optInSignalMAType_res = MAType::try_from(optInSignalMAType_raw);
+            let optInSignalMAType = optInSignalMAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBuf1: Vec<f64> = vec![0.0f64; out_size];
@@ -9185,8 +10284,11 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInFastMAType_res.is_err() || optInSlowMAType_res.is_err() || optInSignalMAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MACDEXT(
                 startIdx, endIdx,
                 &inReal,
@@ -9198,6 +10300,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInSignalMAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MACDEXT_Open(&inReal[..=endIdx], optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MACDEXT_OpenAndFill(&inReal[..=endIdx], optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9210,7 +10320,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType) as i64 };
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push_str(",\"outReal1\":"); resp.push_str(&json_f64_array(&outBuf1[..outNBElement]));
@@ -9223,6 +10333,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9258,12 +10369,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MACDFIX(
                 startIdx, endIdx,
                 &inReal,
                 optInSignalPeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MACDFIX_Open(&inReal[..=endIdx], optInSignalPeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MACDFIX_OpenAndFill(&inReal[..=endIdx], optInSignalPeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1, &mut outBuf2) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9289,6 +10408,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9316,7 +10436,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let optInFastLimit = params["optInFastLimit"].as_f64().unwrap_or(0.5) as f64;
             let optInSlowLimit = params["optInSlowLimit"].as_f64().unwrap_or(0.05) as f64;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 14, period as i32);
+                let _ = apply_unstable_period(core, 14, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -9327,6 +10447,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MAMA(
                 startIdx, endIdx,
                 &inReal,
@@ -9334,6 +10455,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInSlowLimit,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MAMA_Open(&inReal[..=endIdx], optInFastLimit, optInSlowLimit, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MAMA_OpenAndFill(&inReal[..=endIdx], optInFastLimit, optInSlowLimit, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9352,11 +10480,95 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             resp.push('}');
             resp
         }
+        "TA_MARKETFI" => {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inHigh: Vec<f64> = Vec::new();
+            let mut _json_inLow: Vec<f64> = Vec::new();
+            let mut _json_inVolume: Vec<f64> = Vec::new();
+            let inHigh: &[f64];
+            let inLow: &[f64];
+            let inVolume: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inHigh = _fz_h.clone();
+                inHigh = &_json_inHigh;
+                _json_inLow = _fz_l.clone();
+                inLow = &_json_inLow;
+                _json_inVolume = _fz_v.clone();
+                inVolume = &_json_inVolume;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inHigh = &ref_data.high[..ref_data.n];
+                inLow = &ref_data.low[..ref_data.n];
+                inVolume = &ref_data.volume[..ref_data.n];
+            } else {
+                _json_inHigh = parse_f64_array(&params["inHigh"]);
+                inHigh = &_json_inHigh;
+                _json_inLow = parse_f64_array(&params["inLow"]);
+                inLow = &_json_inLow;
+                _json_inVolume = parse_f64_array(&params["inVolume"]);
+                inVolume = &_json_inVolume;
+            }
+            let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let mut start_time = Instant::now();
+            for _bi in 0..=bench_iters {
+                if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
+            rc = core.MARKETFI(
+                startIdx, endIdx,
+                &inHigh,
+                &inLow,
+                &inVolume,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MARKETFI_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inVolume[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MARKETFI_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inVolume[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+            }
+            let lookback = core.MARKETFI_Lookback();
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push('}');
+            resp
+        }
         "TA_MAVP" => {
             let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9390,15 +10602,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInMinPeriod = params["optInMinPeriod"].as_i64().unwrap_or(2) as i32;
             let optInMaxPeriod = params["optInMaxPeriod"].as_i64().unwrap_or(30) as i32;
-            let optInMAType = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+            let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+            let optInMAType_res = MAType::try_from(optInMAType_raw);
+            let optInMAType = optInMAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBegIdx: usize = 0;
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInMAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MAVP(
                 startIdx, endIdx,
                 &inReal0,
@@ -9408,6 +10625,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInMAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MAVP_Open(&inReal0[..=endIdx], &inReal1[..=endIdx], optInMinPeriod, optInMaxPeriod, optInMAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MAVP_OpenAndFill(&inReal0[..=endIdx], &inReal1[..=endIdx], optInMinPeriod, optInMaxPeriod, optInMAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9418,7 +10643,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType) as i64 };
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push('}');
@@ -9429,6 +10654,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9462,12 +10688,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MAX(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MAX_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MAX_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9489,6 +10723,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9522,12 +10757,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MAXINDEX(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MAXINDEX_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MAXINDEX_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9549,6 +10792,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9588,12 +10832,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MEDPRICE(
                 startIdx, endIdx,
                 &inHigh,
                 &inLow,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MEDPRICE_Open(&inHigh[..=endIdx], &inLow[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MEDPRICE_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9615,6 +10867,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9669,6 +10922,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MFI(
                 startIdx, endIdx,
                 &inHigh,
@@ -9678,6 +10932,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MFI_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &inVolume[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MFI_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &inVolume[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9699,6 +10960,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9732,12 +10994,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MIDPOINT(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MIDPOINT_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MIDPOINT_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9759,6 +11029,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9799,6 +11070,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MIDPRICE(
                 startIdx, endIdx,
                 &inHigh,
@@ -9806,6 +11078,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MIDPRICE_Open(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MIDPRICE_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9827,6 +11106,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9860,12 +11140,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MIN(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MIN_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MIN_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9887,6 +11175,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9920,12 +11209,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MININDEX(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MININDEX_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MININDEX_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -9947,6 +11244,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -9981,12 +11279,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MINMAX(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MINMAX_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MINMAX_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10010,6 +11316,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10044,12 +11351,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MINMAXINDEX(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outIntBuf0, &mut outIntBuf1,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MINMAXINDEX_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MINMAXINDEX_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outIntBuf0, &mut outIntBuf1) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10073,6 +11388,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10113,7 +11429,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 16, period as i32);
+                let _ = apply_unstable_period(core, 16, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -10123,6 +11439,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MINUS_DI(
                 startIdx, endIdx,
                 &inHigh,
@@ -10131,6 +11448,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MINUS_DI_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MINUS_DI_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10152,6 +11476,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10185,7 +11510,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 17, period as i32);
+                let _ = apply_unstable_period(core, 17, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -10195,6 +11520,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MINUS_DM(
                 startIdx, endIdx,
                 &inHigh,
@@ -10202,6 +11528,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MINUS_DM_Open(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MINUS_DM_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10223,6 +11556,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10256,12 +11590,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MOM(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MOM_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MOM_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10283,6 +11625,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10322,12 +11665,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.MULT(
                 startIdx, endIdx,
                 &inReal0,
                 &inReal1,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.MULT_Open(&inReal0[..=endIdx], &inReal1[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.MULT_OpenAndFill(&inReal0[..=endIdx], &inReal1[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10349,6 +11700,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10389,7 +11741,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 18, period as i32);
+                let _ = apply_unstable_period(core, 18, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -10399,6 +11751,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.NATR(
                 startIdx, endIdx,
                 &inHigh,
@@ -10407,6 +11760,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.NATR_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.NATR_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10428,6 +11788,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10467,12 +11828,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.NVI(
                 startIdx, endIdx,
                 &inClose,
                 &inVolume,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.NVI_Open(&inClose[..=endIdx], &inVolume[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.NVI_OpenAndFill(&inClose[..=endIdx], &inVolume[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10494,6 +11863,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10533,12 +11903,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.OBV(
                 startIdx, endIdx,
                 &inReal,
                 &inVolume,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.OBV_Open(&inReal[..=endIdx], &inVolume[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.OBV_OpenAndFill(&inReal[..=endIdx], &inVolume[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10560,6 +11938,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10600,7 +11979,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 19, period as i32);
+                let _ = apply_unstable_period(core, 19, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -10610,6 +11989,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.PLUS_DI(
                 startIdx, endIdx,
                 &inHigh,
@@ -10618,6 +11998,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.PLUS_DI_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.PLUS_DI_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10639,6 +12026,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10672,7 +12060,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 20, period as i32);
+                let _ = apply_unstable_period(core, 20, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -10682,6 +12070,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.PLUS_DM(
                 startIdx, endIdx,
                 &inHigh,
@@ -10689,6 +12078,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.PLUS_DM_Open(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.PLUS_DM_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10710,6 +12106,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10736,15 +12133,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInFastPeriod = params["optInFastPeriod"].as_i64().unwrap_or(12) as i32;
             let optInSlowPeriod = params["optInSlowPeriod"].as_i64().unwrap_or(26) as i32;
-            let optInMAType = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+            let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+            let optInMAType_res = MAType::try_from(optInMAType_raw);
+            let optInMAType = optInMAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBegIdx: usize = 0;
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInMAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.PPO(
                 startIdx, endIdx,
                 &inReal,
@@ -10753,6 +12155,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInMAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.PPO_Open(&inReal[..=endIdx], optInFastPeriod, optInSlowPeriod, optInMAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.PPO_OpenAndFill(&inReal[..=endIdx], optInFastPeriod, optInSlowPeriod, optInMAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10763,7 +12173,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) as i64 };
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push('}');
@@ -10774,6 +12184,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10813,12 +12224,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.PVI(
                 startIdx, endIdx,
                 &inClose,
                 &inVolume,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.PVI_Open(&inClose[..=endIdx], &inVolume[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.PVI_OpenAndFill(&inClose[..=endIdx], &inVolume[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10840,6 +12259,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10866,15 +12286,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInFastPeriod = params["optInFastPeriod"].as_i64().unwrap_or(12) as i32;
             let optInSlowPeriod = params["optInSlowPeriod"].as_i64().unwrap_or(26) as i32;
-            let optInMAType = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+            let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+            let optInMAType_res = MAType::try_from(optInMAType_raw);
+            let optInMAType = optInMAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBegIdx: usize = 0;
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInMAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.PVO(
                 startIdx, endIdx,
                 &inVolume,
@@ -10883,6 +12308,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInMAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.PVO_Open(&inVolume[..=endIdx], optInFastPeriod, optInSlowPeriod, optInMAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.PVO_OpenAndFill(&inVolume[..=endIdx], optInFastPeriod, optInSlowPeriod, optInMAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10893,7 +12326,84 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) as i64 };
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push('}');
+            resp
+        }
+        "TA_QSTICK" => {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inOpen: Vec<f64> = Vec::new();
+            let mut _json_inClose: Vec<f64> = Vec::new();
+            let inOpen: &[f64];
+            let inClose: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inOpen = _fz_o.clone();
+                inOpen = &_json_inOpen;
+                _json_inClose = _fz_c.clone();
+                inClose = &_json_inClose;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inOpen = &ref_data.open[..ref_data.n];
+                inClose = &ref_data.close[..ref_data.n];
+            } else {
+                _json_inOpen = parse_f64_array(&params["inOpen"]);
+                inOpen = &_json_inOpen;
+                _json_inClose = parse_f64_array(&params["inClose"]);
+                inClose = &_json_inClose;
+            }
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(10) as i32;
+            let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let mut start_time = Instant::now();
+            for _bi in 0..=bench_iters {
+                if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
+            rc = core.QSTICK(
+                startIdx, endIdx,
+                &inOpen,
+                &inClose,
+                optInTimePeriod,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.QSTICK_Open(&inOpen[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.QSTICK_OpenAndFill(&inOpen[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+            }
+            let lookback = core.QSTICK_Lookback(optInTimePeriod);
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push('}');
@@ -10904,6 +12414,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10937,12 +12448,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ROC(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ROC_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ROC_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -10964,6 +12483,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -10997,12 +12517,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ROCP(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ROCP_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ROCP_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11024,6 +12552,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11057,12 +12586,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ROCR(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ROCR_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ROCR_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11084,6 +12621,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11117,12 +12655,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ROCR100(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ROCR100_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ROCR100_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11144,6 +12690,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11170,7 +12717,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 21, period as i32);
+                let _ = apply_unstable_period(core, 21, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -11180,12 +12727,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.RSI(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.RSI_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.RSI_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11207,6 +12762,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11248,6 +12804,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.SAR(
                 startIdx, endIdx,
                 &inHigh,
@@ -11256,6 +12813,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInMaximum,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.SAR_Open(&inHigh[..=endIdx], &inLow[..=endIdx], optInAcceleration, optInMaximum, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.SAR_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], optInAcceleration, optInMaximum, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11277,6 +12841,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11324,6 +12889,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.SAREXT(
                 startIdx, endIdx,
                 &inHigh,
@@ -11338,6 +12904,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInAccelerationMaxShort,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.SAREXT_Open(&inHigh[..=endIdx], &inLow[..=endIdx], optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.SAREXT_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11359,6 +12932,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11391,11 +12965,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.SIN(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.SIN_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.SIN_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11417,6 +12999,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11449,11 +13032,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.SINH(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.SINH_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.SINH_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11475,6 +13066,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11508,12 +13100,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.SMA(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.SMA_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.SMA_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11535,6 +13135,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11567,11 +13168,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.SQRT(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.SQRT_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.SQRT_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11593,6 +13202,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11627,6 +13237,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.STDDEV(
                 startIdx, endIdx,
                 &inReal,
@@ -11634,6 +13245,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInNbDev,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.STDDEV_Open(&inReal[..=endIdx], optInTimePeriod, optInNbDev, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.STDDEV_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, optInNbDev, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11655,6 +13273,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11695,9 +13314,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInFastK_Period = params["optInFastK_Period"].as_i64().unwrap_or(5) as i32;
             let optInSlowK_Period = params["optInSlowK_Period"].as_i64().unwrap_or(3) as i32;
-            let optInSlowK_MAType = params["optInSlowK_MAType"].as_i64().unwrap_or(0) as i32;
+            let optInSlowK_MAType_raw = params["optInSlowK_MAType"].as_i64().unwrap_or(0) as i32;
+            let optInSlowK_MAType_res = MAType::try_from(optInSlowK_MAType_raw);
+            let optInSlowK_MAType = optInSlowK_MAType_res.unwrap_or(MAType::SMA);
             let optInSlowD_Period = params["optInSlowD_Period"].as_i64().unwrap_or(3) as i32;
-            let optInSlowD_MAType = params["optInSlowD_MAType"].as_i64().unwrap_or(0) as i32;
+            let optInSlowD_MAType_raw = params["optInSlowD_MAType"].as_i64().unwrap_or(0) as i32;
+            let optInSlowD_MAType_res = MAType::try_from(optInSlowD_MAType_raw);
+            let optInSlowD_MAType = optInSlowD_MAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBuf1: Vec<f64> = vec![0.0f64; out_size];
@@ -11705,8 +13328,11 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInSlowK_MAType_res.is_err() || optInSlowD_MAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.STOCH(
                 startIdx, endIdx,
                 &inHigh,
@@ -11719,6 +13345,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInSlowD_MAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.STOCH_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.STOCH_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11730,7 +13364,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.STOCH_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.STOCH_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType) as i64 };
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push_str(",\"outReal1\":"); resp.push_str(&json_f64_array(&outBuf1[..outNBElement]));
@@ -11742,6 +13376,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11782,7 +13417,9 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             }
             let optInFastK_Period = params["optInFastK_Period"].as_i64().unwrap_or(5) as i32;
             let optInFastD_Period = params["optInFastD_Period"].as_i64().unwrap_or(3) as i32;
-            let optInFastD_MAType = params["optInFastD_MAType"].as_i64().unwrap_or(0) as i32;
+            let optInFastD_MAType_raw = params["optInFastD_MAType"].as_i64().unwrap_or(0) as i32;
+            let optInFastD_MAType_res = MAType::try_from(optInFastD_MAType_raw);
+            let optInFastD_MAType = optInFastD_MAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBuf1: Vec<f64> = vec![0.0f64; out_size];
@@ -11790,8 +13427,11 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInFastD_MAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.STOCHF(
                 startIdx, endIdx,
                 &inHigh,
@@ -11802,6 +13442,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInFastD_MAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.STOCHF_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInFastK_Period, optInFastD_Period, optInFastD_MAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.STOCHF_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInFastK_Period, optInFastD_Period, optInFastD_MAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11813,7 +13461,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType) as i64 };
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push_str(",\"outReal1\":"); resp.push_str(&json_f64_array(&outBuf1[..outNBElement]));
@@ -11825,6 +13473,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11852,7 +13501,9 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
             let optInFastK_Period = params["optInFastK_Period"].as_i64().unwrap_or(5) as i32;
             let optInFastD_Period = params["optInFastD_Period"].as_i64().unwrap_or(3) as i32;
-            let optInFastD_MAType = params["optInFastD_MAType"].as_i64().unwrap_or(0) as i32;
+            let optInFastD_MAType_raw = params["optInFastD_MAType"].as_i64().unwrap_or(0) as i32;
+            let optInFastD_MAType_res = MAType::try_from(optInFastD_MAType_raw);
+            let optInFastD_MAType = optInFastD_MAType_res.unwrap_or(MAType::SMA);
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
             let mut outBuf1: Vec<f64> = vec![0.0f64; out_size];
@@ -11860,8 +13511,11 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut outNBElement: usize = 0;
             let mut rc = RetCode::Success;
             let mut start_time = Instant::now();
+            let _enum_bad = optInFastD_MAType_res.is_err();
+            if _enum_bad { rc = RetCode::BadParam; } else {
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.STOCHRSI(
                 startIdx, endIdx,
                 &inReal,
@@ -11871,6 +13525,14 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInFastD_MAType,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.STOCHRSI_Open(&inReal[..=endIdx], optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.STOCHRSI_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &mut outBegIdx, &mut outNBElement, &mut outBuf0, &mut outBuf1) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11882,7 +13544,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 _oh = fuzz_hash_fin(_oh);
                 return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
             }
-            let lookback = core.STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+            let lookback: i64 = if _enum_bad { -1 } else { core.STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType) as i64 };
             let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
             resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
             resp.push_str(",\"outReal1\":"); resp.push_str(&json_f64_array(&outBuf1[..outNBElement]));
@@ -11894,6 +13556,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11933,12 +13596,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.SUB(
                 startIdx, endIdx,
                 &inReal0,
                 &inReal1,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.SUB_Open(&inReal0[..=endIdx], &inReal1[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.SUB_OpenAndFill(&inReal0[..=endIdx], &inReal1[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -11960,6 +13631,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -11993,12 +13665,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.SUM(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.SUM_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.SUM_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12020,6 +13700,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12047,7 +13728,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(5) as i32;
             let optInVFactor = params["optInVFactor"].as_f64().unwrap_or(0.7) as f64;
             if let Some(period) = params["unstablePeriod"].as_i64() {
-                apply_unstable_period(core, 23, period as i32);
+                let _ = apply_unstable_period(core, 23, period);
             }
             let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
             let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
@@ -12057,6 +13738,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.T3(
                 startIdx, endIdx,
                 &inReal,
@@ -12064,6 +13746,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInVFactor,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.T3_Open(&inReal[..=endIdx], optInTimePeriod, optInVFactor, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.T3_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, optInVFactor, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12085,6 +13774,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12117,11 +13807,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.TAN(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.TAN_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.TAN_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12143,6 +13841,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12175,11 +13874,19 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.TANH(
                 startIdx, endIdx,
                 &inReal,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.TANH_Open(&inReal[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.TANH_OpenAndFill(&inReal[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12201,6 +13908,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12234,12 +13942,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.TEMA(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.TEMA_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.TEMA_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12261,6 +13977,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12307,6 +14024,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.TRANGE(
                 startIdx, endIdx,
                 &inHigh,
@@ -12314,6 +14032,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.TRANGE_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.TRANGE_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12335,6 +14060,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12368,12 +14094,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.TRIMA(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.TRIMA_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.TRIMA_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12395,6 +14129,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12428,12 +14163,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.TRIX(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.TRIX_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.TRIX_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12455,6 +14198,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12488,12 +14232,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.TSF(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.TSF_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.TSF_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12515,6 +14267,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12561,6 +14314,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.TYPPRICE(
                 startIdx, endIdx,
                 &inHigh,
@@ -12568,6 +14322,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.TYPPRICE_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.TYPPRICE_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12589,6 +14350,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12638,6 +14400,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.ULTOSC(
                 startIdx, endIdx,
                 &inHigh,
@@ -12648,6 +14411,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod3,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.ULTOSC_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.ULTOSC_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12669,6 +14439,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12703,6 +14474,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.VAR(
                 startIdx, endIdx,
                 &inReal,
@@ -12710,6 +14482,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInNbDev,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.VAR_Open(&inReal[..=endIdx], optInTimePeriod, optInNbDev, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.VAR_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, optInNbDev, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12731,6 +14510,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12771,6 +14551,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.VWMA(
                 startIdx, endIdx,
                 &inReal,
@@ -12778,6 +14559,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.VWMA_Open(&inReal[..=endIdx], &inVolume[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.VWMA_OpenAndFill(&inReal[..=endIdx], &inVolume[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12794,11 +14582,12 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             resp.push('}');
             resp
         }
-        "TA_WCLPRICE" => {
+        "TA_WAD" => {
             let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12845,6 +14634,90 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
+            rc = core.WAD(
+                startIdx, endIdx,
+                &inHigh,
+                &inLow,
+                &inClose,
+                &mut outBegIdx, &mut outNBElement, &mut outBuf0,
+            );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.WAD_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.WAD_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+            }
+            let lookback = core.WAD_Lookback();
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, lookback, elapsed_ns);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push('}');
+            resp
+        }
+        "TA_WCLPRICE" => {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inHigh: Vec<f64> = Vec::new();
+            let mut _json_inLow: Vec<f64> = Vec::new();
+            let mut _json_inClose: Vec<f64> = Vec::new();
+            let inHigh: &[f64];
+            let inLow: &[f64];
+            let inClose: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inHigh = _fz_h.clone();
+                inHigh = &_json_inHigh;
+                _json_inLow = _fz_l.clone();
+                inLow = &_json_inLow;
+                _json_inClose = _fz_c.clone();
+                inClose = &_json_inClose;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inHigh = &ref_data.high[..ref_data.n];
+                inLow = &ref_data.low[..ref_data.n];
+                inClose = &ref_data.close[..ref_data.n];
+            } else {
+                _json_inHigh = parse_f64_array(&params["inHigh"]);
+                inHigh = &_json_inHigh;
+                _json_inLow = parse_f64_array(&params["inLow"]);
+                inLow = &_json_inLow;
+                _json_inClose = parse_f64_array(&params["inClose"]);
+                inClose = &_json_inClose;
+            }
+            let out_size = if endIdx >= startIdx { endIdx - startIdx + 1 } else { 0 };
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let mut start_time = Instant::now();
+            for _bi in 0..=bench_iters {
+                if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.WCLPRICE(
                 startIdx, endIdx,
                 &inHigh,
@@ -12852,6 +14725,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 &inClose,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.WCLPRICE_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.WCLPRICE_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12873,6 +14753,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12920,6 +14801,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.WILLR(
                 startIdx, endIdx,
                 &inHigh,
@@ -12928,6 +14810,13 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.WILLR_Open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.WILLR_OpenAndFill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -12949,6 +14838,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
             let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
             let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
             let gen_present = params["gen_present"].as_i64().unwrap_or(0);
             let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
             let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
@@ -12982,12 +14872,20 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             let mut start_time = Instant::now();
             for _bi in 0..=bench_iters {
                 if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
             rc = core.WMA(
                 startIdx, endIdx,
                 &inReal,
                 optInTimePeriod,
                 &mut outBegIdx, &mut outNBElement, &mut outBuf0,
             );
+            } else {
+            if bench_mode == 1 {
+                rc = match core.WMA_Open(&inReal[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.WMA_OpenAndFill(&inReal[..=endIdx], optInTimePeriod, &mut outBegIdx, &mut outNBElement, &mut outBuf0) { Ok(_h) => RetCode::Success, Err(e) => e };
+            }
+            }
             }
             let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
             if (gen_present != 0 || want_hash != 0) && full_output == 0 {
@@ -13096,6 +14994,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_DEMA",
                 "TA_DIV",
                 "TA_DX",
+                "TA_EFI",
                 "TA_EMA",
                 "TA_EXP",
                 "TA_FLOOR",
@@ -13119,6 +15018,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_MACDEXT",
                 "TA_MACDFIX",
                 "TA_MAMA",
+                "TA_MARKETFI",
                 "TA_MAVP",
                 "TA_MAX",
                 "TA_MAXINDEX",
@@ -13142,6 +15042,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_PPO",
                 "TA_PVI",
                 "TA_PVO",
+                "TA_QSTICK",
                 "TA_ROC",
                 "TA_ROCP",
                 "TA_ROCR",
@@ -13171,6 +15072,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_ULTOSC",
                 "TA_VAR",
                 "TA_VWMA",
+                "TA_WAD",
                 "TA_WCLPRICE",
                 "TA_WILLR",
                 "TA_WMA",
@@ -13179,11 +15081,10 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
         }
         "set_unstable_period" => {
             let id = params["id"].as_u64().unwrap_or(99) as usize;
-            let period = params["period"].as_i64().unwrap_or(0) as i32;
-            if apply_unstable_period(core, id, period) {
-                "{\"status\":\"ok\"}".to_string()
-            } else {
-                "{\"error\":\"Invalid unstable period id\"}".to_string()
+            let period = params["period"].as_i64().unwrap_or(0);
+            match apply_unstable_period(core, id, period) {
+                Ok(()) => "{\"status\":\"ok\"}".to_string(),
+                Err(msg) => format!("{{\"error\":\"{msg}\"}}"),
             }
         }
         "set_compatibility" => {
@@ -13616,7 +15517,10 @@ fn sv_accbands(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -13645,7 +15549,10 @@ fn sv_accbands(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ACCBANDS(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0, &mut b1, &mut b2);
         let lb = c2.ACCBANDS_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -13717,7 +15624,10 @@ fn sv_acos(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -13743,7 +15653,10 @@ fn sv_acos(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ACOS(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.ACOS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -13803,7 +15716,10 @@ fn sv_ad(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -13829,7 +15745,10 @@ fn sv_ad(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.AD(0, svN - 1, &fz_h, &fz_l, &fz_c, &fz_v, &mut beg, &mut nb, &mut b0);
         let lb = c2.AD_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -13889,7 +15808,10 @@ fn sv_add(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -13915,7 +15837,10 @@ fn sv_add(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ADD(0, svN - 1, &fz_c, &fz_v, &mut beg, &mut nb, &mut b0);
         let lb = c2.ADD_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -13975,7 +15900,10 @@ fn sv_adosc(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14004,7 +15932,10 @@ fn sv_adosc(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ADOSC(0, svN - 1, &fz_h, &fz_l, &fz_c, &fz_v, optInFastPeriod, optInSlowPeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.ADOSC_Lookback(optInFastPeriod, optInSlowPeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -14064,7 +15995,10 @@ fn sv_adx(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14092,7 +16026,10 @@ fn sv_adx(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(0usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ADX(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.ADX_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -14152,7 +16089,10 @@ fn sv_adxr(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14180,7 +16120,10 @@ fn sv_adxr(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(0usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ADXR(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.ADXR_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -14240,14 +16183,21 @@ fn sv_apo(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
     }
     let optInFastPeriod = params["optInFastPeriod"].as_i64().unwrap_or(12) as i32;
     let optInSlowPeriod = params["optInSlowPeriod"].as_i64().unwrap_or(26) as i32;
-    let optInMAType = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+    let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+    let optInMAType = match MAType::try_from(optInMAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -14273,7 +16223,10 @@ fn sv_apo(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.APO(0, svN - 1, &fz_c, optInFastPeriod, optInSlowPeriod, optInMAType, &mut beg, &mut nb, &mut b0);
         let lb = c2.APO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
         if rc != RetCode::Success || nb == 0 {
@@ -14333,7 +16286,10 @@ fn sv_aroon(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14361,7 +16317,10 @@ fn sv_aroon(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.AROON(0, svN - 1, &fz_h, &fz_l, optInTimePeriod, &mut beg, &mut nb, &mut b0, &mut b1);
         let lb = c2.AROON_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -14427,7 +16386,10 @@ fn sv_aroonosc(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14454,7 +16416,10 @@ fn sv_aroonosc(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.AROONOSC(0, svN - 1, &fz_h, &fz_l, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.AROONOSC_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -14514,7 +16479,10 @@ fn sv_asin(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14540,7 +16508,10 @@ fn sv_asin(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ASIN(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.ASIN_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -14600,7 +16571,10 @@ fn sv_atan(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14626,7 +16600,10 @@ fn sv_atan(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ATAN(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.ATAN_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -14686,7 +16663,10 @@ fn sv_atr(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14714,7 +16694,10 @@ fn sv_atr(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(2usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ATR(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.ATR_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -14774,7 +16757,10 @@ fn sv_avgdev(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14801,7 +16787,10 @@ fn sv_avgdev(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.AVGDEV(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.AVGDEV_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -14861,7 +16850,10 @@ fn sv_avgprice(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14887,7 +16879,10 @@ fn sv_avgprice(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.AVGPRICE(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.AVGPRICE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -14947,7 +16942,10 @@ fn sv_bbands(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -14955,7 +16953,11 @@ fn sv_bbands(core: &Core, params: &Value) -> String {
     let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
     let optInNbDevUp = params["optInNbDevUp"].as_f64().unwrap_or(2.0);
     let optInNbDevDn = params["optInNbDevDn"].as_f64().unwrap_or(2.0);
-    let optInMAType = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+    let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+    let optInMAType = match MAType::try_from(optInMAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -14983,7 +16985,10 @@ fn sv_bbands(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.BBANDS(0, svN - 1, &fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &mut beg, &mut nb, &mut b0, &mut b1, &mut b2);
         let lb = c2.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
         if rc != RetCode::Success || nb == 0 {
@@ -15055,7 +17060,10 @@ fn sv_beta(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15082,7 +17090,10 @@ fn sv_beta(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.BETA(0, svN - 1, &fz_c, &fz_v, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.BETA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -15142,7 +17153,10 @@ fn sv_bop(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15168,7 +17182,10 @@ fn sv_bop(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.BOP(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.BOP_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -15228,7 +17245,10 @@ fn sv_cci(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15255,7 +17275,10 @@ fn sv_cci(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CCI(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.CCI_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -15315,7 +17338,10 @@ fn sv_cdl2crows(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15343,7 +17369,10 @@ fn sv_cdl2crows(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDL2CROWS(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDL2CROWS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -15405,7 +17434,10 @@ fn sv_cdl3blackcrows(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15433,7 +17465,10 @@ fn sv_cdl3blackcrows(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDL3BLACKCROWS(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDL3BLACKCROWS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -15495,7 +17530,10 @@ fn sv_cdl3inside(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15523,7 +17561,10 @@ fn sv_cdl3inside(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDL3INSIDE(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDL3INSIDE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -15585,7 +17626,10 @@ fn sv_cdl3linestrike(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15613,7 +17657,10 @@ fn sv_cdl3linestrike(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDL3LINESTRIKE(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDL3LINESTRIKE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -15675,7 +17722,10 @@ fn sv_cdl3outside(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15703,7 +17753,10 @@ fn sv_cdl3outside(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDL3OUTSIDE(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDL3OUTSIDE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -15765,7 +17818,10 @@ fn sv_cdl3starsinsouth(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15793,7 +17849,10 @@ fn sv_cdl3starsinsouth(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDL3STARSINSOUTH(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDL3STARSINSOUTH_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -15855,7 +17914,10 @@ fn sv_cdl3whitesoldiers(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15883,7 +17945,10 @@ fn sv_cdl3whitesoldiers(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDL3WHITESOLDIERS(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDL3WHITESOLDIERS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -15945,7 +18010,10 @@ fn sv_cdlabandonedbaby(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -15974,7 +18042,10 @@ fn sv_cdlabandonedbaby(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLABANDONEDBABY(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, optInPenetration, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLABANDONEDBABY_Lookback(optInPenetration);
         if rc != RetCode::Success || nb == 0 {
@@ -16036,7 +18107,10 @@ fn sv_cdladvanceblock(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16064,7 +18138,10 @@ fn sv_cdladvanceblock(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLADVANCEBLOCK(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLADVANCEBLOCK_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -16126,7 +18203,10 @@ fn sv_cdlbelthold(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16154,7 +18234,10 @@ fn sv_cdlbelthold(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLBELTHOLD(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLBELTHOLD_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -16216,7 +18299,10 @@ fn sv_cdlbreakaway(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16244,7 +18330,10 @@ fn sv_cdlbreakaway(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLBREAKAWAY(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLBREAKAWAY_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -16306,7 +18395,10 @@ fn sv_cdlclosingmarubozu(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16334,7 +18426,10 @@ fn sv_cdlclosingmarubozu(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLCLOSINGMARUBOZU(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLCLOSINGMARUBOZU_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -16396,7 +18491,10 @@ fn sv_cdlconcealbabyswall(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16424,7 +18522,10 @@ fn sv_cdlconcealbabyswall(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLCONCEALBABYSWALL(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLCONCEALBABYSWALL_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -16486,7 +18587,10 @@ fn sv_cdlcounterattack(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16514,7 +18618,10 @@ fn sv_cdlcounterattack(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLCOUNTERATTACK(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLCOUNTERATTACK_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -16576,7 +18683,10 @@ fn sv_cdldarkcloudcover(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16605,7 +18715,10 @@ fn sv_cdldarkcloudcover(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLDARKCLOUDCOVER(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, optInPenetration, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLDARKCLOUDCOVER_Lookback(optInPenetration);
         if rc != RetCode::Success || nb == 0 {
@@ -16667,7 +18780,10 @@ fn sv_cdldoji(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16695,7 +18811,10 @@ fn sv_cdldoji(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLDOJI(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLDOJI_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -16757,7 +18876,10 @@ fn sv_cdldojistar(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16785,7 +18907,10 @@ fn sv_cdldojistar(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLDOJISTAR(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLDOJISTAR_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -16847,7 +18972,10 @@ fn sv_cdldragonflydoji(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16875,7 +19003,10 @@ fn sv_cdldragonflydoji(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLDRAGONFLYDOJI(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLDRAGONFLYDOJI_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -16937,7 +19068,10 @@ fn sv_cdlengulfing(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -16965,7 +19099,10 @@ fn sv_cdlengulfing(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLENGULFING(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLENGULFING_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -17027,7 +19164,10 @@ fn sv_cdleveningdojistar(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17056,7 +19196,10 @@ fn sv_cdleveningdojistar(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLEVENINGDOJISTAR(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, optInPenetration, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLEVENINGDOJISTAR_Lookback(optInPenetration);
         if rc != RetCode::Success || nb == 0 {
@@ -17118,7 +19261,10 @@ fn sv_cdleveningstar(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17147,7 +19293,10 @@ fn sv_cdleveningstar(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLEVENINGSTAR(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, optInPenetration, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLEVENINGSTAR_Lookback(optInPenetration);
         if rc != RetCode::Success || nb == 0 {
@@ -17209,7 +19358,10 @@ fn sv_cdlgapsidesidewhite(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17237,7 +19389,10 @@ fn sv_cdlgapsidesidewhite(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLGAPSIDESIDEWHITE(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLGAPSIDESIDEWHITE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -17299,7 +19454,10 @@ fn sv_cdlgravestonedoji(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17327,7 +19485,10 @@ fn sv_cdlgravestonedoji(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLGRAVESTONEDOJI(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLGRAVESTONEDOJI_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -17389,7 +19550,10 @@ fn sv_cdlhammer(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17417,7 +19581,10 @@ fn sv_cdlhammer(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLHAMMER(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLHAMMER_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -17479,7 +19646,10 @@ fn sv_cdlhangingman(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17507,7 +19677,10 @@ fn sv_cdlhangingman(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLHANGINGMAN(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLHANGINGMAN_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -17569,7 +19742,10 @@ fn sv_cdlharami(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17597,7 +19773,10 @@ fn sv_cdlharami(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLHARAMI(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLHARAMI_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -17659,7 +19838,10 @@ fn sv_cdlharamicross(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17687,7 +19869,10 @@ fn sv_cdlharamicross(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLHARAMICROSS(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLHARAMICROSS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -17749,7 +19934,10 @@ fn sv_cdlhighwave(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17777,7 +19965,10 @@ fn sv_cdlhighwave(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLHIGHWAVE(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLHIGHWAVE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -17839,7 +20030,10 @@ fn sv_cdlhikkake(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17867,7 +20061,10 @@ fn sv_cdlhikkake(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLHIKKAKE(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLHIKKAKE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -17929,7 +20126,10 @@ fn sv_cdlhikkakemod(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -17957,7 +20157,10 @@ fn sv_cdlhikkakemod(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLHIKKAKEMOD(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLHIKKAKEMOD_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18019,7 +20222,10 @@ fn sv_cdlhomingpigeon(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18047,7 +20253,10 @@ fn sv_cdlhomingpigeon(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLHOMINGPIGEON(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLHOMINGPIGEON_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18109,7 +20318,10 @@ fn sv_cdlidentical3crows(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18137,7 +20349,10 @@ fn sv_cdlidentical3crows(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLIDENTICAL3CROWS(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLIDENTICAL3CROWS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18199,7 +20414,10 @@ fn sv_cdlinneck(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18227,7 +20445,10 @@ fn sv_cdlinneck(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLINNECK(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLINNECK_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18289,7 +20510,10 @@ fn sv_cdlinvertedhammer(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18317,7 +20541,10 @@ fn sv_cdlinvertedhammer(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLINVERTEDHAMMER(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLINVERTEDHAMMER_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18379,7 +20606,10 @@ fn sv_cdlkicking(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18407,7 +20637,10 @@ fn sv_cdlkicking(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLKICKING(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLKICKING_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18469,7 +20702,10 @@ fn sv_cdlkickingbylength(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18497,7 +20733,10 @@ fn sv_cdlkickingbylength(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLKICKINGBYLENGTH(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLKICKINGBYLENGTH_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18559,7 +20798,10 @@ fn sv_cdlladderbottom(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18587,7 +20829,10 @@ fn sv_cdlladderbottom(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLLADDERBOTTOM(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLLADDERBOTTOM_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18649,7 +20894,10 @@ fn sv_cdllongleggeddoji(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18677,7 +20925,10 @@ fn sv_cdllongleggeddoji(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLLONGLEGGEDDOJI(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLLONGLEGGEDDOJI_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18739,7 +20990,10 @@ fn sv_cdllongline(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18767,7 +21021,10 @@ fn sv_cdllongline(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLLONGLINE(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLLONGLINE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18829,7 +21086,10 @@ fn sv_cdlmarubozu(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18857,7 +21117,10 @@ fn sv_cdlmarubozu(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLMARUBOZU(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLMARUBOZU_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -18919,7 +21182,10 @@ fn sv_cdlmatchinglow(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -18947,7 +21213,10 @@ fn sv_cdlmatchinglow(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLMATCHINGLOW(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLMATCHINGLOW_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -19009,7 +21278,10 @@ fn sv_cdlmathold(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19038,7 +21310,10 @@ fn sv_cdlmathold(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLMATHOLD(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, optInPenetration, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLMATHOLD_Lookback(optInPenetration);
         if rc != RetCode::Success || nb == 0 {
@@ -19100,7 +21375,10 @@ fn sv_cdlmorningdojistar(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19129,7 +21407,10 @@ fn sv_cdlmorningdojistar(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLMORNINGDOJISTAR(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, optInPenetration, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLMORNINGDOJISTAR_Lookback(optInPenetration);
         if rc != RetCode::Success || nb == 0 {
@@ -19191,7 +21472,10 @@ fn sv_cdlmorningstar(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19220,7 +21504,10 @@ fn sv_cdlmorningstar(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLMORNINGSTAR(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, optInPenetration, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLMORNINGSTAR_Lookback(optInPenetration);
         if rc != RetCode::Success || nb == 0 {
@@ -19282,7 +21569,10 @@ fn sv_cdlonneck(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19310,7 +21600,10 @@ fn sv_cdlonneck(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLONNECK(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLONNECK_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -19372,7 +21665,10 @@ fn sv_cdlpiercing(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19400,7 +21696,10 @@ fn sv_cdlpiercing(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLPIERCING(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLPIERCING_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -19462,7 +21761,10 @@ fn sv_cdlrickshawman(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19490,7 +21792,10 @@ fn sv_cdlrickshawman(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLRICKSHAWMAN(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLRICKSHAWMAN_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -19552,7 +21857,10 @@ fn sv_cdlrisefall3methods(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19580,7 +21888,10 @@ fn sv_cdlrisefall3methods(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLRISEFALL3METHODS(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLRISEFALL3METHODS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -19642,7 +21953,10 @@ fn sv_cdlseparatinglines(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19670,7 +21984,10 @@ fn sv_cdlseparatinglines(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLSEPARATINGLINES(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLSEPARATINGLINES_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -19732,7 +22049,10 @@ fn sv_cdlshootingstar(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19760,7 +22080,10 @@ fn sv_cdlshootingstar(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLSHOOTINGSTAR(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLSHOOTINGSTAR_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -19822,7 +22145,10 @@ fn sv_cdlshortline(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19850,7 +22176,10 @@ fn sv_cdlshortline(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLSHORTLINE(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLSHORTLINE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -19912,7 +22241,10 @@ fn sv_cdlspinningtop(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -19940,7 +22272,10 @@ fn sv_cdlspinningtop(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLSPINNINGTOP(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLSPINNINGTOP_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20002,7 +22337,10 @@ fn sv_cdlstalledpattern(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20030,7 +22368,10 @@ fn sv_cdlstalledpattern(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLSTALLEDPATTERN(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLSTALLEDPATTERN_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20092,7 +22433,10 @@ fn sv_cdlsticksandwich(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20120,7 +22464,10 @@ fn sv_cdlsticksandwich(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLSTICKSANDWICH(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLSTICKSANDWICH_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20182,7 +22529,10 @@ fn sv_cdltakuri(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20210,7 +22560,10 @@ fn sv_cdltakuri(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLTAKURI(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLTAKURI_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20272,7 +22625,10 @@ fn sv_cdltasukigap(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20300,7 +22656,10 @@ fn sv_cdltasukigap(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLTASUKIGAP(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLTASUKIGAP_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20362,7 +22721,10 @@ fn sv_cdlthrusting(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20390,7 +22752,10 @@ fn sv_cdlthrusting(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLTHRUSTING(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLTHRUSTING_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20452,7 +22817,10 @@ fn sv_cdltristar(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20480,7 +22848,10 @@ fn sv_cdltristar(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLTRISTAR(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLTRISTAR_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20542,7 +22913,10 @@ fn sv_cdlunique3river(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20570,7 +22944,10 @@ fn sv_cdlunique3river(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLUNIQUE3RIVER(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLUNIQUE3RIVER_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20632,7 +23009,10 @@ fn sv_cdlupsidegap2crows(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20660,7 +23040,10 @@ fn sv_cdlupsidegap2crows(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLUPSIDEGAP2CROWS(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLUPSIDEGAP2CROWS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20722,7 +23105,10 @@ fn sv_cdlxsidegap3methods(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20750,7 +23136,10 @@ fn sv_cdlxsidegap3methods(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         cb = sv_apply_candles(cb, &sv_candle_settings(rd));
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CDLXSIDEGAP3METHODS(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CDLXSIDEGAP3METHODS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20812,7 +23201,10 @@ fn sv_ceil(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20838,7 +23230,10 @@ fn sv_ceil(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CEIL(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.CEIL_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -20898,7 +23293,10 @@ fn sv_cmf(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -20925,7 +23323,10 @@ fn sv_cmf(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CMF(0, svN - 1, &fz_h, &fz_l, &fz_c, &fz_v, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.CMF_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -20985,7 +23386,10 @@ fn sv_cmo(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21013,7 +23417,10 @@ fn sv_cmo(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(3usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CMO(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.CMO_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -21073,7 +23480,10 @@ fn sv_cmou(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21100,7 +23510,10 @@ fn sv_cmou(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CMOU(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.CMOU_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -21160,7 +23573,10 @@ fn sv_correl(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21187,7 +23603,10 @@ fn sv_correl(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.CORREL(0, svN - 1, &fz_c, &fz_v, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.CORREL_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -21247,7 +23666,10 @@ fn sv_cos(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21273,7 +23695,10 @@ fn sv_cos(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.COS(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.COS_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -21333,7 +23758,10 @@ fn sv_cosh(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21359,7 +23787,10 @@ fn sv_cosh(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.COSH(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.COSH_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -21419,7 +23850,10 @@ fn sv_dema(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21447,7 +23881,10 @@ fn sv_dema(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.DEMA(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.DEMA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -21507,7 +23944,10 @@ fn sv_div(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21533,7 +23973,10 @@ fn sv_div(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.DIV(0, svN - 1, &fz_c, &fz_v, &mut beg, &mut nb, &mut b0);
         let lb = c2.DIV_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -21593,7 +24036,10 @@ fn sv_dx(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21621,7 +24067,10 @@ fn sv_dx(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(4usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.DX(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.DX_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -21675,13 +24124,109 @@ fn sv_dx(core: &Core, params: &Value) -> String {
     format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), zsign, diag)
 }
 
+fn sv_efi(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
+    let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
+    if svCompat != 0 {
+        return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
+    }
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(13) as i32;
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let mut zsign = 0i64;
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let cb = core.to_builder();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
+        let rc = c2.EFI(0, svN - 1, &fz_c, &fz_v, optInTimePeriod, &mut beg, &mut nb, &mut b0);
+        let lb = c2.EFI_Lookback(optInTimePeriod);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.EFI_Open(&fz_c, &fz_v, optInTimePeriod).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![0.0f64; svN];
+        let mut fBeg = 0usize;
+        let mut fNb = 0usize;
+        match c2.EFI_OpenAndFill(&fz_c, &fz_v, optInTimePeriod, &mut fBeg, &mut fNb, &mut f0) {
+            Err(_) => { fill_ok = false; }
+            Ok(_h) => {
+                if fBeg != beg || fNb != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if sv_xtier_ne(f0[i], b0[i], &mut zsign) { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let seed_shift: usize = 0;
+        let mut pcs = vec![lb + 1 + seed_shift, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.EFI_Open(&fz_c[..p], &fz_v[..p], optInTimePeriod) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    for t in p..svN {
+                        if t % 7 == 0 {
+                            let pk = st.peek(fz_c[t], fz_v[t]);
+                            let up = st.update(fz_c[t], fz_v[t]);
+                            if pk.to_bits() != up.to_bits() { peek_all = false; }
+                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        } else {
+                            let up = st.update(fz_c[t], fz_v[t]);
+                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            if c2.EFI_Open(&fz_c[..lb], &fz_v[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), zsign, diag)
+}
+
 fn sv_ema(core: &Core, params: &Value) -> String {
     let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
     let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21709,7 +24254,10 @@ fn sv_ema(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.EMA(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.EMA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -21769,7 +24317,10 @@ fn sv_exp(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21795,7 +24346,10 @@ fn sv_exp(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.EXP(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.EXP_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -21855,7 +24409,10 @@ fn sv_floor(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21881,7 +24438,10 @@ fn sv_floor(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.FLOOR(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.FLOOR_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -21941,7 +24501,10 @@ fn sv_hma(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -21968,7 +24531,10 @@ fn sv_hma(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.HMA(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.HMA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -22028,7 +24594,10 @@ fn sv_ht_dcperiod(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22055,7 +24624,10 @@ fn sv_ht_dcperiod(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(6usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.HT_DCPERIOD(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.HT_DCPERIOD_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -22115,7 +24687,10 @@ fn sv_ht_dcphase(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22142,7 +24717,10 @@ fn sv_ht_dcphase(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(7usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.HT_DCPHASE(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.HT_DCPHASE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -22202,7 +24780,10 @@ fn sv_ht_phasor(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22230,7 +24811,10 @@ fn sv_ht_phasor(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(8usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.HT_PHASOR(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0, &mut b1);
         let lb = c2.HT_PHASOR_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -22296,7 +24880,10 @@ fn sv_ht_sine(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22324,7 +24911,10 @@ fn sv_ht_sine(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(9usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.HT_SINE(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0, &mut b1);
         let lb = c2.HT_SINE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -22390,7 +24980,10 @@ fn sv_ht_trendline(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22417,7 +25010,10 @@ fn sv_ht_trendline(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(10usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.HT_TRENDLINE(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.HT_TRENDLINE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -22477,7 +25073,10 @@ fn sv_ht_trendmode(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22504,7 +25103,10 @@ fn sv_ht_trendmode(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(11usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.HT_TRENDMODE(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.HT_TRENDMODE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -22564,7 +25166,10 @@ fn sv_imi(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22591,7 +25196,10 @@ fn sv_imi(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.IMI(0, svN - 1, &fz_o, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.IMI_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -22651,7 +25259,10 @@ fn sv_kama(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22679,7 +25290,10 @@ fn sv_kama(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.KAMA(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.KAMA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -22739,7 +25353,10 @@ fn sv_linearreg(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22766,7 +25383,10 @@ fn sv_linearreg(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.LINEARREG(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.LINEARREG_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -22826,7 +25446,10 @@ fn sv_linearreg_angle(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22853,7 +25476,10 @@ fn sv_linearreg_angle(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.LINEARREG_ANGLE(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.LINEARREG_ANGLE_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -22913,7 +25539,10 @@ fn sv_linearreg_intercept(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -22940,7 +25569,10 @@ fn sv_linearreg_intercept(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.LINEARREG_INTERCEPT(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.LINEARREG_INTERCEPT_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -23000,7 +25632,10 @@ fn sv_linearreg_slope(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -23027,7 +25662,10 @@ fn sv_linearreg_slope(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.LINEARREG_SLOPE(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.LINEARREG_SLOPE_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -23087,7 +25725,10 @@ fn sv_ln(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -23113,7 +25754,10 @@ fn sv_ln(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.LN(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.LN_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -23173,7 +25817,10 @@ fn sv_log10(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -23199,7 +25846,10 @@ fn sv_log10(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.LOG10(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.LOG10_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -23259,13 +25909,20 @@ fn sv_ma(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
     }
     let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(30) as i32;
-    let optInMAType = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+    let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+    let optInMAType = match MAType::try_from(optInMAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -23291,7 +25948,10 @@ fn sv_ma(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MA(0, svN - 1, &fz_c, optInTimePeriod, optInMAType, &mut beg, &mut nb, &mut b0);
         let lb = c2.MA_Lookback(optInTimePeriod, optInMAType);
         if rc != RetCode::Success || nb == 0 {
@@ -23351,7 +26011,10 @@ fn sv_macd(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -23383,7 +26046,10 @@ fn sv_macd(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MACD(0, svN - 1, &fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut beg, &mut nb, &mut b0, &mut b1, &mut b2);
         let lb = c2.MACD_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -23455,17 +26121,32 @@ fn sv_macdext(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
     }
     let optInFastPeriod = params["optInFastPeriod"].as_i64().unwrap_or(12) as i32;
-    let optInFastMAType = params["optInFastMAType"].as_i64().unwrap_or(0) as i32;
+    let optInFastMAType_raw = params["optInFastMAType"].as_i64().unwrap_or(0) as i32;
+    let optInFastMAType = match MAType::try_from(optInFastMAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let optInSlowPeriod = params["optInSlowPeriod"].as_i64().unwrap_or(26) as i32;
-    let optInSlowMAType = params["optInSlowMAType"].as_i64().unwrap_or(0) as i32;
+    let optInSlowMAType_raw = params["optInSlowMAType"].as_i64().unwrap_or(0) as i32;
+    let optInSlowMAType = match MAType::try_from(optInSlowMAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let optInSignalPeriod = params["optInSignalPeriod"].as_i64().unwrap_or(9) as i32;
-    let optInSignalMAType = params["optInSignalMAType"].as_i64().unwrap_or(0) as i32;
+    let optInSignalMAType_raw = params["optInSignalMAType"].as_i64().unwrap_or(0) as i32;
+    let optInSignalMAType = match MAType::try_from(optInSignalMAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -23493,7 +26174,10 @@ fn sv_macdext(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MACDEXT(0, svN - 1, &fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &mut beg, &mut nb, &mut b0, &mut b1, &mut b2);
         let lb = c2.MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType);
         if rc != RetCode::Success || nb == 0 {
@@ -23565,7 +26249,10 @@ fn sv_macdfix(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -23595,7 +26282,10 @@ fn sv_macdfix(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MACDFIX(0, svN - 1, &fz_c, optInSignalPeriod, &mut beg, &mut nb, &mut b0, &mut b1, &mut b2);
         let lb = c2.MACDFIX_Lookback(optInSignalPeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -23667,7 +26357,10 @@ fn sv_mama(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -23697,7 +26390,10 @@ fn sv_mama(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MAMA(0, svN - 1, &fz_c, optInFastLimit, optInSlowLimit, &mut beg, &mut nb, &mut b0, &mut b1);
         let lb = c2.MAMA_Lookback(optInFastLimit, optInSlowLimit);
         if rc != RetCode::Success || nb == 0 {
@@ -23757,20 +26453,119 @@ fn sv_mama(core: &Core, params: &Value) -> String {
     format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), zsign, diag)
 }
 
+fn sv_marketfi(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
+    let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
+    if svCompat != 0 {
+        return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
+    }
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let mut zsign = 0i64;
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let cb = core.to_builder();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
+        let rc = c2.MARKETFI(0, svN - 1, &fz_h, &fz_l, &fz_v, &mut beg, &mut nb, &mut b0);
+        let lb = c2.MARKETFI_Lookback();
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.MARKETFI_Open(&fz_h, &fz_l, &fz_v).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![0.0f64; svN];
+        let mut fBeg = 0usize;
+        let mut fNb = 0usize;
+        match c2.MARKETFI_OpenAndFill(&fz_h, &fz_l, &fz_v, &mut fBeg, &mut fNb, &mut f0) {
+            Err(_) => { fill_ok = false; }
+            Ok(_h) => {
+                if fBeg != beg || fNb != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if sv_xtier_ne(f0[i], b0[i], &mut zsign) { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let seed_shift: usize = 0;
+        let mut pcs = vec![lb + 1 + seed_shift, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.MARKETFI_Open(&fz_h[..p], &fz_l[..p], &fz_v[..p]) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    for t in p..svN {
+                        if t % 7 == 0 {
+                            let pk = st.peek(fz_h[t], fz_l[t], fz_v[t]);
+                            let up = st.update(fz_h[t], fz_l[t], fz_v[t]);
+                            if pk.to_bits() != up.to_bits() { peek_all = false; }
+                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        } else {
+                            let up = st.update(fz_h[t], fz_l[t], fz_v[t]);
+                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            if c2.MARKETFI_Open(&fz_h[..lb], &fz_l[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), zsign, diag)
+}
+
 fn sv_mavp(core: &Core, params: &Value) -> String {
     let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
     let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
     }
     let optInMinPeriod = params["optInMinPeriod"].as_i64().unwrap_or(2) as i32;
     let optInMaxPeriod = params["optInMaxPeriod"].as_i64().unwrap_or(30) as i32;
-    let optInMAType = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+    let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(0) as i32;
+    let optInMAType = match MAType::try_from(optInMAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -23797,7 +26592,10 @@ fn sv_mavp(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MAVP(0, svN - 1, &fz_c, &fz_v, optInMinPeriod, optInMaxPeriod, optInMAType, &mut beg, &mut nb, &mut b0);
         let lb = c2.MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType);
         if rc != RetCode::Success || nb == 0 {
@@ -23857,7 +26655,10 @@ fn sv_max(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -23884,7 +26685,10 @@ fn sv_max(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MAX(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MAX_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -23944,7 +26748,10 @@ fn sv_maxindex(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -23971,7 +26778,10 @@ fn sv_maxindex(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MAXINDEX(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MAXINDEX_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24031,7 +26841,10 @@ fn sv_medprice(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24057,7 +26870,10 @@ fn sv_medprice(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MEDPRICE(0, svN - 1, &fz_h, &fz_l, &mut beg, &mut nb, &mut b0);
         let lb = c2.MEDPRICE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -24117,7 +26933,10 @@ fn sv_mfi(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24144,7 +26963,10 @@ fn sv_mfi(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MFI(0, svN - 1, &fz_h, &fz_l, &fz_c, &fz_v, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MFI_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24204,7 +27026,10 @@ fn sv_midpoint(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24231,7 +27056,10 @@ fn sv_midpoint(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MIDPOINT(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MIDPOINT_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24291,7 +27119,10 @@ fn sv_midprice(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24318,7 +27149,10 @@ fn sv_midprice(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MIDPRICE(0, svN - 1, &fz_h, &fz_l, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MIDPRICE_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24378,7 +27212,10 @@ fn sv_min(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24405,7 +27242,10 @@ fn sv_min(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MIN(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MIN_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24465,7 +27305,10 @@ fn sv_minindex(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24492,7 +27335,10 @@ fn sv_minindex(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MININDEX(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MININDEX_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24552,7 +27398,10 @@ fn sv_minmax(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24580,7 +27429,10 @@ fn sv_minmax(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MINMAX(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0, &mut b1);
         let lb = c2.MINMAX_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24646,7 +27498,10 @@ fn sv_minmaxindex(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24674,7 +27529,10 @@ fn sv_minmaxindex(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MINMAXINDEX(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0, &mut b1);
         let lb = c2.MINMAXINDEX_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24740,7 +27598,10 @@ fn sv_minus_di(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24768,7 +27629,10 @@ fn sv_minus_di(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(16usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MINUS_DI(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MINUS_DI_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24828,7 +27692,10 @@ fn sv_minus_dm(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24856,7 +27723,10 @@ fn sv_minus_dm(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(17usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MINUS_DM(0, svN - 1, &fz_h, &fz_l, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MINUS_DM_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -24916,7 +27786,10 @@ fn sv_mom(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -24943,7 +27816,10 @@ fn sv_mom(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MOM(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.MOM_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -25003,7 +27879,10 @@ fn sv_mult(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25029,7 +27908,10 @@ fn sv_mult(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.MULT(0, svN - 1, &fz_c, &fz_v, &mut beg, &mut nb, &mut b0);
         let lb = c2.MULT_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -25089,7 +27971,10 @@ fn sv_natr(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25117,7 +28002,10 @@ fn sv_natr(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(18usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.NATR(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.NATR_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -25177,7 +28065,10 @@ fn sv_nvi(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25203,7 +28094,10 @@ fn sv_nvi(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.NVI(0, svN - 1, &fz_c, &fz_v, &mut beg, &mut nb, &mut b0);
         let lb = c2.NVI_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -25263,7 +28157,10 @@ fn sv_obv(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25289,7 +28186,10 @@ fn sv_obv(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.OBV(0, svN - 1, &fz_c, &fz_v, &mut beg, &mut nb, &mut b0);
         let lb = c2.OBV_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -25349,7 +28249,10 @@ fn sv_plus_di(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25377,7 +28280,10 @@ fn sv_plus_di(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(19usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.PLUS_DI(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.PLUS_DI_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -25437,7 +28343,10 @@ fn sv_plus_dm(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25465,7 +28374,10 @@ fn sv_plus_dm(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(20usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.PLUS_DM(0, svN - 1, &fz_h, &fz_l, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.PLUS_DM_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -25525,14 +28437,21 @@ fn sv_ppo(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
     }
     let optInFastPeriod = params["optInFastPeriod"].as_i64().unwrap_or(12) as i32;
     let optInSlowPeriod = params["optInSlowPeriod"].as_i64().unwrap_or(26) as i32;
-    let optInMAType = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+    let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+    let optInMAType = match MAType::try_from(optInMAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -25558,7 +28477,10 @@ fn sv_ppo(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.PPO(0, svN - 1, &fz_c, optInFastPeriod, optInSlowPeriod, optInMAType, &mut beg, &mut nb, &mut b0);
         let lb = c2.PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
         if rc != RetCode::Success || nb == 0 {
@@ -25618,7 +28540,10 @@ fn sv_pvi(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25644,7 +28569,10 @@ fn sv_pvi(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.PVI(0, svN - 1, &fz_c, &fz_v, &mut beg, &mut nb, &mut b0);
         let lb = c2.PVI_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -25704,14 +28632,21 @@ fn sv_pvo(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
     }
     let optInFastPeriod = params["optInFastPeriod"].as_i64().unwrap_or(12) as i32;
     let optInSlowPeriod = params["optInSlowPeriod"].as_i64().unwrap_or(26) as i32;
-    let optInMAType = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+    let optInMAType_raw = params["optInMAType"].as_i64().unwrap_or(1) as i32;
+    let optInMAType = match MAType::try_from(optInMAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -25737,7 +28672,10 @@ fn sv_pvo(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.PVO(0, svN - 1, &fz_v, optInFastPeriod, optInSlowPeriod, optInMAType, &mut beg, &mut nb, &mut b0);
         let lb = c2.PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
         if rc != RetCode::Success || nb == 0 {
@@ -25791,13 +28729,16 @@ fn sv_pvo(core: &Core, params: &Value) -> String {
     format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), zsign, diag)
 }
 
-fn sv_roc(core: &Core, params: &Value) -> String {
+fn sv_qstick(core: &Core, params: &Value) -> String {
     let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
     let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25824,7 +28765,103 @@ fn sv_roc(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
+        let rc = c2.QSTICK(0, svN - 1, &fz_o, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
+        let lb = c2.QSTICK_Lookback(optInTimePeriod);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.QSTICK_Open(&fz_o, &fz_c, optInTimePeriod).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![0.0f64; svN];
+        let mut fBeg = 0usize;
+        let mut fNb = 0usize;
+        match c2.QSTICK_OpenAndFill(&fz_o, &fz_c, optInTimePeriod, &mut fBeg, &mut fNb, &mut f0) {
+            Err(_) => { fill_ok = false; }
+            Ok(_h) => {
+                if fBeg != beg || fNb != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if sv_xtier_ne(f0[i], b0[i], &mut zsign) { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let seed_shift: usize = 0;
+        let mut pcs = vec![lb + 1 + seed_shift, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.QSTICK_Open(&fz_o[..p], &fz_c[..p], optInTimePeriod) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    for t in p..svN {
+                        if t % 7 == 0 {
+                            let pk = st.peek(fz_o[t], fz_c[t]);
+                            let up = st.update(fz_o[t], fz_c[t]);
+                            if pk.to_bits() != up.to_bits() { peek_all = false; }
+                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        } else {
+                            let up = st.update(fz_o[t], fz_c[t]);
+                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            if c2.QSTICK_Open(&fz_o[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), zsign, diag)
+}
+
+fn sv_roc(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
+    let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
+    if svCompat != 0 {
+        return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
+    }
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(10) as i32;
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let mut zsign = 0i64;
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let cb = core.to_builder();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ROC(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.ROC_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -25884,7 +28921,10 @@ fn sv_rocp(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25911,7 +28951,10 @@ fn sv_rocp(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ROCP(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.ROCP_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -25971,7 +29014,10 @@ fn sv_rocr(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -25998,7 +29044,10 @@ fn sv_rocr(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ROCR(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.ROCR_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -26058,7 +29107,10 @@ fn sv_rocr100(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -26085,7 +29137,10 @@ fn sv_rocr100(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ROCR100(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.ROCR100_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -26145,7 +29200,10 @@ fn sv_rsi(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -26173,7 +29231,10 @@ fn sv_rsi(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(21usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.RSI(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.RSI_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -26233,7 +29294,10 @@ fn sv_sar(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -26261,7 +29325,10 @@ fn sv_sar(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.SAR(0, svN - 1, &fz_h, &fz_l, optInAcceleration, optInMaximum, &mut beg, &mut nb, &mut b0);
         let lb = c2.SAR_Lookback(optInAcceleration, optInMaximum);
         if rc != RetCode::Success || nb == 0 {
@@ -26321,7 +29388,10 @@ fn sv_sarext(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -26355,7 +29425,10 @@ fn sv_sarext(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.SAREXT(0, svN - 1, &fz_h, &fz_l, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &mut beg, &mut nb, &mut b0);
         let lb = c2.SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort);
         if rc != RetCode::Success || nb == 0 {
@@ -26415,7 +29488,10 @@ fn sv_sin(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -26441,7 +29517,10 @@ fn sv_sin(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.SIN(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.SIN_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -26501,7 +29580,10 @@ fn sv_sinh(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -26527,7 +29609,10 @@ fn sv_sinh(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.SINH(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.SINH_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -26587,7 +29672,10 @@ fn sv_sma(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -26614,7 +29702,10 @@ fn sv_sma(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.SMA(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.SMA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -26674,7 +29765,10 @@ fn sv_sqrt(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -26700,7 +29794,10 @@ fn sv_sqrt(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.SQRT(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.SQRT_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -26760,7 +29857,10 @@ fn sv_stddev(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -26788,7 +29888,10 @@ fn sv_stddev(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.STDDEV(0, svN - 1, &fz_c, optInTimePeriod, optInNbDev, &mut beg, &mut nb, &mut b0);
         let lb = c2.STDDEV_Lookback(optInTimePeriod, optInNbDev);
         if rc != RetCode::Success || nb == 0 {
@@ -26848,16 +29951,27 @@ fn sv_stoch(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
     }
     let optInFastK_Period = params["optInFastK_Period"].as_i64().unwrap_or(5) as i32;
     let optInSlowK_Period = params["optInSlowK_Period"].as_i64().unwrap_or(3) as i32;
-    let optInSlowK_MAType = params["optInSlowK_MAType"].as_i64().unwrap_or(0) as i32;
+    let optInSlowK_MAType_raw = params["optInSlowK_MAType"].as_i64().unwrap_or(0) as i32;
+    let optInSlowK_MAType = match MAType::try_from(optInSlowK_MAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let optInSlowD_Period = params["optInSlowD_Period"].as_i64().unwrap_or(3) as i32;
-    let optInSlowD_MAType = params["optInSlowD_MAType"].as_i64().unwrap_or(0) as i32;
+    let optInSlowD_MAType_raw = params["optInSlowD_MAType"].as_i64().unwrap_or(0) as i32;
+    let optInSlowD_MAType = match MAType::try_from(optInSlowD_MAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -26884,7 +29998,10 @@ fn sv_stoch(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.STOCH(0, svN - 1, &fz_h, &fz_l, &fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &mut beg, &mut nb, &mut b0, &mut b1);
         let lb = c2.STOCH_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType);
         if rc != RetCode::Success || nb == 0 {
@@ -26950,14 +30067,21 @@ fn sv_stochf(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
     }
     let optInFastK_Period = params["optInFastK_Period"].as_i64().unwrap_or(5) as i32;
     let optInFastD_Period = params["optInFastD_Period"].as_i64().unwrap_or(3) as i32;
-    let optInFastD_MAType = params["optInFastD_MAType"].as_i64().unwrap_or(0) as i32;
+    let optInFastD_MAType_raw = params["optInFastD_MAType"].as_i64().unwrap_or(0) as i32;
+    let optInFastD_MAType = match MAType::try_from(optInFastD_MAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -26984,7 +30108,10 @@ fn sv_stochf(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(14usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.STOCHF(0, svN - 1, &fz_h, &fz_l, &fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &mut beg, &mut nb, &mut b0, &mut b1);
         let lb = c2.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
         if rc != RetCode::Success || nb == 0 {
@@ -27050,7 +30177,10 @@ fn sv_stochrsi(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27058,7 +30188,11 @@ fn sv_stochrsi(core: &Core, params: &Value) -> String {
     let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(14) as i32;
     let optInFastK_Period = params["optInFastK_Period"].as_i64().unwrap_or(5) as i32;
     let optInFastD_Period = params["optInFastD_Period"].as_i64().unwrap_or(3) as i32;
-    let optInFastD_MAType = params["optInFastD_MAType"].as_i64().unwrap_or(0) as i32;
+    let optInFastD_MAType_raw = params["optInFastD_MAType"].as_i64().unwrap_or(0) as i32;
+    let optInFastD_MAType = match MAType::try_from(optInFastD_MAType_raw) {
+        Ok(v) => v,
+        Err(_) => return "{\"retCode\":2,\"legs\":0,\"nb\":0,\"openRejects\":1,\"ok\":1,\"peek_ok\":1}".to_string(),
+    };
     let mut fz_o = vec![0.0f64; svN];
     let mut fz_h = vec![0.0f64; svN];
     let mut fz_l = vec![0.0f64; svN];
@@ -27086,7 +30220,10 @@ fn sv_stochrsi(core: &Core, params: &Value) -> String {
         if let Some(id) = func_unst_id_from_int(13usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
         if let Some(id) = func_unst_id_from_int(21usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.STOCHRSI(0, svN - 1, &fz_c, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &mut beg, &mut nb, &mut b0, &mut b1);
         let lb = c2.STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType);
         if rc != RetCode::Success || nb == 0 {
@@ -27152,7 +30289,10 @@ fn sv_sub(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27178,7 +30318,10 @@ fn sv_sub(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.SUB(0, svN - 1, &fz_c, &fz_v, &mut beg, &mut nb, &mut b0);
         let lb = c2.SUB_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -27238,7 +30381,10 @@ fn sv_sum(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27265,7 +30411,10 @@ fn sv_sum(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.SUM(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.SUM_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -27325,7 +30474,10 @@ fn sv_t3(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27354,7 +30506,10 @@ fn sv_t3(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(23usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.T3(0, svN - 1, &fz_c, optInTimePeriod, optInVFactor, &mut beg, &mut nb, &mut b0);
         let lb = c2.T3_Lookback(optInTimePeriod, optInVFactor);
         if rc != RetCode::Success || nb == 0 {
@@ -27414,7 +30569,10 @@ fn sv_tan(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27440,7 +30598,10 @@ fn sv_tan(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.TAN(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.TAN_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -27500,7 +30661,10 @@ fn sv_tanh(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27526,7 +30690,10 @@ fn sv_tanh(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.TANH(0, svN - 1, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.TANH_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -27586,7 +30753,10 @@ fn sv_tema(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27614,7 +30784,10 @@ fn sv_tema(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.TEMA(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.TEMA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -27674,7 +30847,10 @@ fn sv_trange(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27700,7 +30876,10 @@ fn sv_trange(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.TRANGE(0, svN - 1, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.TRANGE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -27760,7 +30939,10 @@ fn sv_trima(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27787,7 +30969,10 @@ fn sv_trima(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.TRIMA(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.TRIMA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -27847,7 +31032,10 @@ fn sv_trix(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27875,7 +31063,10 @@ fn sv_trix(core: &Core, params: &Value) -> String {
         let _ = rd;
         let mut cb = core.to_builder();
         if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.TRIX(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.TRIX_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -27935,7 +31126,10 @@ fn sv_tsf(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -27962,7 +31156,10 @@ fn sv_tsf(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.TSF(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.TSF_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -28022,7 +31219,10 @@ fn sv_typprice(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -28048,7 +31248,10 @@ fn sv_typprice(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.TYPPRICE(0, svN - 1, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.TYPPRICE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -28108,7 +31311,10 @@ fn sv_ultosc(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -28137,7 +31343,10 @@ fn sv_ultosc(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.ULTOSC(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &mut beg, &mut nb, &mut b0);
         let lb = c2.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
         if rc != RetCode::Success || nb == 0 {
@@ -28197,7 +31406,10 @@ fn sv_var(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -28225,7 +31437,10 @@ fn sv_var(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.VAR(0, svN - 1, &fz_c, optInTimePeriod, optInNbDev, &mut beg, &mut nb, &mut b0);
         let lb = c2.VAR_Lookback(optInTimePeriod, optInNbDev);
         if rc != RetCode::Success || nb == 0 {
@@ -28285,7 +31500,10 @@ fn sv_vwma(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -28312,7 +31530,10 @@ fn sv_vwma(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.VWMA(0, svN - 1, &fz_c, &fz_v, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.VWMA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -28366,13 +31587,16 @@ fn sv_vwma(core: &Core, params: &Value) -> String {
     format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), zsign, diag)
 }
 
-fn sv_wclprice(core: &Core, params: &Value) -> String {
+fn sv_wad(core: &Core, params: &Value) -> String {
     let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
     let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -28398,7 +31622,102 @@ fn sv_wclprice(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
+        let rc = c2.WAD(0, svN - 1, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
+        let lb = c2.WAD_Lookback();
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.WAD_Open(&fz_h, &fz_l, &fz_c).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![0.0f64; svN];
+        let mut fBeg = 0usize;
+        let mut fNb = 0usize;
+        match c2.WAD_OpenAndFill(&fz_h, &fz_l, &fz_c, &mut fBeg, &mut fNb, &mut f0) {
+            Err(_) => { fill_ok = false; }
+            Ok(_h) => {
+                if fBeg != beg || fNb != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if sv_xtier_ne(f0[i], b0[i], &mut zsign) { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let seed_shift: usize = 0;
+        let mut pcs = vec![lb + 1 + seed_shift, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.WAD_Open(&fz_h[..p], &fz_l[..p], &fz_c[..p]) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    for t in p..svN {
+                        if t % 7 == 0 {
+                            let pk = st.peek(fz_h[t], fz_l[t], fz_c[t]);
+                            let up = st.update(fz_h[t], fz_l[t], fz_c[t]);
+                            if pk.to_bits() != up.to_bits() { peek_all = false; }
+                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        } else {
+                            let up = st.update(fz_h[t], fz_l[t], fz_c[t]);
+                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                        }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            if c2.WAD_Open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), i32::from(all_ok && fill_ok), i32::from(peek_all), zsign, diag)
+}
+
+fn sv_wclprice(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
+    let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
+    if svCompat != 0 {
+        return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
+    }
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let mut zsign = 0i64;
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let cb = core.to_builder();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.WCLPRICE(0, svN - 1, &fz_h, &fz_l, &fz_c, &mut beg, &mut nb, &mut b0);
         let lb = c2.WCLPRICE_Lookback();
         if rc != RetCode::Success || nb == 0 {
@@ -28458,7 +31777,10 @@ fn sv_willr(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -28485,7 +31807,10 @@ fn sv_willr(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.WILLR(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.WILLR_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -28545,7 +31870,10 @@ fn sv_wma(core: &Core, params: &Value) -> String {
     let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
     if svN < 2 { svN = 2; }
     if svN > 256 { svN = 256; }
-    let svK = params["unstablePeriod"].as_i64().unwrap_or(0) as i32;
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
     let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
     if svCompat != 0 {
         return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
@@ -28572,7 +31900,10 @@ fn sv_wma(core: &Core, params: &Value) -> String {
     for rd in 0..rounds {
         let _ = rd;
         let cb = core.to_builder();
-        let c2 = cb.build();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
         let rc = c2.WMA(0, svN - 1, &fz_c, optInTimePeriod, &mut beg, &mut nb, &mut b0);
         let lb = c2.WMA_Lookback(optInTimePeriod);
         if rc != RetCode::Success || nb == 0 {
@@ -28719,6 +32050,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_DEMA" => sv_dema(core, params),
         "TA_DIV" => sv_div(core, params),
         "TA_DX" => sv_dx(core, params),
+        "TA_EFI" => sv_efi(core, params),
         "TA_EMA" => sv_ema(core, params),
         "TA_EXP" => sv_exp(core, params),
         "TA_FLOOR" => sv_floor(core, params),
@@ -28742,6 +32074,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_MACDEXT" => sv_macdext(core, params),
         "TA_MACDFIX" => sv_macdfix(core, params),
         "TA_MAMA" => sv_mama(core, params),
+        "TA_MARKETFI" => sv_marketfi(core, params),
         "TA_MAVP" => sv_mavp(core, params),
         "TA_MAX" => sv_max(core, params),
         "TA_MAXINDEX" => sv_maxindex(core, params),
@@ -28765,6 +32098,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_PPO" => sv_ppo(core, params),
         "TA_PVI" => sv_pvi(core, params),
         "TA_PVO" => sv_pvo(core, params),
+        "TA_QSTICK" => sv_qstick(core, params),
         "TA_ROC" => sv_roc(core, params),
         "TA_ROCP" => sv_rocp(core, params),
         "TA_ROCR" => sv_rocr(core, params),
@@ -28794,6 +32128,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_ULTOSC" => sv_ultosc(core, params),
         "TA_VAR" => sv_var(core, params),
         "TA_VWMA" => sv_vwma(core, params),
+        "TA_WAD" => sv_wad(core, params),
         "TA_WCLPRICE" => sv_wclprice(core, params),
         "TA_WILLR" => sv_willr(core, params),
         "TA_WMA" => sv_wma(core, params),

@@ -282,7 +282,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class STDDEV_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double optInNbDev;
       double cur_outReal;
@@ -309,6 +309,19 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( STDDEV_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.optInNbDev = other.optInNbDev;
+         this.cur_outReal = other.cur_outReal;
+         if( this.sub0 == null ) {
+            this.sub0 = new VAR_Stream(other.sub0);
+         } else {
+            this.sub0.copyFrom(other.sub0);
+         }
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -321,9 +334,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
          STDDEV_Stream scratch = new STDDEV_Stream(this);
@@ -372,13 +385,11 @@
       }
       sp.cur_outReal = cur_outReal;
    }
-   private RetCode STDDEV_OpenBody( STDDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )
+   private RetCode STDDEV_OpenCore( STDDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int i = 0;
       RetCode retCode;
       double tempReal = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -404,8 +415,8 @@
       /* Calculate the variance. */
       /* Sub-stream 0: var over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      VAR_Stream sub0 = VAR_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInTimePeriod, 1.0);
-      retCode = VAR_Internal(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, sc_outReal);
+      VAR_Stream sub0 = VAR_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, 1.0, outBegIdx, outNBElement, sc_outReal);
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -441,81 +452,42 @@
       sp.optInNbDev = optInNbDev;
       sp.sub0 = sub0;
       sp.cur_outReal = sc_outReal[outNBElement.value - 1];
+      if( outStride == 1 ) System.arraycopy(sc_outReal, 0, outReal, 0, outNBElement.value);
       return RetCode.Success;
+   }
+   private RetCode STDDEV_OpenBody( STDDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return STDDEV_OpenCore( sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode STDDEV_OpenAndFillBody( STDDEV_Stream sp, double inReal[], int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int i = 0;
-      RetCode retCode;
-      double tempReal = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 5;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
-      if( optInNbDev == REAL_DEFAULT ) {
-         optInNbDev = 1e0;
-      } else if( optInNbDev < REAL_MIN || optInNbDev > REAL_MAX ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      if( historyLen < STDDEV_Lookback(optInTimePeriod, optInNbDev) + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+      return STDDEV_OpenCore( sp, inReal, 0, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode STDDEV_OpenAndFillInternalBody( STDDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return STDDEV_OpenCore(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* STDDEV_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   STDDEV_Stream STDDEV_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      STDDEV_Stream sp = new STDDEV_Stream(this);
+      RetCode retCode = STDDEV_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      double[] sc_outReal = new double[historyLen];
-      /* Calculate the variance. */
-      /* Sub-stream 0: var over `inReal`, warmed from bar 0 up to the
-       * sub-call's own startIdx (the seeding point). */
-      VAR_Stream sub0 = VAR_OpenInternal(java.util.Arrays.copyOfRange(inReal, 0, (endIdx) + 1), startIdx, optInTimePeriod, 1.0);
-      retCode = VAR_Internal(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, sc_outReal);
-      if( retCode != RetCode.Success ) {
-         return retCode ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("STDDEV openAndFill: history shorter than lookback + 1");
       }
-      /* Calculate the square root of each variance, this
-       * is the standard deviation.
-       *
-       * Multiply also by the ratio specified.
-       */
-      if( optInNbDev != 1.0 ) {
-         for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-            tempReal = sc_outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               sc_outReal[i] = Math.sqrt(tempReal) * optInNbDev;
-            } else {
-               sc_outReal[i] = (double)0.0;
-            }
-         }
-      } else {
-         for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-            tempReal = sc_outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               sc_outReal[i] = Math.sqrt(tempReal);
-            } else {
-               sc_outReal[i] = (double)0.0;
-            }
-         }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("STDDEV openAndFill: internal error");
       }
-      /* Capture the live producer state + sub handles. */
-      if( outNBElement.value < 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.optInNbDev = optInNbDev;
-      sp.sub0 = sub0;
-      sp.cur_outReal = sc_outReal[outNBElement.value - 1];
-      System.arraycopy(sc_outReal, 0, outReal, 0, outNBElement.value);
-      return RetCode.Success;
+      throw new IllegalArgumentException("STDDEV openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind STDDEV_Open (composition seam). */
    STDDEV_Stream STDDEV_OpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )

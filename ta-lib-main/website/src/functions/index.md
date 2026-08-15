@@ -68,6 +68,7 @@ All technical-analysis functions, grouped by category. Each page documents the f
 - [PLUS_DI](/functions/plus_di.md) — Plus Directional Indicator
 - [PLUS_DM](/functions/plus_dm.md) — Plus Directional Movement
 - [PPO](/functions/ppo.md) — Percentage Price Oscillator
+- [QSTICK](/functions/qstick.md) — Qstick
 - [ROC](/functions/roc.md) — Rate of change : ((price/prevPrice)-1)*100
 - [ROCP](/functions/rocp.md) — Rate of change Percentage: (price-prevPrice)/prevPrice
 - [ROCR](/functions/rocr.md) — Rate of change ratio: (price/prevPrice)
@@ -198,7 +199,10 @@ All technical-analysis functions, grouped by category. Each page documents the f
 - [AD](/functions/ad.md) — Chaikin A/D Line
 - [ADOSC](/functions/adosc.md) — Chaikin A/D Oscillator
 - [CMF](/functions/cmf.md) — Chaikin Money Flow
+- [EFI](/functions/efi.md) — Elder's Force Index
+- [MARKETFI](/functions/marketfi.md) — Market Facilitation Index
 - [NVI](/functions/nvi.md) — Negative Volume Index
 - [OBV](/functions/obv.md) — On Balance Volume
 - [PVI](/functions/pvi.md) — Positive Volume Index
 - [PVO](/functions/pvo.md) — Percentage Volume Oscillator
+- [WAD](/functions/wad.md) — Williams' Accumulation/Distribution (no volume)

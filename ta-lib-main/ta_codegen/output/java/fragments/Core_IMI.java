@@ -270,7 +270,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class IMI_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       int winPos_i;
       int winCap_i;
@@ -301,6 +301,28 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( IMI_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.winPos_i = other.winPos_i;
+         this.winCap_i = other.winCap_i;
+         if( this.win_i_inOpen != null && this.win_i_inOpen.length == other.win_i_inOpen.length ) {
+            System.arraycopy( other.win_i_inOpen, 0, this.win_i_inOpen, 0, other.win_i_inOpen.length );
+         } else {
+            this.win_i_inOpen = other.win_i_inOpen.clone();
+         }
+         if( this.win_i_inClose != null && this.win_i_inClose.length == other.win_i_inClose.length ) {
+            System.arraycopy( other.win_i_inClose, 0, this.win_i_inClose, 0, other.win_i_inClose.length );
+         } else {
+            this.win_i_inClose = other.win_i_inClose.clone();
+         }
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
+      private static final ThreadLocal<IMI_Stream> PEEK_SCRATCH = new ThreadLocal<>();
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -313,12 +335,20 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a scratch handle held per thread and
+       * reused, so the copy allocates nothing after the first peek of this
+       * indicator on this thread. That scratch is retained for the life of
+       * the thread.
        */
       public double peek( double inOpen, double inClose ) {
-         IMI_Stream scratch = new IMI_Stream(this);
+         IMI_Stream scratch = PEEK_SCRATCH.get();
+         if( scratch == null ) {
+            scratch = new IMI_Stream(this);
+            PEEK_SCRATCH.set(scratch);
+         } else {
+            scratch.copyFrom(this);
+         }
          core.IMI_StreamStep(scratch, inOpen, inClose);
          return scratch.cur_outReal;
       }
@@ -370,13 +400,10 @@
          sp.winPos_i = 0;
       }
    }
-   private RetCode IMI_OpenBody( IMI_Stream sp, double inOpen[], double inClose[], int startIdx, int optInTimePeriod )
+   private RetCode IMI_OpenCore( IMI_Stream sp, double inOpen[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int lookback = 0;
       int outIdx = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inClose.length != inOpen.length ) {
@@ -418,7 +445,7 @@
              * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
              * oscillator, so no up/down bias returns its neutral center, 50.0.
              */
-            lastValue_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+            outReal[outIdx * outStride] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
          }
          startIdx += 1;
          outIdx += 1;
@@ -438,80 +465,42 @@
       sp.winCap_i = cap_i;
       sp.win_i_inOpen = capWin_i_inOpen;
       sp.win_i_inClose = capWin_i_inClose;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode IMI_OpenBody( IMI_Stream sp, double inOpen[], double inClose[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return IMI_OpenCore( sp, inOpen, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode IMI_OpenAndFillBody( IMI_Stream sp, double inOpen[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int lookback = 0;
-      int outIdx = 0;
-      int historyLen = inOpen.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 14;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inOpen || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      outIdx = 0;
-      lookback = IMI_Lookback(optInTimePeriod);
-      if( startIdx < lookback ) {
-         startIdx = lookback;
+      return IMI_OpenCore( sp, inOpen, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode IMI_OpenAndFillInternalBody( IMI_Stream sp, double inOpen[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return IMI_OpenCore(sp, inOpen, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* IMI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   IMI_Stream IMI_OpenAndFillInternal( double inOpen[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      IMI_Stream sp = new IMI_Stream(this);
+      RetCode retCode = IMI_OpenAndFillInternalBody(sp, inOpen, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("IMI openAndFill: history shorter than lookback + 1");
       }
-      outBegIdx.value = startIdx;
-      while( startIdx <= endIdx ) {
-         double upsum = 0.0;
-         double downsum = 0.0;
-         int i;
-         for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
-            double close = inClose[i];
-            double open = inOpen[i];
-            if( close > open ) {
-               upsum += close - open;
-            } else {
-               downsum += open - close;
-            }
-            /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
-             * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
-             * oscillator, so no up/down bias returns its neutral center, 50.0.
-             */
-            outReal[outIdx] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
-         }
-         startIdx += 1;
-         outIdx += 1;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("IMI openAndFill: internal error");
       }
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      int cap_i = (int)(optInTimePeriod - 1 + 1);
-      if( cap_i < 1 || cap_i > historyLen ) {
-         return RetCode.InternalError;
-      }
-      double[] capWin_i_inOpen = new double[cap_i];
-      System.arraycopy(inOpen, historyLen - cap_i, capWin_i_inOpen, 0, cap_i);
-      double[] capWin_i_inClose = new double[cap_i];
-      System.arraycopy(inClose, historyLen - cap_i, capWin_i_inClose, 0, cap_i);
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.winPos_i = 0;
-      sp.winCap_i = cap_i;
-      sp.win_i_inOpen = capWin_i_inOpen;
-      sp.win_i_inClose = capWin_i_inClose;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("IMI openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind IMI_Open (composition seam). */
    IMI_Stream IMI_OpenInternal( double inOpen[], double inClose[], int startIdx, int optInTimePeriod )

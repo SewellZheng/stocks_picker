@@ -34,7 +34,11 @@ toolchain.
 
 The correctness baseline that all `ta_codegen` backends are verified against is the
 frozen pre-cutover reference (the `reference-pre-cutover` tag, served as `ta_ref_serve`)
-plus the hardcoded `ta_regtest` expected values.
+plus the hardcoded `ta_regtest` expected values — the latter now in two tiers: the
+hand-written per-function tables, and `ta_test_legacy_data.h`, a full-precision freeze
+of what released v0.6.4 answered over the same 252-bar series (issue #188). The freeze
+needs no git tag and no second build, so unlike `--fuzz-064` it runs in every
+`./ta_regtest`. See `src/tools/ta_regtest/CLAUDE.md`.
 
 See `ta_codegen/generator/CLAUDE.md` for ta_codegen internals and
 `src/tools/ta_regtest/CLAUDE.md` for the test-runner spec.
@@ -73,7 +77,8 @@ scripts/build.py                # C library + all C tools (CMake)
 scripts/build.py ta_regtest     # Just the C test runner (CMake)
 scripts/build.py ta_codegen     # Rust codegen tool (cargo)
 scripts/build.py generate       # Regenerate per-function source for all backends (cargo)
-scripts/build.py servers        # Generate + compile JSON-RPC language servers (cargo)
+scripts/build.py servers        # Generate + compile the JSON-RPC language servers (cargo),
+                                # and refresh bin/ta_regtest so bin/ can be driven by hand
 
 # Test
 scripts/build.py test           # C reference tests only (quick)
@@ -249,9 +254,30 @@ same build. Measured `.text` on x86-64 gcc:
 | autotools `libta-lib` | libtool | separate TUs, no LTO | not built here |
 
 3.9x between the extremes, from identical source. The generator's flags live in
-one place (`COMMON_GCC_FLAGS`, `main.rs`); `-ffp-contract=off` is set by all
-three build systems and is load-bearing for the FMA contract (PR #96), not a
-performance knob.
+one place (`COMMON_GCC_FLAGS`, `main.rs`); two flags are set by all three build
+systems (CMake, autotools, the generator) and must stay in step:
+
+- `-ffp-contract=off` — load-bearing for the FMA contract (PR #96), **not** a
+  performance knob.
+- `-fno-math-errno` — purely a performance knob (issue #192), and the one part
+  of `-ffast-math` that cannot change a value. ISO C requires `sqrt()` to set
+  `errno` on a domain error; that obligation alone is what keeps GCC from
+  emitting the bare instruction and from vectorizing any loop containing it. The
+  library never reads `errno`. Adding it took `TA_SQRT` −52% and `TA_STDDEV`
+  −24% (the sqrt map is over half of STDDEV's batch cost — `TA_VAR`, which is
+  STDDEV without the map, did not move). BBANDS, CORREL and HMA also call
+  `sqrt` and did not move: theirs is not in a vectorizable map.
+
+  Value-safety is checked by hashing every output of all 168 functions in both
+  builds. Do not weaken it to `-ffast-math` on the strength of that: the same
+  harness shows `-ffast-math` changing 70 of the 168.
+
+  It is not effect-free, though, and no output-comparing gate can see what it
+  changes. Vectorizing STDDEV's map if-converts it, so `sqrtpd` runs on lanes the
+  scalar guard skipped and raises `FE_INVALID` on a slightly-negative variance —
+  reachable on a flat stretch, where the subtraction is pure cancellation. Values
+  are unaffected. Details, and why clamping the radicand does not fix it, are in
+  `CMakeLists.txt` next to the flag.
 
 Which tool measures which:
 
@@ -281,6 +307,21 @@ unlike `ta_bench_direct`'s ratio it is not comparing two build configurations.
 ```bash
 cd bin && ./ta_bench_stream --points=20000 --iters=50
 ./ta_bench_stream --points=20000 --iters=50 --min-ratio=0.35   # exits 1 if any func is below
+```
+
+`ta_bench_stream` is **C only**. For the Rust and Java streaming tiers,
+`scripts/stream_ab.py` A/Bs `update` (or `peek`) per bar — or `open`, which times
+the whole warm-up instead of one bar — between the working tree
+and a git revision — same generated harness compiled against two copies of the
+library, interleaved rounds with alternating arm order, every streaming function
+so the untouched ones are the control. It reads only the generated Rust crate and
+Java fragments (no ta_abstract, no servers, no C build) and derives every call
+from the emitted signatures, so adding an indicator needs no edit there.
+
+```bash
+scripts/stream_ab.py --base=origin/dev                                  # both languages
+scripts/stream_ab.py --base=HEAD~1 --lang=rust --call=peek --mark=MIN,MAX
+scripts/stream_ab.py --base=origin/dev --call=open --mark=BBANDS,STDDEV   # the Open tier
 ```
 
 Current shape (168 functions): median ~1.6x, but **~25 stream slower than
@@ -314,19 +355,29 @@ for s in trend-chop-0.5p trend-chop-1p trend-chop-2p trend-chop-4p; do
 done
 ```
 
-The rolling min/max behind MIN, MAX, MINMAX, MIDPOINT, MIDPRICE, WILLR, STOCH
-and STOCHF caches the window extremum and rescans the window when that extremum
-is the bar dropping out of it, so its cost depends on how often that happens. On
-a zero-drift walk the rate decays as ~1/sqrt(period); on a trending leg it is
-set by the drift/noise ratio instead and barely moves with the period, so the
-two separate further the longer the window (1.1x the rescan rate at period 14,
-3x at period 200). `randwalk` alone cannot see that — issue #147.
+The rolling min/max caches the window extremum and rescans the window when that
+extremum is the bar dropping out of it, so its cost depends on how often that
+happens. On a zero-drift walk the rate decays as ~1/sqrt(period); on a trending
+leg it is set by the drift/noise ratio instead and barely moves with the period,
+so the two separate further the longer the window (1.1x the rescan rate at
+period 14, 3x at period 200). `randwalk` alone cannot see that — issue #147.
 
 The tail shapes are not peers: `constant` is the worst case at `2*(period-1)`
 comparisons per bar, exactly twice `mono-up`/`mono-down`. Flat input pins both
 extrema because the rescan compares with strict `>`/`<` and leaves the cached
 index on `trailingIdx`, so the `>=`/`<=` fast-path arms never run; a monotone
 ramp pins only one of the two.
+
+**Which tier that still describes** matters, because #147 replaced half of it.
+The batch tier of MIN, MAX, MINMAX, MIDPOINT, MIDPRICE and WILLR is now a Van
+Herk / Gil-Werman block scan: branchless, a fixed number of comparisons per bar
+at any period, input-independent. So for those six, `constant`, `mono-*` and
+`trend-chop-*` all cost the same through `ta_bench --language=c` (the batch
+call) and the shape sweep says nothing about them. The rescan — and everything
+above — is still what STOCH and STOCHF run, and still what the *streaming* tier
+of all six runs, which is what `ta_bench --shape=... --mode=open` and
+`ta_bench_stream`'s `update_ns` measure. Reach for the shape sweep when the arm
+under test is one of those; for the six functions' batch arm it is inert.
 
 `--shape` is opt-in and `randwalk` reproduces the pre-corpus series bit for bit,
 so a default run costs and measures exactly what it did before. `--seed` picks

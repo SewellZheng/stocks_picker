@@ -593,7 +593,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class SAR_Stream {
-      final Core core;
+      Core core;
       double optInAcceleration;
       double optInMaximum;
       int isLong;
@@ -630,6 +630,20 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( SAR_Stream other ) {
+         this.core = other.core;
+         this.optInAcceleration = other.optInAcceleration;
+         this.optInMaximum = other.optInMaximum;
+         this.isLong = other.isLong;
+         this.newHigh = other.newHigh;
+         this.newLow = other.newLow;
+         this.af = other.af;
+         this.ep = other.ep;
+         this.sar = other.sar;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -642,9 +656,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow ) {
          SAR_Stream scratch = new SAR_Stream(this);
@@ -787,7 +801,7 @@
          }
       }
    }
-   private RetCode SAR_OpenBody( SAR_Stream sp, double inHigh[], double inLow[], int startIdx, double optInAcceleration, double optInMaximum )
+   private RetCode SAR_OpenCore( SAR_Stream sp, double inHigh[], double inLow[], int startIdx, double optInAcceleration, double optInMaximum, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       RetCode retCode;
       int isLong = 0;
@@ -802,9 +816,6 @@
       double ep = 0;
       double sar = 0;
       double[] ep_temp = new double[1];
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length ) {
@@ -942,7 +953,7 @@
                   sar = newHigh;
                }
                /* Output the overide SAR */
-               lastValue_outReal = sar;
+               outReal[outIdx++ * outStride] = sar;
                /* Adjust af and ep */
                af = optInAcceleration;
                ep = newLow;
@@ -960,7 +971,7 @@
             } else {
                /* No switch */
                /* Output the SAR (was calculated in the previous iteration) */
-               lastValue_outReal = sar;
+               outReal[outIdx++ * outStride] = sar;
                /* Adjust af and ep. */
                if( newHigh > ep ) {
                   ep = newHigh;
@@ -996,7 +1007,7 @@
                sar = newLow;
             }
             /* Output the overide SAR */
-            lastValue_outReal = sar;
+            outReal[outIdx++ * outStride] = sar;
             /* Adjust af and ep */
             af = optInAcceleration;
             ep = newHigh;
@@ -1014,7 +1025,7 @@
          } else {
             /* No switch */
             /* Output the SAR (was calculated in the previous iteration) */
-            lastValue_outReal = sar;
+            outReal[outIdx++ * outStride] = sar;
             /* Adjust af and ep. */
             if( newLow < ep ) {
                ep = newLow;
@@ -1046,271 +1057,42 @@
       sp.af = af;
       sp.ep = ep;
       sp.sar = sar;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode SAR_OpenBody( SAR_Stream sp, double inHigh[], double inLow[], int startIdx, double optInAcceleration, double optInMaximum )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return SAR_OpenCore( sp, inHigh, inLow, startIdx, optInAcceleration, optInMaximum, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode SAR_OpenAndFillBody( SAR_Stream sp, double inHigh[], double inLow[], double optInAcceleration, double optInMaximum, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      RetCode retCode;
-      int isLong = 0;
-      int todayIdx = 0;
-      int outIdx = 0;
-      MInteger tempInt = new MInteger();
-      double newHigh = 0;
-      double newLow = 0;
-      double prevHigh = 0;
-      double prevLow = 0;
-      double af = 0;
-      double ep = 0;
-      double sar = 0;
-      double[] ep_temp = new double[1];
-      int historyLen = inHigh.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inLow.length != inHigh.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInAcceleration == REAL_DEFAULT ) {
-         optInAcceleration = 2e-2;
-      } else if( optInAcceleration < 0e0 || optInAcceleration > REAL_MAX ) {
-         return RetCode.BadParam;
-      }
-      if( optInMaximum == REAL_DEFAULT ) {
-         optInMaximum = 2e-1;
-      } else if( optInMaximum < 0e0 || optInMaximum > REAL_MAX ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
          return RetCode.BadParam;
       }
-      /* > 0 indicates long. == 0 indicates short */
-      /* Implementation of the SAR has been a little bit open to interpretation
-       * since Wilder (the original author) did not define a precise algorithm
-       * on how to bootstrap the algorithm. Take any existing software application
-       * and you will see slight variation on how the algorithm was adapted.
-       *
-       * What is the initial trade direction? Long or short?
-       * ===================================================
-       * The interpretation of what should be the initial SAR values is
-       * open to interpretation, particularly since the caller to the function
-       * does not specify the initial direction of the trade.
-       *
-       * In TA-Lib, the following logic is used:
-       *  - Calculate +DM and -DM between the first and
-       *    second bar. The highest directional indication will
-       *    indicate the assumed direction of the trade for the second
-       *    price bar.
-       *  - In the case of a tie between +DM and -DM,
-       *    the direction is LONG by default.
-       *
-       * What is the initial "extreme point" and thus SAR?
-       * =================================================
-       * The following shows how different people took different approach:
-       *  - Metastock use the first price bar high/low depending of
-       *    the direction. No SAR is calculated for the first price
-       *    bar.
-       *  - Tradestation use the closing price of the second bar. No
-       *    SAR are calculated for the first price bar.
-       *  - Wilder (the original author) use the SIP from the
-       *    previous trade (cannot be implement here since the
-       *    direction and length of the previous trade is unknonw).
-       *  - The Magazine TASC seems to follow Wilder approach which
-       *    is not practical here.
-       *
-       * TA-Lib "consume" the first price bar and use its high/low as the
-       * initial SAR of the second price bar. I found that approach to be
-       * the closest to Wilders idea of having the first entry day use
-       * the previous extreme point, except that here the extreme point is
-       * derived solely from the first price bar. I found the same approach
-       * to be used by Metastock.
-       */
-      /* Identify the minimum number of price bar needed
-       * to calculate at least one output.
-       *
-       * Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < 1 ) {
-         startIdx = 1;
+      return SAR_OpenCore( sp, inHigh, inLow, 0, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode SAR_OpenAndFillInternalBody( SAR_Stream sp, double inHigh[], double inLow[], int startIdx, double optInAcceleration, double optInMaximum, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return SAR_OpenCore(sp, inHigh, inLow, startIdx, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* SAR_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   SAR_Stream SAR_OpenAndFillInternal( double inHigh[], double inLow[], int startIdx, double optInAcceleration, double optInMaximum, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      SAR_Stream sp = new SAR_Stream(this);
+      RetCode retCode = SAR_OpenAndFillInternalBody(sp, inHigh, inLow, startIdx, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("SAR openAndFill: history shorter than lookback + 1");
       }
-      /* Make sure the acceleration and maximum are coherent.
-       * If not, correct the acceleration.
-       */
-      af = optInAcceleration;
-      if( af > optInMaximum ) {
-         optInAcceleration = optInMaximum;
-         af = optInAcceleration;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("SAR openAndFill: internal error");
       }
-      /* Identify if the initial direction is long or short.
-       * (ep is just used as a temp buffer here, the name
-       *  of the parameter is not significant).
-       */
-      retCode = MINUS_DM_Internal(startIdx, startIdx, inHigh, inLow, 1, tempInt, tempInt, ep_temp);
-      if( ep_temp[0] > 0 ) {
-         isLong = 0;
-      } else {
-         isLong = 1;
-      }
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
-      outBegIdx.value = startIdx;
-      outIdx = 0;
-      /* Write the first SAR. */
-      todayIdx = startIdx;
-      newHigh = inHigh[todayIdx - 1];
-      newLow = inLow[todayIdx - 1];
-      if( isLong == 1 ) {
-         ep = inHigh[todayIdx];
-         sar = newLow;
-      } else {
-         ep = inLow[todayIdx];
-         sar = newHigh;
-      }
-      /* Cheat on the newLow and newHigh for the
-       * first iteration.
-       */
-      newLow = inLow[todayIdx];
-      newHigh = inHigh[todayIdx];
-      while( todayIdx <= endIdx ) {
-         prevLow = newLow;
-         prevHigh = newHigh;
-         newLow = inLow[todayIdx];
-         newHigh = inHigh[todayIdx];
-         todayIdx += 1;
-         if( isLong == 1 ) {
-            /* Switch to short if the low penetrates the SAR value. */
-            if( newLow <= sar ) {
-               /* Switch and Overide the SAR with the ep */
-               isLong = 0;
-               sar = ep;
-               /* Make sure the overide SAR is within
-                * yesterday's and today's range.
-                */
-               if( sar < prevHigh ) {
-                  sar = prevHigh;
-               }
-               if( sar < newHigh ) {
-                  sar = newHigh;
-               }
-               /* Output the overide SAR */
-               outReal[outIdx++] = sar;
-               /* Adjust af and ep */
-               af = optInAcceleration;
-               ep = newLow;
-               /* Calculate the new SAR */
-               sar = Math.fma(af, ep - sar, sar);
-               /* Make sure the new SAR is within
-                * yesterday's and today's range.
-                */
-               if( sar < prevHigh ) {
-                  sar = prevHigh;
-               }
-               if( sar < newHigh ) {
-                  sar = newHigh;
-               }
-            } else {
-               /* No switch */
-               /* Output the SAR (was calculated in the previous iteration) */
-               outReal[outIdx++] = sar;
-               /* Adjust af and ep. */
-               if( newHigh > ep ) {
-                  ep = newHigh;
-                  af += optInAcceleration;
-                  if( af > optInMaximum ) {
-                     af = optInMaximum;
-                  }
-               }
-               /* Calculate the new SAR */
-               sar = Math.fma(af, ep - sar, sar);
-               /* Make sure the new SAR is within
-                * yesterday's and today's range.
-                */
-               if( sar > prevLow ) {
-                  sar = prevLow;
-               }
-               if( sar > newLow ) {
-                  sar = newLow;
-               }
-            }
-         /* Switch to long if the high penetrates the SAR value. */
-         } else if( newHigh >= sar ) {
-            /* Switch and Overide the SAR with the ep */
-            isLong = 1;
-            sar = ep;
-            /* Make sure the overide SAR is within
-             * yesterday's and today's range.
-             */
-            if( sar > prevLow ) {
-               sar = prevLow;
-            }
-            if( sar > newLow ) {
-               sar = newLow;
-            }
-            /* Output the overide SAR */
-            outReal[outIdx++] = sar;
-            /* Adjust af and ep */
-            af = optInAcceleration;
-            ep = newHigh;
-            /* Calculate the new SAR */
-            sar = Math.fma(af, ep - sar, sar);
-            /* Make sure the new SAR is within
-             * yesterday's and today's range.
-             */
-            if( sar > prevLow ) {
-               sar = prevLow;
-            }
-            if( sar > newLow ) {
-               sar = newLow;
-            }
-         } else {
-            /* No switch */
-            /* Output the SAR (was calculated in the previous iteration) */
-            outReal[outIdx++] = sar;
-            /* Adjust af and ep. */
-            if( newLow < ep ) {
-               ep = newLow;
-               af += optInAcceleration;
-               if( af > optInMaximum ) {
-                  af = optInMaximum;
-               }
-            }
-            /* Calculate the new SAR */
-            sar = Math.fma(af, ep - sar, sar);
-            /* Make sure the new SAR is within
-             * yesterday's and today's range.
-             */
-            if( sar < prevHigh ) {
-               sar = prevHigh;
-            }
-            if( sar < newHigh ) {
-               sar = newHigh;
-            }
-         }
-      }
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      sp.optInAcceleration = optInAcceleration;
-      sp.optInMaximum = optInMaximum;
-      sp.isLong = isLong;
-      sp.newHigh = newHigh;
-      sp.newLow = newLow;
-      sp.af = af;
-      sp.ep = ep;
-      sp.sar = sar;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("SAR openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind SAR_Open (composition seam). */
    SAR_Stream SAR_OpenInternal( double inHigh[], double inLow[], int startIdx, double optInAcceleration, double optInMaximum )

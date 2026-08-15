@@ -57,7 +57,7 @@ touching all three.
 
 | Module | Purpose |
 |--------|---------|
-| `parser` | Parses YAML metadata (via raw serde structs) into `FuncDef`; parses `.c` source directly into IR `Statement`/`Expr` (no intermediate raw-struct stage for the logic) |
+| `parser` | Parses YAML metadata (via raw serde structs) into `FuncDef`; parses `.c` source directly into IR `Statement`/`Expr` (no intermediate raw-struct stage for the logic). Also classifies every function in the file into base / `_private` / `_ALT<n>` and reads their `PRAGMA` decorations (see [Alternate implementations](#alternate-implementations-pragma-ta_alt)) |
 | `ir` | Intermediate representation (`FuncDef`, `ParamType`, `Statement`, `Expr`, etc.) |
 | `backends/c.rs` | Generates C indicator implementations (guarded `TA_<N>` / `TA_S_<N>`, plus `TA_<N>_Private` where declared) |
 | `backends/rust_lang.rs` | Generates Rust indicator implementations (concrete `f64`, guarded `<N>` plus `<N>_Private` where declared) |
@@ -177,6 +177,43 @@ JSON-RPC over stdin/stdout.
 - Multi-output support (BBANDS=3, MACD=3, STOCH=2) with `outReal`, `outReal1`, `outReal2`
 - Integer output support (CDL* patterns, MINMAXINDEX) with `outInteger`
 
+## Alternate implementations (`PRAGMA TA_ALT`)
+
+Some functions need genuinely different algorithms per API tier: the six
+rolling-extremum functions run a block-batched Van Herk scan in batch, which
+cannot be transcribed into a per-bar automaton. An input `.c` may therefore
+declare `<name>_ALT<n>` alongside `<name>`, decorated with
+`/* PRAGMA TA_ALT={<api>,<lang>} */`; the authoring contract is in
+[docs/ta_codegen_input_code.md](../../docs/ta_codegen_input_code.md).
+
+Two things about the implementation are worth knowing before touching it:
+
+**There is exactly one resolution point.** `ir::FuncDef::resolved_for(lang)`
+returns a view whose `body` is the `(BATCH, lang)` winner and whose
+`stream_source()` is the `(STREAM, lang)` winner. It is called at each language
+backend's `generate` entry (and again inside each `*_stream::generate`, which is
+idempotent and covers the callers that bypass the backend, such as
+`java_shipped::generate_core`). Everything downstream — the six stream analyzers,
+the four batch emitters, the FMA fusion-set builders, the CIRCBUF prolog lookup —
+keeps reading `body` / `stream_source()` and needs to know nothing. The
+alternative was teaching ~20 scattered selection sites about the language, where
+*missing one is silent*: it would quietly render the base.
+
+`resolved_for` pins **both** tiers even where the base wins one of them, because
+`stream_source()` falls back to `body` and `body` is about to become the batch
+winner. The SYNTH6 fixture exists partly to catch that: it is the only shape where
+an alternate claims BATCH, so a resolver that leaked the batch body into the
+stream fails there and nowhere else.
+
+**Nothing but the emitted code can prove which body won.** An alternate is
+generator input, not a symbol, so every value-comparison gate in the tree passes
+whichever body was selected. The generated file names its winner
+(`/* Using min_ALT1 for TA_ALT={STREAM,ALL_LANGUAGES} */`), but a marker is
+rendered *from* the resolution and would agree with a resolver that chose wrong.
+`tests/alt_suite.rs` therefore checks the emitted statements, using SYNTH5 and
+SYNTH6 — the same algorithm with the tiers swapped — so that no always-return-the-
+base or always-return-the-alternate bug satisfies both.
+
 ## The abstract layer: one row model, and one independent oracle
 
 Four surfaces describe the same metadata. Three of them — Rust's `abstract_api`,
@@ -193,14 +230,28 @@ derivation (its own `get_precision`, its own fallbacks, and
 descriptors), and stays the oracle. `func_api_xml` is left out for the same
 reason plus a different projection (display labels, legacy ordering).
 
-That is stronger than it first looks. `match_predefined_opt_input` keys **only**
-on `(param name, range min, range max, default)`, so for the ~80 of 122 opt slots
-that match a predefined descriptor, C's `displayName`, `hint`, `precision` and
-`suggested` triple are hand-written literals in `ta_abstract_c.rs` — not derived
-from the YAML the other three read. Editing SMA's `display_name` or its
-`suggested` triple moves three backends and not C, and the gate fails. What it
-still cannot see is a wrong `default:` or a wrong function-level `hint:`, where
-every derivation moves together.
+The dedup is a **total equality test**, and it has to stay one. C's ~20
+pre-defined `TA_DEF_UI_*` descriptors are hand-written literals, and a slot
+reuses one only when the constant already says exactly what the YAML says —
+name, display name, hint, flags, default, range, suggested triple, precision.
+Anything else gets its own descriptor carrying its own values. So a fold is pure
+`.rodata` dedup with no semantic content: matching cannot discard what the YAML
+declared, because a match means there was nothing to discard.
+
+Keying on a subset is what issue #195 was. It let a new function inherit another
+function's wording, and the divergence surfaced only after a four-language server
+build, phrased as though the server were wrong. `match_predefined_output` in the
+same file was already total; the opt-input side is now too.
+
+The price is worth naming: for a folded slot the gate can no longer fail on
+`displayName` / `hint` / `suggested`, since equality is what selected the
+descriptor. That check was only ever detecting "YAML edited, generator literal
+stale" — a condition that now causes a decline instead of a divergence. Editing
+SMA's `display_name` today shows up as a diff to `src/ta_abstract/tables/table_s.c`,
+a committed generated file the nightly `regen-check` pins. C still derives
+`range`, `default` and `precision` on its own for every bespoke slot. What no
+gate sees is a wrong `default:` or a wrong function-level `hint:`, where every
+derivation moves together.
 
 Two pieces C *does* share are shared deliberately, because an independent gate
 already covers them: `price_bundle` (its own unit tests) and the flag bit values
@@ -227,7 +278,7 @@ is concrete-`f64` only.
 |---------|---------|
 | `fn <N>_Lookback(...) -> usize` | Lookback (first valid output index) |
 | `fn <N>(...)` | Guarded public API: validates params, pre-computes optimization values, delegates |
-| `fn <N>_Private(...)` | Only where the definition declares one (`EMA_Private`). Extra pre-computed params (EMA's `k`), no validation prologue — its only caller is the guarded body above it |
+| `fn <N>_Private(...)` | Only where the definition declares one. Extra pre-computed params, no validation prologue — its only caller is the guarded body above it. No shipped indicator declares one; the construct is carried by the `SYNTH4` gate fixture (`input_synth/README.md`) |
 
 Cross-indicator calls target the **guarded** entry point, which carries the
 bounds-assert preamble; that preamble takes an empty-range escape so a call

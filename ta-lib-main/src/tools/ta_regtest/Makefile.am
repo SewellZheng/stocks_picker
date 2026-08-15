@@ -20,6 +20,7 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_stoch.c \
 	ta_test_func/test_macd.c \
 	ta_test_func/test_minmax.c \
+	ta_test_func/test_rolling_extremum.c \
 	ta_test_func/test_per_hlcv.c \
 	ta_test_func/test_per_cv.c \
 	ta_test_func/test_1in_1out.c \
@@ -37,9 +38,11 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_mavp.c \
 	ta_test_func/test_s_overflow.c \
 	ta_test_func/test_composite.c \
+	ta_test_func/test_marketfi.c \
 	ta_test_func/test_cmf.c \
 	ta_test_func/test_cmou.c \
 	ta_test_func/test_variants.c \
+	ta_test_legacy.c \
 	test_internals.c
 
 ta_regtest_CPPFLAGS = -I../../ta_func \

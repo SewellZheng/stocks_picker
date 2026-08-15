@@ -151,6 +151,159 @@ thread_local! {
     /// this — it builds and threads its own [`CRenderCtx::fma`] directly.
     static STREAM_FMA: std::cell::RefCell<Option<FmaVarSets>> =
         const { std::cell::RefCell::new(None) };
+
+    /// Every CIRCBUF the function being generated declares, in declaration
+    /// order, as `(id, storage names)`.
+    ///
+    /// `CIRCBUF_INIT` heap-allocates when the runtime size outgrows the stack
+    /// buffer, and returns `TA_ALLOC_ERR` when that fails. A function holding
+    /// more than one CIRCBUF therefore has an error path that must release the
+    /// buffers the CIRCBUFs before it already took, or the return leaks them.
+    /// That path is emitted deep in the statement walker, which sees one
+    /// statement and has no view of the function, so the order is stashed here
+    /// for the span of one `generate()` (bounded by [`CircBufOrderGuard`]) —
+    /// the same reason [`STREAM_FMA`] exists, and it covers every render path
+    /// (batch, `TA_S_`, and the stream regions) because they all render inside
+    /// that one call.
+    static CIRCBUF_ORDER: std::cell::RefCell<Vec<(String, Vec<String>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+
+    /// The CIRCBUFs of the function being generated whose cursor is never read.
+    /// See [`circbuf_index_is_used`]: these get no `<id>_Idx` / `maxIdx_<id>`
+    /// declaration and no assignment, because a variable that is only ever
+    /// written is a `-Wunused-but-set-variable` in every consumer's build.
+    static CIRCBUF_IDX_UNUSED: std::cell::RefCell<std::collections::BTreeSet<String>> =
+        const { std::cell::RefCell::new(std::collections::BTreeSet::new()) };
+}
+
+/// RAII guard installing the CIRCBUF declaration order for the current
+/// function; cleared on drop, so one function's buffers can never be freed on
+/// another's error path.
+struct CircBufOrderGuard;
+
+impl CircBufOrderGuard {
+    fn new(order: Vec<(String, Vec<String>)>, idx_unused: std::collections::BTreeSet<String>) -> Self {
+        CIRCBUF_ORDER.with(|c| *c.borrow_mut() = order);
+        CIRCBUF_IDX_UNUSED.with(|c| *c.borrow_mut() = idx_unused);
+        CircBufOrderGuard
+    }
+}
+
+impl Drop for CircBufOrderGuard {
+    fn drop(&mut self) {
+        CIRCBUF_ORDER.with(|c| c.borrow_mut().clear());
+        CIRCBUF_IDX_UNUSED.with(|c| c.borrow_mut().clear());
+    }
+}
+
+/// Collect the CIRCBUFs a body declares, in order, deduplicated by id.
+fn collect_circbuf_order(stmts: &[Statement], out: &mut Vec<(String, Vec<String>)>) {
+    for s in stmts {
+        match s {
+            Statement::CircBuf(CircBuf::Prolog { id, layout, .. }) => {
+                if !out.iter().any(|(seen, _)| seen == id) {
+                    let storages = circbuf_fields(id, layout)
+                        .into_iter()
+                        .map(|(storage, _)| storage)
+                        .collect();
+                    out.push((id.clone(), storages));
+                }
+            }
+            Statement::Block { body } => collect_circbuf_order(body, out),
+            _ => {}
+        }
+    }
+}
+
+/// Does anything in `stmts` read `<id>_Idx` or `maxIdx_<id>`?
+///
+/// A CIRCBUF used as a ring needs both — `CIRCBUF_NEXT` advances the cursor and
+/// the body indexes with it. A CIRCBUF used only as a period-sized scratch
+/// buffer (the #147 block scan indexes its two arrays directly) needs neither,
+/// and emitting them anyway costs a `-Wunused-but-set-variable` per pair.
+fn circbuf_index_is_used(stmts: &[Statement], id: &str) -> bool {
+    let idx = format!("{id}_Idx");
+    let max_idx = format!("maxIdx_{id}");
+    let mut vars = std::collections::BTreeSet::new();
+    collect_stmt_vars(stmts, &mut vars);
+    vars.contains(&idx) || vars.contains(&max_idx)
+}
+
+/// Every variable name mentioned anywhere in `stmts`. `CircBuf::Next` is the one
+/// statement whose *rendering* names the cursor without holding it in an `Expr`,
+/// so it is counted explicitly.
+fn collect_stmt_vars(stmts: &[Statement], out: &mut std::collections::BTreeSet<String>) {
+    for s in stmts {
+        match s {
+            Statement::CircBuf(CircBuf::Next { id }) => {
+                out.insert(format!("{id}_Idx"));
+                out.insert(format!("maxIdx_{id}"));
+            }
+            Statement::CircBuf(_) | Statement::UnrollHint { .. } | Statement::Comment(_)
+            | Statement::Break | Statement::Continue => {}
+            Statement::VarDecl { init, .. } => {
+                if let Some(e) = init {
+                    crate::stability::collect_vars(e, out);
+                }
+            }
+            Statement::Assign { target, value, .. } => {
+                crate::stability::collect_vars(target, out);
+                crate::stability::collect_vars(value, out);
+            }
+            Statement::While { condition, body } | Statement::DoWhile { condition, body } => {
+                crate::stability::collect_vars(condition, out);
+                collect_stmt_vars(body, out);
+            }
+            Statement::For { count, body, .. } => {
+                crate::stability::collect_vars(count, out);
+                collect_stmt_vars(body, out);
+            }
+            Statement::ForC { init, condition, update, body } => {
+                collect_stmt_vars(std::slice::from_ref(init), out);
+                collect_stmt_vars(std::slice::from_ref(update), out);
+                crate::stability::collect_vars(condition, out);
+                collect_stmt_vars(body, out);
+            }
+            Statement::If { condition, then_body, else_body, .. } => {
+                crate::stability::collect_vars(condition, out);
+                collect_stmt_vars(then_body, out);
+                collect_stmt_vars(else_body, out);
+            }
+            Statement::Switch { expr, cases, default } => {
+                crate::stability::collect_vars(expr, out);
+                for (_label, body) in cases {
+                    collect_stmt_vars(body, out);
+                }
+                collect_stmt_vars(default, out);
+            }
+            Statement::Block { body } => collect_stmt_vars(body, out),
+            Statement::Return { value } => {
+                if let Some(e) = value {
+                    crate::stability::collect_vars(e, out);
+                }
+            }
+            Statement::Expr(e) => crate::stability::collect_vars(e, out),
+        }
+    }
+}
+
+/// True when this function never reads `<id>_Idx` / `maxIdx_<id>`, so neither
+/// should be declared or assigned. Read from the same per-function stash as
+/// [`circbufs_declared_before`].
+fn circbuf_index_unused(id: &str) -> bool {
+    CIRCBUF_IDX_UNUSED.with(|c| c.borrow().contains(id))
+}
+
+/// The storage buffers of every CIRCBUF declared before `id`. These are the
+/// ones an allocation failure inside `id`'s `CIRCBUF_INIT` has to release.
+fn circbufs_declared_before(id: &str) -> Vec<String> {
+    CIRCBUF_ORDER.with(|c| {
+        c.borrow()
+            .iter()
+            .take_while(|(seen, _)| seen != id)
+            .flat_map(|(_, storages)| storages.iter().cloned())
+            .collect()
+    })
 }
 
 /// RAII guard installing the stream FMA sets for the current function; the stash
@@ -200,9 +353,43 @@ pub fn generate(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
+    // Resolve `PRAGMA TA_ALT` for this language before anything reads a body.
+    // This sits at the backend entry, not at the orchestrator, because
+    // `generate` has more than one caller (java_shipped::generate_core builds
+    // the shipped Core.java straight from the unresolved definitions) and a
+    // path that skipped resolution would silently emit the base body.
+    let resolved = func.resolved_for(crate::ir::Lang::C);
+    let func: &FuncDef = &resolved;
+    // Installed for the whole function so every CIRCBUF_INIT error path can
+    // release the buffers the CIRCBUFs before it already took.
+    let mut circbuf_order = Vec::new();
+    // The union over every body this file emits. `stream_source()` rather than
+    // `private_body`: the two are the same slice until a
+    // `PRAGMA TA_ALT={STREAM,...}` alternate exists, after which `private_body`
+    // is still the base's clone and would omit a CIRCBUF the stream declares.
+    collect_circbuf_order(func.stream_source(), &mut circbuf_order);
+    collect_circbuf_order(&func.body, &mut circbuf_order);
+    // A CIRCBUF used only as a period-sized scratch buffer never reads its
+    // cursor; declaring and assigning one anyway is a warning in every build
+    // that turns -Wunused-but-set-variable on.
+    let idx_unused: std::collections::BTreeSet<String> = circbuf_order
+        .iter()
+        .map(|(id, _)| id.clone())
+        .filter(|id| {
+            !circbuf_index_is_used(&func.body, id) && !circbuf_index_is_used(func.stream_source(), id)
+        })
+        .collect();
+    let _circbuf_order = CircBufOrderGuard::new(circbuf_order, idx_unused);
+
     let mut out = String::new();
     out.push_str(&gen_header());
     out.push_str(&gen_header_comments(func));
+    // Name the alternate that won the batch cell, when one did (see
+    // ir::FuncDef::alt_marker). The base wins for all but a handful of
+    // functions and says nothing worth a line.
+    if let Some(m) = func.alt_marker(crate::ir::Tier::Batch, crate::ir::Lang::C) {
+        out.push_str(&format!("/* {m} */\n\n"));
+    }
     out.push_str(&gen_lookback(func, enums, registry, helpers));
 
     // For functions with an explicit _private, emit Private BEFORE guarded so the
@@ -354,25 +541,49 @@ fn gen_header() -> String {
 /// out-of-range values. One source of truth for both function variants:
 /// guarded functions fail with `TA_BAD_PARAM`, lookback functions fail with
 /// `-1` (the classic lookback bad-param contract that wrappers rely on).
+///
+/// An `enum:` param additionally accepts its type's `DEFAULT` member (#182),
+/// which is the spelling the other backends use and the only one that compiles
+/// in C++ — `TA_INTEGER_DEFAULT` is an `int` with no implicit conversion to an
+/// enum type there. C keeps both, permanently: the sentinel is public header
+/// API already compiled into caller binaries.
+///
+/// Both bounds and the sentinel are emitted **by name**: `TA_INTEGER_DEFAULT`
+/// rather than the `(int)0x80000000` it expands to, and an `enum:` param's span
+/// as that enum's generated `_MIN`/`_MAX` macros rather than the numbers of the
+/// day. Every one of these prologues is a copy — five tiers times ten
+/// MAType-taking functions — so a literal bound here is a number that has to be
+/// right in a hundred places at once, and reads to anyone opening
+/// `src/ta_func/ta_MA.c` as a hand-maintained one.
 // Integer optional-param defaults and ranges are stored as `f64` in the IR; casting
 // the integer-valued ones to `i32` for literal emission is exact, not truncating.
 #[allow(clippy::cast_possible_truncation)]
-pub(crate) fn emit_opt_param_validation(func: &FuncDef, fail: &str) -> String {
+pub(crate) fn emit_opt_param_validation(
+    func: &FuncDef,
+    fail: &str,
+    enums: &HashMap<String, EnumDef>,
+) -> String {
     let mut out = String::new();
     for opt in &func.optional_inputs {
         match &opt.param_type {
             ParamType::Integer | ParamType::Enum(_) => {
                 if let Some(default_val) = opt.default {
+                    let extra = match &opt.param_type {
+                        ParamType::Enum(e) => super::common::enum_default_variant(enums, e)
+                            .map(|v| format!(" || {} == {}", opt.name, v.c_name))
+                            .unwrap_or_default(),
+                        _ => String::new(),
+                    };
                     out.push_str(&format!(
-                        "   if( (int){name} == (int)0x80000000 )\n      {name} = {val};\n",
+                        "   if( (int){name} == TA_INTEGER_DEFAULT{extra} )\n      {name} = {val};\n",
                         name = opt.name,
                         val = default_val as i32
                     ));
-                    if let Some((min, max)) = opt.range {
-                        let min_i = min as i32;
-                        let max_i = max as i32;
+                    if let Some((min, max)) =
+                        super::common::int_bound_exprs(opt, enums, crate::registry::Lang::C)
+                    {
                         out.push_str(&format!(
-                            "   else if( (int){name} < {min_i} || (int){name} > {max_i} )\n      return {fail};\n",
+                            "   else if( (int){name} < {min} || (int){name} > {max} )\n      return {fail};\n",
                             name = opt.name
                         ));
                     }
@@ -433,7 +644,7 @@ fn gen_lookback(
     // Same param validation as the guarded function, with the lookback
     // bad-param contract: out-of-range returns -1. For Code bodies it is
     // injected after the local declarations (C89 ordering).
-    let validation = emit_opt_param_validation(func, "-1");
+    let validation = emit_opt_param_validation(func, "-1", enums);
 
     let body = match &func.lookback {
         Some(LookbackExpr::Literal(n)) => format!("{validation}   return {n};\n"),
@@ -674,7 +885,7 @@ fn gen_func_inner(
         }
 
         // Optional parameter validation (default + range)
-        out.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM"));
+        out.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM", enums));
 
         // Output array NULL checks. A nullable output may legitimately be NULL
         // ("compute but don't write it" — see `Output::is_nullable`), so it is
@@ -1015,12 +1226,16 @@ impl StatementEmitter for CStmt<'_> {
             CircBuf::Next { id } => {
                 format!("{pad}{id}_Idx++;\n{pad}if( {id}_Idx > maxIdx_{id} ) {id}_Idx = 0;\n")
             }
-            // Free each heap buffer iff it was allocated (pointer != the stack buffer).
+            // Free each heap buffer iff it was allocated (pointer != the stack
+            // buffer), then point it back at the stack buffer. The reset keeps
+            // the pointer answering `!= &local_x[0]` truthfully after the free,
+            // so a later sibling's allocation failure cannot free it twice.
             CircBuf::Destroy { id, layout } => {
                 let mut s = String::new();
                 for (storage, _t) in circbuf_fields(id, layout) {
                     s.push_str(&format!(
-                        "{pad}if( {storage} != &local_{storage}[0] ) TA_Free( {storage} );\n"
+                        "{pad}if( {storage} != &local_{storage}[0] ) \
+                         {{ TA_Free( {storage} ); {storage} = &local_{storage}[0]; }}\n"
                     ));
                 }
                 s
@@ -1032,12 +1247,14 @@ impl StatementEmitter for CStmt<'_> {
                 for (storage, _t) in &fields {
                     s.push_str(&format!("{pad}{storage} = &local_{storage}[0];\n"));
                 }
-                let (first, first_t) = &fields[0];
-                let et = c_type_name(first_t);
-                s.push_str(&format!(
-                    "{pad}maxIdx_{id} = (int)(sizeof(local_{first})/sizeof({et}))-1;\n"
-                ));
-                s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
+                if !circbuf_index_unused(id) {
+                    let (first, first_t) = &fields[0];
+                    let et = c_type_name(first_t);
+                    s.push_str(&format!(
+                        "{pad}maxIdx_{id} = (int)(sizeof(local_{first})/sizeof({et}))-1;\n"
+                    ));
+                    s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
+                }
                 s
             }
             // Stack-first hybrid (ta_memory.h #else): heap-allocate only when the runtime
@@ -1054,6 +1271,11 @@ impl StatementEmitter for CStmt<'_> {
                 s.push_str(&format!(
                     "{pad}if( (int){sz} > (int)(sizeof(local_{first})/sizeof({et0})) )\n{pad}{{\n"
                 ));
+                // On failure, release everything already taken: the CIRCBUFs
+                // declared before this one (each still pointing at its stack
+                // buffer if it never allocated, so the guard makes those a
+                // no-op) and this CIRCBUF's own earlier field buffers.
+                let earlier = circbufs_declared_before(id);
                 let mut allocated: Vec<String> = Vec::new();
                 for (storage, t) in &fields {
                     let et = c_type_name(t);
@@ -1064,6 +1286,11 @@ impl StatementEmitter for CStmt<'_> {
                     for prev in &allocated {
                         s.push_str(&format!("{pad}      TA_Free( {prev} );\n"));
                     }
+                    for prev in &earlier {
+                        s.push_str(&format!(
+                            "{pad}      if( {prev} != &local_{prev}[0] ) TA_Free( {prev} );\n"
+                        ));
+                    }
                     s.push_str(&format!("{pad}      return TA_ALLOC_ERR;\n{pad}   }}\n"));
                     allocated.push(storage.clone());
                 }
@@ -1072,8 +1299,10 @@ impl StatementEmitter for CStmt<'_> {
                     s.push_str(&format!("{pad}   {storage} = &local_{storage}[0];\n"));
                 }
                 s.push_str(&format!("{pad}}}\n"));
-                s.push_str(&format!("{pad}maxIdx_{id} = ({sz}-1);\n"));
-                s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
+                if !circbuf_index_unused(id) {
+                    s.push_str(&format!("{pad}maxIdx_{id} = ({sz}-1);\n"));
+                    s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
+                }
                 s
             }
         }
@@ -1819,8 +2048,8 @@ fn render_expr(
     CExpr { ctx, registry, helpers }.walk(expr)
 }
 
-/// Render one of the boolean near-zero builtins (IS_ZERO / IS_ZERO_SCALED /
-/// IS_ZERO_OR_NEG) in C from already-rendered argument strings. This is the
+/// Render one of the boolean value builtins (the near-zero trio IS_ZERO /
+/// IS_ZERO_SCALED / IS_ZERO_OR_NEG, plus the exact IS_FINITE) in C from already-rendered argument strings. This is the
 /// single source of the C form for these predicates: both the indicator
 /// `render_func_call` path and the `eval_predicate` server handler call it, so
 /// the cross-language predicate test verifies exactly the form indicators use.
@@ -1836,6 +2065,7 @@ pub(crate) fn c_predicate_expr(which: SpecialBuiltin, args: &[String]) -> String
             }
         }
         SpecialBuiltin::IsZeroOrNeg => format!("TA_IS_ZERO_OR_NEG({a0})"),
+        SpecialBuiltin::IsFinite => format!("TA_IS_FINITE({a0})"),
         _ => "TA_IS_ZERO(0)".to_string(),
     }
 }
@@ -2062,8 +2292,9 @@ fn render_func_call(
             }
             pred @ (SpecialBuiltin::IsZero
                    | SpecialBuiltin::IsZeroScaled
-                   | SpecialBuiltin::IsZeroOrNeg) => {
-                // IS_ZERO / IS_ZERO_SCALED / IS_ZERO_OR_NEG -> the C macro form.
+                   | SpecialBuiltin::IsZeroOrNeg
+                   | SpecialBuiltin::IsFinite) => {
+                // The near-zero trio and IS_FINITE -> their ta_utility.h macro form.
                 // c_predicate_expr is the single source of that form (also used by
                 // the eval_predicate server handler), so the cross-language test
                 // exercises exactly what the indicators emit.
@@ -2313,18 +2544,28 @@ fn emit_c_var_decls(stmt: &Statement, out: &mut String, declared: &mut Vec<Strin
                     } else {
                         VarType::RealPointer
                     };
-                    out.push_str(&format!("   {};\n", c_decl(&ptr_t, &storage)));
+                    // Point at the stack buffer from the outset so `!= &local_x[0]`
+                    // is a valid question before CIRCBUF_INIT runs: a sibling's
+                    // allocation failure frees the buffers taken so far, and it
+                    // must read a defined pointer for the ones that never
+                    // allocated (or never initialized at all).
+                    out.push_str(&format!("   {} = &{local}[0];\n", c_decl(&ptr_t, &storage)));
                 }
             }
-            let idx = format!("{id}_Idx");
-            if !declared.contains(&idx) {
-                declared.push(idx.clone());
-                out.push_str(&format!("   int {idx};\n"));
-            }
-            let maxidx = format!("maxIdx_{id}");
-            if !declared.contains(&maxidx) {
-                declared.push(maxidx.clone());
-                out.push_str(&format!("   int {maxidx};\n"));
+            // Omitted entirely when nothing reads the cursor — see
+            // `circbuf_index_is_used`. CIRCBUF_INIT skips the matching
+            // assignments, so the pair is absent rather than write-only.
+            if !circbuf_index_unused(id) {
+                let idx = format!("{id}_Idx");
+                if !declared.contains(&idx) {
+                    declared.push(idx.clone());
+                    out.push_str(&format!("   int {idx};\n"));
+                }
+                let maxidx = format!("maxIdx_{id}");
+                if !declared.contains(&maxidx) {
+                    declared.push(maxidx.clone());
+                    out.push_str(&format!("   int {maxidx};\n"));
+                }
             }
         }
         _ => {}
@@ -2340,10 +2581,23 @@ mod tests {
 
     /// Helper to load a FuncDef from the ta_codegen/input directory.
     fn load_func(name: &str) -> (FuncDef, HashMap<String, EnumDef>) {
-        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+        load_func_from(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input"), name)
+    }
+
+    /// Load a synthetic gate fixture from `input_synth/` — the definitions that
+    /// carry generator constructs no shipped indicator uses (see
+    /// `input_synth/README.md`). `enums.yaml` still comes from the real input
+    /// tree; the fixtures share it.
+    fn load_synth_func(name: &str) -> (FuncDef, HashMap<String, EnumDef>) {
+        load_func_from(&Path::new(env!("CARGO_MANIFEST_DIR")).join("input_synth"), name)
+    }
+
+    fn load_func_from(base: &Path, name: &str) -> (FuncDef, HashMap<String, EnumDef>) {
         let dir = base.join(name);
         let yaml_path = dir.join(format!("{name}.yaml"));
         let c_path = dir.join(format!("{name}.c"));
+
+        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
 
         let enums_path = base.join("enums.yaml");
         let enums = if enums_path.exists() {
@@ -2390,18 +2644,20 @@ mod tests {
     #[test]
     fn test_c_private_omits_range_checks() {
         // Exactly one tier validates: the guarded entry point, not `_Private`.
-        // EMA is the one definition in ta_codegen/input/ with an explicit _private.
-        let (func, enums) = load_func("ema");
+        // No shipped indicator declares an explicit _private, so the construct
+        // is held by the SYNTH4 gate fixture (input_synth/README.md), which also
+        // carries it end-to-end through every backend in scripts/synth_gate.py.
+        let (func, enums) = load_synth_func("synth4");
         let registry = make_registry();
         let output = generate(&func, &enums, &registry, &HelperRegistry::empty());
 
         // `_Private` is emitted BEFORE the guarded body (the guarded one calls
         // it), so the private section runs from its definition to the guarded one.
         let private_start = output
-            .find("static TA_RetCode TA_EMA_Private(")
+            .find("static TA_RetCode TA_SYNTH4_Private(")
             .expect("Missing private function");
         let guarded_start = output
-            .find("TA_LIB_API TA_RetCode TA_EMA(")
+            .find("TA_LIB_API TA_RetCode TA_SYNTH4(")
             .expect("Missing guarded function");
         assert!(private_start < guarded_start, "_Private must precede its caller");
 

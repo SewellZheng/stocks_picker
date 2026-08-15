@@ -75,13 +75,15 @@ public partial class Core
    /// <param name="optInSlowK_Period">Smoothing period turning FastK into SlowK (default 3; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowK_MAType">MA type used to smooth into SlowK (default 0 = SMA; values: 0=SMA, 1=EMA,
-   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED;
-   /// <c>int.MinValue</c> selects the default).</param>
+   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+   /// 11=DEFAULT; <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects
+   /// the default).</param>
    /// <param name="optInSlowD_Period">Smoothing period for the SlowD signal line (default 3; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowD_MAType">MA type used for the SlowD line (default 0 = SMA; values: 0=SMA, 1=EMA,
-   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED;
-   /// <c>int.MinValue</c> selects the default).</param>
+   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+   /// 11=DEFAULT; <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects
+   /// the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int STOCH_Lookback( int optInFastK_Period, int optInSlowK_Period, MAType optInSlowK_MAType, int optInSlowD_Period, MAType optInSlowD_MAType )
    {
@@ -95,16 +97,20 @@ public partial class Core
       } else if( optInSlowK_Period < 1 || optInSlowK_Period > 100000 ) {
          return -1;
       }
-      if( (int)optInSlowK_MAType == int.MinValue ) {
+      if( (int)optInSlowK_MAType == int.MinValue || optInSlowK_MAType == MAType.DEFAULT ) {
          optInSlowK_MAType = MAType.SMA;
+      } else if( (int)optInSlowK_MAType < MATypes.Min || (int)optInSlowK_MAType > MATypes.Max ) {
+         return -1;
       }
       if( optInSlowD_Period == int.MinValue ) {
          optInSlowD_Period = 3;
       } else if( optInSlowD_Period < 1 || optInSlowD_Period > 100000 ) {
          return -1;
       }
-      if( (int)optInSlowD_MAType == int.MinValue ) {
+      if( (int)optInSlowD_MAType == int.MinValue || optInSlowD_MAType == MAType.DEFAULT ) {
          optInSlowD_MAType = MAType.SMA;
+      } else if( (int)optInSlowD_MAType < MATypes.Min || (int)optInSlowD_MAType > MATypes.Max ) {
+         return -1;
       }
       int retValue = 0;
       /* Account for the initial data needed for Fast-K. */
@@ -166,16 +172,20 @@ public partial class Core
       } else if( optInSlowK_Period < 1 || optInSlowK_Period > 100000 ) {
          return RetCode.BadParam;
       }
-      if( (int)optInSlowK_MAType == int.MinValue ) {
+      if( (int)optInSlowK_MAType == int.MinValue || optInSlowK_MAType == MAType.DEFAULT ) {
          optInSlowK_MAType = MAType.SMA;
+      } else if( (int)optInSlowK_MAType < MATypes.Min || (int)optInSlowK_MAType > MATypes.Max ) {
+         return RetCode.BadParam;
       }
       if( optInSlowD_Period == int.MinValue ) {
          optInSlowD_Period = 3;
       } else if( optInSlowD_Period < 1 || optInSlowD_Period > 100000 ) {
          return RetCode.BadParam;
       }
-      if( (int)optInSlowD_MAType == int.MinValue ) {
+      if( (int)optInSlowD_MAType == int.MinValue || optInSlowD_MAType == MAType.DEFAULT ) {
          optInSlowD_MAType = MAType.SMA;
+      } else if( (int)optInSlowD_MAType < MATypes.Min || (int)optInSlowD_MAType > MATypes.Max ) {
+         return RetCode.BadParam;
       }
       if( outSlowK == outSlowD ) {
          return RetCode.BadParam ;
@@ -413,16 +423,20 @@ public partial class Core
       } else if( optInSlowK_Period < 1 || optInSlowK_Period > 100000 ) {
          return RetCode.BadParam;
       }
-      if( (int)optInSlowK_MAType == int.MinValue ) {
+      if( (int)optInSlowK_MAType == int.MinValue || optInSlowK_MAType == MAType.DEFAULT ) {
          optInSlowK_MAType = MAType.SMA;
+      } else if( (int)optInSlowK_MAType < MATypes.Min || (int)optInSlowK_MAType > MATypes.Max ) {
+         return RetCode.BadParam;
       }
       if( optInSlowD_Period == int.MinValue ) {
          optInSlowD_Period = 3;
       } else if( optInSlowD_Period < 1 || optInSlowD_Period > 100000 ) {
          return RetCode.BadParam;
       }
-      if( (int)optInSlowD_MAType == int.MinValue ) {
+      if( (int)optInSlowD_MAType == int.MinValue || optInSlowD_MAType == MAType.DEFAULT ) {
          optInSlowD_MAType = MAType.SMA;
+      } else if( (int)optInSlowD_MAType < MATypes.Min || (int)optInSlowD_MAType > MATypes.Max ) {
+         return RetCode.BadParam;
       }
       if( outSlowK == outSlowD ) {
          return RetCode.BadParam ;
@@ -549,13 +563,15 @@ public partial class Core
    /// <param name="optInSlowK_Period">Smoothing period turning FastK into SlowK (default 3; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowK_MAType">MA type used to smooth into SlowK (default 0 = SMA; values: 0=SMA, 1=EMA,
-   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED;
-   /// <c>int.MinValue</c> selects the default).</param>
+   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+   /// 11=DEFAULT; <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects
+   /// the default).</param>
    /// <param name="optInSlowD_Period">Smoothing period for the SlowD signal line (default 3; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowD_MAType">MA type used for the SlowD line (default 0 = SMA; values: 0=SMA, 1=EMA,
-   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED;
-   /// <c>int.MinValue</c> selects the default).</param>
+   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+   /// 11=DEFAULT; <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects
+   /// the default).</param>
    /// <param name="outSlowK">Raw FastK smoothed by SlowK_Period MA. Must hold at least <c>endIdx -
    /// startIdx + 1</c> values.</param>
    /// <param name="outSlowD">Signal line: SlowK smoothed by SlowD_Period MA. Must hold at least
@@ -627,13 +643,15 @@ public partial class Core
    /// <param name="optInSlowK_Period">Smoothing period turning FastK into SlowK (default 3; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowK_MAType">MA type used to smooth into SlowK (default 0 = SMA; values: 0=SMA, 1=EMA,
-   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED;
-   /// <c>int.MinValue</c> selects the default).</param>
+   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+   /// 11=DEFAULT; <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects
+   /// the default).</param>
    /// <param name="optInSlowD_Period">Smoothing period for the SlowD signal line (default 3; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowD_MAType">MA type used for the SlowD line (default 0 = SMA; values: 0=SMA, 1=EMA,
-   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED;
-   /// <c>int.MinValue</c> selects the default).</param>
+   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+   /// 11=DEFAULT; <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects
+   /// the default).</param>
    /// <param name="outSlowK">Raw FastK smoothed by SlowK_Period MA. Must hold at least <c>endIdx -
    /// startIdx + 1</c> values.</param>
    /// <param name="outSlowD">Signal line: SlowK smoothed by SlowD_Period MA. Must hold at least

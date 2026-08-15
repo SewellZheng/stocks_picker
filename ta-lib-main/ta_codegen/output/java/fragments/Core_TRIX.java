@@ -390,7 +390,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class TRIX_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double prevEMA1;
       double prevEMA2;
@@ -421,6 +421,17 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( TRIX_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.prevEMA1 = other.prevEMA1;
+         this.prevEMA2 = other.prevEMA2;
+         this.prevEMA3 = other.prevEMA3;
+         this.optInK_1 = other.optInK_1;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -433,9 +444,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
          TRIX_Stream scratch = new TRIX_Stream(this);
@@ -473,7 +484,7 @@
          sp.cur_outReal = 0.0;
       }
    }
-   private RetCode TRIX_OpenBody( TRIX_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode TRIX_OpenCore( TRIX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double prevEMA1 = 0;
       double prevEMA2 = 0;
@@ -485,9 +496,6 @@
       int outIdx = 0;
       int lookbackEMA = 0;
       int lookbackTotal = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -588,9 +596,9 @@
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
          prevEMA3 = Math.fma(prevEMA2 - prevEMA3, optInK_1, prevEMA3);
          if( tempReal != 0.0 ) {
-            lastValue_outReal = (prevEMA3 / tempReal - 1.0) * 100.0;
+            outReal[outIdx++ * outStride] = (prevEMA3 / tempReal - 1.0) * 100.0;
          } else {
-            lastValue_outReal = 0.0;
+            outReal[outIdx++ * outStride] = 0.0;
          }
       }
       /* Succeed. Indicate where the output starts relative to
@@ -604,143 +612,42 @@
       sp.prevEMA2 = prevEMA2;
       sp.prevEMA3 = prevEMA3;
       sp.optInK_1 = optInK_1;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode TRIX_OpenBody( TRIX_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return TRIX_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode TRIX_OpenAndFillBody( TRIX_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      double prevEMA1 = 0;
-      double prevEMA2 = 0;
-      double prevEMA3 = 0;
-      double tempReal = 0;
-      double optInK_1 = 0;
-      int i = 0;
-      int today = 0;
-      int outIdx = 0;
-      int lookbackEMA = 0;
-      int lookbackTotal = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 30;
-      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      /* TRIX = 1-day percent rate-of-change of a triple EMA. */
-      /* Will change only on success. */
-      outNBElement.value = 0;
-      outBegIdx.value = 0;
-      /* Adjust startIdx to account for the lookback period. */
-      lookbackEMA = EMA_Lookback(optInTimePeriod);
-      lookbackTotal = lookbackEMA * 3 + ROCR_Lookback(1);
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
+      return TRIX_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode TRIX_OpenAndFillInternalBody( TRIX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return TRIX_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* TRIX_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   TRIX_Stream TRIX_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      TRIX_Stream sp = new TRIX_Stream(this);
+      RetCode retCode = TRIX_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("TRIX openAndFill: history shorter than lookback + 1");
       }
-      /* Single lockstep pass: EMA1 feeds EMA2 feeds EMA3, output is the
-       * roc() of consecutive EMA3 values. Output element j is the TRIX
-       * of bar startIdx+j (fix #98). The arithmetic order below is the
-       * bit-exactness contract — do not reorder or fuse operations; the
-       * seed sums accumulate from 0.0 in production order (0.0+x is not
-       * x for x=-0.0). In-place safe: outReal[outIdx] is written after
-       * inReal[startIdx+outIdx] was read.
-       */
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
-      /* Seed EMA1 with a simple average of the first
-       * 'period' price bars.
-       */
-      today = startIdx - lookbackTotal;
-      i = optInTimePeriod;
-      tempReal = 0.0;
-      while( i-- > 0 ) {
-         tempReal += inReal[today++];
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("TRIX openAndFill: internal error");
       }
-      prevEMA1 = tempReal / optInTimePeriod;
-      /* Advance EMA1 alone through its unstable period, up to
-       * the bar where EMA2 seeding begins.
-       */
-      while( today <= startIdx - (lookbackEMA * 2 + 1) ) {
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-      }
-      /* Seed EMA2 with a simple average of the first 'period'
-       * EMA1 values, accumulated as EMA1 produces them.
-       */
-      tempReal = 0.0;
-      tempReal += prevEMA1;
-      i = optInTimePeriod - 1;
-      while( i-- > 0 ) {
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         tempReal += prevEMA1;
-      }
-      prevEMA2 = tempReal / optInTimePeriod;
-      /* Advance EMA1 and EMA2 in lockstep through the unstable
-       * period of EMA2, up to the bar where EMA3 seeding begins.
-       */
-      while( today <= startIdx - (lookbackEMA + 1) ) {
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-      }
-      /* Seed EMA3 with a simple average of the first 'period'
-       * EMA2 values, accumulated as EMA2 produces them.
-       */
-      tempReal = 0.0;
-      tempReal += prevEMA2;
-      i = optInTimePeriod - 1;
-      while( i-- > 0 ) {
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-         tempReal += prevEMA2;
-      }
-      prevEMA3 = tempReal / optInTimePeriod;
-      /* Advance all three EMA in lockstep through the unstable
-       * period of EMA3, up to the bar before the first output.
-       */
-      while( today <= startIdx - 1 ) {
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-         prevEMA3 = Math.fma(prevEMA2 - prevEMA3, optInK_1, prevEMA3);
-      }
-      /* Stable zone: keep advancing the three EMA in lockstep and
-       * write the 1-day rate-of-change of EMA3 into the output.
-       */
-      outIdx = 0;
-      while( today <= endIdx ) {
-         tempReal = prevEMA3;
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-         prevEMA3 = Math.fma(prevEMA2 - prevEMA3, optInK_1, prevEMA3);
-         if( tempReal != 0.0 ) {
-            outReal[outIdx++] = (prevEMA3 / tempReal - 1.0) * 100.0;
-         } else {
-            outReal[outIdx++] = 0.0;
-         }
-      }
-      /* Succeed. Indicate where the output starts relative to
-       * the caller input.
-       */
-      outBegIdx.value = startIdx;
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.prevEMA1 = prevEMA1;
-      sp.prevEMA2 = prevEMA2;
-      sp.prevEMA3 = prevEMA3;
-      sp.optInK_1 = optInK_1;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("TRIX openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind TRIX_Open (composition seam). */
    TRIX_Stream TRIX_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )

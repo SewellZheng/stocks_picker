@@ -67,16 +67,18 @@
 TA_LIB_API int TA_STOCHF_Lookback( int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType )
 {
    int retValue;
-   if( (int)optInFastK_Period == (int)0x80000000 )
+   if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
       optInFastK_Period = 5;
    else if( (int)optInFastK_Period < 1 || (int)optInFastK_Period > 100000 )
       return -1;
-   if( (int)optInFastD_Period == (int)0x80000000 )
+   if( (int)optInFastD_Period == TA_INTEGER_DEFAULT )
       optInFastD_Period = 3;
    else if( (int)optInFastD_Period < 1 || (int)optInFastD_Period > 100000 )
       return -1;
-   if( (int)optInFastD_MAType == (int)0x80000000 )
+   if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT || optInFastD_MAType == TA_MAType_DEFAULT )
       optInFastD_MAType = 0;
+   else if( (int)optInFastD_MAType < TA_MATYPE_MIN || (int)optInFastD_MAType > TA_MATYPE_MAX )
+      return -1;
    /* Account for the initial data needed for Fast-K. */
    retValue = optInFastK_Period - 1;
    /* Add the smoothing being done for Fast-D */
@@ -125,16 +127,18 @@ TA_LIB_API TA_RetCode TA_STOCHF( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInFastK_Period == (int)0x80000000 )
+   if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
       optInFastK_Period = 5;
    else if( (int)optInFastK_Period < 1 || (int)optInFastK_Period > 100000 )
       return TA_BAD_PARAM;
-   if( (int)optInFastD_Period == (int)0x80000000 )
+   if( (int)optInFastD_Period == TA_INTEGER_DEFAULT )
       optInFastD_Period = 3;
    else if( (int)optInFastD_Period < 1 || (int)optInFastD_Period > 100000 )
       return TA_BAD_PARAM;
-   if( (int)optInFastD_MAType == (int)0x80000000 )
+   if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT || optInFastD_MAType == TA_MAType_DEFAULT )
       optInFastD_MAType = 0;
+   else if( (int)optInFastD_MAType < TA_MATYPE_MIN || (int)optInFastD_MAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
    if( !outFastK )
       return TA_BAD_PARAM;
    if( !outFastD )
@@ -385,16 +389,18 @@ TA_RetCode TA_S_STOCHF( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInFastK_Period == (int)0x80000000 )
+   if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
       optInFastK_Period = 5;
    else if( (int)optInFastK_Period < 1 || (int)optInFastK_Period > 100000 )
       return TA_BAD_PARAM;
-   if( (int)optInFastD_Period == (int)0x80000000 )
+   if( (int)optInFastD_Period == TA_INTEGER_DEFAULT )
       optInFastD_Period = 3;
    else if( (int)optInFastD_Period < 1 || (int)optInFastD_Period > 100000 )
       return TA_BAD_PARAM;
-   if( (int)optInFastD_MAType == (int)0x80000000 )
+   if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT || optInFastD_MAType == TA_MAType_DEFAULT )
       optInFastD_MAType = 0;
+   else if( (int)optInFastD_MAType < TA_MATYPE_MIN || (int)optInFastD_MAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
    if( !outFastK )
       return TA_BAD_PARAM;
    if( !outFastD )
@@ -533,6 +539,8 @@ struct TA_STOCHF_Stream {
    int i;
    int today;
    int xCap;
+   int xPhys;
+   int xMask;
    double *x_inHigh;
    double *xMirror_inHigh;
    double *x_inLow;
@@ -568,26 +576,26 @@ static void TA_STOCHF_StepInternal( struct TA_STOCHF_Stream *sp, double inHigh, 
 
    if( sp->today >= 1073741824 )
    {
-      int rebaseShift = ( sp->trailingIdx / sp->xCap ) * sp->xCap;
+      int rebaseShift = sp->trailingIdx & ~sp->xMask;
       sp->today -= rebaseShift;
       sp->trailingIdx -= rebaseShift;
       sp->highestIdx -= rebaseShift;
       sp->i -= rebaseShift;
       sp->lowestIdx -= rebaseShift;
    }
-   sp->x_inHigh[sp->today % sp->xCap] = inHigh;
-   sp->x_inLow[sp->today % sp->xCap] = inLow;
-   sp->x_inClose[sp->today % sp->xCap] = inClose;
+   sp->x_inHigh[sp->today & sp->xMask] = inHigh;
+   sp->x_inLow[sp->today & sp->xMask] = inLow;
+   sp->x_inClose[sp->today & sp->xMask] = inClose;
    /* Set the lowest low */
-   tmp = sp->x_inLow[sp->today % sp->xCap];
+   tmp = sp->x_inLow[sp->today & sp->xMask];
    if( sp->lowestIdx < sp->trailingIdx )
    {
       sp->lowestIdx = sp->trailingIdx;
-      sp->lowest = sp->x_inLow[sp->lowestIdx % sp->xCap];
+      sp->lowest = sp->x_inLow[sp->lowestIdx & sp->xMask];
       sp->i = sp->lowestIdx;
       while( ++sp->i <= sp->today )
       {
-         tmp = sp->x_inLow[sp->i % sp->xCap];
+         tmp = sp->x_inLow[sp->i & sp->xMask];
          if( tmp < sp->lowest )
          {
             sp->lowestIdx = sp->i;
@@ -602,15 +610,15 @@ static void TA_STOCHF_StepInternal( struct TA_STOCHF_Stream *sp, double inHigh, 
       sp->diff = (sp->highest - sp->lowest) / 100.0;
    }
    /* Set the highest high */
-   tmp = sp->x_inHigh[sp->today % sp->xCap];
+   tmp = sp->x_inHigh[sp->today & sp->xMask];
    if( sp->highestIdx < sp->trailingIdx )
    {
       sp->highestIdx = sp->trailingIdx;
-      sp->highest = sp->x_inHigh[sp->highestIdx % sp->xCap];
+      sp->highest = sp->x_inHigh[sp->highestIdx & sp->xMask];
       sp->i = sp->highestIdx;
       while( ++sp->i <= sp->today )
       {
-         tmp = sp->x_inHigh[sp->i % sp->xCap];
+         tmp = sp->x_inHigh[sp->i & sp->xMask];
          if( tmp > sp->highest )
          {
             sp->highestIdx = sp->i;
@@ -630,7 +638,7 @@ static void TA_STOCHF_StepInternal( struct TA_STOCHF_Stream *sp, double inHigh, 
     */
    if( !TA_IS_ZERO(sp->diff) )
    {
-      cur_tempBuffer = (sp->x_inClose[sp->today % sp->xCap] - sp->lowest) / sp->diff;
+      cur_tempBuffer = (sp->x_inClose[sp->today & sp->xMask] - sp->lowest) / sp->diff;
    } else 
    {
       cur_tempBuffer = 0.0;
@@ -647,8 +655,7 @@ static void TA_STOCHF_StepInternal( struct TA_STOCHF_Stream *sp, double inHigh, 
    *outFastD = cur_outFastD;
 }
 
-/* Private function, not in public API. */
-TA_RetCode TA_STOCHF_OpenInternal( struct TA_STOCHF_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, double *outFastK, double *outFastD )
+static TA_RetCode TA_STOCHF_OpenCore( struct TA_STOCHF_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, int *outBegIdx, int *outNBElement, double outFastK[], double outFastD[], int outStride )
 {
    struct TA_STOCHF_Stream *sp;
    int endIdx;
@@ -665,16 +672,18 @@ TA_RetCode TA_STOCHF_OpenInternal( struct TA_STOCHF_Stream **stream, const doubl
    if( !inHigh || !inLow || !inClose || !outFastK || !outFastD ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (int)optInFastK_Period == (int)0x80000000 )
+   if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
       optInFastK_Period = 5;
    else if( (int)optInFastK_Period < 1 || (int)optInFastK_Period > 100000 )
       return TA_BAD_PARAM;
-   if( (int)optInFastD_Period == (int)0x80000000 )
+   if( (int)optInFastD_Period == TA_INTEGER_DEFAULT )
       optInFastD_Period = 3;
    else if( (int)optInFastD_Period < 1 || (int)optInFastD_Period > 100000 )
       return TA_BAD_PARAM;
-   if( (int)optInFastD_MAType == (int)0x80000000 )
+   if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT || optInFastD_MAType == TA_MAType_DEFAULT )
       optInFastD_MAType = 0;
+   else if( (int)optInFastD_MAType < TA_MATYPE_MIN || (int)optInFastD_MAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -872,7 +881,7 @@ TA_RetCode TA_STOCHF_OpenInternal( struct TA_STOCHF_Stream **stream, const doubl
       /* Sub-stream 0: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       {
-         subRc = TA_MA_OpenInternal( &sub0, tempBuffer, (0), (outIdx - 1) + 1, optInFastD_Period, optInFastD_MAType, &subOpenDummy );
+         subRc = TA_MA_OpenAndFillInternal( &sub0, tempBuffer, (0), (outIdx - 1) + 1, optInFastD_Period, optInFastD_MAType, &dummyBegIdx, &dummyNBElement, sc_outFastD );
          if( subRc != TA_SUCCESS )
          {
             if( bufferIsAllocated )
@@ -883,7 +892,7 @@ TA_RetCode TA_STOCHF_OpenInternal( struct TA_STOCHF_Stream **stream, const doubl
             return subRc;
          }
       }
-      retCode = TA_MA(0,outIdx - 1,tempBuffer,optInFastD_Period,optInFastD_MAType,&dummyBegIdx,&dummyNBElement,sc_outFastD);
+      retCode = subRc;
       if( retCode != TA_SUCCESS || (int)dummyNBElement == 0 )
       {
          if( bufferIsAllocated )
@@ -941,34 +950,58 @@ TA_RetCode TA_STOCHF_OpenInternal( struct TA_STOCHF_Stream **stream, const doubl
       sp->today = today;
       sp->xCap = (int)(today - trailingIdx) + 1;
       if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
-      sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->xPhys = 1;
+      while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
+      sp->xMask = sp->xPhys - 1;
+      sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inHigh ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->xMirror_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->xMirror_inHigh ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->x_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->x_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inLow ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->xMirror_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->xMirror_inLow ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->x_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->x_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inClose ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->xMirror_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->xMirror_inClose ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
-           sp->x_inHigh[fillJ % sp->xCap] = inHigh[fillJ];
-           sp->x_inLow[fillJ % sp->xCap] = inLow[fillJ];
-           sp->x_inClose[fillJ % sp->xCap] = inClose[fillJ];
+           sp->x_inHigh[fillJ & sp->xMask] = inHigh[fillJ];
+           sp->x_inLow[fillJ & sp->xMask] = inLow[fillJ];
+           sp->x_inClose[fillJ & sp->xMask] = inClose[fillJ];
         }
       }
       sp->sub0 = sub0;
-      *outFastK = sc_outFastK[dummyNBElement - 1];
-      *outFastD = sc_outFastD[dummyNBElement - 1];
+      *outBegIdx = dummyBegIdx;
+      *outNBElement = dummyNBElement;
+      if( outStride ) memcpy( outFastK, sc_outFastK, sizeof(double) * (size_t)dummyNBElement );
+      else outFastK[0] = sc_outFastK[dummyNBElement - 1];
+      if( outStride ) memcpy( outFastD, sc_outFastD, sizeof(double) * (size_t)dummyNBElement );
+      else outFastD[0] = sc_outFastD[dummyNBElement - 1];
       TA_Free( sc_outFastK );
       TA_Free( sc_outFastD );
       *stream = sp;
       return TA_SUCCESS;
    }
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_STOCHF_OpenInternal( struct TA_STOCHF_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, double *outFastK, double *outFastD )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outFastK = 0.0;
+   double sink_outFastD = 0.0;
+   retCode = TA_STOCHF_OpenCore( stream, inHigh, inLow, inClose, startIdx, historyLen, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &dummyBegIdx, &dummyNBElement, &sink_outFastK, &sink_outFastD, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outFastK = sink_outFastK;
+      *outFastD = sink_outFastD;
+   }
+   return retCode;
 }
 
 TA_LIB_API TA_RetCode TA_STOCHF_Open( TA_STOCHF_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, double *outFastK, double *outFastD )
@@ -978,330 +1011,17 @@ TA_LIB_API TA_RetCode TA_STOCHF_Open( TA_STOCHF_Stream **stream, const double in
 
 TA_LIB_API TA_RetCode TA_STOCHF_OpenAndFill( TA_STOCHF_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, int *outBegIdx, int *outNBElement, double outFastK[], double outFastD[] )
 {
-   struct TA_STOCHF_Stream *sp;
-   int endIdx;
-   int startIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
-   TA_RetCode subRc;
-   double subOpenDummy;
-   double *sc_outFastK;
-   double *sc_outFastD;
-   TA_MA_Stream *sub0;
-
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outFastK || !outFastD || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !outBegIdx || !outNBElement || !outFastK || !outFastD ) return TA_BAD_PARAM;
    if( (const void *)outFastK == (const void *)inHigh || (const void *)outFastK == (const void *)inLow || (const void *)outFastK == (const void *)inClose || (const void *)outFastD == (const void *)inHigh || (const void *)outFastD == (const void *)inLow || (const void *)outFastD == (const void *)inClose || (const void *)outFastK == (const void *)outFastD ) return TA_BAD_PARAM;
-   if( (int)optInFastK_Period == (int)0x80000000 )
-      optInFastK_Period = 5;
-   else if( (int)optInFastK_Period < 1 || (int)optInFastK_Period > 100000 )
-      return TA_BAD_PARAM;
-   if( (int)optInFastD_Period == (int)0x80000000 )
-      optInFastD_Period = 3;
-   else if( (int)optInFastD_Period < 1 || (int)optInFastD_Period > 100000 )
-      return TA_BAD_PARAM;
-   if( (int)optInFastD_MAType == (int)0x80000000 )
-      optInFastD_MAType = 0;
+   return TA_STOCHF_OpenCore( stream, inHigh, inLow, inClose, 0, historyLen, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD, 1 );
+}
 
-   endIdx = historyLen - 1;
-   startIdx = 0;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   subRc = TA_SUCCESS;
-   subOpenDummy = 0.0;
-   sub0 = NULL;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement; (void)subRc; (void)subOpenDummy;
-   sc_outFastK = (double *)TA_Malloc( sizeof(double) * (size_t)historyLen );
-   if( !sc_outFastK ) { return TA_ALLOC_ERR; }
-   sc_outFastD = (double *)TA_Malloc( sizeof(double) * (size_t)historyLen );
-   if( !sc_outFastD ) { TA_Free( sc_outFastK ); return TA_ALLOC_ERR; }
-
-   {
-      TA_RetCode retCode;
-      double lowest;
-      double highest;
-      double tmp;
-      double diff;
-      double *tempBuffer;
-      int outIdx;
-      int lowestIdx;
-      int highestIdx;
-      int lookbackTotal;
-      int lookbackK;
-      int lookbackFastD;
-      int trailingIdx;
-      int today;
-      int i;
-      int bufferIsAllocated;
-      /* With stochastic, there is a total of 4 different lines that
-       * are defined: FASTK, FASTD, SLOWK and SLOWD.
-       *
-       * The D is the signal line usually drawn over its
-       * corresponding K function.
-       *
-       *                    (Today's Close - LowestLow)
-       *  FASTK(Kperiod) =  --------------------------- * 100
-       *                     (HighestHigh - LowestLow)
-       *
-       *  FASTD(FastDperiod, MA type) = MA Smoothed FASTK over FastDperiod
-       *
-       *  SLOWK(SlowKperiod, MA type) = MA Smoothed FASTK over SlowKperiod
-       *
-       *  SLOWD(SlowDperiod, MA Type) = MA Smoothed SLOWK over SlowDperiod
-       *
-       * The HighestHigh and LowestLow are the extreme values among the
-       * last 'Kperiod'.
-       *
-       * SLOWK and FASTD are equivalent when using the same period.
-       *
-       * The following shows how these four lines are made available in TA-LIB:
-       *
-       *  TA_STOCH  : Returns the SLOWK and SLOWD
-       *  TA_STOCHF : Returns the FASTK and FASTD
-       *
-       * The TA_STOCH function correspond to the more widely implemented version
-       * found in many software/charting package. The TA_STOCHF is more rarely
-       * used because its higher volatility cause often whipsaws.
-       */
-      /* Identify the lookback needed. */
-      lookbackK = optInFastK_Period - 1;
-      lookbackFastD = TA_MA_Lookback(optInFastD_Period,optInFastD_MAType);
-      lookbackTotal = lookbackK + lookbackFastD;
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < lookbackTotal )
-      {
-         startIdx = lookbackTotal;
-      }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx )
-      {
-         /* Succeed... but no data in the output. */
-         dummyBegIdx = 0;
-         dummyNBElement = 0;
-         TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD );
-         return TA_BAD_PARAM;
-      }
-      /* Do the K calculation:
-       *
-       *    Kt = 100 x ((Ct-Lt)/(Ht-Lt))
-       *
-       * Kt is today stochastic
-       * Ct is today closing price.
-       * Lt is the lowest price of the last K Period (including today)
-       * Ht is the highest price of the last K Period (including today)
-       */
-      /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the input and
-       * output to be the same buffer.
-       */
-      outIdx = 0;
-      /* Calculate just enough K for ending up with the caller
-       * requested range. (The range of k must consider all
-       * the lookback involve with the smoothing).
-       */
-      trailingIdx = startIdx - lookbackTotal;
-      today = trailingIdx + lookbackK;
-      highestIdx = 0 - 1;
-      lowestIdx = highestIdx;
-      lowest = 0.0;
-      highest = lowest;
-      diff = highest;
-      /* Allocate a temporary buffer large enough to
-       * store the K.
-       *
-       * When outFastK aliases a price input the caller buffer doubles as the
-       * scratch, saving one allocation: the K writes trail the min/max window
-       * reads, and the final memmove is overlap-safe. outFastD must NOT be
-       * elected: the %D ma() below would then run in place over the raw K
-       * that the memmove into outFastK still needs (issue #130).
-       */
-      bufferIsAllocated = 0;
-      if( sc_outFastK == inHigh || sc_outFastK == inLow || sc_outFastK == inClose )
-      {
-         tempBuffer = sc_outFastK;
-      } else 
-      {
-         bufferIsAllocated = 1;
-         tempBuffer = malloc((endIdx - today + 1) * sizeof(double));
-         if( !tempBuffer )
-         {
-            TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD );
-            return TA_ALLOC_ERR;
-         }
-      }
-      /* Do the K calculation */
-      while( today <= endIdx )
-      {
-         /* Set the lowest low */
-         tmp = inLow[today];
-         if( lowestIdx < trailingIdx )
-         {
-            lowestIdx = trailingIdx;
-            lowest = inLow[lowestIdx];
-            i = lowestIdx;
-            while( ++i <= today )
-            {
-               tmp = inLow[i];
-               if( tmp < lowest )
-               {
-                  lowestIdx = i;
-                  lowest = tmp;
-               }
-            }
-            diff = (highest - lowest) / 100.0;
-         } else if( tmp <= lowest )
-         {
-            lowestIdx = today;
-            lowest = tmp;
-            diff = (highest - lowest) / 100.0;
-         }
-         /* Set the highest high */
-         tmp = inHigh[today];
-         if( highestIdx < trailingIdx )
-         {
-            highestIdx = trailingIdx;
-            highest = inHigh[highestIdx];
-            i = highestIdx;
-            while( ++i <= today )
-            {
-               tmp = inHigh[i];
-               if( tmp > highest )
-               {
-                  highestIdx = i;
-                  highest = tmp;
-               }
-            }
-            diff = (highest - lowest) / 100.0;
-         } else if( tmp >= highest )
-         {
-            highestIdx = today;
-            highest = tmp;
-            diff = (highest - lowest) / 100.0;
-         }
-         /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-          * a machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI).
-          */
-         if( !TA_IS_ZERO(diff) )
-         {
-            tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
-         } else 
-         {
-            tempBuffer[outIdx++] = 0.0;
-         }
-         trailingIdx += 1;
-         today += 1;
-      }
-      /* Fast-K calculation completed. This K calculation is returned
-       * to the caller. It is smoothed to become Fast-D.
-       */
-      /* Sub-stream 0: ma over `tempBuffer`, warmed from bar 0 up to the
-       * sub-call's own startIdx (the seeding point). */
-      {
-         subRc = TA_MA_OpenInternal( &sub0, tempBuffer, (0), (outIdx - 1) + 1, optInFastD_Period, optInFastD_MAType, &subOpenDummy );
-         if( subRc != TA_SUCCESS )
-         {
-            if( bufferIsAllocated )
-            {
-               free(tempBuffer);
-            }
-            TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD );
-            return subRc;
-         }
-      }
-      retCode = TA_MA(0,outIdx - 1,tempBuffer,optInFastD_Period,optInFastD_MAType,&dummyBegIdx,&dummyNBElement,sc_outFastD);
-      if( retCode != TA_SUCCESS || (int)dummyNBElement == 0 )
-      {
-         if( bufferIsAllocated )
-         {
-            free(tempBuffer);
-         }
-         /* Something wrong happen? No further data? */
-         dummyBegIdx = 0;
-         dummyNBElement = 0;
-         TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD );
-         return retCode;
-      }
-      /* Copy tempBuffer into the caller buffer.
-       * (Calculation could not be done directly in the
-       *  caller buffer because more input data then the
-       *  requested range was needed for doing %D).
-       */
-      /* memmove, not memcpy: tempBuffer aliases outFastK when the caller buffer is
-       * reused as scratch, so source and destination overlap (issue #94).
-       */
-      memmove(sc_outFastK,&tempBuffer[lookbackFastD],(int)dummyNBElement * sizeof(double));
-      /* Don't need K anymore, free it if it was allocated here. */
-      if( bufferIsAllocated )
-      {
-         free(tempBuffer);
-      }
-      if( retCode != TA_SUCCESS )
-      {
-         /* Something wrong happen while processing %D? */
-         dummyBegIdx = 0;
-         dummyNBElement = 0;
-         TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD );
-         return retCode;
-      }
-      /* Note: Keep the outBegIdx relative to the
-       *       caller input before returning.
-       */
-      dummyBegIdx = startIdx;
-
-      /* Capture the live producer state + sub handles. */
-      if( dummyNBElement < 1 ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); return TA_BAD_PARAM; }
-      sp = (struct TA_STOCHF_Stream *)TA_Malloc( sizeof(*sp) );
-      if( !sp ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); return TA_ALLOC_ERR; }
-      memset( sp, 0, sizeof(*sp) );
-      sp->optInFastK_Period = optInFastK_Period;
-      sp->optInFastD_Period = optInFastD_Period;
-      sp->optInFastD_MAType = optInFastD_MAType;
-      sp->lowest = lowest;
-      sp->highest = highest;
-      sp->diff = diff;
-      sp->lowestIdx = lowestIdx;
-      sp->highestIdx = highestIdx;
-      sp->trailingIdx = trailingIdx;
-      sp->i = i;
-      sp->today = today;
-      sp->xCap = (int)(today - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
-      sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->x_inHigh ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->xMirror_inHigh ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->x_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->x_inLow ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->xMirror_inLow ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->x_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->x_inClose ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->xMirror_inClose ) { TA_MA_Close( sub0 ); TA_Free( sc_outFastK ); TA_Free( sc_outFastD ); TA_STOCHF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      { int fillJ;
-        for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
-        {
-           sp->x_inHigh[fillJ % sp->xCap] = inHigh[fillJ];
-           sp->x_inLow[fillJ % sp->xCap] = inLow[fillJ];
-           sp->x_inClose[fillJ % sp->xCap] = inClose[fillJ];
-        }
-      }
-      sp->sub0 = sub0;
-      *outBegIdx = dummyBegIdx;
-      *outNBElement = dummyNBElement;
-      memcpy( outFastK, sc_outFastK, sizeof(double) * (size_t)dummyNBElement );
-      memcpy( outFastD, sc_outFastD, sizeof(double) * (size_t)dummyNBElement );
-      TA_Free( sc_outFastK );
-      TA_Free( sc_outFastD );
-      *stream = sp;
-      return TA_SUCCESS;
-   }
+/* Private function, not in public API. */
+TA_RetCode TA_STOCHF_OpenAndFillInternal( struct TA_STOCHF_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, int *outBegIdx, int *outNBElement, double outFastK[], double outFastD[] )
+{
+   return TA_STOCHF_OpenCore( stream, inHigh, inLow, inClose, startIdx, historyLen, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_STOCHF_Update( TA_STOCHF_Stream *stream, double inHigh, double inLow, double inClose, double *outFastK, double *outFastD )
@@ -1318,11 +1038,11 @@ TA_LIB_API TA_RetCode TA_STOCHF_Peek( const TA_STOCHF_Stream *stream, double inH
    if( !stream || !outFastK || !outFastD ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.x_inHigh = stream->xMirror_inHigh;
-   memcpy( scratch.x_inHigh, stream->x_inHigh, sizeof(double) * (size_t)stream->xCap );
+   memcpy( scratch.x_inHigh, stream->x_inHigh, sizeof(double) * (size_t)stream->xPhys );
    scratch.x_inLow = stream->xMirror_inLow;
-   memcpy( scratch.x_inLow, stream->x_inLow, sizeof(double) * (size_t)stream->xCap );
+   memcpy( scratch.x_inLow, stream->x_inLow, sizeof(double) * (size_t)stream->xPhys );
    scratch.x_inClose = stream->xMirror_inClose;
-   memcpy( scratch.x_inClose, stream->x_inClose, sizeof(double) * (size_t)stream->xCap );
+   memcpy( scratch.x_inClose, stream->x_inClose, sizeof(double) * (size_t)stream->xPhys );
    scratch.peekMode = 1;
    TA_STOCHF_StepInternal( &scratch, inHigh, inLow, inClose, outFastK, outFastD );
    return TA_SUCCESS;

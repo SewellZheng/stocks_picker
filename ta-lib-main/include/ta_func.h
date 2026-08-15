@@ -4870,6 +4870,62 @@ TA_LIB_API TA_RetCode TA_DX_Close( TA_DX_Stream *stream );
 TA_LIB_API TA_RetCode TA_DX_OpenAndFill( TA_DX_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
 
 /*
+ * TA_EFI - Elder's Force Index
+ * 
+ * Input  = Close, Volume
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 1 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_EFI( int    startIdx,
+                              int    endIdx,
+                                         const double inClose[],
+                                         const double inVolume[],
+                                         int           optInTimePeriod, /* From 1 to 100000 */
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_EFI( int    startIdx,
+                                int    endIdx,
+                                           const float  inClose[],
+                                           const float  inVolume[],
+                                           int           optInTimePeriod, /* From 1 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_EFI_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_EFI — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_EFI_Stream TA_EFI_Stream;
+
+TA_LIB_API TA_RetCode TA_EFI_Open( TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_EFI_Update( TA_EFI_Stream *stream, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_EFI_Peek( const TA_EFI_Stream *stream, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_EFI_Close( TA_EFI_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_EFI( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_EFI_OpenAndFill( TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
  * TA_EMA - Exponential Moving Average
  * 
  * Input  = double
@@ -6102,6 +6158,56 @@ TA_LIB_API TA_RetCode TA_MAMA_Close( TA_MAMA_Stream *stream );
  * ... ).
  */
 TA_LIB_API TA_RetCode TA_MAMA_OpenAndFill( TA_MAMA_Stream **stream, const double inReal[], int historyLen, double optInFastLimit, double optInSlowLimit, int *outBegIdx, int *outNBElement, double outMAMA[], double outFAMA[] );
+
+/*
+ * TA_MARKETFI - Market Facilitation Index
+ * 
+ * Input  = High, Low, Volume
+ * Output = double
+ * 
+ */
+TA_LIB_API TA_RetCode TA_MARKETFI( int    startIdx,
+                                   int    endIdx,
+                                              const double inHigh[],
+                                              const double inLow[],
+                                              const double inVolume[],
+                                              int          *outBegIdx,
+                                              int          *outNBElement,
+                                              double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_MARKETFI( int    startIdx,
+                                     int    endIdx,
+                                                const float  inHigh[],
+                                                const float  inLow[],
+                                                const float  inVolume[],
+                                                int          *outBegIdx,
+                                                int          *outNBElement,
+                                                double        outReal[] );
+
+TA_LIB_API int TA_MARKETFI_Lookback( void );
+
+
+
+/*
+ * Streaming API for TA_MARKETFI — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_MARKETFI_Stream TA_MARKETFI_Stream;
+
+TA_LIB_API TA_RetCode TA_MARKETFI_Open( TA_MARKETFI_Stream **stream, const double inHigh[], const double inLow[], const double inVolume[], int historyLen, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MARKETFI_Update( TA_MARKETFI_Stream *stream, double inHigh, double inLow, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MARKETFI_Peek( const TA_MARKETFI_Stream *stream, double inHigh, double inLow, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MARKETFI_Close( TA_MARKETFI_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_MARKETFI( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_MARKETFI_OpenAndFill( TA_MARKETFI_Stream **stream, const double inHigh[], const double inLow[], const double inVolume[], int historyLen, int *outBegIdx, int *outNBElement, double outReal[] );
 
 /*
  * TA_MAVP - Moving average with variable period
@@ -7377,6 +7483,62 @@ TA_LIB_API TA_RetCode TA_PVO_Close( TA_PVO_Stream *stream );
  * ... ).
  */
 TA_LIB_API TA_RetCode TA_PVO_OpenAndFill( TA_PVO_Stream **stream, const double inVolume[], int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * TA_QSTICK - Qstick
+ * 
+ * Input  = Open, Close
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 1 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_QSTICK( int    startIdx,
+                                 int    endIdx,
+                                            const double inOpen[],
+                                            const double inClose[],
+                                            int           optInTimePeriod, /* From 1 to 100000 */
+                                            int          *outBegIdx,
+                                            int          *outNBElement,
+                                            double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_QSTICK( int    startIdx,
+                                   int    endIdx,
+                                              const float  inOpen[],
+                                              const float  inClose[],
+                                              int           optInTimePeriod, /* From 1 to 100000 */
+                                              int          *outBegIdx,
+                                              int          *outNBElement,
+                                              double        outReal[] );
+
+TA_LIB_API int TA_QSTICK_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_QSTICK — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_QSTICK_Stream TA_QSTICK_Stream;
+
+TA_LIB_API TA_RetCode TA_QSTICK_Open( TA_QSTICK_Stream **stream, const double inOpen[], const double inClose[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_QSTICK_Update( TA_QSTICK_Stream *stream, double inOpen, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_QSTICK_Peek( const TA_QSTICK_Stream *stream, double inOpen, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_QSTICK_Close( TA_QSTICK_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_QSTICK( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_QSTICK_OpenAndFill( TA_QSTICK_Stream **stream, const double inOpen[], const double inClose[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
 
 /*
  * TA_ROC - Rate of change : ((price/prevPrice)-1)*100
@@ -9044,6 +9206,56 @@ TA_LIB_API TA_RetCode TA_VWMA_Close( TA_VWMA_Stream *stream );
 TA_LIB_API TA_RetCode TA_VWMA_OpenAndFill( TA_VWMA_Stream **stream, const double inReal[], const double inVolume[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
 
 /*
+ * TA_WAD - Williams' Accumulation/Distribution (no volume)
+ * 
+ * Input  = High, Low, Close
+ * Output = double
+ * 
+ */
+TA_LIB_API TA_RetCode TA_WAD( int    startIdx,
+                              int    endIdx,
+                                         const double inHigh[],
+                                         const double inLow[],
+                                         const double inClose[],
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_WAD( int    startIdx,
+                                int    endIdx,
+                                           const float  inHigh[],
+                                           const float  inLow[],
+                                           const float  inClose[],
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_WAD_Lookback( void );
+
+
+
+/*
+ * Streaming API for TA_WAD — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_WAD_Stream TA_WAD_Stream;
+
+TA_LIB_API TA_RetCode TA_WAD_Open( TA_WAD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WAD_Update( TA_WAD_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WAD_Peek( const TA_WAD_Stream *stream, double inHigh, double inLow, double inClose, double *outReal );
+
+TA_LIB_API TA_RetCode TA_WAD_Close( TA_WAD_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_WAD( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_WAD_OpenAndFill( TA_WAD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
  * TA_WCLPRICE - Weighted Close Price
  * 
  * Input  = High, Low, Close
@@ -9246,6 +9458,11 @@ TA_LIB_API TA_Compatibility TA_GetCompatibility( void );
  * basing on settingType it must be compared with the average 
  * of the last avgPeriod candles' rangeType multiplied by factor.
  * This setting is valid until TA_RestoreCandleDefaultSettings is called
+ *
+ * Returns TA_BAD_PARAM unless settingType names a single setting
+ * (TA_AllCandleSettings selects 'all' for the restore call below,
+ * not here), rangeType is a TA_RangeType member, avgPeriod is
+ * between 0 and TA_MAX_INDEX, and factor is not NaN.
  */
 TA_LIB_API TA_RetCode TA_SetCandleSettings( TA_CandleSettingType settingType,
                                  TA_RangeType rangeType, 

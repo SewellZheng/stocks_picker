@@ -238,6 +238,9 @@ pub fn generate(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
+    // Resolve `PRAGMA TA_ALT` for this language (ir::FuncDef::resolved_for).
+    let resolved = func.resolved_for(crate::ir::Lang::CSharp);
+    let func: &FuncDef = &resolved;
     let mut out = String::new();
     out.push_str(super::ta_abstract_c::LICENSE);
     let _ = writeln!(
@@ -246,6 +249,11 @@ pub fn generate(
         func.name.to_lowercase()
     );
     out.push_str("using System;\n\n");
+    // Name the alternate that won the batch cell, if one did.
+    if let Some(m) = func.alt_marker(crate::ir::Tier::Batch, crate::ir::Lang::CSharp) {
+        out.push_str(&format!("/* {m} */\n\n"));
+    }
+
     // Generated code carries C's exact statement sequence, so the non-primary
     // variants legitimately hold locals whose last read was in a folded branch
     // (the Rust crate allows `unused_assignments` for the same reason). Scoped
@@ -278,13 +286,8 @@ pub fn generate(
 /// emits. A value with no named variant falls back to the cast, which is the same
 /// C# value — the enum is an `int` with names, so nothing is lost.
 fn csharp_enum_literal(enum_name: &str, value: i32, enums: &HashMap<String, EnumDef>) -> String {
-    enums
-        .get(enum_name)
-        .and_then(|e| e.variants.iter().find(|v| v.value == value))
-        .map_or_else(
-            || format!("({enum_name}){value}"),
-            |v| format!("{enum_name}.{}", v.name),
-        )
+    super::common::enum_member_literal(enums, enum_name, value)
+        .unwrap_or_else(|| format!("({enum_name}){value}"))
 }
 
 /// Optional-parameter validation prologue (C#): map the `int.MinValue` /
@@ -295,7 +298,7 @@ fn csharp_enum_literal(enum_name: &str, value: i32, enums: &HashMap<String, Enum
 /// `enum:` params get the same treatment, because a C# enum is an `int` with
 /// names: `(MAType)int.MinValue` is a value a caller — or the generated server's
 /// `(MAType)GetInt(p, "optInMAType", 0)` — can produce, so it must resolve the way
-/// C's `if( (int)optInMAType == (int)0x80000000 )` does. The substituted value is
+/// C's `if( (int)optInMAType == TA_INTEGER_DEFAULT )` does. The substituted value is
 /// that parameter's declared default, never a fixed 0: APO, PPO and PVO default to
 /// EMA, the other ten to SMA.
 ///
@@ -353,20 +356,26 @@ fn emit_opt_param_validation(
                 if let Some(default_val) = opt.default {
                     // The comparison casts to `int` because C# defines no
                     // implicit enum↔int conversion; the assignment uses the
-                    // qualified member, as the switch labels do.
+                    // qualified member, as the switch labels do. The `DEFAULT`
+                    // member (#182) needs no cast — it is already the enum type.
+                    let extra = super::common::enum_default_variant(enums, enum_name)
+                        .map(|v| format!(" || {} == {enum_name}.{}", opt.name, v.name))
+                        .unwrap_or_default();
                     out.push_str(&format!(
-                        "      if( (int){name} == int.MinValue ) {{\n         {name} = {val};\n      }}",
+                        "      if( (int){name} == int.MinValue{extra} ) {{\n         {name} = {val};\n      }}",
                         name = opt.name,
                         val = csharp_enum_literal(enum_name, default_val as i32, enums)
                     ));
                     // No shipped enum param declares a `range:`, but emitting the
                     // check keeps a future one from being silently un-gated here
                     // while C (which shares its Integer arm) still enforces it.
-                    if let Some((min, max)) = opt.range {
-                        let min_i = min as i32;
-                        let max_i = max as i32;
+                    // The bounds are the enum's generated `<Type>s.Min`/`.Max`,
+                    // never the numbers themselves — see common::enum_limit_names.
+                    if let Some((min, max)) =
+                        super::common::int_bound_exprs(opt, enums, crate::registry::Lang::CSharp)
+                    {
                         out.push_str(&format!(
-                            " else if( (int){name} < {min_i} || (int){name} > {max_i} ) {{\n         return {fail};\n      }}",
+                            " else if( (int){name} < {min} || (int){name} > {max} ) {{\n         return {fail};\n      }}",
                             name = opt.name
                         ));
                     }
@@ -1710,8 +1719,8 @@ pub(crate) fn render_expr(
     CsExpr { ctx, registry, helpers }.walk(expr)
 }
 
-/// Render one of the boolean near-zero builtins (IS_ZERO / IS_ZERO_SCALED /
-/// IS_ZERO_OR_NEG) in C# from already-rendered argument strings. Single source
+/// Render one of the boolean value builtins (the near-zero trio IS_ZERO /
+/// IS_ZERO_SCALED / IS_ZERO_OR_NEG, plus the exact IS_FINITE) in C# from already-rendered argument strings. Single source
 /// of the C# form for these predicates — used by both the indicator render path
 /// and the `eval_predicate` server handler. The epsilon literals are
 /// character-for-character the Java/C forms (they feed the bitwise gate).
@@ -1731,6 +1740,9 @@ pub fn csharp_predicate_expr(which: SpecialBuiltin, args: &[String]) -> String {
         SpecialBuiltin::IsZeroOrNeg => args
             .first()
             .map_or_else(|| "false".to_string(), |x| format!("({x} < 0.00000000000001)")),
+        SpecialBuiltin::IsFinite => args
+            .first()
+            .map_or_else(|| "false".to_string(), |x| format!("(double.IsFinite({x}))")),
         _ => "false".to_string(),
     }
 }
@@ -1821,7 +1833,8 @@ fn render_func_call(
             }
             pred @ (SpecialBuiltin::IsZero
             | SpecialBuiltin::IsZeroScaled
-            | SpecialBuiltin::IsZeroOrNeg) => {
+            | SpecialBuiltin::IsZeroOrNeg
+            | SpecialBuiltin::IsFinite) => {
                 let rendered: Vec<String> = args
                     .iter()
                     .map(|a| render_expr(a, ctx, registry, helpers))

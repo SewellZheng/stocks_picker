@@ -286,7 +286,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class SMA_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double periodTotal;
       double tempReal;
@@ -319,6 +319,22 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( SMA_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.periodTotal = other.periodTotal;
+         this.tempReal = other.tempReal;
+         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
+         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
+         if( this.ring_trailingIdx_inReal != null && this.ring_trailingIdx_inReal.length == other.ring_trailingIdx_inReal.length ) {
+            System.arraycopy( other.ring_trailingIdx_inReal, 0, this.ring_trailingIdx_inReal, 0, other.ring_trailingIdx_inReal.length );
+         } else {
+            this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
+         }
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -331,9 +347,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
          SMA_Stream scratch = new SMA_Stream(this);
@@ -373,7 +389,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode SMA_OpenBody( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode SMA_OpenCore( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double periodTotal = 0;
       double tempReal = 0;
@@ -381,9 +397,6 @@
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -435,7 +448,7 @@
          tempReal = periodTotal;
          periodTotal -= (double)inReal[trailingIdx];
          trailingIdx = trailingIdx + 1;
-         lastValue_outReal = tempReal / (double)optInTimePeriod;
+         outReal[outIdx * outStride] = tempReal / (double)optInTimePeriod;
          outIdx = outIdx + 1;
       }
       /* All done. Indicate the output limits and return. */
@@ -455,94 +468,42 @@
       sp.ringPos_trailingIdx = 0;
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode SMA_OpenBody( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return SMA_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode SMA_OpenAndFillBody( SMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      double periodTotal = 0;
-      double tempReal = 0;
-      int i = 0;
-      int outIdx = 0;
-      int trailingIdx = 0;
-      int lookbackTotal = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 30;
-      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      /* Identify the minimum number of price bar needed
-       * to calculate at least one output.
-       */
-      lookbackTotal = (int)(optInTimePeriod - 1);
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
+      return SMA_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode SMA_OpenAndFillInternalBody( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return SMA_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* SMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   SMA_Stream SMA_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      SMA_Stream sp = new SMA_Stream(this);
+      RetCode retCode = SMA_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("SMA openAndFill: history shorter than lookback + 1");
       }
-      /* Do the MA calculation using tight loops. */
-      /* Add-up the initial period, except for the last value. */
-      periodTotal = 0.0;
-      trailingIdx = startIdx - lookbackTotal;
-      i = trailingIdx;
-      if( optInTimePeriod > 1 ) {
-         while( i < startIdx ) {
-            periodTotal += (double)inReal[i];
-            i = i + 1;
-         }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("SMA openAndFill: internal error");
       }
-      /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the inReal and
-       * outReal to be the same buffer.
-       */
-      outIdx = 0;
-      while( i <= endIdx ) {
-         periodTotal += (double)inReal[i];
-         i = i + 1;
-         tempReal = periodTotal;
-         periodTotal -= (double)inReal[trailingIdx];
-         trailingIdx = trailingIdx + 1;
-         outReal[outIdx] = tempReal / (double)optInTimePeriod;
-         outIdx = outIdx + 1;
-      }
-      /* All done. Indicate the output limits and return. */
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Capture the live batch state into the handle. */
-      int cap_trailingIdx = i - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-         return RetCode.InternalError;
-      }
-      int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
-      double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
-      System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.periodTotal = periodTotal;
-      sp.tempReal = tempReal;
-      sp.ringPos_trailingIdx = 0;
-      sp.ringCap_trailingIdx = cap_trailingIdx;
-      sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("SMA openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind SMA_Open (composition seam). */
    SMA_Stream SMA_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )

@@ -35,17 +35,23 @@ FastD = MA(FastK, FastD_Period, FastD_MAType)
 | `optInFastD_Period` | integer | 3 | 1–100000 | Smoothing period for the Fast-D line |
 | `optInFastD_MAType` | MAType | SMA (0) | any MAType | Moving-average type used to smooth Fast-D |
 
-*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED*
+*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED · 11 DEFAULT*
 
 ## Properties
 
 **Numerical Stability:** [Depends on MA Type](/functions/stability.md#depends-on-ma-type) — This function's default, SMA, is start-independent.
 
-| Display<br>Flags |
+<div class="flag-table">
+
+|  |
 | :-- |
 | <span class="flag-box">☐</span> <span style="opacity:0.5">Overlap Input</span> |
 | <span class="flag-box">✅</span> **Independent Y-Axis** <span class="flag-tip" tabindex="0" role="note" aria-label="Output is on its own scale, drawn in a separate pane below the price chart." data-tip="Output is on its own scale, drawn in a separate pane below the price chart.">i</span> |
 | <span class="flag-box">☐</span> <span style="opacity:0.5">Candlestick</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Can Output NaN or ±Inf</span> |
+| <span class="flag-box">☐</span> <span style="opacity:0.5">Identity at Period 1</span> |
+
+</div>
 
 ## Implementation
 

@@ -200,6 +200,7 @@ public class TaCodegenServe {
             else if (method == "TA_DEMA") return Handle_DEMA(p, startIdx, endIdx);
             else if (method == "TA_DIV") return Handle_DIV(p, startIdx, endIdx);
             else if (method == "TA_DX") return Handle_DX(p, startIdx, endIdx);
+            else if (method == "TA_EFI") return Handle_EFI(p, startIdx, endIdx);
             else if (method == "TA_EMA") return Handle_EMA(p, startIdx, endIdx);
             else if (method == "TA_EXP") return Handle_EXP(p, startIdx, endIdx);
             else if (method == "TA_FLOOR") return Handle_FLOOR(p, startIdx, endIdx);
@@ -223,6 +224,7 @@ public class TaCodegenServe {
             else if (method == "TA_MACDEXT") return Handle_MACDEXT(p, startIdx, endIdx);
             else if (method == "TA_MACDFIX") return Handle_MACDFIX(p, startIdx, endIdx);
             else if (method == "TA_MAMA") return Handle_MAMA(p, startIdx, endIdx);
+            else if (method == "TA_MARKETFI") return Handle_MARKETFI(p, startIdx, endIdx);
             else if (method == "TA_MAVP") return Handle_MAVP(p, startIdx, endIdx);
             else if (method == "TA_MAX") return Handle_MAX(p, startIdx, endIdx);
             else if (method == "TA_MAXINDEX") return Handle_MAXINDEX(p, startIdx, endIdx);
@@ -246,6 +248,7 @@ public class TaCodegenServe {
             else if (method == "TA_PPO") return Handle_PPO(p, startIdx, endIdx);
             else if (method == "TA_PVI") return Handle_PVI(p, startIdx, endIdx);
             else if (method == "TA_PVO") return Handle_PVO(p, startIdx, endIdx);
+            else if (method == "TA_QSTICK") return Handle_QSTICK(p, startIdx, endIdx);
             else if (method == "TA_ROC") return Handle_ROC(p, startIdx, endIdx);
             else if (method == "TA_ROCP") return Handle_ROCP(p, startIdx, endIdx);
             else if (method == "TA_ROCR") return Handle_ROCR(p, startIdx, endIdx);
@@ -275,6 +278,7 @@ public class TaCodegenServe {
             else if (method == "TA_ULTOSC") return Handle_ULTOSC(p, startIdx, endIdx);
             else if (method == "TA_VAR") return Handle_VAR(p, startIdx, endIdx);
             else if (method == "TA_VWMA") return Handle_VWMA(p, startIdx, endIdx);
+            else if (method == "TA_WAD") return Handle_WAD(p, startIdx, endIdx);
             else if (method == "TA_WCLPRICE") return Handle_WCLPRICE(p, startIdx, endIdx);
             else if (method == "TA_WILLR") return Handle_WILLR(p, startIdx, endIdx);
             else if (method == "TA_WMA") return Handle_WMA(p, startIdx, endIdx);
@@ -460,6 +464,8 @@ public class TaCodegenServe {
                 sb.Append(",");
                 sb.Append("\"TA_DX\"");
                 sb.Append(",");
+                sb.Append("\"TA_EFI\"");
+                sb.Append(",");
                 sb.Append("\"TA_EMA\"");
                 sb.Append(",");
                 sb.Append("\"TA_EXP\"");
@@ -506,6 +512,8 @@ public class TaCodegenServe {
                 sb.Append(",");
                 sb.Append("\"TA_MAMA\"");
                 sb.Append(",");
+                sb.Append("\"TA_MARKETFI\"");
+                sb.Append(",");
                 sb.Append("\"TA_MAVP\"");
                 sb.Append(",");
                 sb.Append("\"TA_MAX\"");
@@ -551,6 +559,8 @@ public class TaCodegenServe {
                 sb.Append("\"TA_PVI\"");
                 sb.Append(",");
                 sb.Append("\"TA_PVO\"");
+                sb.Append(",");
+                sb.Append("\"TA_QSTICK\"");
                 sb.Append(",");
                 sb.Append("\"TA_ROC\"");
                 sb.Append(",");
@@ -610,6 +620,8 @@ public class TaCodegenServe {
                 sb.Append(",");
                 sb.Append("\"TA_VWMA\"");
                 sb.Append(",");
+                sb.Append("\"TA_WAD\"");
+                sb.Append(",");
                 sb.Append("\"TA_WCLPRICE\"");
                 sb.Append(",");
                 sb.Append("\"TA_WILLR\"");
@@ -621,6 +633,9 @@ public class TaCodegenServe {
             else if (method == "set_unstable_period") {
                 int id = GetInt(p, "id", -1);
                 int period = GetInt(p, "period", 0);
+                if (period < 0 || period > Core.MAX_INDEX) {
+                    return "{\"error\":\"Invalid unstable period value\"}";
+                }
                 if (id == (int)FuncUnstId.ALL) {
                     for (int i = 0; i < core.unstablePeriod.Length; i++) core.unstablePeriod[i] = period;
                     return "{\"status\":\"ok\"}";
@@ -1211,6 +1226,10 @@ public class TaCodegenServe {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
             return core.DX_Lookback(optInTimePeriod);
         }
+        case "EFI": {
+            int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
+            return core.EFI_Lookback(optInTimePeriod);
+        }
         case "EMA": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
             return core.EMA_Lookback(optInTimePeriod);
@@ -1301,6 +1320,9 @@ public class TaCodegenServe {
             double optInFastLimit = GetDouble(p, "optInFastLimit", 0.0);
             double optInSlowLimit = GetDouble(p, "optInSlowLimit", 0.0);
             return core.MAMA_Lookback(optInFastLimit, optInSlowLimit);
+        }
+        case "MARKETFI": {
+            return core.MARKETFI_Lookback();
         }
         case "MAVP": {
             int optInMinPeriod = GetInt(p, "optInMinPeriod", 0);
@@ -1394,6 +1416,10 @@ public class TaCodegenServe {
             int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
             MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
             return core.PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+        }
+        case "QSTICK": {
+            int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
+            return core.QSTICK_Lookback(optInTimePeriod);
         }
         case "ROC": {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
@@ -1525,6 +1551,9 @@ public class TaCodegenServe {
             int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
             return core.VWMA_Lookback(optInTimePeriod);
         }
+        case "WAD": {
+            return core.WAD_Lookback();
+        }
         case "WCLPRICE": {
             return core.WCLPRICE_Lookback();
         }
@@ -1545,6 +1574,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -1608,6 +1639,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -1654,6 +1687,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -1715,6 +1750,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -1766,6 +1803,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -1829,6 +1868,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -1887,6 +1928,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -1944,6 +1987,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -1993,6 +2038,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -2048,6 +2095,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -2100,6 +2149,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -2146,6 +2197,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -2192,6 +2245,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -2250,6 +2305,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -2297,6 +2354,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -2358,6 +2417,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -2414,6 +2475,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -2466,6 +2529,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -2527,6 +2592,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -2584,6 +2651,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -2645,6 +2714,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -2706,6 +2777,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -2767,6 +2840,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -2828,6 +2903,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -2889,6 +2966,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -2950,6 +3029,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3011,6 +3092,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3073,6 +3156,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3134,6 +3219,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3195,6 +3282,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3256,6 +3345,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3317,6 +3408,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3378,6 +3471,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3439,6 +3534,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3501,6 +3598,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3562,6 +3661,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3623,6 +3724,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3684,6 +3787,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3745,6 +3850,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3807,6 +3914,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3869,6 +3978,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3930,6 +4041,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -3991,6 +4104,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4052,6 +4167,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4113,6 +4230,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4174,6 +4293,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4235,6 +4356,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4296,6 +4419,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4357,6 +4482,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4418,6 +4545,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4479,6 +4608,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4540,6 +4671,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4601,6 +4734,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4662,6 +4797,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4723,6 +4860,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4784,6 +4923,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4845,6 +4986,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4906,6 +5049,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -4967,6 +5112,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5028,6 +5175,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5089,6 +5238,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5151,6 +5302,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5213,6 +5366,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5275,6 +5430,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5336,6 +5493,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5397,6 +5556,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5458,6 +5619,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5519,6 +5682,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5580,6 +5745,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5641,6 +5808,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5702,6 +5871,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5763,6 +5934,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5824,6 +5997,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5885,6 +6060,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -5946,6 +6123,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -6007,6 +6186,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -6068,6 +6249,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -6129,6 +6312,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -6190,6 +6375,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -6251,6 +6438,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -6312,6 +6501,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -6358,6 +6549,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -6420,6 +6613,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -6468,6 +6663,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -6515,6 +6712,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -6567,6 +6766,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -6613,6 +6814,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -6659,6 +6862,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -6706,6 +6911,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -6757,6 +6964,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -6810,11 +7019,67 @@ public class TaCodegenServe {
         return sb.ToString();
     }
 
+    static string Handle_EFI(JsonElement p, int startIdx, int endIdx) {
+        int n = endIdx - startIdx + 1;
+        int use_preloaded = GetInt(p, "use_preloaded", 0);
+        int bench_iters = GetInt(p, "iters", 1);
+        if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        double[] inClose;
+        double[] inVolume;
+        if (use_preloaded != 0 && refN > 0) {
+            inClose = new double[refN]; Array.Copy(refClose, inClose, refN);
+            inVolume = new double[refN]; Array.Copy(refVolume, inVolume, refN);
+        } else {
+            inClose = GetDoubleArray(p, "inClose");
+            inVolume = GetDoubleArray(p, "inVolume");
+        }
+        int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
+        double[] outArr0 = new double[n];
+        int outBegIdx = 0, outNBElement = 0;
+        RetCode rc = RetCode.Success;
+        long _t0 = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+            if (_bi == 1) _t0 = GetNanoTime();
+            rc = core.EFI(startIdx, endIdx, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+        }
+        long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
+        int usedFloat = 0;
+        if (GetInt(p, "use_float", 0) != 0) {
+            var f_inClose = new float[inClose.Length];
+            for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
+            var f_inVolume = new float[inVolume.Length];
+            for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
+            rc = core.EFI(startIdx, endIdx, f_inClose, f_inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            usedFloat = 1;
+        }
+        if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
+            ulong _h = SvHashInit();
+            if (rc == RetCode.Success && outNBElement > 0) {
+                _h = SvHashF64(_h, outArr0, outNBElement);
+            }
+            _h = SvHashFin(_h);
+            return $"{{\"retCode\":{(int)rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement},\"out_hash\":\"{_h:x16}\"}}";
+        }
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"{{\"retCode\":{(int)rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement}");
+        if (GetInt(p, "no_output", 0) == 0) {
+            sb.Append(",\"outReal\":"); sb.Append(FormatArray(outArr0, outNBElement));
+        }
+        sb.Append($",\"used_float\":{usedFloat}");
+        sb.Append($",\"timing_ns\":{elapsedNs}");
+        sb.Append("}");
+        return sb.ToString();
+    }
+
     static string Handle_EMA(JsonElement p, int startIdx, int endIdx) {
         int n = endIdx - startIdx + 1;
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -6863,6 +7128,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -6909,6 +7176,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -6955,6 +7224,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7002,6 +7273,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7049,6 +7322,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7096,6 +7371,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7146,6 +7423,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7196,6 +7475,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7243,6 +7524,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7290,6 +7573,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inOpen;
         double[] inClose;
         if (use_preloaded != 0 && refN > 0) {
@@ -7342,6 +7627,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7390,6 +7677,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7437,6 +7726,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7484,6 +7775,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7531,6 +7824,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7578,6 +7873,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7624,6 +7921,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7670,6 +7969,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7718,6 +8019,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7773,6 +8076,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7831,6 +8136,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7884,6 +8191,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -7931,11 +8240,71 @@ public class TaCodegenServe {
         return sb.ToString();
     }
 
+    static string Handle_MARKETFI(JsonElement p, int startIdx, int endIdx) {
+        int n = endIdx - startIdx + 1;
+        int use_preloaded = GetInt(p, "use_preloaded", 0);
+        int bench_iters = GetInt(p, "iters", 1);
+        if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        double[] inHigh;
+        double[] inLow;
+        double[] inVolume;
+        if (use_preloaded != 0 && refN > 0) {
+            inHigh = new double[refN]; Array.Copy(refHigh, inHigh, refN);
+            inLow = new double[refN]; Array.Copy(refLow, inLow, refN);
+            inVolume = new double[refN]; Array.Copy(refVolume, inVolume, refN);
+        } else {
+            inHigh = GetDoubleArray(p, "inHigh");
+            inLow = GetDoubleArray(p, "inLow");
+            inVolume = GetDoubleArray(p, "inVolume");
+        }
+        double[] outArr0 = new double[n];
+        int outBegIdx = 0, outNBElement = 0;
+        RetCode rc = RetCode.Success;
+        long _t0 = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+            if (_bi == 1) _t0 = GetNanoTime();
+            rc = core.MARKETFI(startIdx, endIdx, inHigh, inLow, inVolume, out outBegIdx, out outNBElement, outArr0);
+        }
+        long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
+        int usedFloat = 0;
+        if (GetInt(p, "use_float", 0) != 0) {
+            var f_inHigh = new float[inHigh.Length];
+            for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
+            var f_inLow = new float[inLow.Length];
+            for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
+            var f_inVolume = new float[inVolume.Length];
+            for (int _fi = 0; _fi < inVolume.Length; _fi++) f_inVolume[_fi] = (float)inVolume[_fi];
+            rc = core.MARKETFI(startIdx, endIdx, f_inHigh, f_inLow, f_inVolume, out outBegIdx, out outNBElement, outArr0);
+            usedFloat = 1;
+        }
+        if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
+            ulong _h = SvHashInit();
+            if (rc == RetCode.Success && outNBElement > 0) {
+                _h = SvHashF64(_h, outArr0, outNBElement);
+            }
+            _h = SvHashFin(_h);
+            return $"{{\"retCode\":{(int)rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement},\"out_hash\":\"{_h:x16}\"}}";
+        }
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"{{\"retCode\":{(int)rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement}");
+        if (GetInt(p, "no_output", 0) == 0) {
+            sb.Append(",\"outReal\":"); sb.Append(FormatArray(outArr0, outNBElement));
+        }
+        sb.Append($",\"used_float\":{usedFloat}");
+        sb.Append($",\"timing_ns\":{elapsedNs}");
+        sb.Append("}");
+        return sb.ToString();
+    }
+
     static string Handle_MAVP(JsonElement p, int startIdx, int endIdx) {
         int n = endIdx - startIdx + 1;
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -7990,6 +8359,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -8037,6 +8408,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -8084,6 +8457,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -8135,6 +8510,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -8197,6 +8574,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -8244,6 +8623,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -8296,6 +8677,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -8343,6 +8726,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -8390,6 +8775,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -8440,6 +8827,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -8490,6 +8879,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -8548,6 +8939,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -8601,6 +8994,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -8648,6 +9043,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -8699,6 +9096,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -8757,6 +9156,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inClose;
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
@@ -8808,6 +9209,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
@@ -8859,6 +9262,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -8917,6 +9322,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -8970,6 +9377,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9019,6 +9428,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inClose;
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
@@ -9070,6 +9481,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
             inVolume = new double[refN]; Array.Copy(refVolume, inVolume, refN);
@@ -9114,11 +9527,67 @@ public class TaCodegenServe {
         return sb.ToString();
     }
 
+    static string Handle_QSTICK(JsonElement p, int startIdx, int endIdx) {
+        int n = endIdx - startIdx + 1;
+        int use_preloaded = GetInt(p, "use_preloaded", 0);
+        int bench_iters = GetInt(p, "iters", 1);
+        if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        double[] inOpen;
+        double[] inClose;
+        if (use_preloaded != 0 && refN > 0) {
+            inOpen = new double[refN]; Array.Copy(refOpen, inOpen, refN);
+            inClose = new double[refN]; Array.Copy(refClose, inClose, refN);
+        } else {
+            inOpen = GetDoubleArray(p, "inOpen");
+            inClose = GetDoubleArray(p, "inClose");
+        }
+        int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
+        double[] outArr0 = new double[n];
+        int outBegIdx = 0, outNBElement = 0;
+        RetCode rc = RetCode.Success;
+        long _t0 = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+            if (_bi == 1) _t0 = GetNanoTime();
+            rc = core.QSTICK(startIdx, endIdx, inOpen, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+        }
+        long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
+        int usedFloat = 0;
+        if (GetInt(p, "use_float", 0) != 0) {
+            var f_inOpen = new float[inOpen.Length];
+            for (int _fi = 0; _fi < inOpen.Length; _fi++) f_inOpen[_fi] = (float)inOpen[_fi];
+            var f_inClose = new float[inClose.Length];
+            for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
+            rc = core.QSTICK(startIdx, endIdx, f_inOpen, f_inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
+            usedFloat = 1;
+        }
+        if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
+            ulong _h = SvHashInit();
+            if (rc == RetCode.Success && outNBElement > 0) {
+                _h = SvHashF64(_h, outArr0, outNBElement);
+            }
+            _h = SvHashFin(_h);
+            return $"{{\"retCode\":{(int)rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement},\"out_hash\":\"{_h:x16}\"}}";
+        }
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"{{\"retCode\":{(int)rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement}");
+        if (GetInt(p, "no_output", 0) == 0) {
+            sb.Append(",\"outReal\":"); sb.Append(FormatArray(outArr0, outNBElement));
+        }
+        sb.Append($",\"used_float\":{usedFloat}");
+        sb.Append($",\"timing_ns\":{elapsedNs}");
+        sb.Append("}");
+        return sb.ToString();
+    }
+
     static string Handle_ROC(JsonElement p, int startIdx, int endIdx) {
         int n = endIdx - startIdx + 1;
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9166,6 +9635,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9213,6 +9684,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9260,6 +9733,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9307,6 +9782,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9355,6 +9832,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -9408,6 +9887,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -9467,6 +9948,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9513,6 +9996,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9559,6 +10044,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9606,6 +10093,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9652,6 +10141,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9700,6 +10191,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -9764,6 +10257,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -9826,6 +10321,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9879,6 +10376,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -9930,6 +10429,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -9977,6 +10478,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -10026,6 +10529,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -10072,6 +10577,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -10118,6 +10625,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -10165,6 +10674,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -10221,6 +10732,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -10268,6 +10781,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -10315,6 +10830,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -10362,6 +10879,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -10418,6 +10937,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -10477,6 +10998,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
@@ -10525,6 +11048,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
@@ -10572,11 +11097,71 @@ public class TaCodegenServe {
         return sb.ToString();
     }
 
+    static string Handle_WAD(JsonElement p, int startIdx, int endIdx) {
+        int n = endIdx - startIdx + 1;
+        int use_preloaded = GetInt(p, "use_preloaded", 0);
+        int bench_iters = GetInt(p, "iters", 1);
+        if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        double[] inHigh;
+        double[] inLow;
+        double[] inClose;
+        if (use_preloaded != 0 && refN > 0) {
+            inHigh = new double[refN]; Array.Copy(refHigh, inHigh, refN);
+            inLow = new double[refN]; Array.Copy(refLow, inLow, refN);
+            inClose = new double[refN]; Array.Copy(refClose, inClose, refN);
+        } else {
+            inHigh = GetDoubleArray(p, "inHigh");
+            inLow = GetDoubleArray(p, "inLow");
+            inClose = GetDoubleArray(p, "inClose");
+        }
+        double[] outArr0 = new double[n];
+        int outBegIdx = 0, outNBElement = 0;
+        RetCode rc = RetCode.Success;
+        long _t0 = 0;
+        for (int _bi = 0; _bi <= bench_iters; _bi++) {
+            if (_bi == 1) _t0 = GetNanoTime();
+            rc = core.WAD(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
+        }
+        long elapsedNs = (GetNanoTime() - _t0) / bench_iters;
+        int usedFloat = 0;
+        if (GetInt(p, "use_float", 0) != 0) {
+            var f_inHigh = new float[inHigh.Length];
+            for (int _fi = 0; _fi < inHigh.Length; _fi++) f_inHigh[_fi] = (float)inHigh[_fi];
+            var f_inLow = new float[inLow.Length];
+            for (int _fi = 0; _fi < inLow.Length; _fi++) f_inLow[_fi] = (float)inLow[_fi];
+            var f_inClose = new float[inClose.Length];
+            for (int _fi = 0; _fi < inClose.Length; _fi++) f_inClose[_fi] = (float)inClose[_fi];
+            rc = core.WAD(startIdx, endIdx, f_inHigh, f_inLow, f_inClose, out outBegIdx, out outNBElement, outArr0);
+            usedFloat = 1;
+        }
+        if (GetInt(p, "want_hash", 0) != 0 && GetInt(p, "full_output", 0) == 0) {
+            ulong _h = SvHashInit();
+            if (rc == RetCode.Success && outNBElement > 0) {
+                _h = SvHashF64(_h, outArr0, outNBElement);
+            }
+            _h = SvHashFin(_h);
+            return $"{{\"retCode\":{(int)rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement},\"out_hash\":\"{_h:x16}\"}}";
+        }
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"{{\"retCode\":{(int)rc},\"outBegIdx\":{outBegIdx},\"outNBElement\":{outNBElement}");
+        if (GetInt(p, "no_output", 0) == 0) {
+            sb.Append(",\"outReal\":"); sb.Append(FormatArray(outArr0, outNBElement));
+        }
+        sb.Append($",\"used_float\":{usedFloat}");
+        sb.Append($",\"timing_ns\":{elapsedNs}");
+        sb.Append("}");
+        return sb.ToString();
+    }
+
     static string Handle_WCLPRICE(JsonElement p, int startIdx, int endIdx) {
         int n = endIdx - startIdx + 1;
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -10633,6 +11218,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -10690,6 +11277,8 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
+        if (GetInt(p, "bench_mode", 0) != 0)
+            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);

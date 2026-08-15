@@ -206,7 +206,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class OBV_Stream {
-      final Core core;
+      Core core;
       double prevReal;
       double prevOBV;
       double cur_outReal;
@@ -231,6 +231,14 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( OBV_Stream other ) {
+         this.core = other.core;
+         this.prevReal = other.prevReal;
+         this.prevOBV = other.prevOBV;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -243,9 +251,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal, double inVolume ) {
          OBV_Stream scratch = new OBV_Stream(this);
@@ -282,16 +290,13 @@
       sp.cur_outReal = sp.prevOBV;
       sp.prevReal = tempReal;
    }
-   private RetCode OBV_OpenBody( OBV_Stream sp, double inReal[], double inVolume[], int startIdx )
+   private RetCode OBV_OpenCore( OBV_Stream sp, double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int i = 0;
       int outIdx = 0;
       double prevReal = 0;
       double tempReal = 0;
       double prevOBV = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inVolume.length != inReal.length ) {
@@ -310,7 +315,7 @@
          } else if( tempReal < prevReal ) {
             prevOBV -= inVolume[i];
          }
-         lastValue_outReal = prevOBV;
+         outReal[outIdx++ * outStride] = prevOBV;
          prevReal = tempReal;
       }
       outBegIdx.value = startIdx;
@@ -318,48 +323,42 @@
       /* Capture the live batch state into the handle. */
       sp.prevReal = prevReal;
       sp.prevOBV = prevOBV;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode OBV_OpenBody( OBV_Stream sp, double inReal[], double inVolume[], int startIdx )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return OBV_OpenCore( sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode OBV_OpenAndFillBody( OBV_Stream sp, double inReal[], double inVolume[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int i = 0;
-      int outIdx = 0;
-      double prevReal = 0;
-      double tempReal = 0;
-      double prevOBV = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inVolume.length != inReal.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
       if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
          return RetCode.BadParam;
       }
-      prevOBV = inVolume[startIdx];
-      prevReal = inReal[startIdx];
-      outIdx = 0;
-      for( i = startIdx; i <= endIdx; i += 1 ) {
-         tempReal = inReal[i];
-         if( tempReal > prevReal ) {
-            prevOBV += inVolume[i];
-         } else if( tempReal < prevReal ) {
-            prevOBV -= inVolume[i];
-         }
-         outReal[outIdx++] = prevOBV;
-         prevReal = tempReal;
+      return OBV_OpenCore( sp, inReal, inVolume, 0, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode OBV_OpenAndFillInternalBody( OBV_Stream sp, double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return OBV_OpenCore(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* OBV_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   OBV_Stream OBV_OpenAndFillInternal( double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      OBV_Stream sp = new OBV_Stream(this);
+      RetCode retCode = OBV_OpenAndFillInternalBody(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      outBegIdx.value = startIdx;
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      sp.prevReal = prevReal;
-      sp.prevOBV = prevOBV;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("OBV openAndFill: history shorter than lookback + 1");
+      }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("OBV openAndFill: internal error");
+      }
+      throw new IllegalArgumentException("OBV openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind OBV_Open (composition seam). */
    OBV_Stream OBV_OpenInternal( double inReal[], double inVolume[], int startIdx )

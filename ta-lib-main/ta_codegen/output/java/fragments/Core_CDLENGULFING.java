@@ -273,7 +273,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CDLENGULFING_Stream {
-      final Core core;
+      Core core;
       double lag1_inOpen;
       double lag1_inClose;
       int cur_outInteger;
@@ -298,6 +298,14 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( CDLENGULFING_Stream other ) {
+         this.core = other.core;
+         this.lag1_inOpen = other.lag1_inOpen;
+         this.lag1_inClose = other.lag1_inClose;
+         this.cur_outInteger = other.cur_outInteger;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -310,9 +318,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          CDLENGULFING_Stream scratch = new CDLENGULFING_Stream(this);
@@ -353,14 +361,11 @@
       sp.lag1_inOpen = inOpen;
       sp.lag1_inClose = inClose;
    }
-   private RetCode CDLENGULFING_OpenBody( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode CDLENGULFING_OpenCore( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
       int i = 0;
       int outIdx = 0;
       int lookbackTotal = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      int lastValue_outInteger = 0;
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
@@ -405,12 +410,12 @@
             /* white engulfs black */
             /* black engulfs white */
             if( inOpen[i] != inClose[i - 1] && inClose[i] != inOpen[i - 1] ) {
-               lastValue_outInteger = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 100;
+               outInteger[outIdx++ * outStride] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 100;
             } else {
-               lastValue_outInteger = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 80;
+               outInteger[outIdx++ * outStride] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 80;
             }
          } else {
-            lastValue_outInteger = 0;
+            outInteger[outIdx++ * outStride] = 0;
          }
          i += 1;
       } while( i <= endIdx );
@@ -420,79 +425,42 @@
       /* Capture the live batch state into the handle. */
       sp.lag1_inOpen = inOpen[historyLen - 1];
       sp.lag1_inClose = inClose[historyLen - 1];
-      sp.cur_outInteger = lastValue_outInteger;
+      sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode CDLENGULFING_OpenBody( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      int[] sink_outInteger = new int[1];
+      return CDLENGULFING_OpenCore( sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0 );
    }
    private RetCode CDLENGULFING_OpenAndFillBody( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
-      int i = 0;
-      int outIdx = 0;
-      int lookbackTotal = 0;
-      int historyLen = inOpen.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      /* Identify the minimum number of price bar needed
-       * to calculate at least one output.
-       */
-      lookbackTotal = CDLENGULFING_Lookback();
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
+      return CDLENGULFING_OpenCore( sp, inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outInteger, 1 );
+   }
+   private RetCode CDLENGULFING_OpenAndFillInternalBody( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   {
+      return CDLENGULFING_OpenCore(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
+   }
+   /* CDLENGULFING_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   CDLENGULFING_Stream CDLENGULFING_OpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   {
+      CDLENGULFING_Stream sp = new CDLENGULFING_Stream(this);
+      RetCode retCode = CDLENGULFING_OpenAndFillInternalBody(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("CDLENGULFING openAndFill: history shorter than lookback + 1");
       }
-      /* Do the calculation using tight loops. */
-      /* Add-up the initial period, except for the last value. */
-      i = startIdx;
-      /* Proceed with the calculation for the requested range.
-       * Must have:
-       * - first: black (white) real body
-       * - second: white (black) real body that engulfs the prior real body
-       * outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish:
-       * - 100 is returned when the second candle's real body begins before and ends after the first candle's real body
-       * - 80 is returned when the two real bodies match on one end (Greg Morris contemplate this case in his book
-       *   "Candlestick charting explained")
-       * The user should consider that an engulfing must appear in a downtrend if bullish or in an uptrend if bearish,
-       * while this function does not consider it
-       */
-      outIdx = 0;
-      do {
-         if( ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 && ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && (inClose[i] >= inOpen[i - 1] && inOpen[i] < inClose[i - 1] || inClose[i] > inOpen[i - 1] && inOpen[i] <= inClose[i - 1]) || ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 0 - 1 && ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 1 && (inOpen[i] >= inClose[i - 1] && inClose[i] < inOpen[i - 1] || inOpen[i] > inClose[i - 1] && inClose[i] <= inOpen[i - 1]) ) {
-            /* white engulfs black */
-            /* black engulfs white */
-            if( inOpen[i] != inClose[i - 1] && inClose[i] != inOpen[i - 1] ) {
-               outInteger[outIdx++] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 100;
-            } else {
-               outInteger[outIdx++] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 80;
-            }
-         } else {
-            outInteger[outIdx++] = 0;
-         }
-         i += 1;
-      } while( i <= endIdx );
-      /* All done. Indicate the output limits and return. */
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Capture the live batch state into the handle. */
-      sp.lag1_inOpen = inOpen[historyLen - 1];
-      sp.lag1_inClose = inClose[historyLen - 1];
-      sp.cur_outInteger = outInteger[outNBElement.value - 1];
-      return RetCode.Success;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("CDLENGULFING openAndFill: internal error");
+      }
+      throw new IllegalArgumentException("CDLENGULFING openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind CDLENGULFING_Open (composition seam). */
    CDLENGULFING_Stream CDLENGULFING_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )

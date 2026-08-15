@@ -10,7 +10,8 @@
  *
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  072026 MF,CC  First version.
+ *  072026 MF,CC  First version (#131).
+ *  080926 MF,CC  Allow period of 1. Just copy input into output.
  */
 
    /**
@@ -77,6 +78,21 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
+         return RetCode.Success ;
+      }
+      /* No smoothing at period of 1: the output is a copy of the input
+       * (same convention as TA_MA for every MAType). Explicit because
+       * (P*V)/V round-trips only ~97% of the time in IEEE double, and
+       * because a lone zero volume must give the price, not NaN.
+       */
+      if( optInTimePeriod == 1 ) {
+         outBegIdx.value = startIdx;
+         outIdx = 0;
+         i = startIdx;
+         while( i <= (int)endIdx ) {
+            outReal[outIdx++] = inReal[i++];
+         }
+         outNBElement.value = outIdx;
          return RetCode.Success ;
       }
       /* Add-up the initial period, except for the last value.
@@ -167,6 +183,16 @@
          outNBElement.value = 0;
          return RetCode.Success ;
       }
+      if( optInTimePeriod == 1 ) {
+         outBegIdx.value = startIdx;
+         outIdx = 0;
+         i = startIdx;
+         while( i <= (int)endIdx ) {
+            outReal[outIdx++] = (double)inReal[i++];
+         }
+         outNBElement.value = outIdx;
+         return RetCode.Success ;
+      }
       sumPV = 0.0;
       sumV = 0.0;
       trailingIdx = startIdx - lookbackTotal;
@@ -211,12 +237,12 @@
     * <p><b>Formula</b>
     * <pre>{@code
     * VWMA = ( sum_{k=t-N+1..t} P[k] * V[k] ) / ( sum_{k=t-N+1..t} V[k] ), N = optInTimePeriod
-    * Equivalently, and bit-identically so in TA-Lib, SMA(P * V, N) / SMA(V, N) — the composition TradingView documents for `ta.vwma`. There is no seeding and no recursion, hence no unstable period.
+    * Equivalently, and bit-identically so in TA-Lib for N of 2 or more, SMA(P * V, N) / SMA(V, N) — the composition TradingView documents for `ta.vwma`. There is no seeding and no recursion, hence no unstable period.
     * }</pre>
     * <p><b>Notes</b>
     * <ul>
-    * <li>Volume is expected to be non-negative. Individual zero-volume bars are fine: a bar that did not trade simply carries no weight, and the average stays well defined as long as some bar in the window has volume. Only a window in which *every* volume is zero has no weights at all; the weighted mean is then undefined and that element is NaN, as it is in every other implementation. Series carrying no volume on any bar, such as cash-index feeds, are outside what a volume-weighted average can describe — use SMA or WMA there.</li>
-    * <li>A period of 1 reduces to {@code (P * V) / V}. That is the price arithmetically, but not a guaranteed IEEE round trip, so unlike SMA of period 1 it must not be relied upon as an exact copy of the input.</li>
+    * <li>A period of 1 performs no smoothing: the output is a copy of the input, whatever the volume.</li>
+    * <li>Volume is expected to be non-negative. Individual zero-volume bars are fine: a bar that did not trade simply carries no weight, and the average stays well defined as long as some bar in the window has volume. At a period of 2 or more, a window in which *every* volume is zero has no weights at all; the weighted mean is then undefined and that element is NaN, as it is in every other implementation. Series carrying no volume on any bar, such as cash-index feeds, are outside what a volume-weighted average can describe — use SMA or WMA there.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -273,12 +299,12 @@
     * <p><b>Formula</b>
     * <pre>{@code
     * VWMA = ( sum_{k=t-N+1..t} P[k] * V[k] ) / ( sum_{k=t-N+1..t} V[k] ), N = optInTimePeriod
-    * Equivalently, and bit-identically so in TA-Lib, SMA(P * V, N) / SMA(V, N) — the composition TradingView documents for `ta.vwma`. There is no seeding and no recursion, hence no unstable period.
+    * Equivalently, and bit-identically so in TA-Lib for N of 2 or more, SMA(P * V, N) / SMA(V, N) — the composition TradingView documents for `ta.vwma`. There is no seeding and no recursion, hence no unstable period.
     * }</pre>
     * <p><b>Notes</b>
     * <ul>
-    * <li>Volume is expected to be non-negative. Individual zero-volume bars are fine: a bar that did not trade simply carries no weight, and the average stays well defined as long as some bar in the window has volume. Only a window in which *every* volume is zero has no weights at all; the weighted mean is then undefined and that element is NaN, as it is in every other implementation. Series carrying no volume on any bar, such as cash-index feeds, are outside what a volume-weighted average can describe — use SMA or WMA there.</li>
-    * <li>A period of 1 reduces to {@code (P * V) / V}. That is the price arithmetically, but not a guaranteed IEEE round trip, so unlike SMA of period 1 it must not be relied upon as an exact copy of the input.</li>
+    * <li>A period of 1 performs no smoothing: the output is a copy of the input, whatever the volume.</li>
+    * <li>Volume is expected to be non-negative. Individual zero-volume bars are fine: a bar that did not trade simply carries no weight, and the average stays well defined as long as some bar in the window has volume. At a period of 2 or more, a window in which *every* volume is zero has no weights at all; the weighted mean is then undefined and that element is NaN, as it is in every other implementation. Series carrying no volume on any bar, such as cash-index feeds, are outside what a volume-weighted average can describe — use SMA or WMA there.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -342,7 +368,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class VWMA_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double sumPV;
       double sumV;
@@ -381,6 +407,32 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( VWMA_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.sumPV = other.sumPV;
+         this.sumV = other.sumV;
+         this.tempPV = other.tempPV;
+         this.tempV = other.tempV;
+         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
+         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
+         if( this.ring_trailingIdx_inReal != null && this.ring_trailingIdx_inReal.length == other.ring_trailingIdx_inReal.length ) {
+            System.arraycopy( other.ring_trailingIdx_inReal, 0, this.ring_trailingIdx_inReal, 0, other.ring_trailingIdx_inReal.length );
+         } else {
+            this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
+         }
+         if( this.ring_trailingIdx_inVolume != null && this.ring_trailingIdx_inVolume.length == other.ring_trailingIdx_inVolume.length ) {
+            System.arraycopy( other.ring_trailingIdx_inVolume, 0, this.ring_trailingIdx_inVolume, 0, other.ring_trailingIdx_inVolume.length );
+         } else {
+            this.ring_trailingIdx_inVolume = other.ring_trailingIdx_inVolume.clone();
+         }
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
+      private static final ThreadLocal<VWMA_Stream> PEEK_SCRATCH = new ThreadLocal<>();
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -393,12 +445,20 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a scratch handle held per thread and
+       * reused, so the copy allocates nothing after the first peek of this
+       * indicator on this thread. That scratch is retained for the life of
+       * the thread.
        */
       public double peek( double inReal, double inVolume ) {
-         VWMA_Stream scratch = new VWMA_Stream(this);
+         VWMA_Stream scratch = PEEK_SCRATCH.get();
+         if( scratch == null ) {
+            scratch = new VWMA_Stream(this);
+            PEEK_SCRATCH.set(scratch);
+         } else {
+            scratch.copyFrom(this);
+         }
          core.VWMA_StreamStep(scratch, inReal, inVolume);
          return scratch.cur_outReal;
       }
@@ -423,6 +483,10 @@
    void VWMA_StreamStep( VWMA_Stream sp, double inReal, double inVolume )
    {
       double tempReal = 0.0;
+      if( sp.optInTimePeriod == 1 ) {
+         sp.cur_outReal = inReal;
+         return ;
+      }
       if( sp.ringCap_trailingIdx == 0 ) {
          sp.ring_trailingIdx_inReal[0] = inReal;
          sp.ring_trailingIdx_inVolume[0] = inVolume;
@@ -450,7 +514,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode VWMA_OpenBody( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod )
+   private RetCode VWMA_OpenCore( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -461,9 +525,6 @@
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inVolume.length != inReal.length ) {
@@ -476,6 +537,32 @@
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInTimePeriod == 1 ) {
+         if( historyLen < VWMA_Lookback(optInTimePeriod) + 1 ) {
+            return RetCode.OutOfRangeEndIndex;
+         }
+         sp.optInTimePeriod = optInTimePeriod;
+         sp.sumPV = 0.0;
+         sp.sumV = 0.0;
+         sp.tempPV = 0.0;
+         sp.tempV = 0.0;
+         sp.ringPos_trailingIdx = 0;
+         sp.ringCap_trailingIdx = 0;
+         sp.ring_trailingIdx_inReal = new double[1];
+         sp.ring_trailingIdx_inVolume = new double[1];
+         int fillLb = VWMA_Lookback(optInTimePeriod);
+         outBegIdx.value = fillLb;
+         outNBElement.value = historyLen - fillLb;
+         if( outStride == 0 ) {
+            outReal[0] = inReal[historyLen - 1];
+         } else {
+            for( int fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ ) {
+               outReal[fillIdx] = inReal[fillLb + fillIdx];
+            }
+         }
+         sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
+         return RetCode.Success;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
@@ -534,7 +621,7 @@
          tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
          sumPV -= tempReal;
          sumV -= inVolume[trailingIdx];
-         lastValue_outReal = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         outReal[outIdx * outStride] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
          trailingIdx = trailingIdx + 1;
          outIdx = outIdx + 1;
       }
@@ -560,122 +647,42 @@
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
       sp.ring_trailingIdx_inVolume = capRing_trailingIdx_inVolume;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode VWMA_OpenBody( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return VWMA_OpenCore( sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode VWMA_OpenAndFillBody( VWMA_Stream sp, double inReal[], double inVolume[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      double sumPV = 0;
-      double sumV = 0;
-      double tempPV = 0;
-      double tempV = 0;
-      double tempReal = 0;
-      int i = 0;
-      int outIdx = 0;
-      int trailingIdx = 0;
-      int lookbackTotal = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inVolume.length != inReal.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 30;
-      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
          return RetCode.BadParam;
       }
-      /* Identify the minimum number of price bar needed
-       * to calculate at least one output.
-       */
-      lookbackTotal = (int)(optInTimePeriod - 1);
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
+      return VWMA_OpenCore( sp, inReal, inVolume, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode VWMA_OpenAndFillInternalBody( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return VWMA_OpenCore(sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* VWMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   VWMA_Stream VWMA_OpenAndFillInternal( double inReal[], double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      VWMA_Stream sp = new VWMA_Stream(this);
+      RetCode retCode = VWMA_OpenAndFillInternalBody(sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("VWMA openAndFill: history shorter than lookback + 1");
       }
-      /* Add-up the initial period, except for the last value.
-       *
-       * The price*volume product is kept in its own statement so no compiler may
-       * contract it into an FMA: that would make this function disagree with the
-       * Rust/Java backends under the cross-language bitwise gate, and with the
-       * two-TA_SMA composite reference.
-       */
-      sumPV = 0.0;
-      sumV = 0.0;
-      trailingIdx = startIdx - lookbackTotal;
-      i = trailingIdx;
-      if( optInTimePeriod > 1 ) {
-         while( i < startIdx ) {
-            tempReal = inReal[i] * inVolume[i];
-            sumPV += tempReal;
-            sumV += inVolume[i];
-            i = i + 1;
-         }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("VWMA openAndFill: internal error");
       }
-      /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the inReal and
-       * outReal to be the same buffer.
-       */
-      outIdx = 0;
-      while( i <= endIdx ) {
-         tempReal = inReal[i] * inVolume[i];
-         sumPV += tempReal;
-         sumV += inVolume[i];
-         i = i + 1;
-         /* Snapshot both sums before removing the trailing bar, mirroring the
-          * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-          * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-          */
-         tempPV = sumPV;
-         tempV = sumV;
-         /* Read the trailing values before writing the output, since the caller
-          * may pass the same buffer for an input and the output.
-          */
-         tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
-         sumPV -= tempReal;
-         sumV -= inVolume[trailingIdx];
-         outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
-         trailingIdx = trailingIdx + 1;
-         outIdx = outIdx + 1;
-      }
-      /* All done. Indicate the output limits and return. */
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Capture the live batch state into the handle. */
-      int cap_trailingIdx = i - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-         return RetCode.InternalError;
-      }
-      int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
-      double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
-      System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
-      double[] capRing_trailingIdx_inVolume = new double[allocN_trailingIdx];
-      System.arraycopy(inVolume, historyLen - cap_trailingIdx, capRing_trailingIdx_inVolume, 0, cap_trailingIdx);
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.sumPV = sumPV;
-      sp.sumV = sumV;
-      sp.tempPV = tempPV;
-      sp.tempV = tempV;
-      sp.ringPos_trailingIdx = 0;
-      sp.ringCap_trailingIdx = cap_trailingIdx;
-      sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
-      sp.ring_trailingIdx_inVolume = capRing_trailingIdx_inVolume;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("VWMA openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind VWMA_Open (composition seam). */
    VWMA_Stream VWMA_OpenInternal( double inReal[], double inVolume[], int startIdx, int optInTimePeriod )

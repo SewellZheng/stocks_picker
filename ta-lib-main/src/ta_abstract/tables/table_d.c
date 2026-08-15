@@ -59,7 +59,7 @@ static const TA_OptInputParameterInfo *TA_DEMA_OptInputs[] =
 DEF_FUNCTION( DEMA,
               TA_GroupId_OverlapStudies,
               "Double Exponential Moving Average",
-              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM | TA_FUNC_FLG_PERIOD1_IDENTITY
              );
 /* DEMA END */
 
@@ -83,7 +83,7 @@ static const TA_OptInputParameterInfo *TA_DIV_OptInputs[] =
 DEF_FUNCTION( DIV,
               TA_GroupId_MathOperators,
               "Vector Arithmetic Div",
-              TA_FUNC_FLG_STREAM
+              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_NAN_INF_OUT
              );
 /* DIV END */
 

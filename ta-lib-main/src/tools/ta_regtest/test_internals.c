@@ -57,6 +57,8 @@
  */
 
 /**** Headers ****/
+#include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -64,6 +66,7 @@
 #include "ta_memory.h"
 #include "ta_defs.h"
 #include "ta_common.h"
+#include "ta_abstract.h"
 #include "codegen_pipe.h"
 
 
@@ -83,6 +86,7 @@
 static ErrorNumber testCircularBuffer( void );
 static ErrorNumber testBoundedAppend( void );
 static ErrorNumber testUnstablePeriodBounds( void );
+static ErrorNumber testCandleSettingsBounds( void );
 static ErrorNumber testEnumValueContract( void );
 
 static TA_RetCode circBufferFillFrom0ToSize( int size, int *buffer );
@@ -119,6 +123,13 @@ ErrorNumber test_internals( void )
    if( retValue != TA_TEST_PASS )
    {
       printf( "\nFailed: Unstable period bound tests (%d)\n", retValue );
+      return retValue;
+   }
+
+   retValue = testCandleSettingsBounds();
+   if( retValue != TA_TEST_PASS )
+   {
+      printf( "\nFailed: Candle settings bound tests (%d)\n", retValue );
       return retValue;
    }
 
@@ -195,7 +206,8 @@ static ErrorNumber testEnumValueContract( void )
       { "TA_MAType_MAMA",      7, TA_MAType_MAMA },
       { "TA_MAType_T3",        8, TA_MAType_T3 },
       { "TA_MAType_HMA",       9, TA_MAType_HMA },
-      { "TA_MAType_DISABLED", 10, TA_MAType_DISABLED }
+      { "TA_MAType_DISABLED", 10, TA_MAType_DISABLED },
+      { "TA_MAType_DEFAULT",  11, TA_MAType_DEFAULT }
    };
 
    /* Returned to every caller and mapped by name in the wrappers (ta-lib-python
@@ -223,8 +235,35 @@ static ErrorNumber testEnumValueContract( void )
       { "TA_UNKNOWN_ERR",              0xFFFF, TA_UNKNOWN_ERR }
    };
 
+   /* TA_SetCandleSettings takes both of these from the caller, so they are ABI
+    * on the same terms. TA_AllCandleSettings is the count as well as the "all"
+    * selector -- it sizes TA_Globals->candleSettings[] -- so it is pinned last
+    * and excluded from the member count below, like TA_FUNC_UNST_ALL. */
+   static const EnumPin candlePins[] = {
+      { "TA_BodyLong",           0, TA_BodyLong },
+      { "TA_BodyVeryLong",       1, TA_BodyVeryLong },
+      { "TA_BodyShort",          2, TA_BodyShort },
+      { "TA_BodyDoji",           3, TA_BodyDoji },
+      { "TA_ShadowLong",         4, TA_ShadowLong },
+      { "TA_ShadowVeryLong",     5, TA_ShadowVeryLong },
+      { "TA_ShadowShort",        6, TA_ShadowShort },
+      { "TA_ShadowVeryShort",    7, TA_ShadowVeryShort },
+      { "TA_Near",               8, TA_Near },
+      { "TA_Far",                9, TA_Far },
+      { "TA_Equal",             10, TA_Equal },
+      { "TA_AllCandleSettings", 11, TA_AllCandleSettings }
+   };
+
+   static const EnumPin rangePins[] = {
+      { "TA_RangeType_RealBody", 0, TA_RangeType_RealBody },
+      { "TA_RangeType_HighLow",  1, TA_RangeType_HighLow },
+      { "TA_RangeType_Shadows",  2, TA_RangeType_Shadows }
+   };
+
    /* Every pinned unstable id except the trailing ALL wildcard. */
    const int nbUnstIds = (int)(sizeof(unstPins)/sizeof(unstPins[0])) - 1;
+   /* Likewise: the real settings, excluding the TA_AllCandleSettings selector. */
+   const int nbCandleTypes = (int)(sizeof(candlePins)/sizeof(candlePins[0])) - 1;
    unsigned int i;
 
    for( i=0; i < sizeof(retCodePins)/sizeof(retCodePins[0]); i++ )
@@ -236,6 +275,75 @@ static ErrorNumber testEnumValueContract( void )
                  retCodePins[i].name, retCodePins[i].current, retCodePins[i].shipped );
          return TA_INTERNAL_ENUM_CONTRACT_FAIL_3;
       }
+   }
+
+   /* Completeness for the return codes. There is no TA_RETCODE_COUNT to compare
+    * against -- the list lives in src/ta_common/ta_retcode.csv and is generated
+    * into a table this file cannot see -- but TA_SetRetCodeInfo answers
+    * "TA_UNKNOWN_ERR" for anything absent from that table, so probing the value
+    * space finds a code that was added to the csv and never pinned here. The
+    * 5000-5999 band reports TA_INTERNAL_ERROR for all 1000 values, so only its
+    * first needs a row. */
+   {
+      unsigned long v;
+      for( v = 0; v <= 0xFFFFUL; v++ )
+      {
+         TA_RetCodeInfo info;
+         unsigned int p;
+         int pinned = 0;
+
+         if( v > 5000 && v <= 5999 ) continue;   /* one code, whole band */
+
+         TA_SetRetCodeInfo( (TA_RetCode)v, &info );
+         if( v != 0xFFFFUL && strcmp( info.enumStr, "TA_UNKNOWN_ERR" ) == 0 )
+            continue;                            /* not a defined code */
+
+         for( p=0; p < sizeof(retCodePins)/sizeof(retCodePins[0]); p++ )
+            if( (unsigned long)retCodePins[p].shipped == v ) { pinned = 1; break; }
+
+         if( !pinned )
+         {
+            printf( "\nFailed: TA_RetCode %lu (%s) is defined but not pinned. Add its\n"
+                    "        row to retCodePins[] (append only -- never renumber).\n",
+                    v, info.enumStr );
+            return TA_INTERNAL_ENUM_CONTRACT_FAIL_3;
+         }
+      }
+   }
+
+   for( i=0; i < sizeof(candlePins)/sizeof(candlePins[0]); i++ )
+   {
+      if( candlePins[i].current != candlePins[i].shipped )
+      {
+         printf( "\nFailed: %s is %d but shipped as %d. These values are ABI --\n"
+                 "        a caller passes them to TA_SetCandleSettings. Append, never renumber.\n",
+                 candlePins[i].name, candlePins[i].current, candlePins[i].shipped );
+         return TA_INTERNAL_ENUM_CONTRACT_FAIL_3;
+      }
+   }
+
+   for( i=0; i < sizeof(rangePins)/sizeof(rangePins[0]); i++ )
+   {
+      if( rangePins[i].current != rangePins[i].shipped )
+      {
+         printf( "\nFailed: %s is %d but shipped as %d. These values are ABI --\n"
+                 "        a caller passes them to TA_SetCandleSettings. Append, never renumber.\n",
+                 rangePins[i].name, rangePins[i].current, rangePins[i].shipped );
+         return TA_INTERNAL_ENUM_CONTRACT_FAIL_3;
+      }
+   }
+
+   /* Same completeness rule as the unstable ids: TA_AllCandleSettings doubles as
+    * the member count, so a new setting that does not gain a row here would sit
+    * unpinned. It also sizes the defaults table in ta_global.c -- see the guard
+    * there, which turns the same mistake into a clean error rather than a read
+    * past the end. */
+   if( (int)TA_AllCandleSettings != nbCandleTypes )
+   {
+      printf( "\nFailed: TA_AllCandleSettings is %d but %d setting(s) are pinned. Add\n"
+              "        the new setting's row to candlePins[] (append only).\n",
+              (int)TA_AllCandleSettings, nbCandleTypes );
+      return TA_INTERNAL_ENUM_CONTRACT_FAIL_3;
    }
 
    for( i=0; i < sizeof(unstPins)/sizeof(unstPins[0]); i++ )
@@ -256,6 +364,30 @@ static ErrorNumber testEnumValueContract( void )
          printf( "\nFailed: %s is %d but shipped as %d. These values are ABI --\n"
                  "        they are the optInMAType a caller passes. Append, never renumber.\n",
                  maPins[i].name, maPins[i].current, maPins[i].shipped );
+         return TA_INTERNAL_ENUM_CONTRACT_FAIL_1;
+      }
+   }
+
+   /* Same completeness rule for MAType, which has no _COUNT to compare against:
+    * use the shipped choice list, generated from the same enums.yaml. Without
+    * this, an appended member sits unpinned and can later be renumbered. */
+   {
+      const TA_FuncHandle *maHandle;
+      const TA_OptInputParameterInfo *maOpt;
+      const int nbMaPins = (int)(sizeof(maPins)/sizeof(maPins[0]));
+      if( TA_GetFuncHandle( "MA", &maHandle ) != TA_SUCCESS ||
+          TA_GetOptInputParameterInfo( maHandle, 1, &maOpt ) != TA_SUCCESS ||
+          maOpt->type != TA_OptInput_IntegerList || !maOpt->dataSet ||
+          strcmp( maOpt->paramName, "optInMAType" ) != 0 )
+      {
+         printf( "\nFailed: cannot reach MA's optInMAType choice list to count MAType members\n" );
+         return TA_INTERNAL_ENUM_CONTRACT_FAIL_1;
+      }
+      if( (int)((const TA_IntegerList *)maOpt->dataSet)->nbElement != nbMaPins )
+      {
+         printf( "\nFailed: MAType has %d member(s) but %d are pinned. Add the new\n"
+                 "        member's row to maPins[] (append only -- never renumber).\n",
+                 (int)((const TA_IntegerList *)maOpt->dataSet)->nbElement, nbMaPins );
          return TA_INTERNAL_ENUM_CONTRACT_FAIL_1;
       }
    }
@@ -369,6 +501,39 @@ static ErrorNumber testUnstablePeriodBounds( void )
       }
    }
 
+   /* The VALUE dimension. The id has been bounded since #144; the period never
+    * was, and it is added to a lookback that is then used as an index -- so a
+    * huge one overflows the lookback NEGATIVE and the call indexes ~2^31 bars
+    * forward. TA_MAX_INDEX is the ceiling the index space already uses, and a
+    * warm-up beyond it could never produce output anyway.
+    */
+   if( TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_MAX_INDEX + 1 ) != TA_BAD_PARAM ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, 2147483647u ) != TA_BAD_PARAM ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, 4294967295u ) != TA_BAD_PARAM ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 2147483647u ) != TA_BAD_PARAM )
+   {
+      printf( "\nFailed: TA_SetUnstablePeriod accepted a period that overflows the lookback\n" );
+      return TA_INTERNAL_UNST_VALUE_FAIL;
+   }
+
+   /* A rejected period must not have been stored, by either the single-id or
+    * the wildcard path -- 7 is what the wildcard set above. */
+   if( TA_GetUnstablePeriod( TA_FUNC_UNST_EMA ) != 7 ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_ADX ) != 7 )
+   {
+      printf( "\nFailed: a rejected TA_SetUnstablePeriod still wrote the value\n" );
+      return TA_INTERNAL_UNST_VALUE_FAIL;
+   }
+
+   /* The ceiling itself is accepted: the guard is a bound, not an off-by-one. */
+   if( TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_MAX_INDEX ) != TA_SUCCESS ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_EMA ) != (unsigned int)TA_MAX_INDEX )
+   {
+      printf( "\nFailed: TA_SetUnstablePeriod rejected the TA_MAX_INDEX ceiling\n" );
+      return TA_INTERNAL_UNST_VALUE_FAIL;
+   }
+   TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, 7 );
+
    retCode = TA_SetUnstablePeriod( TA_FUNC_UNST_RSI, 3 );
    if( retCode != TA_SUCCESS ||
        TA_GetUnstablePeriod( TA_FUNC_UNST_RSI ) != 3 ||
@@ -384,6 +549,278 @@ static ErrorNumber testUnstablePeriodBounds( void )
     * down zeroes TA_Globals, so the periods set here cannot leak into any
     * later test.
     */
+   retValue = freeLib();
+   if( retValue != TA_TEST_PASS )
+      return retValue;
+
+   return TA_TEST_PASS;
+}
+
+#define CANDLE_NB_BAR 64
+
+/* Runs CDLDOJI over the whole series and checks the lookback against what the
+ * call reports. Returns the number of pattern hits, or -1 on a parity failure.
+ */
+static int checkDoji( const double *inOpen, const double *inHigh,
+                      const double *inLow,  const double *inClose )
+{
+   int outInteger[CANDLE_NB_BAR];
+   int outBegIdx, outNbElement, lookback, i, nbHit;
+   TA_RetCode retCode;
+
+   lookback = TA_CDLDOJI_Lookback();
+   retCode  = TA_CDLDOJI( 0, CANDLE_NB_BAR-1, inOpen, inHigh, inLow, inClose,
+                          &outBegIdx, &outNbElement, outInteger );
+
+   if( retCode != TA_SUCCESS )
+   {
+      printf( "\nFailed: TA_CDLDOJI RetCode = %d (lookback = %d)\n",
+              (int)retCode, lookback );
+      return -1;
+   }
+
+   /* A negative lookback is the tier disagreeing with itself: the call just
+    * succeeded, so the lookback cannot be saying "rejected".
+    */
+   if( lookback < 0 )
+   {
+      printf( "\nFailed: TA_CDLDOJI_Lookback = %d but the call returned TA_SUCCESS\n",
+              lookback );
+      return -1;
+   }
+
+   /* A lookback longer than the series produces nothing, reported as the
+    * (0,0) empty result rather than as an error.
+    */
+   if( lookback > CANDLE_NB_BAR-1 )
+   {
+      if( outBegIdx != 0 || outNbElement != 0 )
+      {
+         printf( "\nFailed: TA_CDLDOJI returned %d element(s) at lookback %d over %d bars\n",
+                 outNbElement, lookback, CANDLE_NB_BAR );
+         return -1;
+      }
+      return 0;
+   }
+
+   /* startIdx == 0, so the function consumed exactly `lookback` leading bars.
+    * This is what the shift breaks: it reported outBegIdx = 0 with
+    * CANDLE_NB_BAR-lookback... elements while the values were |avgPeriod|
+    * bars later than advertised.
+    */
+   if( outBegIdx != lookback || outNbElement != CANDLE_NB_BAR - lookback )
+   {
+      printf( "\nFailed: TA_CDLDOJI outBegIdx = %d outNbElement = %d, lookback = %d\n",
+              outBegIdx, outNbElement, lookback );
+      return -1;
+   }
+
+   nbHit = 0;
+   for( i=0; i < outNbElement; i++ )
+      if( outInteger[i] != 0 )
+         nbHit++;
+
+   return nbHit;
+}
+
+/* The other global setter, and the same defect (issue #185).
+ * TA_SetCandleSettings validated `settingType` and nothing else, so a negative
+ * `avgPeriod` reached all 61 CDL* bodies: CDLDOJI's lookback returned -1 while
+ * TA_CDLDOJI returned TA_SUCCESS with every value shifted under an *outBegIdx
+ * still reporting startIdx. Above TA_MAX_INDEX is the mirror image -- the
+ * `max(...)+N` lookbacks overflow signed-negative into that same state
+ * (-2147483647 out of CDLEVENINGDOJISTAR in practice).
+ *
+ * The contract asserted here is the lookback/call tier parity the boundary
+ * sweep enforces for a function's OWN optional parameters, which by
+ * construction it cannot reach through a global setter: a setting the setter
+ * ACCEPTS must produce a non-negative lookback and a call whose *outBegIdx and
+ * element count agree with it, and a setting it REJECTS must leave the previous
+ * one in place.
+ *
+ * Non-vacuity: `checkDoji` asserts the parity positively on every accepted
+ * setting (not just the absence of a bad return code), and the final leg
+ * requires a tuned factor to actually change CDLDOJI's output -- a setter that
+ * had started rejecting everything would fail there rather than pass quietly.
+ */
+static ErrorNumber testCandleSettingsBounds( void )
+{
+   double inOpen[CANDLE_NB_BAR], inHigh[CANDLE_NB_BAR];
+   double inLow[CANDLE_NB_BAR], inClose[CANDLE_NB_BAR];
+   ErrorNumber retValue;
+   int nbHitDefault, nbHitTuned;
+   int i;
+
+   retValue = allocLib();
+   if( retValue != TA_TEST_PASS )
+   {
+      printf( "\nFailed: Can't initialize the library\n" );
+      return retValue;
+   }
+
+   /* A deterministic series with a mix of doji and non-doji bars, so the last
+    * leg below can tell "the setting took effect" from "everything matches".
+    */
+   for( i=0; i < CANDLE_NB_BAR; i++ )
+   {
+      inOpen[i]  = 100.0 + (double)(i % 7);
+      inClose[i] = 100.0 + (double)((i * 3) % 5);
+      inHigh[i]  = (inOpen[i] > inClose[i] ? inOpen[i] : inClose[i]) + 1.0;
+      inLow[i]   = (inOpen[i] < inClose[i] ? inOpen[i] : inClose[i]) - 1.0;
+   }
+
+   nbHitDefault = checkDoji( inOpen, inHigh, inLow, inClose );
+   if( nbHitDefault < 0 )
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_0;
+
+   /* The reported defect. Both a plain -1 and the extreme, since a guard
+    * written as a magnitude test rather than a sign test would let INT_MIN
+    * through.
+    */
+   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, -1, 0.1 ) != TA_BAD_PARAM ||
+       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, -10, 0.1 ) != TA_BAD_PARAM ||
+       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, INT_MIN, 0.1 ) != TA_BAD_PARAM )
+   {
+      printf( "\nFailed: TA_SetCandleSettings accepted a negative avgPeriod\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
+   }
+
+   /* The other end: an avgPeriod above the index space overflows the
+    * `max(...)+N` lookbacks. TA_MAX_INDEX is the ceiling TA_SetUnstablePeriod
+    * already uses for the same reason -- a warm-up longer than the largest
+    * addressable series can never produce output.
+    */
+   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, TA_MAX_INDEX+1, 0.1 ) != TA_BAD_PARAM ||
+       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, INT_MAX, 0.1 ) != TA_BAD_PARAM )
+   {
+      printf( "\nFailed: TA_SetCandleSettings accepted an avgPeriod that overflows the lookback\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
+   }
+
+   /* An out-of-domain rangeType reaches the fall-through arm of TA_CANDLERANGE,
+    * which evaluates to 0 -- every range zero, every threshold zero, and a
+    * silently meaningless result rather than an error. The domain is the
+    * member list, so 3 is as invalid as -1.
+    */
+   if( TA_SetCandleSettings( TA_BodyDoji, (TA_RangeType)3, 10, 0.1 ) != TA_BAD_PARAM ||
+       TA_SetCandleSettings( TA_BodyDoji, (TA_RangeType)-1, 10, 0.1 ) != TA_BAD_PARAM )
+   {
+      printf( "\nFailed: TA_SetCandleSettings accepted an out-of-domain rangeType\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
+   }
+
+   /* factor takes any finite value -- it scales a threshold, never an index --
+    * but not NaN, which silences every comparison it feeds. Both halves are
+    * asserted: a guard written as a range check would accept NaN (every
+    * comparison against it is false), and one written as `!(factor > 0)` would
+    * refuse the legal negative.
+    */
+   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, NAN ) != TA_BAD_PARAM )
+   {
+      printf( "\nFailed: TA_SetCandleSettings accepted a NaN factor\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
+   }
+   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, -1.0 ) != TA_SUCCESS ||
+       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, 0.0 ) != TA_SUCCESS )
+   {
+      printf( "\nFailed: TA_SetCandleSettings refused a legal factor\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
+   }
+   if( TA_RestoreCandleDefaultSettings( TA_BodyDoji ) != TA_SUCCESS )
+   {
+      printf( "\nFailed: TA_RestoreCandleDefaultSettings( TA_BodyDoji )\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
+   }
+
+   /* Nothing above was stored: the defaults are still in force, and the tiers
+    * still agree.
+    */
+   if( checkDoji( inOpen, inHigh, inLow, inClose ) != nbHitDefault )
+   {
+      printf( "\nFailed: a rejected TA_SetCandleSettings still changed the setting\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_2;
+   }
+
+   /* settingType: the wildcard is not a single-setting target, and a negative
+    * one must not index candleSettings[-1] -- which lands on the tail of
+    * TA_Globals->unstablePeriod[], the same adjacency #144 fixed for the other
+    * setter. Live only where the enum's underlying type is signed (MSVC gives
+    * enums `int`); gcc and clang pick `unsigned int` here because the enum
+    * declares no negative member, so the value already wraps out of range and
+    * this leg is inert there. The periods are parked at 7 first so that ANY of
+    * the four fields the setter writes is detectable -- a fresh library leaves
+    * them at 0, and a clobber that happened to write 0 would look untouched.
+    */
+   TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 7 );
+   if( TA_SetCandleSettings( TA_AllCandleSettings, TA_RangeType_HighLow, 10, 0.1 ) != TA_BAD_PARAM ||
+       TA_SetCandleSettings( (TA_CandleSettingType)-1, TA_RangeType_HighLow, 10, 0.1 ) != TA_BAD_PARAM ||
+       TA_SetCandleSettings( (TA_CandleSettingType)-1000000, TA_RangeType_HighLow, 10, 0.1 ) != TA_BAD_PARAM ||
+       TA_RestoreCandleDefaultSettings( (TA_CandleSettingType)-1 ) != TA_BAD_PARAM )
+   {
+      printf( "\nFailed: TA_SetCandleSettings accepted an out-of-domain settingType\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_3;
+   }
+   for( i=0; i < TA_FUNC_UNST_COUNT; i++ )
+   {
+      if( TA_GetUnstablePeriod( (TA_FuncUnstId)i ) != 7 )
+      {
+         printf( "\nFailed: a rejected settingType wrote onto unstablePeriod[%d]\n", i );
+         return TA_INTERNAL_CANDLE_BOUND_FAIL_3;
+      }
+   }
+   TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 0 );
+
+   /* The valid domain still works, bounds included -- the guards are bounds,
+    * not off-by-ones. avgPeriod 0 is the "compare with the current candle"
+    * mode the defaults use for ShadowLong/ShadowVeryLong, and TA_MAX_INDEX is
+    * the ceiling itself.
+    */
+   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_RealBody, 0, 0.1 ) != TA_SUCCESS ||
+       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_Shadows, TA_MAX_INDEX, 0.1 ) != TA_SUCCESS ||
+       TA_SetCandleSettings( TA_Equal, TA_RangeType_HighLow, 5, 0.05 ) != TA_SUCCESS )
+   {
+      printf( "\nFailed: TA_SetCandleSettings rejected a valid setting\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_4;
+   }
+
+   /* At TA_MAX_INDEX the lookback swallows the whole series, so the tiers must
+    * still agree on an empty result rather than the call inventing one.
+    */
+   if( checkDoji( inOpen, inHigh, inLow, inClose ) != 0 )
+   {
+      printf( "\nFailed: TA_CDLDOJI produced output at an avgPeriod of TA_MAX_INDEX\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_4;
+   }
+
+   /* ...and the setter still does its job. A huge factor makes every bar a
+    * doji; if this matched the default count the guards would be rejecting
+    * everything and every assertion above would be vacuous.
+    */
+   if( TA_RestoreCandleDefaultSettings( TA_AllCandleSettings ) != TA_SUCCESS ||
+       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, 1.0e9 ) != TA_SUCCESS )
+   {
+      printf( "\nFailed: TA_SetCandleSettings rejected the tuned setting\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_4;
+   }
+   nbHitTuned = checkDoji( inOpen, inHigh, inLow, inClose );
+   if( nbHitTuned < 0 )
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_4;
+   if( nbHitTuned <= nbHitDefault )
+   {
+      printf( "\nFailed: TA_SetCandleSettings had no effect (%d hits, default %d)\n",
+              nbHitTuned, nbHitDefault );
+      return TA_INTERNAL_CANDLE_VACUOUS;
+   }
+
+   /* Leave the globals as they were found: freeLib() zeroes them, but the
+    * defaults are what every later test expects if it does not re-init.
+    */
+   if( TA_RestoreCandleDefaultSettings( TA_AllCandleSettings ) != TA_SUCCESS )
+   {
+      printf( "\nFailed: TA_RestoreCandleDefaultSettings\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_4;
+   }
+
    retValue = freeLib();
    if( retValue != TA_TEST_PASS )
       return retValue;

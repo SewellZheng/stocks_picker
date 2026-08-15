@@ -857,6 +857,15 @@ TA_RetCode TA_DX_FramePP( const TA_ParamHolderPriv *params,
 unsigned int TA_DX_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 
+TA_RetCode TA_EFI_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_EFI_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
 TA_RetCode TA_EMA_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -1064,6 +1073,15 @@ TA_RetCode TA_MAMA_FramePP( const TA_ParamHolderPriv *params,
 unsigned int TA_MAMA_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 
+TA_RetCode TA_MARKETFI_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_MARKETFI_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
 TA_RetCode TA_MAVP_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -1269,6 +1287,15 @@ TA_RetCode TA_PVO_FramePP( const TA_ParamHolderPriv *params,
                            int           *outNBElement )
 ;
 unsigned int TA_PVO_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
+TA_RetCode TA_QSTICK_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_QSTICK_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 
 TA_RetCode TA_ROC_FramePP( const TA_ParamHolderPriv *params,
@@ -1530,6 +1557,15 @@ TA_RetCode TA_VWMA_FramePP( const TA_ParamHolderPriv *params,
                            int           *outNBElement )
 ;
 unsigned int TA_VWMA_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
+TA_RetCode TA_WAD_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_WAD_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 
 TA_RetCode TA_WCLPRICE_FramePP( const TA_ParamHolderPriv *params,

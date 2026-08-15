@@ -256,7 +256,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class AVGDEV_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       int winPos_i;
       int winCap_i;
@@ -285,6 +285,20 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( AVGDEV_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.winPos_i = other.winPos_i;
+         this.winCap_i = other.winCap_i;
+         if( this.win_i_inReal != null && this.win_i_inReal.length == other.win_i_inReal.length ) {
+            System.arraycopy( other.win_i_inReal, 0, this.win_i_inReal, 0, other.win_i_inReal.length );
+         } else {
+            this.win_i_inReal = other.win_i_inReal.clone();
+         }
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -297,9 +311,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
          AVGDEV_Stream scratch = new AVGDEV_Stream(this);
@@ -344,14 +358,11 @@
          sp.winPos_i = 0;
       }
    }
-   private RetCode AVGDEV_OpenBody( AVGDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode AVGDEV_OpenCore( AVGDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int today = 0;
       int outIdx = 0;
       int lookback = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -391,7 +402,7 @@
          for( i = 0; i < optInTimePeriod; i += 1 ) {
             todayDev += Math.abs(inReal[today - i] - todaySum / optInTimePeriod);
          }
-         lastValue_outReal = todayDev / optInTimePeriod;
+         outReal[outIdx * outStride] = todayDev / optInTimePeriod;
          outIdx += 1;
          today += 1;
       }
@@ -407,75 +418,42 @@
       sp.winPos_i = 0;
       sp.winCap_i = cap_i;
       sp.win_i_inReal = capWin_i_inReal;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode AVGDEV_OpenBody( AVGDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return AVGDEV_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode AVGDEV_OpenAndFillBody( AVGDEV_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int today = 0;
-      int outIdx = 0;
-      int lookback = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 14;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      lookback = optInTimePeriod - 1;
-      if( startIdx < lookback ) {
-         startIdx = lookback;
+      return AVGDEV_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode AVGDEV_OpenAndFillInternalBody( AVGDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return AVGDEV_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* AVGDEV_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   AVGDEV_Stream AVGDEV_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      AVGDEV_Stream sp = new AVGDEV_Stream(this);
+      RetCode retCode = AVGDEV_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      today = startIdx;
-      /* Make sure there is still something to evaluate. */
-      if( today > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("AVGDEV openAndFill: history shorter than lookback + 1");
       }
-      /* Process the initial DM and TR */
-      outBegIdx.value = today;
-      outIdx = 0;
-      while( today <= endIdx ) {
-         double todaySum;
-         double todayDev;
-         int i;
-         todaySum = 0.0;
-         for( i = 0; i < optInTimePeriod; i += 1 ) {
-            todaySum += inReal[today - i];
-         }
-         todayDev = 0.0;
-         for( i = 0; i < optInTimePeriod; i += 1 ) {
-            todayDev += Math.abs(inReal[today - i] - todaySum / optInTimePeriod);
-         }
-         outReal[outIdx] = todayDev / optInTimePeriod;
-         outIdx += 1;
-         today += 1;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("AVGDEV openAndFill: internal error");
       }
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      int cap_i = (int)(optInTimePeriod);
-      if( cap_i < 1 || cap_i > historyLen ) {
-         return RetCode.InternalError;
-      }
-      double[] capWin_i_inReal = new double[cap_i];
-      System.arraycopy(inReal, historyLen - cap_i, capWin_i_inReal, 0, cap_i);
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.winPos_i = 0;
-      sp.winCap_i = cap_i;
-      sp.win_i_inReal = capWin_i_inReal;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("AVGDEV openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind AVGDEV_Open (composition seam). */
    AVGDEV_Stream AVGDEV_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )

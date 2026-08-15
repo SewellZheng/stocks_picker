@@ -2,8 +2,10 @@
 
 # TA-Lib for Rust
 
+[![crates.io](https://img.shields.io/crates/v/ta-lib.svg)](https://crates.io/crates/ta-lib) [![docs.rs](https://docs.rs/ta-lib/badge.svg)](https://docs.rs/ta-lib)
+
 [TA-Lib](https://ta-lib.org) — the widely used technical-analysis library — as a
-pure-Rust crate: 161 indicators covering moving averages, momentum oscillators
+pure-Rust crate: 172 indicators covering moving averages, momentum oscillators
 (RSI, MACD, Stochastic), volatility (Bollinger Bands, ATR), volume, Hilbert
 Transform cycle analysis, statistics, price transforms, and 61 candlestick
 patterns.
@@ -15,7 +17,7 @@ and verified against the C reference implementation.
 
 ```toml
 [dependencies]
-ta-lib = "0.6"
+ta-lib = "0.8"
 ```
 
 ## Quick start
@@ -49,8 +51,11 @@ use ta_lib::{Core, FuncUnstId};
 
 let core = Core::builder()
     .unstable_period(FuncUnstId::EMA, 10)
-    .build();
+    .build()?;
 ```
+
+The setters are infallible so that they chain; a rejected argument is reported
+once, by `build()`, as `RetCode::BadParam`.
 
 Because a configured `Core` only ever reads its settings, it is `Send + Sync` and
 can be shared read-only across threads (e.g. an `Arc<Core>` with concurrent

@@ -13,6 +13,7 @@
  *  052603 MF     Adapt code to compile with .NET Managed C++
  *  070526 MF,CC  Speed optimization: compute both EMA in a single
  *                lockstep pass (bit-exact, no temporary buffers).
+ *  080926 MF,CC  Explicit no-smoothing copy at a period of 1.
  */
 
    /**
@@ -101,6 +102,26 @@
       }
       /* Make sure there is still something to evaluate. */
       if( startIdx > endIdx ) {
+         return RetCode.Success ;
+      }
+      /* No smoothing at period of 1: the output is a copy of the input
+       * (same convention as TA_MA for every MAType). Explicit and separate
+       * from TA_EMA's own copy because the two EMA below are inlined here,
+       * not delegated -- at period 1 they reduce to (x-prev)+prev, which
+       * loses the input as soon as consecutive values differ by more than a
+       * factor of two, and 2*e1 - e2 then propagates the residue rather
+       * than cancelling it. The unstable period still delays the first
+       * output, and at twice EMA's rate: TA_MA reports lookback 0 at period
+       * 1, so the two disagree on alignment when it is non-zero.
+       */
+      if( optInTimePeriod == 1 ) {
+         outBegIdx.value = startIdx;
+         outIdx = 0;
+         today = startIdx;
+         while( today <= endIdx ) {
+            outReal[outIdx++] = inReal[today++];
+         }
+         outNBElement.value = outIdx;
          return RetCode.Success ;
       }
       /* Both EMA are computed in a single lockstep pass: each new
@@ -210,6 +231,16 @@
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
+         return RetCode.Success ;
+      }
+      if( optInTimePeriod == 1 ) {
+         outBegIdx.value = startIdx;
+         outIdx = 0;
+         today = startIdx;
+         while( today <= endIdx ) {
+            outReal[outIdx++] = (double)inReal[today++];
+         }
+         outNBElement.value = outIdx;
          return RetCode.Success ;
       }
       optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
@@ -366,7 +397,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class DEMA_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double prevEMA1;
       double prevEMA2;
@@ -395,6 +426,16 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( DEMA_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.prevEMA1 = other.prevEMA1;
+         this.prevEMA2 = other.prevEMA2;
+         this.optInK_1 = other.optInK_1;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -407,9 +448,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
          DEMA_Stream scratch = new DEMA_Stream(this);
@@ -436,11 +477,15 @@
    }
    void DEMA_StreamStep( DEMA_Stream sp, double inReal )
    {
+      if( sp.optInTimePeriod == 1 ) {
+         sp.cur_outReal = inReal;
+         return ;
+      }
       sp.prevEMA1 = Math.fma(inReal - sp.prevEMA1, sp.optInK_1, sp.prevEMA1);
       sp.prevEMA2 = Math.fma(sp.prevEMA1 - sp.prevEMA2, sp.optInK_1, sp.prevEMA2);
       sp.cur_outReal = 2.0 * sp.prevEMA1 - sp.prevEMA2;
    }
-   private RetCode DEMA_OpenBody( DEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode DEMA_OpenCore( DEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double prevEMA1 = 0;
       double prevEMA2 = 0;
@@ -451,9 +496,6 @@
       int outIdx = 0;
       int lookbackEMA = 0;
       int lookbackTotal = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -466,6 +508,27 @@
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInTimePeriod == 1 ) {
+         if( historyLen < DEMA_Lookback(optInTimePeriod) + 1 ) {
+            return RetCode.OutOfRangeEndIndex;
+         }
+         sp.optInTimePeriod = optInTimePeriod;
+         sp.prevEMA1 = 0.0;
+         sp.prevEMA2 = 0.0;
+         sp.optInK_1 = 0.0;
+         int fillLb = DEMA_Lookback(optInTimePeriod);
+         outBegIdx.value = fillLb;
+         outNBElement.value = historyLen - fillLb;
+         if( outStride == 0 ) {
+            outReal[0] = inReal[historyLen - 1];
+         } else {
+            for( int fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ ) {
+               outReal[fillIdx] = inReal[fillLb + fillIdx];
+            }
+         }
+         sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
+         return RetCode.Success;
       }
       /* For an explanation of this function, please read
        *
@@ -560,12 +623,12 @@
       /* Stable zone: keep advancing both EMA in lockstep and
        * write the DEMA into the output.
        */
-      lastValue_outReal = 2.0 * prevEMA1 - prevEMA2;
+      outReal[0 * outStride] = 2.0 * prevEMA1 - prevEMA2;
       outIdx = 1;
       while( today <= endIdx ) {
          prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
          prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-         lastValue_outReal = 2.0 * prevEMA1 - prevEMA2;
+         outReal[outIdx++ * outStride] = 2.0 * prevEMA1 - prevEMA2;
       }
       /* Succeed. Indicate where the output starts relative to
        * the caller input.
@@ -577,149 +640,42 @@
       sp.prevEMA1 = prevEMA1;
       sp.prevEMA2 = prevEMA2;
       sp.optInK_1 = optInK_1;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode DEMA_OpenBody( DEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return DEMA_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode DEMA_OpenAndFillBody( DEMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      double prevEMA1 = 0;
-      double prevEMA2 = 0;
-      double tempReal = 0;
-      double optInK_1 = 0;
-      int i = 0;
-      int today = 0;
-      int outIdx = 0;
-      int lookbackEMA = 0;
-      int lookbackTotal = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 30;
-      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      /* For an explanation of this function, please read
-       *
-       * Stocks & Commodities V. 12:1 (11-19):
-       *   Smoothing Data With Faster Moving Averages
-       * Stocks & Commodities V. 12:2 (72-80):
-       *   Smoothing Data With Less Lag
-       *
-       * Both magazine articles written by Patrick G. Mulloy
-       *
-       * Essentially, a DEMA of time serie 't' is:
-       *   EMA2 = EMA(EMA(t,period),period)
-       *   DEMA = 2*EMA(t,period)- EMA2
-       *
-       * DEMA offers a moving average with less lags then the
-       * traditional EMA.
-       *
-       * Do not confuse a DEMA with the EMA2. Both are called
-       * "Double EMA" in the litterature, but EMA2 is a simple
-       * EMA of an EMA, while DEMA is a compostie of a single
-       * EMA with EMA2.
-       *
-       * TEMA is very similar (and from the same author).
-       */
-      /* Will change only on success. */
-      outNBElement.value = 0;
-      outBegIdx.value = 0;
-      /* Adjust startIdx to account for the lookback period. */
-      lookbackEMA = EMA_Lookback(optInTimePeriod);
-      lookbackTotal = lookbackEMA * 2;
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
+      return DEMA_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode DEMA_OpenAndFillInternalBody( DEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return DEMA_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* DEMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   DEMA_Stream DEMA_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      DEMA_Stream sp = new DEMA_Stream(this);
+      RetCode retCode = DEMA_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("DEMA openAndFill: history shorter than lookback + 1");
       }
-      /* Both EMA are computed in a single lockstep pass: each new
-       * EMA1 value is immediately fed into EMA2. No temporary
-       * buffers are needed.
-       *
-       * The arithmetic order below is the bit-exactness contract
-       * (do not reorder or fuse operations):
-       *  - EMA recursion: ((x-prev)*k)+prev.
-       *  - Default compatibility: each EMA is seeded with the sum
-       *    of its first 'period' inputs, accumulated from 0.0 in
-       *    input order (0.0+x is not x for x=-0.0), divided by
-       *    the period.
-       *  - Metastock compatibility: EMA1 is seeded from inReal[0],
-       *    EMA2 from the first EMA1 value.
-       * Output alignment is identical for all compatibility modes;
-       * only the seed values differ.
-       *
-       * In-place (inReal == outReal) is supported: outReal[outIdx]
-       * is written only after inReal[startIdx+outIdx] was read.
-       */
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
-      /* Seed EMA1 with a simple average of the first
-       * 'period' price bars.
-       */
-      today = startIdx - lookbackTotal;
-      i = optInTimePeriod;
-      tempReal = 0.0;
-      while( i-- > 0 ) {
-         tempReal += inReal[today++];
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("DEMA openAndFill: internal error");
       }
-      prevEMA1 = tempReal / optInTimePeriod;
-      /* Advance EMA1 alone through its unstable period, up to
-       * the bar where EMA2 seeding begins.
-       */
-      while( today <= startIdx - lookbackEMA ) {
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-      }
-      /* Seed EMA2 with a simple average of the first 'period'
-       * EMA1 values, accumulated as EMA1 produces them.
-       */
-      tempReal = 0.0;
-      tempReal += prevEMA1;
-      i = optInTimePeriod - 1;
-      while( i-- > 0 ) {
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         tempReal += prevEMA1;
-      }
-      prevEMA2 = tempReal / optInTimePeriod;
-      /* Advance both EMA in lockstep through the unstable period
-       * of EMA2, up to the first output bar.
-       */
-      while( today <= startIdx ) {
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-      }
-      /* Stable zone: keep advancing both EMA in lockstep and
-       * write the DEMA into the output.
-       */
-      outReal[0] = 2.0 * prevEMA1 - prevEMA2;
-      outIdx = 1;
-      while( today <= endIdx ) {
-         prevEMA1 = Math.fma(inReal[today++] - prevEMA1, optInK_1, prevEMA1);
-         prevEMA2 = Math.fma(prevEMA1 - prevEMA2, optInK_1, prevEMA2);
-         outReal[outIdx++] = 2.0 * prevEMA1 - prevEMA2;
-      }
-      /* Succeed. Indicate where the output starts relative to
-       * the caller input.
-       */
-      outBegIdx.value = startIdx;
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.prevEMA1 = prevEMA1;
-      sp.prevEMA2 = prevEMA2;
-      sp.optInK_1 = optInK_1;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("DEMA openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind DEMA_Open (composition seam). */
    DEMA_Stream DEMA_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )

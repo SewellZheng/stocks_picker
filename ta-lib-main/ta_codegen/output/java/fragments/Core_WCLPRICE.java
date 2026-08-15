@@ -194,7 +194,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class WCLPRICE_Stream {
-      final Core core;
+      Core core;
       double cur_outReal;
       OutRange fillRange = OutRange.EMPTY;
 
@@ -215,6 +215,12 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( WCLPRICE_Stream other ) {
+         this.core = other.core;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -227,9 +233,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
          WCLPRICE_Stream scratch = new WCLPRICE_Stream(this);
@@ -258,13 +264,10 @@
    {
       sp.cur_outReal = (Math.fma(inClose, 2.0, inHigh + inLow)) / 4.0;
    }
-   private RetCode WCLPRICE_OpenBody( WCLPRICE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode WCLPRICE_OpenCore( WCLPRICE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
@@ -276,40 +279,47 @@
       /* Weighted Close Price = (High + Low + (Close*2) ) / 4 */
       outIdx = 0;
       for( i = startIdx; i <= endIdx; i += 1 ) {
-         lastValue_outReal = (Math.fma(inClose[i], 2.0, inHigh[i] + inLow[i])) / 4.0;
+         outReal[outIdx++ * outStride] = (Math.fma(inClose[i], 2.0, inHigh[i] + inLow[i])) / 4.0;
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode WCLPRICE_OpenBody( WCLPRICE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return WCLPRICE_OpenCore( sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode WCLPRICE_OpenAndFillBody( WCLPRICE_Stream sp, double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int outIdx = 0;
-      int i = 0;
-      int historyLen = inHigh.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      /* Weighted Close Price = (High + Low + (Close*2) ) / 4 */
-      outIdx = 0;
-      for( i = startIdx; i <= endIdx; i += 1 ) {
-         outReal[outIdx++] = (Math.fma(inClose[i], 2.0, inHigh[i] + inLow[i])) / 4.0;
+      return WCLPRICE_OpenCore( sp, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode WCLPRICE_OpenAndFillInternalBody( WCLPRICE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return WCLPRICE_OpenCore(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* WCLPRICE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   WCLPRICE_Stream WCLPRICE_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      WCLPRICE_Stream sp = new WCLPRICE_Stream(this);
+      RetCode retCode = WCLPRICE_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Capture the live batch state into the handle. */
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("WCLPRICE openAndFill: history shorter than lookback + 1");
+      }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("WCLPRICE openAndFill: internal error");
+      }
+      throw new IllegalArgumentException("WCLPRICE openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind WCLPRICE_Open (composition seam). */
    WCLPRICE_Stream WCLPRICE_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx )

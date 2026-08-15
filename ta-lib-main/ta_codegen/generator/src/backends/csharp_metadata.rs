@@ -167,6 +167,16 @@ const FUNC_FLAGS: &[(&str, &str, &str)] = &[
         "PathDependent",
         "Output depends on where the caller started, so it never converges across ranges.",
     ),
+    (
+        "nan_inf_output",
+        "NanInfOutput",
+        "Some inputs have no finite result, so a successful call can return NaN or +/-Infinity.",
+    ),
+    (
+        "period1_identity",
+        "Period1Identity",
+        "A period of 1 performs no smoothing: the lookback is 0 and the output is a bit-exact copy of the input.",
+    ),
 ];
 
 const OPT_FLAGS: &[(&str, &str, &str)] = &[

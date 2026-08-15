@@ -76,8 +76,8 @@ impl streaming::NameMap for CNames {
     fn extrema_buf(&self, array: &str) -> String {
         format!("sp->x_{array}")
     }
-    fn extrema_cap(&self) -> String {
-        "sp->xCap".to_string()
+    fn extrema_mask(&self) -> String {
+        "sp->xMask".to_string()
     }
 }
 
@@ -151,18 +151,37 @@ fn out_params_sig(func: &FuncDef) -> String {
         .join(", ")
 }
 
-/// Output mode for the Open family. `Scalar` is the ordinary `Open`/`OpenInternal`
-/// path (per-bar output writes collapse to a `lastValue_*` scalar; only the last
-/// history value is returned). `Fill` is the `OpenAndFill` path: the same
-/// whole-history transcription, but the per-bar output writes land in the
-/// caller's real array and the batch `*outBegIdx`/`*outNBElement` writes are
-/// kept — so the array is bit-identical to `batch(startIdx=0, endIdx=len-1)` and
-/// the handle it leaves is the same handle `Open` would leave (same capture
-/// epilogue). See docs/streaming-api-design.md ("OpenAndFill").
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum OutMode {
-    Scalar,
-    Fill,
+/// `Open` and `OpenAndFill` are ONE emission: `TA_<N>_OpenCore`, whose per-bar
+/// output writes are subscripted `out[(<idx>) * outStride]`.
+///
+/// `OpenAndFill` passes stride 1 and the caller's array, so the array is
+/// bit-identical to `batch(startIdx=0, endIdx=len-1)`. `OpenInternal` passes
+/// stride 0 and a one-element scalar sink: every write collapses onto slot 0, so
+/// after the replay that slot holds the last history value — which is also what
+/// makes the previous-output feedback reads (`out[outIdx - 1]`) and the capture
+/// epilogue's `out[*outNBElement - 1]` resolve with no special case. Both leave
+/// the same handle (one capture epilogue). See docs/streaming-api-design.md.
+///
+/// Exempt tiers keep two hand-written bodies and never used this machinery:
+/// `Dispatch` (MA) hands the fill to a sub's public `OpenAndFill`, and
+/// `PeriodBank` (MAVP) runs a genuinely different warm-up per mode.
+const OUT_STRIDE: &str = "outStride";
+
+/// The stride-scaled subscript for an output write/read inside the core.
+fn stride_index(idx: &str) -> String {
+    format!("({idx}) * {OUT_STRIDE}")
+}
+
+/// `<idx>` -> `<idx> * outStride`, as IR. Applied to EVERY output subscript in
+/// the transcribed body — writes and previous-output feedback reads alike — so
+/// the one body serves both entry points. The index may carry a side effect
+/// (`outIdx++`); multiplying leaves it evaluated exactly once.
+fn scale_by_stride(idx: Expr) -> Expr {
+    Expr::BinOp(
+        Box::new(idx),
+        crate::ir::BinOp::Mul,
+        Box::new(Expr::Var(OUT_STRIDE.to_string())),
+    )
 }
 
 /// The per-output array piece of `OpenAndFill`: `double outReal[], int outInteger[], ...`.
@@ -194,6 +213,72 @@ pub fn open_and_fill_signature(func: &FuncDef) -> String {
     )
 }
 
+/// `OpenAndFillInternal` prototype (no trailing `;`): `OpenAndFill` anchored at
+/// a caller-supplied `startIdx` instead of an implicit 0.
+///
+/// This is what lets a COMPOSED Open warm a sub-handle and fill that sub-call's
+/// destination in ONE pass (issue #192). Before it, the composed tier opened the
+/// sub-stream over the history AND re-ran the transcribed batch sub-call over
+/// the same range — the same numbers computed twice, which measured as
+/// `TA_STDDEV_Open` costing 1.49x its own batch pass while every direct stream
+/// sat at 1.0.
+///
+/// It carries NO aliasing rejection, unlike the public wrapper. That is not an
+/// oversight: the generator emits a call to it only for a sub-call whose
+/// destinations alias neither its sources nor each other
+/// ([`streaming::SubCallStep::is_fusable`]), so the check could never fire, and the
+/// one sub-call that DOES write in place (STOCH's slow-K `TA_MA` over
+/// `tempBuffer`) keeps the unfused two-pass form precisely because this wrapper
+/// would be unsound there.
+pub fn open_and_fill_internal_signature(func: &FuncDef) -> String {
+    let n = uname(func);
+    let mut history = String::new();
+    for a in streaming::input_array_names(func) {
+        let _ = write!(history, "const double {a}[], ");
+    }
+    format!(
+        "TA_RetCode TA_{n}_OpenAndFillInternal( struct TA_{n}_Stream **stream, {}int startIdx, int historyLen, {}int *outBegIdx, int *outNBElement, {} )",
+        history,
+        opt_params_sig(func),
+        out_fill_arrays_sig(func)
+    )
+}
+
+/// The merged `OpenCore` prototype (no trailing `;`): the union of both public
+/// entry points' inputs — history arrays, `startIdx` (a parameter, as
+/// `OpenInternal` needs for sub-stream composition), the batch output triplet,
+/// and `outStride`. File-static: with two call sites the compiler decides per
+/// function whether to share the body or inline it into both wrappers, and when
+/// it inlines, `outStride` constant-folds to 0/1 and the arm is exactly what the
+/// two separate bodies used to be. Forcing `noinline` measured LARGER.
+fn open_core_signature(func: &FuncDef) -> String {
+    let n = uname(func);
+    let mut history = String::new();
+    for a in streaming::input_array_names(func) {
+        let _ = write!(history, "const double {a}[], ");
+    }
+    format!(
+        "static TA_RetCode TA_{n}_OpenCore( struct TA_{n}_Stream **stream, {}int startIdx, int historyLen, {}int *outBegIdx, int *outNBElement, {}, int {OUT_STRIDE} )",
+        history,
+        opt_params_sig(func),
+        out_fill_arrays_sig(func)
+    )
+}
+
+/// The argument list both wrappers pass to `OpenCore`, up to (not including) the
+/// output triplet: `stream, <inputs>, <startIdx>, historyLen, <opts>`.
+fn open_core_call_head(func: &FuncDef, start_idx: &str) -> String {
+    let mut s = String::from("stream, ");
+    for a in streaming::input_array_names(func) {
+        let _ = write!(s, "{a}, ");
+    }
+    let _ = write!(s, "{start_idx}, historyLen, ");
+    for p in &func.optional_inputs {
+        let _ = write!(s, "{}, ", p.name);
+    }
+    s
+}
+
 /// The scalar bar-input piece of Update/Peek: `double inHigh, double inLow, `...
 fn bar_params_sig(func: &FuncDef) -> String {
     let mut s = String::new();
@@ -219,10 +304,10 @@ pub fn open_signature(func: &FuncDef) -> String {
     )
 }
 
-/// Internal `OpenInternal` prototype (no trailing `;`). This is the real
-/// worker: it takes an extra `startIdx` — the bar within the history buffer at
-/// which warm-up begins (0 = warm from the very first bar). The public `Open`
-/// is a thin wrapper that calls this with 0; only generated code (composed
+/// Internal `OpenInternal` prototype (no trailing `;`). The scalar-sink entry
+/// point onto `OpenCore`: it takes an extra `startIdx` — the bar within the
+/// history buffer at which warm-up begins (0 = warm from the very first bar).
+/// The public `Open` is a thin wrapper that calls this with 0; only generated
 /// functions opening a sub-stream) passes a non-zero startIdx, handing the sub
 /// the FULL buffer from bar 0 so it seeds itself exactly as its batch would —
 /// including MA types that seed from the absolute origin (`inReal[0]`) under
@@ -268,6 +353,117 @@ fn emit_open_wrapper(o: &mut String, func: &FuncDef) {
         .join(", ");
     let _ = writeln!(o, "{}\n{{", open_signature(func));
     let _ = writeln!(o, "   return TA_{n}_OpenInternal( stream, {hist}0, historyLen, {opts}{outputs} );");
+    let _ = writeln!(o, "}}\n");
+}
+
+/// `OpenInternal`: the scalar wrapper. One stack slot per output stands in for
+/// the caller's array; at stride 0 every per-bar write lands on slot 0, so after
+/// the replay it holds the last history value. Copied out only on success, which
+/// is what the two separate bodies did (an error path left `*out` untouched).
+/// A nullable output passes NULL through — the core's writes are NULL-guarded
+/// and a caller that discarded the output must not get it written.
+fn emit_open_internal_wrapper(o: &mut String, func: &FuncDef) {
+    let n = uname(func);
+    let nullable = nullable_out_names(func);
+    let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", open_internal_signature(func));
+    let _ = writeln!(o, "   TA_RetCode retCode;");
+    let _ = writeln!(o, "   int dummyBegIdx = 0;");
+    let _ = writeln!(o, "   int dummyNBElement = 0;");
+    for out in &func.outputs {
+        let ty = out_c_type(func, &out.name);
+        let init = if ty == "int" { "0" } else { "0.0" };
+        let _ = writeln!(o, "   {ty} sink_{} = {init};", out.name);
+    }
+    let sinks: Vec<String> = func
+        .outputs
+        .iter()
+        .map(|out| {
+            if nullable.contains(&out.name) {
+                format!("{0} ? &sink_{0} : NULL", out.name)
+            } else {
+                format!("&sink_{}", out.name)
+            }
+        })
+        .collect();
+    let _ = writeln!(
+        o,
+        "   retCode = TA_{n}_OpenCore( {}&dummyBegIdx, &dummyNBElement, {}, 0 );",
+        open_core_call_head(func, "startIdx"),
+        sinks.join(", ")
+    );
+    let _ = writeln!(o, "   if( retCode == TA_SUCCESS )\n   {{");
+    for out in &func.outputs {
+        let name = &out.name;
+        if nullable.contains(name) {
+            let _ = writeln!(o, "      if( {name} != NULL ) *{name} = sink_{name};");
+        } else {
+            let _ = writeln!(o, "      *{name} = sink_{name};");
+        }
+    }
+    let _ = writeln!(o, "   }}");
+    let _ = writeln!(o, "   return retCode;\n}}\n");
+}
+
+/// `OpenAndFill`: the fill wrapper. Carries the validation the scalar path has
+/// no need of — the out-meta pointers, and the aliasing rejections (#108/#130).
+/// Those are NOT stylistic: the capture epilogue reads the input tail AFTER
+/// writing the outputs, so an output aliasing an input or another output would
+/// corrupt the handle. `Open` writes only to its own stack slots and never has
+/// that hazard, so making it pay the check would be pure cost.
+fn emit_open_and_fill_wrapper(o: &mut String, func: &FuncDef) {
+    let n = uname(func);
+    let inputs = streaming::input_array_names(func);
+    let nullable = nullable_out_names(func);
+    let outs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
+    let _ = writeln!(o, "{}\n{{", open_and_fill_signature(func));
+    let _ = writeln!(o, "   if( !stream ) return TA_BAD_PARAM;");
+    let _ = writeln!(o, "   *stream = NULL;");
+    let mut null_checks: Vec<String> = vec!["!outBegIdx".into(), "!outNBElement".into()];
+    null_checks.extend(
+        outs.iter()
+            .filter(|x| !nullable.contains(*x))
+            .map(|x| format!("!{x}")),
+    );
+    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
+    // Cast to `const void *` so the comparison is well-typed for any output
+    // element type (an integer output vs double inputs would otherwise warn
+    // "comparison of distinct pointer types lacks a cast").
+    let mut alias: Vec<String> = Vec::new();
+    for out in &outs {
+        for inp in &inputs {
+            alias.push(format!("(const void *){out} == (const void *){inp}"));
+        }
+    }
+    for (i, a) in outs.iter().enumerate() {
+        for b in &outs[i + 1..] {
+            alias.push(format!("(const void *){a} == (const void *){b}"));
+        }
+    }
+    if !alias.is_empty() {
+        let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", alias.join(" || "));
+    }
+    let _ = writeln!(
+        o,
+        "   return TA_{n}_OpenCore( {}outBegIdx, outNBElement, {}, 1 );",
+        open_core_call_head(func, "0"),
+        outs.join(", ")
+    );
+    let _ = writeln!(o, "}}\n");
+}
+
+/// `OpenAndFillInternal` for every tier that owns an `OpenCore`: the same single
+/// pass as the public `OpenAndFill`, at the caller's `startIdx`. See
+/// [`open_and_fill_internal_signature`] for why it carries no aliasing guard.
+fn emit_open_and_fill_internal_wrapper(o: &mut String, func: &FuncDef) {
+    let n = uname(func);
+    let outs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
+    let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", open_and_fill_internal_signature(func));
+    let _ = writeln!(
+        o,
+        "   return TA_{n}_OpenCore( {}outBegIdx, outNBElement, {}, 1 );",
+        open_core_call_head(func, "startIdx"),
+        outs.join(", ")
+    );
     let _ = writeln!(o, "}}\n");
 }
 
@@ -382,6 +578,11 @@ pub fn generate(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
+    // Resolve `PRAGMA TA_ALT` here as well as at the language backend's own
+    // entry: `generate` is called directly by tests and tools, and resolving
+    // twice is idempotent while forgetting once is silent.
+    let resolved = func.resolved_for(crate::ir::Lang::C);
+    let func: &FuncDef = &resolved;
     assert!(
         func.streaming,
         "c_stream::generate called without a streaming declaration"
@@ -399,8 +600,15 @@ pub fn generate(
     // that carry no prefix, so seed them into real_vars explicitly — else a
     // non-power-of-two input weight would fuse in the batch/Open replay but not in
     // Update. Cleared when the guard drops.
+    //
+    // `stream_source()`, not `private_body`: the fusion sets must be derived
+    // from the very body these emitters render, and a
+    // `PRAGMA TA_ALT={STREAM,...}` alternate is the case where the two stop
+    // being the same slice. Deriving them from the batch body would fuse
+    // `a*b+c` at different sites than Rust (which types from the stream model),
+    // surfacing as a ~1 ULP cross-language mismatch with nothing pointing here.
     let mut stream_fma = fma::build_fma_var_sets(
-        &func.private_body,
+        func.stream_source(),
         &func.outputs,
         &fma::INDEX_PARAM_SEEDS,
     );
@@ -413,14 +621,16 @@ pub fn generate(
     let mut o = String::new();
 
     let _ = writeln!(o, "/**** Streaming API *****/\n");
+    if let Some(m) = func.alt_marker(crate::ir::Tier::Stream, crate::ir::Lang::C) {
+        let _ = writeln!(o, "/* {m} */\n");
+    }
 
     match &plan {
         StreamPlan::Loop(model) => {
             emit_state_struct(&mut o, func, model);
             emit_release(&mut o, func, model);
             emit_step(&mut o, func, model, enums, registry, helpers, &counter);
-            emit_open(&mut o, func, model, enums, registry, helpers, &counter);
-            emit_open_and_fill(&mut o, func, model, enums, registry, helpers, &counter);
+            emit_open_core_body(&mut o, func, model, model.body, enums, registry, helpers, &counter);
             emit_update(&mut o, func);
             emit_peek(&mut o, func, model);
             emit_close(&mut o, func, model);
@@ -434,11 +644,8 @@ pub fn generate(
         StreamPlan::DualMode(dmp) => {
             emit_dual_mode(&mut o, func, dmp, enums, registry, helpers, &counter);
         }
-        StreamPlan::FastPathSkip(gap) => {
-            emit_fastpath_skip(&mut o, func, gap, enums, registry, helpers, &counter);
-        }
         StreamPlan::PeriodBank(pbp) => {
-            emit_period_bank(&mut o, func, pbp, registry, helpers, &counter);
+            emit_period_bank(&mut o, func, pbp, registry, helpers, &counter, enums);
         }
     }
 
@@ -498,8 +705,8 @@ impl streaming::NameMap for ComposedNames {
     fn extrema_buf(&self, array: &str) -> String {
         format!("sp->x_{array}")
     }
-    fn extrema_cap(&self) -> String {
-        "sp->xCap".to_string()
+    fn extrema_mask(&self) -> String {
+        "sp->xMask".to_string()
     }
 }
 
@@ -836,8 +1043,11 @@ fn emit_composed(
     emit_composed_step(o, func, cp, &inputs, &outputs, enums, registry, helpers, counter);
 
     // --- Open ------------------------------------------------------------------
-    emit_composed_open(o, func, cp, &outputs, &inputs, &cleanup, enums, registry, helpers, counter, OutMode::Scalar);
-    emit_composed_open(o, func, cp, &outputs, &inputs, &cleanup, enums, registry, helpers, counter, OutMode::Fill);
+    emit_composed_open(o, func, cp, &outputs, &inputs, &cleanup, enums, registry, helpers, counter);
+    emit_open_internal_wrapper(o, func);
+    emit_open_wrapper(o, func);
+    emit_open_and_fill_wrapper(o, func);
+    emit_open_and_fill_internal_wrapper(o, func);
 
     // --- Update / Peek / Close ---------------------------------------------------
     emit_update(o, func);
@@ -915,11 +1125,12 @@ fn emit_composed_sub_open(
     outputs: &[String],
     cleanup: &str,
     open_map: &dyn Fn(Expr) -> Expr,
+    batch_stmt: &Statement,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
-) {
+) -> bool {
     let cpfx = callee_prefix(&sub.callee);
     let opt_str: String = sub.opt_args.iter().fold(String::new(), |mut s, a| {
         let _ = write!(s, "{}, ", render_expression(a, registry, helpers, counter));
@@ -967,10 +1178,33 @@ fn emit_composed_sub_open(
     );
     let _ = writeln!(o, "       * sub-call's own startIdx (the seeding point). */");
     let _ = writeln!(o, "      {{");
-    let _ = writeln!(
-        o,
-        "         subRc = {cpfx}_OpenInternal( &sub{si}, {src_ptrs}, ({s_arg}), ({e_arg}) + 1, {opt_str}{out_dummies} );"
-    );
+    // Fused form (issue #192): one pass that BOTH warms the handle and fills
+    // this sub-call's destination, so the batch sub-call the caller transcribed
+    // next has nothing left to compute. The out-meta and destination arguments
+    // are taken from that very statement rather than re-derived — they are not
+    // uniformly the dummies (MACDEXT reads `outNbElement1`, APO/PPO/PVO read
+    // `fastNb`, STOCHRSI mixes `outBegIdx2` with `dummyNBElement`), and getting
+    // them from anywhere else would silently feed the wrong lengths downstream.
+    let fused = sub.is_fusable() && streaming::batch_call_out_args(batch_stmt, sub).is_some();
+    if fused {
+        let (out_meta, dsts) = streaming::batch_call_out_args(batch_stmt, sub).unwrap();
+        let rend = |e: &Expr| render_expression(e, registry, helpers, counter);
+        let out_args: String = out_meta
+            .iter()
+            .chain(dsts.iter())
+            .map(|e| rend(e))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(
+            o,
+            "         subRc = {cpfx}_OpenAndFillInternal( &sub{si}, {src_ptrs}, ({s_arg}), ({e_arg}) + 1, {opt_str}{out_args} );"
+        );
+    } else {
+        let _ = writeln!(
+            o,
+            "         subRc = {cpfx}_OpenInternal( &sub{si}, {src_ptrs}, ({s_arg}), ({e_arg}) + 1, {opt_str}{out_dummies} );"
+        );
+    }
     let _ = writeln!(o, "         if( subRc != TA_SUCCESS )");
     let _ = writeln!(o, "         {{");
     for sf in &cp.series_frees {
@@ -982,6 +1216,7 @@ fn emit_composed_sub_open(
     let _ = writeln!(o, "            return subRc;");
     let _ = writeln!(o, "         }}");
     let _ = writeln!(o, "      }}");
+    fused
 }
 
 /// True for a bare `free(<series>)` of a lag-ring series: it is WITHHELD from
@@ -1010,7 +1245,6 @@ fn emit_composed_open(
     registry: &Registry,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
-    mode: OutMode,
 ) {
     let n = uname(func);
     // The composed fill path hardcodes `double` scratch arrays + memcpy (sc_<out>
@@ -1024,19 +1258,9 @@ fn emit_composed_open(
          — thread out_c_type through the sc_ scratch malloc + memcpy in emit_composed_open",
         func.name
     );
-    match mode {
-        OutMode::Scalar => {
-            let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", open_internal_signature(func));
-        }
-        OutMode::Fill => {
-            let _ = writeln!(o, "{}\n{{", open_and_fill_signature(func));
-        }
-    }
+    let _ = writeln!(o, "{}\n{{", open_core_signature(func));
     let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
     let _ = writeln!(o, "   int endIdx;");
-    if mode == OutMode::Fill {
-        let _ = writeln!(o, "   int startIdx;");
-    }
     let _ = writeln!(o, "   int dummyBegIdx;");
     let _ = writeln!(o, "   int dummyNBElement;");
     let _ = writeln!(o, "   TA_RetCode subRc;");
@@ -1048,14 +1272,11 @@ fn emit_composed_open(
         let _ = writeln!(o, "   {}_Stream *sub{i};", callee_prefix(&sub.callee));
     }
 
-    emit_open_validation(o, func, outputs, inputs, mode);
+    emit_open_validation(o, func, outputs, inputs, enums);
 
-    // Scalar: startIdx arrives as a parameter (0 for standalone opens). Fill:
-    // it is a local, always 0 (whole-history replay).
+    // startIdx arrives as a parameter: 0 for both public entry points, the
+    // caller's own startIdx when a composed function opens this as a sub-stream.
     let _ = writeln!(o, "\n   endIdx = historyLen - 1;");
-    if mode == OutMode::Fill {
-        let _ = writeln!(o, "   startIdx = 0;");
-    }
     let _ = writeln!(o, "   dummyBegIdx = 0;");
     let _ = writeln!(o, "   dummyNBElement = 0;");
     let _ = writeln!(o, "   subRc = TA_SUCCESS;");
@@ -1102,16 +1323,32 @@ fn emit_composed_open(
     // point; the spike's wrong-order sabotage fails 4,394 legs).
     let open_map = composed_open_expr_fn(outputs);
     for (i, stmt) in tail_stmts.iter().enumerate() {
+        let mut fused = false;
         for (si, sub) in cp.subs.iter().enumerate() {
             if sub.tail_idx == i {
-                emit_composed_sub_open(
-                    o, cp, sub, si, outputs, cleanup, &open_map, enums, registry, helpers, counter,
+                fused |= emit_composed_sub_open(
+                    o, cp, sub, si, outputs, cleanup, &open_map, stmt, enums, registry, helpers,
+                    counter,
                 );
             }
         }
         // Withhold a lag-ring series' bare free: the ring seeds from its buffer
         // tail in the capture epilogue, so the buffer must outlive the tail.
         if is_lag_ring_free(stmt, &cp.sub_lag_rings) {
+            continue;
+        }
+        // A fused sub-open already produced this statement's outputs. Keep only
+        // its assignment, so the error handling the batch transcribed right
+        // after it still reads a retCode — and reads the SAME one, since the
+        // fused call returns what the batch call would have.
+        if fused {
+            if let Statement::Assign { target, .. } = stmt {
+                let _ = writeln!(
+                    o,
+                    "      {} = subRc;",
+                    render_expression(target, registry, helpers, counter)
+                );
+            }
             continue;
         }
         o.push_str(&render_statement(stmt, 6, false, enums, registry, helpers, counter, &nullable_out_names(func)));
@@ -1136,7 +1373,6 @@ fn emit_composed_open(
     if let Some(model) = &cp.producer {
         o.push_str(&alloc_and_capture(
             func, model, "      ", /*with_state=*/ true, cleanup, registry, helpers, counter,
-            OutMode::Scalar,
         ));
         for lag in &model.lags {
             for k in 1..=lag.depth {
@@ -1196,24 +1432,18 @@ fn emit_composed_open(
     for (i, _) in cp.subs.iter().enumerate() {
         let _ = writeln!(o, "      sp->sub{i} = sub{i};");
     }
-    match mode {
-        OutMode::Scalar => {
-            for out in outputs {
-                let _ = writeln!(o, "      *{out} = sc_{out}[dummyNBElement - 1];");
-            }
-        }
-        // Fill: hand back the whole materialized history (sc_ holds batch's
-        // exact outputs) plus the batch output triplet, then free the scratch.
-        OutMode::Fill => {
-            let _ = writeln!(o, "      *outBegIdx = dummyBegIdx;");
-            let _ = writeln!(o, "      *outNBElement = dummyNBElement;");
-            for out in outputs {
-                let _ = writeln!(
-                    o,
-                    "      memcpy( {out}, sc_{out}, sizeof(double) * (size_t)dummyNBElement );"
-                );
-            }
-        }
+    // Both modes compute into `sc_<out>`; only the hand-back differs, and it is
+    // the ONE place a stride multiply cannot express the difference — a bulk copy
+    // takes a base pointer, not a subscript. Fill hands back the whole
+    // materialized history; the scalar sink takes the last element.
+    let _ = writeln!(o, "      *outBegIdx = dummyBegIdx;");
+    let _ = writeln!(o, "      *outNBElement = dummyNBElement;");
+    for out in outputs {
+        let _ = writeln!(
+            o,
+            "      if( {OUT_STRIDE} ) memcpy( {out}, sc_{out}, sizeof(double) * (size_t)dummyNBElement );"
+        );
+        let _ = writeln!(o, "      else {out}[0] = sc_{out}[dummyNBElement - 1];");
     }
     for out in outputs {
         let _ = writeln!(o, "      TA_Free( sc_{out} );");
@@ -1221,9 +1451,6 @@ fn emit_composed_open(
     let _ = writeln!(o, "      *stream = sp;");
     let _ = writeln!(o, "      return TA_SUCCESS;");
     let _ = writeln!(o, "   }}\n}}\n");
-    if mode == OutMode::Scalar {
-        emit_open_wrapper(o, func);
-    }
 }
 
 /// The composed-Open expression mapping: out-meta pointers to the dummies —
@@ -1502,19 +1729,53 @@ fn dispatch_identity_cond_on_handle(
     Some(render_expression(&cond, registry, helpers, counter))
 }
 
-/// Per-arm dispatch bodies for Update/Peek/Close, plus the shared open
-/// switch. All labels render through the batch's own switch-label mapping so
-/// the arms read exactly like the batch dispatch they mirror.
-#[allow(clippy::too_many_lines)]
-/// The dispatch tier's `OpenAndFill` (MA): dispatch to the selected arm's public
-/// `OpenAndFill`, which fills the caller's array; the identity path fills it
-/// directly; unsupported arms (MAMA) reject exactly as `Open` does. Handle
-/// layout is identical to `Open`'s, so Update/Peek/Close are shared.
-#[allow(clippy::too_many_arguments)]
-fn emit_dispatch_open_and_fill(
+/// Which of the dispatch tier's three open entry points a body is being
+/// emitted for.
+///
+/// The three differ in exactly four places — the signature, which pointers are
+/// checked, what the identity path hands back, and which callee entry point
+/// each arm delegates to. Everything else (the `TA_MAX_INDEX` bound, the
+/// optional-param validation, the handle allocation, the arm switch and the
+/// cleanup tail) is one text emitted once, so a fourth mode costs a variant
+/// and four arms rather than a fourth copy of the body.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DispatchOpen {
+    /// `OpenInternal` (plus the public `Open` wrapper over it): warm the
+    /// handle and hand back the last bar only.
+    Scalar,
+    /// `OpenAndFill`: public, anchored at bar 0, fills the caller's arrays.
+    Fill,
+    /// `OpenAndFillInternal`: the same fill anchored at the caller's `startIdx`
+    /// and without the aliasing rejection — what a composed `Open` fuses into
+    /// (issue #192). MA is the callee of 13 of the 18 shipped composed
+    /// sub-calls, so without this variant the fusion would reach almost none
+    /// of them.
+    ///
+    /// Dispatching to the arm's *public* `OpenAndFill` here would be wrong
+    /// twice over: it has no `startIdx`, and it carries the aliasing guard the
+    /// internal path deliberately drops.
+    FillInternal,
+}
+
+impl DispatchOpen {
+    /// Whether this mode writes the caller's output arrays over the whole
+    /// history (and so carries the batch API's `outBegIdx`/`outNBElement`
+    /// pair) rather than handing back one value per output.
+    fn fills(self) -> bool {
+        self != Self::Scalar
+    }
+}
+
+/// One of the dispatch tier's open bodies (MA): dispatch to the selected arm's
+/// matching entry point, with the identity path served in place; unsupported
+/// arms (a callee with no stream) reject. Handle layout is the same in every
+/// mode, so Update/Peek/Close are shared.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+fn emit_dispatch_open(
     o: &mut String,
     func: &FuncDef,
     dp: &DispatchPlan,
+    mode: DispatchOpen,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
     helpers: &HelperRegistry,
@@ -1526,7 +1787,18 @@ fn emit_dispatch_open_and_fill(
     let bar_args: String = inputs.join(", ");
     let case_of = |label: &str| render_c_switch_label(label, enums);
 
-    let _ = writeln!(o, "{}\n{{", open_and_fill_signature(func));
+    if mode != DispatchOpen::Fill {
+        let _ = writeln!(o, "/* Private function, not in public API. */");
+    }
+    let _ = writeln!(
+        o,
+        "{}\n{{",
+        match mode {
+            DispatchOpen::Scalar => open_internal_signature(func),
+            DispatchOpen::Fill => open_and_fill_signature(func),
+            DispatchOpen::FillInternal => open_and_fill_internal_signature(func),
+        }
+    );
     let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
     let _ = writeln!(o, "   TA_RetCode retCode;");
     let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
@@ -1536,36 +1808,46 @@ fn emit_dispatch_open_and_fill(
         .chain(outputs.iter())
         .map(|x| format!("!{x}"))
         .collect();
-    null_checks.push("!outBegIdx".into());
-    null_checks.push("!outNBElement".into());
+    if mode.fills() {
+        null_checks.push("!outBegIdx".into());
+        null_checks.push("!outNBElement".into());
+    }
     let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
     let _ = writeln!(o, "   if( historyLen < 1 ) return TA_BAD_PARAM;");
-    // The fill covers bars 0..historyLen-1, so its last bar is an index like any
-    // other and TA_MAX_INDEX bounds it too (#180). Without this the streaming
-    // entry points would compute over exactly the ranges the batch call refuses,
-    // and the two are required to agree bit for bit.
+    // The warm-up covers bars 0..historyLen-1, so its last bar is an index like
+    // any other and TA_MAX_INDEX bounds it too (#180). Without this the
+    // streaming entry points would compute over exactly the ranges the batch
+    // call refuses, and the two are required to agree bit for bit.
     let _ = writeln!(
         o,
         "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;"
     );
-    // Aliasing: fill writes the caller's arrays, so they must be distinct from
-    // every input and from each other (the callee OpenAndFill also guards, but
-    // the identity path below fills directly).
-    let mut alias: Vec<String> = Vec::new();
-    for outp in &outputs {
-        for inp in &inputs {
-            alias.push(format!("(const void *){outp} == (const void *){inp}"));
+    if mode == DispatchOpen::Scalar {
+        // The arms forward it, but an identity-only or all-rejecting dispatch
+        // would leave it unread.
+        let _ = writeln!(o, "   (void)startIdx;");
+    }
+    if mode == DispatchOpen::Fill {
+        // Aliasing: fill writes the caller's arrays, so they must be distinct
+        // from every input and from each other (the callee OpenAndFill also
+        // guards, but the identity path below fills directly). The internal
+        // variant deliberately carries no such guard — see [`DispatchOpen`].
+        let mut alias: Vec<String> = Vec::new();
+        for outp in &outputs {
+            for inp in &inputs {
+                alias.push(format!("(const void *){outp} == (const void *){inp}"));
+            }
+        }
+        for (i, a) in outputs.iter().enumerate() {
+            for b in &outputs[i + 1..] {
+                alias.push(format!("(const void *){a} == (const void *){b}"));
+            }
+        }
+        if !alias.is_empty() {
+            let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", alias.join(" || "));
         }
     }
-    for (i, a) in outputs.iter().enumerate() {
-        for b in &outputs[i + 1..] {
-            alias.push(format!("(const void *){a} == (const void *){b}"));
-        }
-    }
-    if !alias.is_empty() {
-        let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", alias.join(" || "));
-    }
-    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM"));
+    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM", enums));
     let _ = writeln!(o, "\n   sp = (struct TA_{n}_Stream *)TA_Malloc( sizeof(*sp) );");
     let _ = writeln!(o, "   if( !sp ) return TA_ALLOC_ERR;");
     let _ = writeln!(o, "   memset( sp, 0, sizeof(*sp) );");
@@ -1573,6 +1855,9 @@ fn emit_dispatch_open_and_fill(
         let _ = writeln!(o, "   sp->{0} = {0};", p.name);
     }
     if let Some(idp) = &dp.identity {
+        // The batch checks the identity path BEFORE the dispatch, for every
+        // arm value — mirror the order (min_history holds: the lookback is 0
+        // on this path for every arm).
         let cond = render_expression(&idp.condition, registry, helpers, counter);
         let lookback_args: Vec<String> =
             func.optional_inputs.iter().map(|p| p.name.clone()).collect();
@@ -1582,18 +1867,34 @@ fn emit_dispatch_open_and_fill(
             o,
             "      if( historyLen < {lb_call} + 1 ) {{ TA_Free( sp ); return TA_BAD_PARAM; }}"
         );
-        let _ = writeln!(o, "      {{");
-        let _ = writeln!(o, "         int fillLb = {lb_call};");
-        let _ = writeln!(o, "         int fillIdx;");
-        let _ = writeln!(o, "         *outBegIdx = fillLb;");
-        let _ = writeln!(o, "         *outNBElement = historyLen - fillLb;");
-        let _ = writeln!(o, "         for( fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ )");
-        let _ = writeln!(o, "         {{");
-        for (out, inp) in &idp.pairs {
-            let _ = writeln!(o, "            {out}[fillIdx] = {inp}[fillLb + fillIdx];");
+        if mode.fills() {
+            let _ = writeln!(o, "      {{");
+            let _ = writeln!(o, "         int fillLb = {lb_call};");
+            let _ = writeln!(o, "         int fillIdx;");
+            if mode == DispatchOpen::FillInternal {
+                // batch( startIdx, .. ) begins at max(startIdx, lookback); the
+                // public entry point's startIdx is 0, so only this variant has
+                // to clamp.
+                let _ = writeln!(o, "         if( startIdx > fillLb ) fillLb = startIdx;");
+                let _ = writeln!(
+                    o,
+                    "         if( historyLen < fillLb + 1 ) {{ TA_Free( sp ); return TA_BAD_PARAM; }}"
+                );
+            }
+            let _ = writeln!(o, "         *outBegIdx = fillLb;");
+            let _ = writeln!(o, "         *outNBElement = historyLen - fillLb;");
+            let _ = writeln!(o, "         for( fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ )");
+            let _ = writeln!(o, "         {{");
+            for (out, inp) in &idp.pairs {
+                let _ = writeln!(o, "            {out}[fillIdx] = {inp}[fillLb + fillIdx];");
+            }
+            let _ = writeln!(o, "         }}");
+            let _ = writeln!(o, "      }}");
+        } else {
+            for (out, inp) in &idp.pairs {
+                let _ = writeln!(o, "      *{out} = {inp}[historyLen - 1];");
+            }
         }
-        let _ = writeln!(o, "         }}");
-        let _ = writeln!(o, "      }}");
         let _ = writeln!(o, "      *stream = sp;");
         let _ = writeln!(o, "      return TA_SUCCESS;");
         let _ = writeln!(o, "   }}");
@@ -1608,17 +1909,31 @@ fn emit_dispatch_open_and_fill(
             s
         });
         let arm_out_args = dispatch_arm_out_args(arm, &outputs);
+        // Each mode delegates to the callee's matching entry point: the fills
+        // hand the caller's arrays and out-meta straight down, and only the
+        // startIdx-anchored modes forward a startIdx.
+        let call = match mode {
+            DispatchOpen::Scalar => format!(
+                "{cp}_OpenInternal( &sub, {bar_args}, startIdx, historyLen, {opt_str}{arm_out_args} )"
+            ),
+            DispatchOpen::Fill => format!(
+                "{cp}_OpenAndFill( &sub, {bar_args}, historyLen, {opt_str}outBegIdx, outNBElement, {arm_out_args} )"
+            ),
+            DispatchOpen::FillInternal => format!(
+                "{cp}_OpenAndFillInternal( &sub, {bar_args}, startIdx, historyLen, {opt_str}outBegIdx, outNBElement, {arm_out_args} )"
+            ),
+        };
         let _ = writeln!(o, "   case {}:", case_of(&arm.label));
         let _ = writeln!(o, "      {{");
         let _ = writeln!(o, "         {cp}_Stream *sub = NULL;");
-        let _ = writeln!(
-            o,
-            "         retCode = {cp}_OpenAndFill( &sub, {bar_args}, historyLen, {opt_str}outBegIdx, outNBElement, {arm_out_args} );",
-        );
+        let _ = writeln!(o, "         retCode = {call};");
         let _ = writeln!(o, "         sp->sub = sub;");
         let _ = writeln!(o, "      }}");
         let _ = writeln!(o, "      break;");
     }
+    // Unsupported arms reject at open — a documented capability limitation
+    // (the callee has no stream yet). They regenerate as supported arms the
+    // moment the callee's YAML gains the stream flag.
     for arm in dp.arms.iter().filter(|a| !a.supported) {
         let _ = writeln!(
             o,
@@ -1640,6 +1955,9 @@ fn emit_dispatch_open_and_fill(
     let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
 }
 
+/// Per-arm dispatch bodies for Update/Peek/Close, plus the shared open
+/// switch. All labels render through the batch's own switch-label mapping so
+/// the arms read exactly like the batch dispatch they mirror.
 #[allow(clippy::too_many_lines)]
 fn emit_dispatch(
     o: &mut String,
@@ -1670,109 +1988,15 @@ fn emit_dispatch(
     let _ = writeln!(o, "}};\n");
 
     // --- Open ----------------------------------------------------------------
-    let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", open_internal_signature(func));
-    let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
-    let _ = writeln!(o, "   TA_RetCode retCode;");
-    let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
-    let _ = writeln!(o, "   *stream = NULL;");
-    let null_checks: Vec<String> = inputs
-        .iter()
-        .chain(outputs.iter())
-        .map(|x| format!("!{x}"))
-        .collect();
-    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
-    let _ = writeln!(o, "   if( historyLen < 1 ) return TA_BAD_PARAM;");
-    // The fill covers bars 0..historyLen-1, so its last bar is an index like any
-    // other and TA_MAX_INDEX bounds it too (#180). Without this the streaming
-    // entry points would compute over exactly the ranges the batch call refuses,
-    // and the two are required to agree bit for bit.
-    let _ = writeln!(
-        o,
-        "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;"
-    );
-    let _ = writeln!(o, "   (void)startIdx;");
-    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM"));
-    let _ = writeln!(
-        o,
-        "\n   sp = (struct TA_{n}_Stream *)TA_Malloc( sizeof(*sp) );"
-    );
-    let _ = writeln!(o, "   if( !sp ) return TA_ALLOC_ERR;");
-    let _ = writeln!(o, "   memset( sp, 0, sizeof(*sp) );");
-    for p in &func.optional_inputs {
-        let _ = writeln!(o, "   sp->{0} = {0};", p.name);
-    }
-    if let Some(idp) = &dp.identity {
-        // The batch checks the identity path BEFORE the dispatch, for every
-        // arm value — mirror the order (min_history holds: the lookback is 0
-        // on this path for every arm).
-        let cond = render_expression(&idp.condition, registry, helpers, counter);
-        let lookback_args: Vec<String> =
-            func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-        let _ = writeln!(o, "\n   if( {cond} )\n   {{");
-        let _ = writeln!(
-            o,
-            "      if( historyLen < TA_{n}_Lookback( {} ) + 1 ) {{ TA_Free( sp ); return TA_BAD_PARAM; }}",
-            lookback_args.join(", ")
-        );
-        for (out, inp) in &idp.pairs {
-            let _ = writeln!(o, "      *{out} = {inp}[historyLen - 1];");
+    // One body emitter, three modes. `Open` itself is the public one-liner over
+    // `OpenInternal` and is emitted next to the body it wraps; the two fill
+    // modes are their own public surface.
+    for mode in [DispatchOpen::Scalar, DispatchOpen::Fill, DispatchOpen::FillInternal] {
+        emit_dispatch_open(o, func, dp, mode, enums, registry, helpers, counter);
+        if mode == DispatchOpen::Scalar {
+            emit_open_wrapper(o, func);
         }
-        let _ = writeln!(o, "      *stream = sp;");
-        let _ = writeln!(o, "      return TA_SUCCESS;");
-        let _ = writeln!(o, "   }}");
     }
-    let _ = writeln!(o, "\n   retCode = TA_BAD_PARAM;");
-    let _ = writeln!(o, "   switch( {} )", dp.param);
-    let _ = writeln!(o, "   {{");
-    for arm in dp.arms.iter().filter(|a| a.supported) {
-        let cp = callee_prefix(&arm.callee);
-        let opt_args: Vec<String> = arm
-            .opt_args
-            .iter()
-            .map(|e| render_expression(e, registry, helpers, counter))
-            .collect();
-        let opt_str = opt_args
-            .iter()
-            .fold(String::new(), |mut s, a| {
-                let _ = write!(s, "{a}, ");
-                s
-            });
-        let arm_out_args = dispatch_arm_out_args(arm, &outputs);
-        let _ = writeln!(o, "   case {}:", case_of(&arm.label));
-        let _ = writeln!(o, "      {{");
-        let _ = writeln!(o, "         {cp}_Stream *sub = NULL;");
-        let _ = writeln!(
-            o,
-            "         retCode = {cp}_OpenInternal( &sub, {bar_args}, startIdx, historyLen, {opt_str}{arm_out_args} );",
-        );
-        let _ = writeln!(o, "         sp->sub = sub;");
-        let _ = writeln!(o, "      }}");
-        let _ = writeln!(o, "      break;");
-    }
-    // Unsupported arms reject at Open — a documented capability limitation
-    // (the callee has no stream yet). They regenerate as supported arms the
-    // moment the callee's YAML gains the stream flag.
-    for arm in dp.arms.iter().filter(|a| !a.supported) {
-        let _ = writeln!(
-            o,
-            "   case {}: /* no {} stream */",
-            case_of(&arm.label),
-            if arm.callee.is_empty() { "delegation" } else { &arm.callee }
-        );
-    }
-    let _ = writeln!(o, "   default:");
-    let _ = writeln!(o, "      retCode = TA_BAD_PARAM;");
-    let _ = writeln!(o, "      break;");
-    let _ = writeln!(o, "   }}");
-    let _ = writeln!(o, "\n   if( retCode != TA_SUCCESS )");
-    let _ = writeln!(o, "   {{");
-    let _ = writeln!(o, "      TA_Free( sp );");
-    let _ = writeln!(o, "      return retCode;");
-    let _ = writeln!(o, "   }}");
-    let _ = writeln!(o, "   *stream = sp;");
-    let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
-    emit_open_wrapper(o, func);
-    emit_dispatch_open_and_fill(o, func, dp, enums, registry, helpers, counter);
 
     // --- Update / Peek ---------------------------------------------------------
     let identity_handle_cond =
@@ -1958,28 +2182,169 @@ fn dual_union_circs(func: &FuncDef, ma: &StreamModel, mb: &StreamModel) -> Vec<C
     v
 }
 
-/// Remove top-level `VarDecl`s whose variable is never referenced elsewhere in
-/// `body`. Used only for the dual-mode Open arms: each arm is `shared prologue
-/// ++ its own arm body`, and the prologue declares the UNION of both modes'
-/// function-top scalars, so the degenerate arm would otherwise carry (and
-/// -Wunused-warn on) the Wilder-path accumulators and warm-up counter it never
-/// touches. A decl's own name is not a "use" (only its initializer is walked),
-/// and a decl kept here is exactly one the arm reads or writes — so dropping
-/// the rest is behavior-preserving.
+/// Remove top-level `VarDecl`s whose variable is never READ in `body`, together
+/// with the top-level assignments that only ever wrote it.
+///
+/// Used only for the dual-mode Open arms: each arm is `shared prologue ++ its
+/// own arm body`, and the prologue both declares and INITIALIZES the union of
+/// both modes' function-top scalars. Dropping only the unreferenced decls
+/// leaves the ones the shared prologue assigns — HMA's degenerate arm
+/// (`optInTimePeriod` 2 or 3) inherits `halfPeriod = optInTimePeriod / 2` from
+/// the prologue and then never reads it, because at that period the formula
+/// collapses and the half-period WMA disappears. That is a
+/// `-Wunused-but-set-variable` in the consumer's build, so a write alone must
+/// not count as a use.
+///
+/// Behavior-preserving because the three conditions are checked together: the
+/// variable is never read anywhere in the arm, every assignment to it sits at
+/// the top level (nothing conditional or looped is removed), and every such
+/// right-hand side is call-free, so evaluating it can be observed only through
+/// the variable being dropped.
 fn drop_unused_decls(body: Vec<Statement>) -> Vec<Statement> {
-    let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for s in &body {
-        streaming::walk_stmt_exprs(s, &mut |e| {
-            streaming::walk_expr(e, &mut |x| {
-                if let Expr::Var(v) = x {
-                    used.insert(v.clone());
-                }
-            });
+    // A plain `x = <expr>` writes x; it does not read it. Every other mention
+    // — a compound assign, an index, a deref, any rvalue — is a read.
+    let mut read: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let note_reads = |e: &Expr, out: &mut std::collections::BTreeSet<String>| {
+        streaming::walk_expr(e, &mut |x| {
+            if let Expr::Var(v) = x {
+                out.insert(v.clone());
+            }
         });
+    };
+    for s in &body {
+        match s {
+            Statement::Assign { target, value, compound } => {
+                note_reads(value, &mut read);
+                if *compound || !matches!(target, Expr::Var(_)) {
+                    note_reads(target, &mut read);
+                }
+            }
+            other => streaming::walk_stmt_exprs(other, &mut |e| note_reads(e, &mut read)),
+        }
+        // `walk_stmt_exprs` does not descend into CircBuf, but CIRCBUF_INIT's
+        // size IS an expression and reading it is a real use — HMA's general
+        // arm sizes its de-lag ring with `ringSize`, which is otherwise only
+        // ever assigned. Missing this drops a live declaration.
+        collect_circbuf_size_reads(s, &mut |e| note_reads(e, &mut read));
     }
+
+    // Only names the arm writes exclusively from the top level, with a
+    // call-free RHS, are eligible; anything assigned deeper stays untouched.
+    let mut nested_assigned: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for s in &body {
+        if matches!(s, Statement::Assign { .. }) {
+            continue;
+        }
+        collect_assigned_targets(s, &mut nested_assigned);
+    }
+
+    let impure = |e: &Expr| {
+        let mut found = false;
+        streaming::walk_expr(e, &mut |x| {
+            if matches!(x, Expr::FuncCall(..)) {
+                found = true;
+            }
+        });
+        found
+    };
+
+    let droppable = |name: &String, body: &[Statement]| {
+        if read.contains(name) || nested_assigned.contains(name) {
+            return false;
+        }
+        body.iter().all(|s| match s {
+            Statement::Assign { target, value, compound } => {
+                !matches!(target, Expr::Var(v) if v == name) || (!*compound && !impure(value))
+            }
+            _ => true,
+        })
+    };
+
+    let dead: std::collections::BTreeSet<String> = body
+        .iter()
+        .filter_map(|s| match s {
+            Statement::VarDecl { name, .. } if droppable(name, &body) => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+
     body.into_iter()
-        .filter(|s| !matches!(s, Statement::VarDecl { name, .. } if !used.contains(name)))
+        .filter(|s| match s {
+            Statement::VarDecl { name, .. } => !dead.contains(name),
+            Statement::Assign { target: Expr::Var(v), .. } => !dead.contains(v),
+            _ => true,
+        })
         .collect()
+}
+
+/// Visit the `size` expression of every `CIRCBUF_INIT` reachable from `s`.
+/// [`streaming::walk_stmt_exprs`] treats `Statement::CircBuf` as opaque, so this
+/// is the one expression a use-analysis over it would otherwise miss.
+fn collect_circbuf_size_reads(s: &Statement, f: &mut dyn FnMut(&Expr)) {
+    match s {
+        Statement::CircBuf(crate::ir::CircBuf::Init { size, .. }) => f(size),
+        Statement::CircBuf(_) | Statement::VarDecl { .. } | Statement::Assign { .. }
+        | Statement::Comment(_) | Statement::UnrollHint { .. } | Statement::Break
+        | Statement::Continue | Statement::Return { .. } | Statement::Expr(_) => {}
+        Statement::While { body, .. } | Statement::DoWhile { body, .. }
+        | Statement::For { body, .. } | Statement::Block { body } => {
+            for st in body {
+                collect_circbuf_size_reads(st, f);
+            }
+        }
+        Statement::If { then_body, else_body, .. } => {
+            for st in then_body.iter().chain(else_body) {
+                collect_circbuf_size_reads(st, f);
+            }
+        }
+        Statement::Switch { cases, default, .. } => {
+            for st in cases.iter().flat_map(|(_, b)| b).chain(default) {
+                collect_circbuf_size_reads(st, f);
+            }
+        }
+        Statement::ForC { init, update, body, .. } => {
+            collect_circbuf_size_reads(init, f);
+            collect_circbuf_size_reads(update, f);
+            for st in body {
+                collect_circbuf_size_reads(st, f);
+            }
+        }
+    }
+}
+
+/// Every variable a statement assigns to, at any depth.
+fn collect_assigned_targets(s: &Statement, out: &mut std::collections::BTreeSet<String>) {
+    match s {
+        Statement::Assign { target: Expr::Var(v), .. } => {
+            out.insert(v.clone());
+        }
+        Statement::Assign { .. } | Statement::VarDecl { .. } | Statement::CircBuf(_)
+        | Statement::Comment(_) | Statement::UnrollHint { .. } | Statement::Break
+        | Statement::Continue | Statement::Return { .. } | Statement::Expr(_) => {}
+        Statement::While { body, .. } | Statement::DoWhile { body, .. }
+        | Statement::For { body, .. } | Statement::Block { body } => {
+            for st in body {
+                collect_assigned_targets(st, out);
+            }
+        }
+        Statement::If { then_body, else_body, .. } => {
+            for st in then_body.iter().chain(else_body) {
+                collect_assigned_targets(st, out);
+            }
+        }
+        Statement::Switch { cases, default, .. } => {
+            for st in cases.iter().flat_map(|(_, b)| b).chain(default) {
+                collect_assigned_targets(st, out);
+            }
+        }
+        Statement::ForC { init, update, body, .. } => {
+            collect_assigned_targets(init, out);
+            collect_assigned_targets(update, out);
+            for st in body {
+                collect_assigned_targets(st, out);
+            }
+        }
+    }
 }
 
 /// Emit the full dual-mode stream section: one union struct, one predicate-
@@ -2016,6 +2381,9 @@ fn emit_dual_mode(
         o,
         "/* Private function, not in public API. */\nstatic void TA_{n}_StepInternal( struct TA_{n}_Stream *sp, {bars}{outs} )\n{{"
     );
+    // Identity (HMA period 1) short-circuits ahead of the predicate, as it does
+    // in the batch and in Open: it is a property of the function, not of a mode.
+    emit_identity_step_branch(o, ma, enums, registry, helpers, counter, 3);
     let pred_h = render_dual_pred(&dmp.predicate, true, func, registry, helpers, counter);
     let _ = writeln!(o, "   if( {pred_h} )\n   {{");
     emit_step_inner(o, ma, enums, registry, helpers, counter, 6, false);
@@ -2023,41 +2391,14 @@ fn emit_dual_mode(
     emit_step_inner(o, mb, enums, registry, helpers, counter, 6, false);
     let _ = writeln!(o, "   }}\n}}\n");
 
-    // --- OpenInternal: shared head, then a predicate branch per mode --------
-    let inputs = streaming::input_array_names(func);
-    let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", open_internal_signature(func));
-    let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
-    // Union circ hoist: a mode-B-only CIRCBUF's locals (HMA's dRing) are
-    // declared once at function scope; only the owning arm touches them.
-    emit_circ_hoist(o, func, &union_circs);
-    let _ = writeln!(o, "   int endIdx;");
-    let _ = writeln!(o, "   int dummyBegIdx;");
-    let _ = writeln!(o, "   int dummyNBElement;");
-    for out in &ma.outputs {
-        let _ = writeln!(o, "   {} lastValue_{out};", out_c_type(func, out));
-    }
-    for (name, c_type) in &func.private_extra_params {
-        let _ = writeln!(o, "   {c_type} {name};");
-    }
-    emit_open_validation(o, func, &ma.outputs, &inputs, OutMode::Scalar);
-    let _ = writeln!(o, "\n   endIdx = historyLen - 1;");
-    let _ = writeln!(o, "   dummyBegIdx = 0;");
-    let _ = writeln!(o, "   dummyNBElement = 0;");
-    for out in &ma.outputs {
-        let init = if out_c_type(func, out) == "int" { "0" } else { "0.0" };
-        let _ = writeln!(o, "   lastValue_{out} = {init};");
-    }
-    let _ = writeln!(
-        o,
-        "   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;"
-    );
-
-    // Identity (HMA period 1) short-circuits ahead of the predicate: the handle
-    // is memset, so both modes' buffers sit at NULL/0, and both transitions
-    // short-circuit on the same guard — which arm the predicate would have
-    // picked is moot. (The batch's own copy of this branch still rides the
-    // transcribed prologue below; it is unreachable dead code there.)
-    emit_identity_fast_path(o, func, ma, registry, helpers, counter, OutMode::Scalar);
+    // --- OpenCore: shared head, then a predicate branch per mode ------------
+    // The head is `emit_open_head` over the UNION circ hoist: a mode-B-only
+    // CIRCBUF's locals (HMA's dRing) are declared once at function scope and
+    // only the owning arm touches them. Its identity fast path leaves the whole
+    // union memset, including the buffers only the general arm dereferences;
+    // what keeps that arm from running is the step's guard, hoisted above the
+    // mode predicate.
+    emit_open_head(o, func, ma, &union_circs, registry, helpers, counter, enums);
 
     // Each mode transcribes the SHARED PROLOGUE, then its own arm body, then the
     // SHARED EPILOGUE (empty for the early-return form; the out-meta + return tail
@@ -2076,26 +2417,16 @@ fn emit_dual_mode(
     let body_a = compose(ma.body);
     let body_b = compose(mb.body);
     let _ = writeln!(o, "\n   if( {pred_bare} )\n   {{");
-    emit_open_arm(o, func, ma, &body_a, enums, registry, helpers, counter, OutMode::Scalar);
+    emit_open_arm(o, func, ma, &body_a, enums, registry, helpers, counter);
     let _ = writeln!(o, "   }}\n   else\n   {{");
-    emit_open_arm(o, func, mb, &body_b, enums, registry, helpers, counter, OutMode::Scalar);
+    emit_open_arm(o, func, mb, &body_b, enums, registry, helpers, counter);
     let _ = writeln!(o, "   }}");
     // Both arms return; keep the compiler happy about the fall-through.
     let _ = writeln!(o, "\n   return TA_INTERNAL_ERROR;\n}}\n");
+    emit_open_internal_wrapper(o, func);
     emit_open_wrapper(o, func);
-
-    // --- OpenAndFill: same predicate + arms, fill mode. The head reuses
-    // emit_open_head, which renders the same decls the scalar head inlines —
-    // including the union circ hoist and the identity fast path — plus the fill
-    // signature + startIdx local + aliasing guards. Reuses body_a/body_b/
-    // pred_bare above. -------------------------------------------------------
-    emit_open_head(o, func, ma, &union_circs, registry, helpers, counter, OutMode::Fill);
-    let _ = writeln!(o, "\n   if( {pred_bare} )\n   {{");
-    emit_open_arm(o, func, ma, &body_a, enums, registry, helpers, counter, OutMode::Fill);
-    let _ = writeln!(o, "   }}\n   else\n   {{");
-    emit_open_arm(o, func, mb, &body_b, enums, registry, helpers, counter, OutMode::Fill);
-    let _ = writeln!(o, "   }}");
-    let _ = writeln!(o, "\n   return TA_INTERNAL_ERROR;\n}}\n");
+    emit_open_and_fill_wrapper(o, func);
+    emit_open_and_fill_internal_wrapper(o, func);
 
     // --- Update / Peek / Close (mode-fixed handle: Peek mirrors the union of
     // both modes' buffers, guarding mode-exclusive groups; Close releases the
@@ -2158,6 +2489,8 @@ fn emit_nonscalar_struct_fields(o: &mut String, func: &FuncDef, model: &StreamMo
     }
     if let Some(ex) = model.extrema() {
         let _ = writeln!(o, "   int xCap;");
+        let _ = writeln!(o, "   int xPhys;");
+        let _ = writeln!(o, "   int xMask;");
         for arr in &ex.arrays {
             let _ = writeln!(o, "   double *x_{arr};");
             let _ = writeln!(o, "   double *xMirror_{arr};");
@@ -2332,9 +2665,34 @@ fn emit_step_inner(
     o.push_str(&body_c);
 }
 
+/// The identity short-circuit at the top of a dual-mode step, above the mode
+/// predicate — the one place it belongs, since it holds for the whole function
+/// (the arms are marked `identity_hoisted`, so they no longer carry a copy).
+fn emit_identity_step_branch(
+    o: &mut String,
+    model: &StreamModel,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+    indent: usize,
+) {
+    if let Some(s) = streaming::identity_step_branch(model, &CNames) {
+        o.push_str(&render_statement_stream(
+            &s,
+            indent,
+            enums,
+            registry,
+            helpers,
+            counter,
+            &nullable_out_names(model.func),
+        ));
+    }
+}
+
 /// Extrema automatons carry batch-absolute int indices that grow by one
-/// per bar. Rebase them by a multiple of the ring capacity long before
-/// INT_MAX: index differences and `% cap` residues are invariant, so the
+/// per bar. Rebase them by a multiple of the physical ring size long before
+/// INT_MAX: index differences and `& xMask` slots are invariant, so the
 /// automaton (and bit-exactness vs any batch-comparable range, which is
 /// itself bounded by int) is untouched. Index-observable outputs
 /// (MININDEX...) report the rebased position beyond ~2^30 bars — the
@@ -2347,7 +2705,7 @@ fn emit_extrema_rebase(o: &mut String, model: &StreamModel) {
         let _ = writeln!(o, "   {{");
         let _ = writeln!(
             o,
-            "      int rebaseShift = ( sp->{} / sp->xCap ) * sp->xCap;",
+            "      int rebaseShift = sp->{} & ~sp->xMask;",
             ex.trailing
         );
         for v in &vars {
@@ -2380,7 +2738,7 @@ fn emit_used_candle_unpacking(
     out
 }
 
-/// The `OpenInternal` head shared by the loop tier and the fast-path-skip tier:
+/// The `OpenInternal` head shared by the loop tier and dual-mode:
 /// signature, declarations, param validation, initialization, and the identity
 /// fast path. The caller then emits the transcribed body arm(s) and closes the
 /// function.
@@ -2392,59 +2750,34 @@ fn emit_open_head(
     registry: &Registry,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
-    mode: OutMode,
+    enums: &HashMap<String, EnumDef>,
 ) {
     let n = uname(func);
     let inputs = streaming::input_array_names(func);
-    match mode {
-        OutMode::Scalar => {
-            let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", open_internal_signature(func));
-        }
-        // OpenAndFill is public and standalone (startIdx is implicitly 0, so it
-        // is a local here rather than a parameter — nothing opens it as a sub).
-        OutMode::Fill => {
-            let _ = writeln!(o, "{}\n{{", open_and_fill_signature(func));
-        }
-    }
+    let _ = writeln!(o, "{}\n{{", open_core_signature(func));
 
     // --- declarations -------------------------------------------------------
     let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
     emit_circ_hoist(o, func, hoist_circs);
     let _ = writeln!(o, "   int endIdx;");
-    if mode == OutMode::Fill {
-        let _ = writeln!(o, "   int startIdx;");
-    }
+    // Kept as locals even though the core always has real out-meta pointers:
+    // the transcribed body writes them on paths the fill contract does not
+    // publish, and the composed tier reads them back as plain ints.
     let _ = writeln!(o, "   int dummyBegIdx;");
     let _ = writeln!(o, "   int dummyNBElement;");
-    // The last-value scalars are the scalar path's output sink; Fill writes the
-    // real arrays and never reads them (omitting avoids -Wunused-but-set).
-    if mode == OutMode::Scalar {
-        for out in &model.outputs {
-            let _ = writeln!(o, "   {} lastValue_{out};", out_c_type(func, out));
-        }
-    }
     for (name, c_type) in &func.private_extra_params {
         let _ = writeln!(o, "   {c_type} {name};");
     }
 
-    emit_open_validation(o, func, &model.outputs, &inputs, mode);
+    emit_open_validation(o, func, &model.outputs, &inputs, enums);
 
     // --- initialization (after defaults are substituted) ---------------------
-    // Scalar: startIdx arrives as a parameter (0 for standalone opens; the
-    // sub-call's own startIdx when a composed function opens this as a
-    // sub-stream). Fill: startIdx is a local, always 0 (whole-history replay).
+    // startIdx arrives as a parameter: 0 for both standalone public entry
+    // points, the sub-call's own startIdx when a composed function opens this
+    // as a sub-stream.
     let _ = writeln!(o, "\n   endIdx = historyLen - 1;");
-    if mode == OutMode::Fill {
-        let _ = writeln!(o, "   startIdx = 0;");
-    }
     let _ = writeln!(o, "   dummyBegIdx = 0;");
     let _ = writeln!(o, "   dummyNBElement = 0;");
-    if mode == OutMode::Scalar {
-        for out in &model.outputs {
-            let init = if out_c_type(func, out) == "int" { "0" } else { "0.0" };
-            let _ = writeln!(o, "   lastValue_{out} = {init};");
-        }
-    }
     for (name, _) in &func.private_extra_params {
         let init = func
             .private_param_init
@@ -2461,48 +2794,16 @@ fn emit_open_head(
         "   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;"
     );
 
-    emit_identity_fast_path(o, func, model, registry, helpers, counter, mode);
+    emit_identity_fast_path(o, func, model, registry, helpers, counter);
 }
 
-fn emit_open(
-    o: &mut String,
-    func: &FuncDef,
-    model: &StreamModel,
-    enums: &HashMap<String, EnumDef>,
-    registry: &Registry,
-    helpers: &HelperRegistry,
-    counter: &Cell<usize>,
-) {
-    emit_open_head(o, func, model, model.circs(), registry, helpers, counter, OutMode::Scalar);
-    emit_open_arm(o, func, model, model.body, enums, registry, helpers, counter, OutMode::Scalar);
-    let _ = writeln!(o, "}}\n");
-    emit_open_wrapper(o, func);
-}
-
-/// Emit the public `TA_<N>_OpenAndFill` for the loop tier: the same whole-history
-/// transcription as `Open`, but per-bar output writes land in the caller's real
-/// arrays and the batch `*outBegIdx`/`*outNBElement` writes are kept — so the
-/// filled arrays are bit-identical to `batch(startIdx=0, endIdx=len-1)` and the
-/// handle it leaves is the same one `Open` leaves (identical capture epilogue).
-/// A standalone public function, not a wrapper: nothing opens it as a sub-stream.
-fn emit_open_and_fill(
-    o: &mut String,
-    func: &FuncDef,
-    model: &StreamModel,
-    enums: &HashMap<String, EnumDef>,
-    registry: &Registry,
-    helpers: &HelperRegistry,
-    counter: &Cell<usize>,
-) {
-    emit_open_and_fill_body(o, func, model, model.body, enums, registry, helpers, counter);
-}
-
-/// The single-arm fill Open shared by the loop, fast-path-skip, and (via a
-/// per-arm caller) any tier whose Open head is `emit_open_head` + a single
-/// `emit_open_arm`. `body` is the transcribed batch region (loop: `model.body`;
-/// fast-path-skip: `prologue ++ body ++ epilogue`).
+/// The whole Open family for any tier whose core is `emit_open_head` + a single
+/// `emit_open_arm`: the merged `OpenCore`, then `OpenInternal` (stride 0),
+/// the public `Open`, and `OpenAndFill` (stride 1). `body` is the transcribed
+/// batch region — loop: `model.body`; dual-mode: `prologue ++ arm body ++
+/// epilogue`.
 #[allow(clippy::too_many_arguments)]
-fn emit_open_and_fill_body(
+fn emit_open_core_body(
     o: &mut String,
     func: &FuncDef,
     model: &StreamModel,
@@ -2512,47 +2813,13 @@ fn emit_open_and_fill_body(
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
 ) {
-    emit_open_head(o, func, model, model.circs(), registry, helpers, counter, OutMode::Fill);
-    emit_open_arm(o, func, model, body, enums, registry, helpers, counter, OutMode::Fill);
+    emit_open_head(o, func, model, model.circs(), registry, helpers, counter, enums);
+    emit_open_arm(o, func, model, body, enums, registry, helpers, counter);
     let _ = writeln!(o, "}}\n");
-}
-
-/// Emit the fast-path-skip stream section (MIDPRICE): the standard loop-tier
-/// lifecycle for the general (else) arm's model, except the OpenInternal
-/// transcribes `prologue ++ general-arm body ++ epilogue` — the fast-path
-/// `then` arm is skipped (a batch-only perf specialization). Struct / Step /
-/// Update / Peek / Close are the ordinary single-model emitters.
-#[allow(clippy::too_many_arguments)]
-fn emit_fastpath_skip(
-    o: &mut String,
-    func: &FuncDef,
-    plan: &streaming::FastPathSkipPlan,
-    enums: &HashMap<String, EnumDef>,
-    registry: &Registry,
-    helpers: &HelperRegistry,
-    counter: &Cell<usize>,
-) {
-    let model = &plan.model;
-    emit_state_struct(o, func, model);
-    emit_release(o, func, model);
-    emit_step(o, func, model, enums, registry, helpers, counter);
-
-    emit_open_head(o, func, model, model.circs(), registry, helpers, counter, OutMode::Scalar);
-    // prologue ++ general arm ++ epilogue: the Open seeds the general path for
-    // every param (the skipped fast-path arm is bit-identical by construction).
-    // drop_unused_decls prunes any fast-path-only locals the skipped arm owned.
-    let mut body = plan.prologue.to_vec();
-    body.extend_from_slice(model.body);
-    body.extend_from_slice(plan.epilogue);
-    let body = drop_unused_decls(body);
-    emit_open_arm(o, func, model, &body, enums, registry, helpers, counter, OutMode::Scalar);
-    let _ = writeln!(o, "}}\n");
+    emit_open_internal_wrapper(o, func);
     emit_open_wrapper(o, func);
-    emit_open_and_fill_body(o, func, model, &body, enums, registry, helpers, counter);
-
-    emit_update(o, func);
-    emit_peek(o, func, model);
-    emit_close(o, func, model);
+    emit_open_and_fill_wrapper(o, func);
+    emit_open_and_fill_internal_wrapper(o, func);
 }
 
 /// Emit the period-bank stream section (MAVP): a moving average whose period
@@ -2570,6 +2837,7 @@ fn emit_period_bank(
     registry: &Registry,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
+    enums: &HashMap<String, EnumDef>,
 ) {
     let n = uname(func);
     let pre = callee_prefix(&plan.callee); // e.g. TA_MA
@@ -2625,7 +2893,7 @@ fn emit_period_bank(
         o,
         "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;"
     );
-    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM"));
+    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM", enums));
     // MAVP's own guard: an inverted [min,max] window is invalid (batch rejects).
     let _ = writeln!(o, "   if( {min} > {max} ) return TA_BAD_PARAM;");
     // Seed EVERY sub-MA at the SHARED max-period lookback, exactly as the batch
@@ -2736,7 +3004,7 @@ fn emit_period_bank(
     if !alias.is_empty() {
         let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", alias.join(" || "));
     }
-    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM"));
+    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM", enums));
     let _ = writeln!(o, "   if( {min} > {max} ) return TA_BAD_PARAM;");
     let _ = writeln!(
         o,
@@ -2865,12 +3133,11 @@ fn emit_open_arm(
     registry: &Registry,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
-    mode: OutMode,
 ) {
     let n = uname(func);
     // --- transcribed batch body ----------------------------------------------
     let _ = writeln!(o, "\n   {{");
-    let open_body = build_open_body_from(model, body, mode);
+    let open_body = build_open_body_from(model, body);
     let mut open_body_c = String::new();
     for s in &open_body {
         open_body_c.push_str(&render_statement(s, 6, false, enums, registry, helpers, counter, &nullable_out_names(func)));
@@ -2884,7 +3151,7 @@ fn emit_open_arm(
     // --- state capture --------------------------------------------------------
     let _ = writeln!(o, "\n      /* Capture the live batch state into the handle. */");
     o.push_str(&alloc_and_capture(
-        func, model, "      ", /*with_state=*/ true, "", registry, helpers, counter, mode,
+        func, model, "      ", /*with_state=*/ true, "", registry, helpers, counter,
     ));
     for lag in &model.lags {
         for k in 1..=lag.depth {
@@ -2897,7 +3164,7 @@ fn emit_open_arm(
         }
     }
     emit_circ_capture(o, model, &n);
-    emit_open_tail(o, func, model, mode);
+    emit_open_tail(o);
     let _ = writeln!(o, "   }}");
 }
 
@@ -2943,18 +3210,7 @@ fn emit_circ_capture(o: &mut String, model: &StreamModel, n: &str) {
 /// Scalar returns the last history value per output; Fill has already written
 /// the whole array plus `*outBegIdx`/`*outNBElement` in the transcribed body,
 /// so it only publishes the handle.
-fn emit_open_tail(o: &mut String, func: &FuncDef, model: &StreamModel, mode: OutMode) {
-    if mode == OutMode::Scalar {
-        let nullable = nullable_out_names(func);
-        for out in &model.outputs {
-            if nullable.contains(out) {
-                let _ = writeln!(o, "      if( {out} != NULL ) *{out} = lastValue_{out};");
-            } else {
-                let _ = writeln!(o, "      *{out} = lastValue_{out};");
-            }
-            let _ = out_c_type(func, out);
-        }
-    }
+fn emit_open_tail(o: &mut String) {
     let _ = writeln!(o, "      *stream = sp;");
     let _ = writeln!(o, "      return TA_SUCCESS;");
 }
@@ -2991,7 +3247,6 @@ fn alloc_and_capture(
     registry: &Registry,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
-    mode: OutMode,
 ) -> String {
     let n = uname(func);
     let pre = pre_fail_stmt(pre_fail);
@@ -3017,17 +3272,12 @@ fn alloc_and_capture(
     }
     if with_state {
         for name in &model.out_feedback {
-            // The previous-output carry: scalar mode reads its last-value sink;
-            // fill mode reads the last element it just wrote to the real array
-            // (outNBElement is set to the output count immediately above).
-            match mode {
-                OutMode::Scalar => {
-                    let _ = writeln!(s, "{pad}sp->lastOut_{name} = lastValue_{name};");
-                }
-                OutMode::Fill => {
-                    let _ = writeln!(s, "{pad}sp->lastOut_{name} = {name}[*outNBElement - 1];");
-                }
-            }
+            // The previous-output carry reads the last element just written
+            // (outNBElement is set to the output count immediately above). At
+            // stride 0 that resolves to slot 0 -- the scalar sink -- so this is
+            // one expression for both callers.
+            let idx = stride_index("*outNBElement - 1");
+            let _ = writeln!(s, "{pad}sp->lastOut_{name} = {name}[{idx}];");
         }
         for (name, ty) in &model.state {
             if model.parity.as_ref().is_some_and(|p| &p.field == name) {
@@ -3185,15 +3435,21 @@ fn alloc_and_capture(
             s,
             "{pad}if( sp->xCap < 1 || sp->xCap > historyLen ) {{ {pre}TA_{n}_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }}"
         );
+        // The slot map is a mask, so the ring is allocated at the next power of
+        // two at or above the logical capacity: `idx & xMask` then equals
+        // `idx % xPhys`, still injective over any xCap consecutive bars.
+        let _ = writeln!(s, "{pad}sp->xPhys = 1;");
+        let _ = writeln!(s, "{pad}while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;");
+        let _ = writeln!(s, "{pad}sp->xMask = sp->xPhys - 1;");
         for arr in &ex.arrays {
             let _ = writeln!(
                 s,
-                "{pad}sp->x_{arr} = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );"
+                "{pad}sp->x_{arr} = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );"
             );
             let _ = writeln!(s, "{pad}if( !sp->x_{arr} ) {{ {pre}TA_{n}_ReleaseInternal( sp ); return TA_ALLOC_ERR; }}");
             let _ = writeln!(
                 s,
-                "{pad}sp->xMirror_{arr} = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );"
+                "{pad}sp->xMirror_{arr} = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );"
             );
             let _ = writeln!(s, "{pad}if( !sp->xMirror_{arr} ) {{ {pre}TA_{n}_ReleaseInternal( sp ); return TA_ALLOC_ERR; }}");
         }
@@ -3207,7 +3463,7 @@ fn alloc_and_capture(
             );
             let _ = writeln!(s, "{pad}  {{");
             for arr in &ex.arrays {
-                let _ = writeln!(s, "{pad}     sp->x_{arr}[fillJ % sp->xCap] = {arr}[fillJ];");
+                let _ = writeln!(s, "{pad}     sp->x_{arr}[fillJ & sp->xMask] = {arr}[fillJ];");
             }
             let _ = writeln!(s, "{pad}  }}");
             let _ = writeln!(s, "{pad}}}");
@@ -3229,7 +3485,6 @@ fn emit_identity_fast_path(
     registry: &Registry,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
-    mode: OutMode,
 ) {
     let n = uname(func);
     if let Some(idp) = &model.identity {
@@ -3240,32 +3495,39 @@ fn emit_identity_fast_path(
         let _ = writeln!(o, "\n   if( {cond} )\n   {{");
         let _ = writeln!(o, "      if( historyLen < {lb_call} + 1 ) return TA_BAD_PARAM;");
         o.push_str(&alloc_and_capture(
-            func, model, "      ", /*with_state=*/ false, "", registry, helpers, counter, mode,
+            func, model, "      ", /*with_state=*/ false, "", registry, helpers, counter,
         ));
-        match mode {
-            OutMode::Scalar => {
-                for (out, inp) in &idp.pairs {
-                    let _ = writeln!(o, "      *{out} = {inp}[historyLen - 1];");
-                }
-            }
-            // Fill the whole identity range: output j maps to input bar
-            // (lookback + j), 0 <= j < historyLen - lookback — batch(0,len-1)
-            // for the identity param (a shifted copy; bit-exact by construction).
-            OutMode::Fill => {
-                let _ = writeln!(o, "      {{");
-                let _ = writeln!(o, "         int fillLb = {lb_call};");
-                let _ = writeln!(o, "         int fillIdx;");
-                let _ = writeln!(o, "         *outBegIdx = fillLb;");
-                let _ = writeln!(o, "         *outNBElement = historyLen - fillLb;");
-                let _ = writeln!(o, "         for( fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ )");
-                let _ = writeln!(o, "         {{");
-                for (out, inp) in &idp.pairs {
-                    let _ = writeln!(o, "            {out}[fillIdx] = {inp}[fillLb + fillIdx];");
-                }
-                let _ = writeln!(o, "         }}");
-                let _ = writeln!(o, "      }}");
-            }
+        // Fill the whole identity range: output j maps to input bar
+        // (lookback + j), 0 <= j < historyLen - lookback — batch(0,len-1) for the
+        // identity param (a shifted copy; bit-exact by construction).
+        //
+        // Stride 0 short-circuits to the last bar instead of running the loop.
+        // It would be CORRECT to let it run (every iteration rewrites slot 0 and
+        // the last one leaves the right value), but the scalar Open would then
+        // be O(history) where it is O(1) — a whole-history loop whose only
+        // surviving effect is its final store. `outStride` is a literal at both
+        // call sites, so this branch folds away in each.
+        let _ = writeln!(o, "      {{");
+        let _ = writeln!(o, "         int fillLb = {lb_call};");
+        let _ = writeln!(o, "         int fillIdx;");
+        let _ = writeln!(o, "         *outBegIdx = fillLb;");
+        let _ = writeln!(o, "         *outNBElement = historyLen - fillLb;");
+        let _ = writeln!(o, "         if( {OUT_STRIDE} )");
+        let _ = writeln!(o, "         {{");
+        let _ = writeln!(o, "            for( fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ )");
+        let _ = writeln!(o, "            {{");
+        for (out, inp) in &idp.pairs {
+            let _ = writeln!(o, "               {out}[fillIdx] = {inp}[fillLb + fillIdx];");
         }
+        let _ = writeln!(o, "            }}");
+        let _ = writeln!(o, "         }}");
+        let _ = writeln!(o, "         else");
+        let _ = writeln!(o, "         {{");
+        for (out, inp) in &idp.pairs {
+            let _ = writeln!(o, "            {out}[0] = {inp}[historyLen - 1];");
+        }
+        let _ = writeln!(o, "         }}");
+        let _ = writeln!(o, "      }}");
         let _ = writeln!(o, "      *stream = sp;");
         let _ = writeln!(o, "      return TA_SUCCESS;");
         let _ = writeln!(o, "   }}");
@@ -3283,15 +3545,14 @@ fn emit_open_validation(
     func: &FuncDef,
     outputs: &[String],
     inputs: &[String],
-    mode: OutMode,
+    enums: &HashMap<String, EnumDef>,
 ) {
     let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
     let _ = writeln!(o, "   *stream = NULL;");
     // A nullable output may be NULL (discarded) — its writes are NULL-guarded,
-    // so it is not required. The aliasing check below stays as-is: a NULL
-    // operand's partner is always non-NULL, so `NULL == ptr` never mis-fires.
+    // so it is not required.
     let nullable = nullable_out_names(func);
-    let mut null_checks: Vec<String> = inputs
+    let null_checks: Vec<String> = inputs
         .iter()
         .map(|i| format!("!{i}"))
         .chain(
@@ -3301,10 +3562,6 @@ fn emit_open_validation(
                 .map(|out| format!("!{out}")),
         )
         .collect();
-    if mode == OutMode::Fill {
-        null_checks.push("!outBegIdx".to_string());
-        null_checks.push("!outNBElement".to_string());
-    }
     let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
     let _ = writeln!(o, "   if( historyLen < 1 ) return TA_BAD_PARAM;");
     // The fill covers bars 0..historyLen-1, so its last bar is an index like any
@@ -3315,26 +3572,12 @@ fn emit_open_validation(
         o,
         "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;"
     );
-    if mode == OutMode::Fill {
-        // Cast to `const void *` so the pointer comparison is well-typed for any
-        // output/input element types (integer outputs vs double inputs would
-        // otherwise warn "comparison of distinct pointer types lacks a cast").
-        let mut alias: Vec<String> = Vec::new();
-        for out in outputs {
-            for inp in inputs {
-                alias.push(format!("(const void *){out} == (const void *){inp}"));
-            }
-        }
-        for (i, a) in outputs.iter().enumerate() {
-            for b in &outputs[i + 1..] {
-                alias.push(format!("(const void *){a} == (const void *){b}"));
-            }
-        }
-        if !alias.is_empty() {
-            let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", alias.join(" || "));
-        }
-    }
-    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM"));
+    // The out-meta NULL checks and the output-aliasing rejections are FILL-only
+    // and live in `emit_open_and_fill_wrapper`: only the fill path writes the
+    // caller's arrays, and only it can therefore have an output alias an input
+    // or another output (#108/#130). `Open`'s sinks are this call's own stack
+    // slots.
+    o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM", enums));
 }
 
 /// `if (buf != &local_buf[0]) TA_Free(buf);` for every batch circ storage —
@@ -3391,12 +3634,7 @@ fn circ_static_size(func: &FuncDef, id: &str) -> i64 {
         }
         None
     }
-    let body: &[Statement] = if func.has_explicit_private {
-        &func.private_body
-    } else {
-        &func.body
-    };
-    find(body, id).expect("circbuf prolog present for referenced id")
+    find(func.stream_source(), id).expect("circbuf prolog present for referenced id")
 }
 
 /// Transcribe a batch body region for Open: out-param pointers → dummies,
@@ -3406,7 +3644,7 @@ fn circ_static_size(func: &FuncDef, id: &str) -> i64 {
 /// passes `prologue ++ selected-arm-body` (not `model.body`), so the region is
 /// an explicit parameter. Output redirection / early-return mapping / state
 /// zero-init use `model`'s outputs, out-feedback, and state.
-fn build_open_body_from(model: &StreamModel, body: &[Statement], mode: OutMode) -> Vec<Statement> {
+fn build_open_body_from(model: &StreamModel, body: &[Statement]) -> Vec<Statement> {
     let outputs = model.outputs.clone();
     // Carried-state locals must never be captured uninitialized: a local
     // assigned only inside a data-dependent branch (ADX's minusDI/plusDI on
@@ -3417,26 +3655,16 @@ fn build_open_body_from(model: &StreamModel, body: &[Statement], mode: OutMode) 
     let state_names: std::collections::BTreeMap<String, crate::ir::VarType> =
         model.state.iter().cloned().collect();
     let fb_outputs = model.out_feedback.clone();
-    let scalar = mode == OutMode::Scalar;
     let fe = move |e: Expr| -> Expr {
         match e {
-            // Fill mode keeps the batch's real `*outBegIdx`/`*outNBElement`
-            // writes (the array's begin/count are a caller output); scalar mode
-            // discards them to local dummies.
-            Expr::PointerDeref(nm) if scalar && nm == "outBegIdx" => Expr::Var("dummyBegIdx".into()),
-            Expr::PointerDeref(nm) if scalar && nm == "outNBElement" => {
-                Expr::Var("dummyNBElement".into())
-            }
-            // Previous-output feedback read: in scalar mode the output array
-            // does not exist, so lastValue_<out> stands in (it still holds the
-            // previous bar's value at the point of the read). In fill mode the
-            // real array is populated up to the previous bar — keep the read.
+            // Previous-output feedback read (`out[outIdx - 1]`). Scaled like the
+            // writes: at stride 1 it reads the array element the previous bar
+            // wrote; at stride 0 it reads slot 0, which still holds exactly that
+            // value. One expression, no mode.
             Expr::ArrayAccess(nm, idx)
-                if scalar
-                    && fb_outputs.contains(&nm)
-                    && crate::streaming::is_prev_output_read(&idx) =>
+                if fb_outputs.contains(&nm) && crate::streaming::is_prev_output_read(&idx) =>
             {
-                Expr::Var(format!("lastValue_{nm}"))
+                Expr::ArrayAccess(nm, Box::new(scale_by_stride(*idx)))
             }
             other => other,
         }
@@ -3463,28 +3691,19 @@ fn build_open_body_from(model: &StreamModel, body: &[Statement], mode: OutMode) 
                     init: Some(zero),
                 })
             }
+            // The per-bar output write, scaled by the stride. At stride 1 this is
+            // the batch's own write and the array ends up bit-identical to
+            // batch(0, len-1); at stride 0 every bar rewrites slot 0, so the
+            // caller's one-element sink ends holding the last history value.
             Statement::Assign {
                 target: Expr::ArrayAccess(nm, idx),
                 value,
                 compound,
-            } if outputs.contains(&nm) => {
-                if scalar {
-                    // Collapse the per-bar array write to the last-value scalar.
-                    Some(Statement::Assign {
-                        target: Expr::Var(format!("lastValue_{nm}")),
-                        value,
-                        compound,
-                    })
-                } else {
-                    // Fill mode: keep the real array write (the whole history is
-                    // the caller's output — bit-identical to batch by construction).
-                    Some(Statement::Assign {
-                        target: Expr::ArrayAccess(nm, idx),
-                        value,
-                        compound,
-                    })
-                }
-            }
+            } if outputs.contains(&nm) => Some(Statement::Assign {
+                target: Expr::ArrayAccess(nm, Box::new(scale_by_stride(*idx))),
+                value,
+                compound,
+            }),
             Statement::Return { value } => {
                 let mapped = match value {
                     // Any early success return maps to BAD_PARAM. This is
@@ -3516,6 +3735,7 @@ fn build_open_body_from(model: &StreamModel, body: &[Statement], mode: OutMode) 
         body.pop();
     }
     body.retain(|st| !matches!(st, Statement::CircBuf(crate::ir::CircBuf::Destroy { .. })));
+    let body = streaming::strip_identity_branch(&body, model.identity.as_ref());
     streaming::rewrite_stmts(&body, &fe, &fs)
 }
 
@@ -3666,7 +3886,7 @@ fn peek_fixup_groups(model: &StreamModel) -> Vec<(String, String)> {
             let _ = writeln!(t, "   scratch.x_{arr} = stream->xMirror_{arr};");
             let _ = writeln!(
                 t,
-                "   memcpy( scratch.x_{arr}, stream->x_{arr}, sizeof(double) * (size_t)stream->xCap );"
+                "   memcpy( scratch.x_{arr}, stream->x_{arr}, sizeof(double) * (size_t)stream->xPhys );"
             );
             groups.push((format!("stream->x_{arr}"), t));
         }

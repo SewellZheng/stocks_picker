@@ -62,7 +62,7 @@
 
 TA_LIB_API int TA_VAR_Lookback( int optInTimePeriod, double optInNbDev )
 {
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return -1;
@@ -104,7 +104,7 @@ TA_LIB_API TA_RetCode TA_VAR( int    startIdx,
 
    if( !inReal )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -205,6 +205,26 @@ TA_LIB_API TA_RetCode TA_VAR( int    startIdx,
          }
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+         /* A variance is non-negative by definition, but this one is extracted
+          * as a difference of two nearly equal quantities, so its SIGN is not
+          * guaranteed: on a window sitting entirely inside a flat stretch every
+          * deviation is the same rounding residual and the subtraction is pure
+          * cancellation, landing either side of zero. Enforce the invariant.
+          *
+          * Clamping HERE and not at the output write is what keeps this off the
+          * per-bar path, and it is sufficient because a negative variance always
+          * reseeds on the same bar - the guard above covers all three cases:
+          * periodTotal2 > 0 makes its first disjunct `negative < positive`;
+          * periodTotal2 < 0 makes the second disjunct's right side negative,
+          * which the squared tempReal always exceeds; periodTotal2 == 0 reduces
+          * the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
+          * THIS - the alternative is an unconditional clamp at the output write,
+          * which needs no such argument but does cost ~3%.
+          */
+         if( variance < 0.0 )
+         {
+            variance = 0.0;
+         }
          /* Re-remove the trailing value under the new shift so the carried state
           * matches the non-reseed path.
           */
@@ -253,7 +273,7 @@ TA_RetCode TA_S_VAR( int    startIdx,
 
    if( !inReal )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -325,6 +345,10 @@ TA_RetCode TA_S_VAR( int    startIdx,
          }
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+         if( variance < 0.0 )
+         {
+            variance = 0.0;
+         }
          tempReal = (double)inReal[windowStart] - shift;
          periodTotal1 -= tempReal;
          tempReal *= tempReal;
@@ -356,6 +380,8 @@ struct TA_VAR_Stream {
    int barsSinceReseed;
    int i;
    int xCap;
+   int xPhys;
+   int xMask;
    double *x_inReal;
    double *xMirror_inReal;
 };
@@ -376,22 +402,22 @@ static void TA_VAR_StepInternal( struct TA_VAR_Stream *sp, double inReal, double
 
    if( sp->i >= 1073741824 )
    {
-      int rebaseShift = ( sp->trailingIdx / sp->xCap ) * sp->xCap;
+      int rebaseShift = sp->trailingIdx & ~sp->xMask;
       sp->i -= rebaseShift;
       sp->trailingIdx -= rebaseShift;
       sp->j -= rebaseShift;
       sp->windowStart -= rebaseShift;
    }
-   sp->x_inReal[sp->i % sp->xCap] = inReal;
+   sp->x_inReal[sp->i & sp->xMask] = inReal;
    /* Add the incoming value, measured against the shift. */
-   tempReal = sp->x_inReal[sp->i % sp->xCap] - sp->shift;
+   tempReal = sp->x_inReal[sp->i & sp->xMask] - sp->shift;
    sp->periodTotal1 += tempReal;
    tempReal *= tempReal;
    sp->periodTotal2 += tempReal;
    sp->meanValue1 = sp->periodTotal1 * sp->invPeriod;
    sp->variance = sp->periodTotal2 * sp->invPeriod - sp->meanValue1 * sp->meanValue1;
    /* Remove the trailing value (prepares the next window). */
-   tempReal = sp->x_inReal[sp->trailingIdx % sp->xCap] - sp->shift;
+   tempReal = sp->x_inReal[sp->trailingIdx & sp->xMask] - sp->shift;
    sp->periodTotal1 -= tempReal;
    tempReal *= tempReal;
    sp->periodTotal2 -= tempReal;
@@ -417,24 +443,44 @@ static void TA_VAR_StepInternal( struct TA_VAR_Stream *sp, double inReal, double
       tempReal = 0.0;
       for( sp->j = sp->windowStart; sp->j <= sp->i; sp->j += 1 )
       {
-         tempReal += sp->x_inReal[sp->j % sp->xCap];
+         tempReal += sp->x_inReal[sp->j & sp->xMask];
       }
       sp->shift = tempReal * sp->invPeriod;
       sp->periodTotal1 = 0.0;
       sp->periodTotal2 = 0.0;
       for( sp->j = sp->windowStart; sp->j <= sp->i; sp->j += 1 )
       {
-         tempReal = sp->x_inReal[sp->j % sp->xCap] - sp->shift;
+         tempReal = sp->x_inReal[sp->j & sp->xMask] - sp->shift;
          sp->periodTotal1 += tempReal;
          tempReal *= tempReal;
          sp->periodTotal2 += tempReal;
       }
       sp->meanValue1 = sp->periodTotal1 * sp->invPeriod;
       sp->variance = sp->periodTotal2 * sp->invPeriod - sp->meanValue1 * sp->meanValue1;
+      /* A variance is non-negative by definition, but this one is extracted
+       * as a difference of two nearly equal quantities, so its SIGN is not
+       * guaranteed: on a window sitting entirely inside a flat stretch every
+       * deviation is the same rounding residual and the subtraction is pure
+       * cancellation, landing either side of zero. Enforce the invariant.
+       *
+       * Clamping HERE and not at the output write is what keeps this off the
+       * per-bar path, and it is sufficient because a negative variance always
+       * reseeds on the same bar - the guard above covers all three cases:
+       * periodTotal2 > 0 makes its first disjunct `negative < positive`;
+       * periodTotal2 < 0 makes the second disjunct's right side negative,
+       * which the squared tempReal always exceeds; periodTotal2 == 0 reduces
+       * the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
+       * THIS - the alternative is an unconditional clamp at the output write,
+       * which needs no such argument but does cost ~3%.
+       */
+      if( sp->variance < 0.0 )
+      {
+         sp->variance = 0.0;
+      }
       /* Re-remove the trailing value under the new shift so the carried state
        * matches the non-reseed path.
        */
-      tempReal = sp->x_inReal[sp->windowStart % sp->xCap] - sp->shift;
+      tempReal = sp->x_inReal[sp->windowStart & sp->xMask] - sp->shift;
       sp->periodTotal1 -= tempReal;
       tempReal *= tempReal;
       sp->periodTotal2 -= tempReal;
@@ -443,21 +489,19 @@ static void TA_VAR_StepInternal( struct TA_VAR_Stream *sp, double inReal, double
    sp->i += 1;
 }
 
-/* Private function, not in public API. */
-TA_RetCode TA_VAR_OpenInternal( struct TA_VAR_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, double *outReal )
+static TA_RetCode TA_VAR_OpenCore( struct TA_VAR_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_VAR_Stream *sp;
    int endIdx;
    int dummyBegIdx;
    int dummyNBElement;
-   double lastValue_outReal;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -467,197 +511,6 @@ TA_RetCode TA_VAR_OpenInternal( struct TA_VAR_Stream **stream, const double inRe
       return TA_BAD_PARAM;
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   lastValue_outReal = 0.0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
-
-   {
-      double tempReal;
-      double shift = 0.0;
-      double periodTotal1 = 0.0;
-      double periodTotal2 = 0.0;
-      double meanValue1 = 0.0;
-      double variance = 0.0;
-      double invPeriod = 0.0;
-      int i = 0;
-      int j = 0;
-      int outIdx;
-      int trailingIdx = 0;
-      int windowStart = 0;
-      int nbInitialElementNeeded = 0;
-      int barsSinceReseed = 0;
-      /* Identify the minimum number of price bar needed to calculate
-       * at least one output.
-       */
-      nbInitialElementNeeded = optInTimePeriod - 1;
-      /* Move up the start index if there is not enough initial data. */
-      if( startIdx < nbInitialElementNeeded )
-      {
-         startIdx = nbInitialElementNeeded;
-      }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx )
-      {
-         dummyBegIdx = 0;
-         dummyNBElement = 0;
-         return TA_BAD_PARAM;
-      }
-      invPeriod = 1.0 / (double)optInTimePeriod;
-      /* Measure deviations against a shift near the window: the running sums
-       * periodTotal1 = sum(inReal-shift) and periodTotal2 = sum((inReal-shift)^2)
-       * stay at variance scale, so variance = periodTotal2/period - mean^2 no longer
-       * subtracts two ~mean^2 quantities. Anchor the shift to the first window value
-       * (also gives an exact 0 for period 1, with no division by period-1).
-       */
-      trailingIdx = startIdx - nbInitialElementNeeded;
-      shift = inReal[trailingIdx];
-      periodTotal1 = 0.0;
-      periodTotal2 = 0.0;
-      for( j = trailingIdx; j < startIdx; j += 1 )
-      {
-         tempReal = inReal[j] - shift;
-         periodTotal1 += tempReal;
-         tempReal *= tempReal;
-         periodTotal2 += tempReal;
-      }
-      /* inReal and outReal may be the same buffer: each trailing value is consumed
-       * before its slot is overwritten by the output.
-       */
-      i = startIdx;
-      outIdx = 0;
-      barsSinceReseed = 32 * optInTimePeriod;
-      do
-      {
-         /* Add the incoming value, measured against the shift. */
-         tempReal = inReal[i] - shift;
-         periodTotal1 += tempReal;
-         tempReal *= tempReal;
-         periodTotal2 += tempReal;
-         meanValue1 = periodTotal1 * invPeriod;
-         variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-         /* Remove the trailing value (prepares the next window). */
-         tempReal = inReal[trailingIdx] - shift;
-         periodTotal1 -= tempReal;
-         tempReal *= tempReal;
-         periodTotal2 -= tempReal;
-         trailingIdx += 1;
-         /* Re-anchor the shift and rebuild the running sums with a fresh two-pass
-          * when the shift is stale enough that the subtraction loses digits - i.e.
-          * the variance has shrunk below 1e-6 of the mean squared deviation it is
-          * extracted from (that ratio bounds the cancellation error to ~eps/1e-6 ~
-          * 2e-10, so partial cancellation, not just total collapse, is caught); OR
-          * when the value just removed sat so far from the shift that its squared term
-          * (tempReal) dwarfs the surviving sum (a large outlier passing through the
-          * window buries the small terms below its ulp, and the residual left when it
-          * leaves is cancellation garbage); OR at least every 32 windows so a slow
-          * drift stays bounded regardless of the series length. The strict `<` also
-          * leaves an exactly-constant window (variance 0, scale 0) alone instead of
-          * reseeding it every bar. Guarantees a non-negative output.
-          */
-         barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 )
-         {
-            barsSinceReseed = 32 * optInTimePeriod;
-            windowStart = i - nbInitialElementNeeded;
-            tempReal = 0.0;
-            for( j = windowStart; j <= i; j += 1 )
-            {
-               tempReal += inReal[j];
-            }
-            shift = tempReal * invPeriod;
-            periodTotal1 = 0.0;
-            periodTotal2 = 0.0;
-            for( j = windowStart; j <= i; j += 1 )
-            {
-               tempReal = inReal[j] - shift;
-               periodTotal1 += tempReal;
-               tempReal *= tempReal;
-               periodTotal2 += tempReal;
-            }
-            meanValue1 = periodTotal1 * invPeriod;
-            variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-            /* Re-remove the trailing value under the new shift so the carried state
-             * matches the non-reseed path.
-             */
-            tempReal = inReal[windowStart] - shift;
-            periodTotal1 -= tempReal;
-            tempReal *= tempReal;
-            periodTotal2 -= tempReal;
-         }
-         lastValue_outReal = variance;
-         i += 1;
-      } while( i <= endIdx );
-      /* All done. Indicate the output limits and return. */
-      dummyNBElement = outIdx;
-      dummyBegIdx = startIdx;
-
-      /* Capture the live batch state into the handle. */
-      sp = (struct TA_VAR_Stream *)TA_Malloc( sizeof(*sp) );
-      if( !sp ) { return TA_ALLOC_ERR; }
-      memset( sp, 0, sizeof(*sp) );
-      sp->optInTimePeriod = optInTimePeriod;
-      sp->optInNbDev = optInNbDev;
-      sp->shift = shift;
-      sp->periodTotal1 = periodTotal1;
-      sp->periodTotal2 = periodTotal2;
-      sp->meanValue1 = meanValue1;
-      sp->variance = variance;
-      sp->invPeriod = invPeriod;
-      sp->j = j;
-      sp->trailingIdx = trailingIdx;
-      sp->windowStart = windowStart;
-      sp->nbInitialElementNeeded = nbInitialElementNeeded;
-      sp->barsSinceReseed = barsSinceReseed;
-      sp->i = i;
-      sp->xCap = (int)(i - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_VAR_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
-      sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->x_inReal ) { TA_VAR_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->xMirror_inReal ) { TA_VAR_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      { int fillJ;
-        for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
-        {
-           sp->x_inReal[fillJ % sp->xCap] = inReal[fillJ];
-        }
-      }
-      *outReal = lastValue_outReal;
-      *stream = sp;
-      return TA_SUCCESS;
-   }
-}
-
-TA_LIB_API TA_RetCode TA_VAR_Open( TA_VAR_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInNbDev, double *outReal )
-{
-   return TA_VAR_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outReal );
-}
-
-TA_LIB_API TA_RetCode TA_VAR_OpenAndFill( TA_VAR_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[] )
-{
-   struct TA_VAR_Stream *sp;
-   int endIdx;
-   int startIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( !inReal || !outReal || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
-      optInTimePeriod = 5;
-   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
-      return TA_BAD_PARAM;
-   if( optInNbDev == TA_REAL_DEFAULT )
-      optInNbDev = 1;
-   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
-      return TA_BAD_PARAM;
-
-   endIdx = historyLen - 1;
-   startIdx = 0;
    dummyBegIdx = 0;
    dummyNBElement = 0;
    (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
@@ -767,6 +620,26 @@ TA_LIB_API TA_RetCode TA_VAR_OpenAndFill( TA_VAR_Stream **stream, const double i
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            /* A variance is non-negative by definition, but this one is extracted
+             * as a difference of two nearly equal quantities, so its SIGN is not
+             * guaranteed: on a window sitting entirely inside a flat stretch every
+             * deviation is the same rounding residual and the subtraction is pure
+             * cancellation, landing either side of zero. Enforce the invariant.
+             *
+             * Clamping HERE and not at the output write is what keeps this off the
+             * per-bar path, and it is sufficient because a negative variance always
+             * reseeds on the same bar - the guard above covers all three cases:
+             * periodTotal2 > 0 makes its first disjunct `negative < positive`;
+             * periodTotal2 < 0 makes the second disjunct's right side negative,
+             * which the squared tempReal always exceeds; periodTotal2 == 0 reduces
+             * the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
+             * THIS - the alternative is an unconditional clamp at the output write,
+             * which needs no such argument but does cost ~3%.
+             */
+            if( variance < 0.0 )
+            {
+               variance = 0.0;
+            }
             /* Re-remove the trailing value under the new shift so the carried state
              * matches the non-reseed path.
              */
@@ -775,7 +648,7 @@ TA_LIB_API TA_RetCode TA_VAR_OpenAndFill( TA_VAR_Stream **stream, const double i
             tempReal *= tempReal;
             periodTotal2 -= tempReal;
          }
-         outReal[outIdx++] = variance;
+         outReal[outIdx++ * outStride] = variance;
          i += 1;
       } while( i <= endIdx );
       /* All done. Indicate the output limits and return. */
@@ -802,19 +675,57 @@ TA_LIB_API TA_RetCode TA_VAR_OpenAndFill( TA_VAR_Stream **stream, const double i
       sp->i = i;
       sp->xCap = (int)(i - trailingIdx) + 1;
       if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_VAR_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
-      sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->xPhys = 1;
+      while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
+      sp->xMask = sp->xPhys - 1;
+      sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inReal ) { TA_VAR_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->xMirror_inReal ) { TA_VAR_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
-           sp->x_inReal[fillJ % sp->xCap] = inReal[fillJ];
+           sp->x_inReal[fillJ & sp->xMask] = inReal[fillJ];
         }
       }
       *stream = sp;
       return TA_SUCCESS;
    }
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_VAR_OpenInternal( struct TA_VAR_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_VAR_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+TA_LIB_API TA_RetCode TA_VAR_Open( TA_VAR_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInNbDev, double *outReal )
+{
+   return TA_VAR_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outReal );
+}
+
+TA_LIB_API TA_RetCode TA_VAR_OpenAndFill( TA_VAR_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
+   return TA_VAR_OpenCore( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_VAR_OpenAndFillInternal( struct TA_VAR_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_VAR_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_VAR_Update( TA_VAR_Stream *stream, double inReal, double *outReal )
@@ -831,7 +742,7 @@ TA_LIB_API TA_RetCode TA_VAR_Peek( const TA_VAR_Stream *stream, double inReal, d
    if( !stream || !outReal ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.x_inReal = stream->xMirror_inReal;
-   memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xCap );
+   memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xPhys );
    TA_VAR_StepInternal( &scratch, inReal, outReal );
    return TA_SUCCESS;
 }

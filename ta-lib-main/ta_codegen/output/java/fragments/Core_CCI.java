@@ -365,7 +365,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CCI_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double tempReal;
       double tempReal2;
@@ -404,6 +404,25 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( CCI_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.tempReal = other.tempReal;
+         this.tempReal2 = other.tempReal2;
+         this.theAverage = other.theAverage;
+         this.j = other.j;
+         this.circBuffer_Idx = other.circBuffer_Idx;
+         this.maxIdx_circBuffer = other.maxIdx_circBuffer;
+         this.cbSize_circBuffer = other.cbSize_circBuffer;
+         if( this.cb_circBuffer != null && this.cb_circBuffer.length == other.cb_circBuffer.length ) {
+            System.arraycopy( other.cb_circBuffer, 0, this.cb_circBuffer, 0, other.cb_circBuffer.length );
+         } else {
+            this.cb_circBuffer = other.cb_circBuffer.clone();
+         }
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -416,9 +435,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
          CCI_Stream scratch = new CCI_Stream(this);
@@ -474,7 +493,7 @@
          sp.circBuffer_Idx = 0;
       }
    }
-   private RetCode CCI_OpenBody( CCI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   private RetCode CCI_OpenCore( CCI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double tempReal = 0;
       double tempReal2 = 0;
@@ -487,9 +506,6 @@
       double[] circBuffer;
       int circBuffer_Idx = 0;
       int maxIdx_circBuffer = (30)-1;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
@@ -566,9 +582,9 @@
          /* And finally, the CCI... */
          tempReal = lastValue - theAverage;
          if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
-            lastValue_outReal = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
+            outReal[outIdx++ * outStride] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
          } else {
-            lastValue_outReal = 0.0;
+            outReal[outIdx++ * outStride] = 0.0;
          }
          /* Move forward the circular buffer indexes. */
          circBuffer_Idx++;
@@ -593,131 +609,42 @@
       sp.maxIdx_circBuffer = maxIdx_circBuffer;
       sp.cbSize_circBuffer = capCb_circBuffer;
       sp.cb_circBuffer = circBuffer;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode CCI_OpenBody( CCI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return CCI_OpenCore( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode CCI_OpenAndFillBody( CCI_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      double tempReal = 0;
-      double tempReal2 = 0;
-      double theAverage = 0;
-      double lastValue = 0;
-      int i = 0;
-      int j = 0;
-      int outIdx = 0;
-      int lookbackTotal = 0;
-      double[] circBuffer;
-      int circBuffer_Idx = 0;
-      int maxIdx_circBuffer = (30)-1;
-      int historyLen = inHigh.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 14;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      /* This ptr will points on a circular buffer of
-       * at least "optInTimePeriod" element.
-       */
-      /* Identify the minimum number of price bar needed
-       * to calculate at least one output.
-       */
-      lookbackTotal = optInTimePeriod - 1;
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
+      return CCI_OpenCore( sp, inHigh, inLow, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode CCI_OpenAndFillInternalBody( CCI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return CCI_OpenCore(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* CCI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   CCI_Stream CCI_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      CCI_Stream sp = new CCI_Stream(this);
+      RetCode retCode = CCI_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("CCI openAndFill: history shorter than lookback + 1");
       }
-      /* Allocate a circular buffer equal to the requested
-       * period.
-       */
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
-      circBuffer = new double[optInTimePeriod];
-      maxIdx_circBuffer = (optInTimePeriod)-1;
-      circBuffer_Idx = 0;
-      /* Do the MA calculation using tight loops. */
-      /* Add-up the initial period, except for the last value.
-       * Fill up the circular buffer at the same time.
-       */
-      i = startIdx - lookbackTotal;
-      if( optInTimePeriod > 1 ) {
-         while( i < startIdx ) {
-            circBuffer[circBuffer_Idx] = (inHigh[i] + inLow[i] + inClose[i]) / 3;
-            i += 1;
-            circBuffer_Idx++;
-            if( circBuffer_Idx > maxIdx_circBuffer ) { circBuffer_Idx = 0; }
-         }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("CCI openAndFill: internal error");
       }
-      /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the inReal and
-       * outReal to be the same buffer.
-       */
-      outIdx = 0;
-      do {
-         lastValue = (inHigh[i] + inLow[i] + inClose[i]) / 3;
-         circBuffer[circBuffer_Idx] = lastValue;
-         /* Calculate the average for the whole period. */
-         theAverage = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 ) {
-            theAverage += circBuffer[j];
-         }
-         theAverage /= optInTimePeriod;
-         /* Do the summation of the ABS(TypePrice-average)
-          * for the whole period.
-          */
-         tempReal2 = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 ) {
-            tempReal2 += Math.abs(circBuffer[j] - theAverage);
-         }
-         /* And finally, the CCI... */
-         tempReal = lastValue - theAverage;
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
-            outReal[outIdx++] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
-         } else {
-            outReal[outIdx++] = 0.0;
-         }
-         /* Move forward the circular buffer indexes. */
-         circBuffer_Idx++;
-         if( circBuffer_Idx > maxIdx_circBuffer ) { circBuffer_Idx = 0; }
-         i += 1;
-      } while( i <= endIdx );
-      /* All done. Indicate the output limits and return. */
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Free the circular buffer if it was dynamically allocated. */
-      /* Capture the live batch state into the handle. */
-      int capCb_circBuffer = maxIdx_circBuffer + 1;
-      if( capCb_circBuffer > historyLen + 1 ) {
-         return RetCode.InternalError;
-      }
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.tempReal = tempReal;
-      sp.tempReal2 = tempReal2;
-      sp.theAverage = theAverage;
-      sp.j = j;
-      sp.circBuffer_Idx = circBuffer_Idx;
-      sp.maxIdx_circBuffer = maxIdx_circBuffer;
-      sp.cbSize_circBuffer = capCb_circBuffer;
-      sp.cb_circBuffer = circBuffer;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("CCI openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind CCI_Open (composition seam). */
    CCI_Stream CCI_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )

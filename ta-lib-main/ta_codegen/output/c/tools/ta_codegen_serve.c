@@ -109,6 +109,7 @@
 #include "ta_func/ta_DEMA.c"
 #include "ta_func/ta_DIV.c"
 #include "ta_func/ta_DX.c"
+#include "ta_func/ta_EFI.c"
 #include "ta_func/ta_EMA.c"
 #include "ta_func/ta_EXP.c"
 #include "ta_func/ta_FLOOR.c"
@@ -131,6 +132,7 @@
 #include "ta_func/ta_MACDEXT.c"
 #include "ta_func/ta_MACDFIX.c"
 #include "ta_func/ta_MAMA.c"
+#include "ta_func/ta_MARKETFI.c"
 #include "ta_func/ta_MAVP.c"
 #include "ta_func/ta_MAX.c"
 #include "ta_func/ta_MAXINDEX.c"
@@ -154,6 +156,7 @@
 #include "ta_func/ta_PPO.c"
 #include "ta_func/ta_PVI.c"
 #include "ta_func/ta_PVO.c"
+#include "ta_func/ta_QSTICK.c"
 #include "ta_func/ta_ROC.c"
 #include "ta_func/ta_ROCP.c"
 #include "ta_func/ta_ROCR.c"
@@ -183,6 +186,7 @@
 #include "ta_func/ta_ULTOSC.c"
 #include "ta_func/ta_VAR.c"
 #include "ta_func/ta_VWMA.c"
+#include "ta_func/ta_WAD.c"
 #include "ta_func/ta_WCLPRICE.c"
 #include "ta_func/ta_WILLR.c"
 #include "ta_func/ta_WMA.c"
@@ -8665,6 +8669,95 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
         return;
     }
+    else if( fnLen == 6 && strncmp(fn, "TA_EFI", 6) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int svZsign = 0;
+        int pref[4]; int pc[4];
+        rc = TA_EFI(0, svN - 1, sv_c, sv_v, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_EFI_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_EFI_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_EFI_Open(&st, sv_c, sv_v, svN, optInTimePeriod, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_EFI_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_EFI_Stream *stf = NULL;
+            TA_RetCode frc = TA_EFI_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+            }
+            if( stf ) TA_EFI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_EFI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_EFI_OpenAndFill(&sal, sv_c, sv_v, svN, optInTimePeriod, &alB, &alN, sv_c);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_EFI_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_EFI_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_EFI_Open(&st, sv_c, sv_v, P, optInTimePeriod, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_EFI_Peek(st, sv_c[t], sv_v[t], &pk0);
+                TA_EFI_Update(st, sv_c[t], sv_v[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_EFI_Close(st);
+            pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_EFI(Sidx, svN - 1, sv_c, sv_v, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_EFI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_EFI_OpenInternal(&stA, sv_c, sv_v, Sidx, svN, optInTimePeriod, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_EFI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
+        return;
+    }
     else if( fnLen == 6 && strncmp(fn, "TA_EMA", 6) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
@@ -10857,6 +10950,94 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
         return;
     }
+    else if( fnLen == 11 && strncmp(fn, "TA_MARKETFI", 11) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int svZsign = 0;
+        int pref[4]; int pc[4];
+        rc = TA_MARKETFI(0, svN - 1, sv_h, sv_l, sv_v, &svBeg, &svNb, sv_b0);
+        lb = TA_MARKETFI_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_MARKETFI_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_MARKETFI_Open(&st, sv_h, sv_l, sv_v, svN, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_MARKETFI_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_MARKETFI_Stream *stf = NULL;
+            TA_RetCode frc = TA_MARKETFI_OpenAndFill(&stf, sv_h, sv_l, sv_v, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+            }
+            if( stf ) TA_MARKETFI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_MARKETFI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_MARKETFI_OpenAndFill(&sal, sv_h, sv_l, sv_v, svN, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_MARKETFI_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_MARKETFI_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_MARKETFI_Open(&st, sv_h, sv_l, sv_v, P, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_MARKETFI_Peek(st, sv_h[t], sv_l[t], sv_v[t], &pk0);
+                TA_MARKETFI_Update(st, sv_h[t], sv_l[t], sv_v[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_MARKETFI_Close(st);
+            pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_MARKETFI(Sidx, svN - 1, sv_h, sv_l, sv_v, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_MARKETFI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_MARKETFI_OpenInternal(&stA, sv_h, sv_l, sv_v, Sidx, svN, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_MARKETFI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
+        return;
+    }
     else if( fnLen == 7 && strncmp(fn, "TA_MAVP", 7) == 0 ) {
         int optInMinPeriod = json_find_int(json, "optInMinPeriod");
         int optInMaxPeriod = json_find_int(json, "optInMaxPeriod");
@@ -12957,6 +13138,95 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         TA_SetUnstablePeriod(14, 0);
         TA_SetUnstablePeriod(13, 0);
         TA_SetUnstablePeriod(5, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
+        return;
+    }
+    else if( fnLen == 9 && strncmp(fn, "TA_QSTICK", 9) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int svZsign = 0;
+        int pref[4]; int pc[4];
+        rc = TA_QSTICK(0, svN - 1, sv_o, sv_c, optInTimePeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_QSTICK_Lookback(optInTimePeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_QSTICK_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_QSTICK_Open(&st, sv_o, sv_c, svN, optInTimePeriod, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_QSTICK_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_QSTICK_Stream *stf = NULL;
+            TA_RetCode frc = TA_QSTICK_OpenAndFill(&stf, sv_o, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+            }
+            if( stf ) TA_QSTICK_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_QSTICK_Stream *sal = NULL;
+            TA_RetCode alrc = TA_QSTICK_OpenAndFill(&sal, sv_o, sv_c, svN, optInTimePeriod, &alB, &alN, sv_o);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_QSTICK_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_QSTICK_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_QSTICK_Open(&st, sv_o, sv_c, P, optInTimePeriod, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_QSTICK_Peek(st, sv_o[t], sv_c[t], &pk0);
+                TA_QSTICK_Update(st, sv_o[t], sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_QSTICK_Close(st);
+            pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_QSTICK(Sidx, svN - 1, sv_o, sv_c, optInTimePeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_QSTICK_Stream *stA = NULL;
+                    TA_RetCode arc = TA_QSTICK_OpenInternal(&stA, sv_o, sv_c, Sidx, svN, optInTimePeriod, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_QSTICK_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
         TA_SetCompatibility((TA_Compatibility)savedCompat);
         if( fillChecked && !fillOk ) allOk = 0;
         pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
@@ -15647,6 +15917,94 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
         return;
     }
+    else if( fnLen == 6 && strncmp(fn, "TA_WAD", 6) == 0 ) {
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int svZsign = 0;
+        int pref[4]; int pc[4];
+        rc = TA_WAD(0, svN - 1, sv_h, sv_l, sv_c, &svBeg, &svNb, sv_b0);
+        lb = TA_WAD_Lookback();
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_WAD_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_WAD_Open(&st, sv_h, sv_l, sv_c, svN, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_WAD_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_WAD_Stream *stf = NULL;
+            TA_RetCode frc = TA_WAD_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+            }
+            if( stf ) TA_WAD_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_WAD_Stream *sal = NULL;
+            TA_RetCode alrc = TA_WAD_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_WAD_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_WAD_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_WAD_Open(&st, sv_h, sv_l, sv_c, P, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_WAD_Peek(st, sv_h[t], sv_l[t], sv_c[t], &pk0);
+                TA_WAD_Update(st, sv_h[t], sv_l[t], sv_c[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_WAD_Close(st);
+            pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_WAD(Sidx, svN - 1, sv_h, sv_l, sv_c, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_WAD_Stream *stA = NULL;
+                    TA_RetCode arc = TA_WAD_OpenInternal(&stA, sv_h, sv_l, sv_c, Sidx, svN, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_WAD_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
+        return;
+    }
     else if( fnLen == 11 && strncmp(fn, "TA_WCLPRICE", 11) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
@@ -15962,6 +16320,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -15969,6 +16334,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ACCBANDS(
             startIdx, endIdx,
             g_inBuf0,
@@ -15976,6 +16342,21 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ACCBANDS_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            double _openOut2 = 0;
+            rc = TA_ACCBANDS_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0, &_openOut1, &_openOut2 );
+            if( _h ) TA_ACCBANDS_Close( _h );
+        }
+        else {
+            TA_ACCBANDS_Stream *_h = NULL;
+            rc = TA_ACCBANDS_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2 );
+            if( _h ) TA_ACCBANDS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16030,6 +16411,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -16037,10 +16425,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ACOS(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ACOS_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ACOS_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_ACOS_Close( _h );
+        }
+        else {
+            TA_ACOS_Stream *_h = NULL;
+            rc = TA_ACOS_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ACOS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16087,6 +16489,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -16094,6 +16503,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_AD(
             startIdx, endIdx,
             g_inBuf0,
@@ -16101,6 +16511,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_AD_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_AD_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_AD_Close( _h );
+        }
+        else {
+            TA_AD_Stream *_h = NULL;
+            rc = TA_AD_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_AD_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16151,6 +16574,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 0);
@@ -16158,11 +16588,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ADD(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ADD_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ADD_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &_openOut0 );
+            if( _h ) TA_ADD_Close( _h );
+        }
+        else {
+            TA_ADD_Stream *_h = NULL;
+            rc = TA_ADD_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ADD_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16213,6 +16657,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -16220,6 +16671,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ADOSC(
             startIdx, endIdx,
             g_inBuf0,
@@ -16229,6 +16681,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInFastPeriod,
             optInSlowPeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ADOSC_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ADOSC_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInFastPeriod, optInSlowPeriod, &_openOut0 );
+            if( _h ) TA_ADOSC_Close( _h );
+        }
+        else {
+            TA_ADOSC_Stream *_h = NULL;
+            rc = TA_ADOSC_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInFastPeriod, optInSlowPeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ADOSC_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16284,6 +16749,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -16291,6 +16763,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ADX(
             startIdx, endIdx,
             g_inBuf0,
@@ -16298,6 +16771,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ADX_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ADX_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_ADX_Close( _h );
+        }
+        else {
+            TA_ADX_Stream *_h = NULL;
+            rc = TA_ADX_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ADX_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16349,6 +16835,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -16356,6 +16849,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ADXR(
             startIdx, endIdx,
             g_inBuf0,
@@ -16363,6 +16857,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ADXR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ADXR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_ADXR_Close( _h );
+        }
+        else {
+            TA_ADXR_Stream *_h = NULL;
+            rc = TA_ADXR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ADXR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16414,6 +16921,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -16421,6 +16935,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_APO(
             startIdx, endIdx,
             g_inBuf0,
@@ -16428,6 +16943,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInSlowPeriod,
             optInMAType,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_APO_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_APO_Open( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInMAType, &_openOut0 );
+            if( _h ) TA_APO_Close( _h );
+        }
+        else {
+            TA_APO_Stream *_h = NULL;
+            rc = TA_APO_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInMAType, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_APO_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16476,6 +17004,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -16483,12 +17018,27 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_AROON(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_AROON_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            rc = TA_AROON_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0, &_openOut1 );
+            if( _h ) TA_AROON_Close( _h );
+        }
+        else {
+            TA_AROON_Stream *_h = NULL;
+            rc = TA_AROON_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1 );
+            if( _h ) TA_AROON_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16540,6 +17090,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -16547,12 +17104,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_AROONOSC(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_AROONOSC_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_AROONOSC_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_AROONOSC_Close( _h );
+        }
+        else {
+            TA_AROONOSC_Stream *_h = NULL;
+            rc = TA_AROONOSC_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_AROONOSC_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16599,6 +17170,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -16606,10 +17184,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ASIN(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ASIN_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ASIN_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_ASIN_Close( _h );
+        }
+        else {
+            TA_ASIN_Stream *_h = NULL;
+            rc = TA_ASIN_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ASIN_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16653,6 +17245,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -16660,10 +17259,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ATAN(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ATAN_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ATAN_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_ATAN_Close( _h );
+        }
+        else {
+            TA_ATAN_Stream *_h = NULL;
+            rc = TA_ATAN_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ATAN_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16711,6 +17324,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -16718,6 +17338,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ATR(
             startIdx, endIdx,
             g_inBuf0,
@@ -16725,6 +17346,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ATR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ATR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_ATR_Close( _h );
+        }
+        else {
+            TA_ATR_Stream *_h = NULL;
+            rc = TA_ATR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ATR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16774,6 +17408,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -16781,11 +17422,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_AVGDEV(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_AVGDEV_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_AVGDEV_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_AVGDEV_Close( _h );
+        }
+        else {
+            TA_AVGDEV_Stream *_h = NULL;
+            rc = TA_AVGDEV_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_AVGDEV_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16833,6 +17488,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -16840,6 +17502,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_AVGPRICE(
             startIdx, endIdx,
             g_inBuf0,
@@ -16847,6 +17510,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_AVGPRICE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_AVGPRICE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_AVGPRICE_Close( _h );
+        }
+        else {
+            TA_AVGPRICE_Stream *_h = NULL;
+            rc = TA_AVGPRICE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_AVGPRICE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16900,6 +17576,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -16907,6 +17590,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_BBANDS(
             startIdx, endIdx,
             g_inBuf0,
@@ -16915,6 +17599,21 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInNbDevDn,
             optInMAType,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_BBANDS_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            double _openOut2 = 0;
+            rc = TA_BBANDS_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &_openOut0, &_openOut1, &_openOut2 );
+            if( _h ) TA_BBANDS_Close( _h );
+        }
+        else {
+            TA_BBANDS_Stream *_h = NULL;
+            rc = TA_BBANDS_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2 );
+            if( _h ) TA_BBANDS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -16970,6 +17669,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 0);
@@ -16977,12 +17683,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_BETA(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_BETA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_BETA_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_BETA_Close( _h );
+        }
+        else {
+            TA_BETA_Stream *_h = NULL;
+            rc = TA_BETA_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_BETA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17032,6 +17752,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17039,6 +17766,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_BOP(
             startIdx, endIdx,
             g_inBuf0,
@@ -17046,6 +17774,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_BOP_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_BOP_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_BOP_Close( _h );
+        }
+        else {
+            TA_BOP_Stream *_h = NULL;
+            rc = TA_BOP_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_BOP_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17098,6 +17839,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -17105,6 +17853,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CCI(
             startIdx, endIdx,
             g_inBuf0,
@@ -17112,6 +17861,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CCI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_CCI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_CCI_Close( _h );
+        }
+        else {
+            TA_CCI_Stream *_h = NULL;
+            rc = TA_CCI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_CCI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17163,6 +17925,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17170,6 +17939,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDL2CROWS(
             startIdx, endIdx,
             g_inBuf0,
@@ -17177,6 +17947,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDL2CROWS_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDL2CROWS_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDL2CROWS_Close( _h );
+        }
+        else {
+            TA_CDL2CROWS_Stream *_h = NULL;
+            rc = TA_CDL2CROWS_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDL2CROWS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17229,6 +18012,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17236,6 +18026,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDL3BLACKCROWS(
             startIdx, endIdx,
             g_inBuf0,
@@ -17243,6 +18034,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDL3BLACKCROWS_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDL3BLACKCROWS_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDL3BLACKCROWS_Close( _h );
+        }
+        else {
+            TA_CDL3BLACKCROWS_Stream *_h = NULL;
+            rc = TA_CDL3BLACKCROWS_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDL3BLACKCROWS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17295,6 +18099,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17302,6 +18113,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDL3INSIDE(
             startIdx, endIdx,
             g_inBuf0,
@@ -17309,6 +18121,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDL3INSIDE_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDL3INSIDE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDL3INSIDE_Close( _h );
+        }
+        else {
+            TA_CDL3INSIDE_Stream *_h = NULL;
+            rc = TA_CDL3INSIDE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDL3INSIDE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17361,6 +18186,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17368,6 +18200,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDL3LINESTRIKE(
             startIdx, endIdx,
             g_inBuf0,
@@ -17375,6 +18208,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDL3LINESTRIKE_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDL3LINESTRIKE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDL3LINESTRIKE_Close( _h );
+        }
+        else {
+            TA_CDL3LINESTRIKE_Stream *_h = NULL;
+            rc = TA_CDL3LINESTRIKE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDL3LINESTRIKE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17427,6 +18273,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17434,6 +18287,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDL3OUTSIDE(
             startIdx, endIdx,
             g_inBuf0,
@@ -17441,6 +18295,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDL3OUTSIDE_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDL3OUTSIDE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDL3OUTSIDE_Close( _h );
+        }
+        else {
+            TA_CDL3OUTSIDE_Stream *_h = NULL;
+            rc = TA_CDL3OUTSIDE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDL3OUTSIDE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17493,6 +18360,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17500,6 +18374,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDL3STARSINSOUTH(
             startIdx, endIdx,
             g_inBuf0,
@@ -17507,6 +18382,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDL3STARSINSOUTH_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDL3STARSINSOUTH_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDL3STARSINSOUTH_Close( _h );
+        }
+        else {
+            TA_CDL3STARSINSOUTH_Stream *_h = NULL;
+            rc = TA_CDL3STARSINSOUTH_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDL3STARSINSOUTH_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17559,6 +18447,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17566,6 +18461,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDL3WHITESOLDIERS(
             startIdx, endIdx,
             g_inBuf0,
@@ -17573,6 +18469,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDL3WHITESOLDIERS_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDL3WHITESOLDIERS_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDL3WHITESOLDIERS_Close( _h );
+        }
+        else {
+            TA_CDL3WHITESOLDIERS_Stream *_h = NULL;
+            rc = TA_CDL3WHITESOLDIERS_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDL3WHITESOLDIERS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17626,6 +18535,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17633,6 +18549,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLABANDONEDBABY(
             startIdx, endIdx,
             g_inBuf0,
@@ -17641,6 +18558,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf3,
             optInPenetration,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLABANDONEDBABY_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLABANDONEDBABY_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &_openOut0 );
+            if( _h ) TA_CDLABANDONEDBABY_Close( _h );
+        }
+        else {
+            TA_CDLABANDONEDBABY_Stream *_h = NULL;
+            rc = TA_CDLABANDONEDBABY_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLABANDONEDBABY_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17694,6 +18624,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17701,6 +18638,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLADVANCEBLOCK(
             startIdx, endIdx,
             g_inBuf0,
@@ -17708,6 +18646,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLADVANCEBLOCK_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLADVANCEBLOCK_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLADVANCEBLOCK_Close( _h );
+        }
+        else {
+            TA_CDLADVANCEBLOCK_Stream *_h = NULL;
+            rc = TA_CDLADVANCEBLOCK_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLADVANCEBLOCK_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17760,6 +18711,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17767,6 +18725,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLBELTHOLD(
             startIdx, endIdx,
             g_inBuf0,
@@ -17774,6 +18733,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLBELTHOLD_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLBELTHOLD_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLBELTHOLD_Close( _h );
+        }
+        else {
+            TA_CDLBELTHOLD_Stream *_h = NULL;
+            rc = TA_CDLBELTHOLD_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLBELTHOLD_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17826,6 +18798,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17833,6 +18812,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLBREAKAWAY(
             startIdx, endIdx,
             g_inBuf0,
@@ -17840,6 +18820,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLBREAKAWAY_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLBREAKAWAY_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLBREAKAWAY_Close( _h );
+        }
+        else {
+            TA_CDLBREAKAWAY_Stream *_h = NULL;
+            rc = TA_CDLBREAKAWAY_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLBREAKAWAY_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17892,6 +18885,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17899,6 +18899,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLCLOSINGMARUBOZU(
             startIdx, endIdx,
             g_inBuf0,
@@ -17906,6 +18907,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLCLOSINGMARUBOZU_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLCLOSINGMARUBOZU_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLCLOSINGMARUBOZU_Close( _h );
+        }
+        else {
+            TA_CDLCLOSINGMARUBOZU_Stream *_h = NULL;
+            rc = TA_CDLCLOSINGMARUBOZU_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLCLOSINGMARUBOZU_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -17958,6 +18972,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -17965,6 +18986,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLCONCEALBABYSWALL(
             startIdx, endIdx,
             g_inBuf0,
@@ -17972,6 +18994,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLCONCEALBABYSWALL_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLCONCEALBABYSWALL_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLCONCEALBABYSWALL_Close( _h );
+        }
+        else {
+            TA_CDLCONCEALBABYSWALL_Stream *_h = NULL;
+            rc = TA_CDLCONCEALBABYSWALL_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLCONCEALBABYSWALL_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18024,6 +19059,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18031,6 +19073,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLCOUNTERATTACK(
             startIdx, endIdx,
             g_inBuf0,
@@ -18038,6 +19081,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLCOUNTERATTACK_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLCOUNTERATTACK_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLCOUNTERATTACK_Close( _h );
+        }
+        else {
+            TA_CDLCOUNTERATTACK_Stream *_h = NULL;
+            rc = TA_CDLCOUNTERATTACK_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLCOUNTERATTACK_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18091,6 +19147,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18098,6 +19161,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLDARKCLOUDCOVER(
             startIdx, endIdx,
             g_inBuf0,
@@ -18106,6 +19170,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf3,
             optInPenetration,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLDARKCLOUDCOVER_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLDARKCLOUDCOVER_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &_openOut0 );
+            if( _h ) TA_CDLDARKCLOUDCOVER_Close( _h );
+        }
+        else {
+            TA_CDLDARKCLOUDCOVER_Stream *_h = NULL;
+            rc = TA_CDLDARKCLOUDCOVER_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLDARKCLOUDCOVER_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18159,6 +19236,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18166,6 +19250,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLDOJI(
             startIdx, endIdx,
             g_inBuf0,
@@ -18173,6 +19258,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLDOJI_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLDOJI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLDOJI_Close( _h );
+        }
+        else {
+            TA_CDLDOJI_Stream *_h = NULL;
+            rc = TA_CDLDOJI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLDOJI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18225,6 +19323,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18232,6 +19337,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLDOJISTAR(
             startIdx, endIdx,
             g_inBuf0,
@@ -18239,6 +19345,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLDOJISTAR_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLDOJISTAR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLDOJISTAR_Close( _h );
+        }
+        else {
+            TA_CDLDOJISTAR_Stream *_h = NULL;
+            rc = TA_CDLDOJISTAR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLDOJISTAR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18291,6 +19410,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18298,6 +19424,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLDRAGONFLYDOJI(
             startIdx, endIdx,
             g_inBuf0,
@@ -18305,6 +19432,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLDRAGONFLYDOJI_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLDRAGONFLYDOJI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLDRAGONFLYDOJI_Close( _h );
+        }
+        else {
+            TA_CDLDRAGONFLYDOJI_Stream *_h = NULL;
+            rc = TA_CDLDRAGONFLYDOJI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLDRAGONFLYDOJI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18357,6 +19497,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18364,6 +19511,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLENGULFING(
             startIdx, endIdx,
             g_inBuf0,
@@ -18371,6 +19519,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLENGULFING_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLENGULFING_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLENGULFING_Close( _h );
+        }
+        else {
+            TA_CDLENGULFING_Stream *_h = NULL;
+            rc = TA_CDLENGULFING_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLENGULFING_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18424,6 +19585,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18431,6 +19599,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLEVENINGDOJISTAR(
             startIdx, endIdx,
             g_inBuf0,
@@ -18439,6 +19608,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf3,
             optInPenetration,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLEVENINGDOJISTAR_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLEVENINGDOJISTAR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &_openOut0 );
+            if( _h ) TA_CDLEVENINGDOJISTAR_Close( _h );
+        }
+        else {
+            TA_CDLEVENINGDOJISTAR_Stream *_h = NULL;
+            rc = TA_CDLEVENINGDOJISTAR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLEVENINGDOJISTAR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18493,6 +19675,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18500,6 +19689,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLEVENINGSTAR(
             startIdx, endIdx,
             g_inBuf0,
@@ -18508,6 +19698,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf3,
             optInPenetration,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLEVENINGSTAR_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLEVENINGSTAR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &_openOut0 );
+            if( _h ) TA_CDLEVENINGSTAR_Close( _h );
+        }
+        else {
+            TA_CDLEVENINGSTAR_Stream *_h = NULL;
+            rc = TA_CDLEVENINGSTAR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLEVENINGSTAR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18561,6 +19764,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18568,6 +19778,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLGAPSIDESIDEWHITE(
             startIdx, endIdx,
             g_inBuf0,
@@ -18575,6 +19786,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLGAPSIDESIDEWHITE_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLGAPSIDESIDEWHITE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLGAPSIDESIDEWHITE_Close( _h );
+        }
+        else {
+            TA_CDLGAPSIDESIDEWHITE_Stream *_h = NULL;
+            rc = TA_CDLGAPSIDESIDEWHITE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLGAPSIDESIDEWHITE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18627,6 +19851,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18634,6 +19865,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLGRAVESTONEDOJI(
             startIdx, endIdx,
             g_inBuf0,
@@ -18641,6 +19873,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLGRAVESTONEDOJI_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLGRAVESTONEDOJI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLGRAVESTONEDOJI_Close( _h );
+        }
+        else {
+            TA_CDLGRAVESTONEDOJI_Stream *_h = NULL;
+            rc = TA_CDLGRAVESTONEDOJI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLGRAVESTONEDOJI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18693,6 +19938,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18700,6 +19952,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLHAMMER(
             startIdx, endIdx,
             g_inBuf0,
@@ -18707,6 +19960,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLHAMMER_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLHAMMER_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLHAMMER_Close( _h );
+        }
+        else {
+            TA_CDLHAMMER_Stream *_h = NULL;
+            rc = TA_CDLHAMMER_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLHAMMER_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18759,6 +20025,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18766,6 +20039,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLHANGINGMAN(
             startIdx, endIdx,
             g_inBuf0,
@@ -18773,6 +20047,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLHANGINGMAN_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLHANGINGMAN_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLHANGINGMAN_Close( _h );
+        }
+        else {
+            TA_CDLHANGINGMAN_Stream *_h = NULL;
+            rc = TA_CDLHANGINGMAN_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLHANGINGMAN_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18825,6 +20112,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18832,6 +20126,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLHARAMI(
             startIdx, endIdx,
             g_inBuf0,
@@ -18839,6 +20134,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLHARAMI_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLHARAMI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLHARAMI_Close( _h );
+        }
+        else {
+            TA_CDLHARAMI_Stream *_h = NULL;
+            rc = TA_CDLHARAMI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLHARAMI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18891,6 +20199,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18898,6 +20213,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLHARAMICROSS(
             startIdx, endIdx,
             g_inBuf0,
@@ -18905,6 +20221,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLHARAMICROSS_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLHARAMICROSS_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLHARAMICROSS_Close( _h );
+        }
+        else {
+            TA_CDLHARAMICROSS_Stream *_h = NULL;
+            rc = TA_CDLHARAMICROSS_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLHARAMICROSS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -18957,6 +20286,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -18964,6 +20300,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLHIGHWAVE(
             startIdx, endIdx,
             g_inBuf0,
@@ -18971,6 +20308,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLHIGHWAVE_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLHIGHWAVE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLHIGHWAVE_Close( _h );
+        }
+        else {
+            TA_CDLHIGHWAVE_Stream *_h = NULL;
+            rc = TA_CDLHIGHWAVE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLHIGHWAVE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19023,6 +20373,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19030,6 +20387,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLHIKKAKE(
             startIdx, endIdx,
             g_inBuf0,
@@ -19037,6 +20395,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLHIKKAKE_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLHIKKAKE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLHIKKAKE_Close( _h );
+        }
+        else {
+            TA_CDLHIKKAKE_Stream *_h = NULL;
+            rc = TA_CDLHIKKAKE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLHIKKAKE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19089,6 +20460,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19096,6 +20474,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLHIKKAKEMOD(
             startIdx, endIdx,
             g_inBuf0,
@@ -19103,6 +20482,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLHIKKAKEMOD_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLHIKKAKEMOD_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLHIKKAKEMOD_Close( _h );
+        }
+        else {
+            TA_CDLHIKKAKEMOD_Stream *_h = NULL;
+            rc = TA_CDLHIKKAKEMOD_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLHIKKAKEMOD_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19155,6 +20547,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19162,6 +20561,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLHOMINGPIGEON(
             startIdx, endIdx,
             g_inBuf0,
@@ -19169,6 +20569,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLHOMINGPIGEON_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLHOMINGPIGEON_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLHOMINGPIGEON_Close( _h );
+        }
+        else {
+            TA_CDLHOMINGPIGEON_Stream *_h = NULL;
+            rc = TA_CDLHOMINGPIGEON_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLHOMINGPIGEON_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19221,6 +20634,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19228,6 +20648,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLIDENTICAL3CROWS(
             startIdx, endIdx,
             g_inBuf0,
@@ -19235,6 +20656,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLIDENTICAL3CROWS_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLIDENTICAL3CROWS_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLIDENTICAL3CROWS_Close( _h );
+        }
+        else {
+            TA_CDLIDENTICAL3CROWS_Stream *_h = NULL;
+            rc = TA_CDLIDENTICAL3CROWS_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLIDENTICAL3CROWS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19287,6 +20721,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19294,6 +20735,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLINNECK(
             startIdx, endIdx,
             g_inBuf0,
@@ -19301,6 +20743,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLINNECK_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLINNECK_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLINNECK_Close( _h );
+        }
+        else {
+            TA_CDLINNECK_Stream *_h = NULL;
+            rc = TA_CDLINNECK_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLINNECK_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19353,6 +20808,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19360,6 +20822,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLINVERTEDHAMMER(
             startIdx, endIdx,
             g_inBuf0,
@@ -19367,6 +20830,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLINVERTEDHAMMER_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLINVERTEDHAMMER_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLINVERTEDHAMMER_Close( _h );
+        }
+        else {
+            TA_CDLINVERTEDHAMMER_Stream *_h = NULL;
+            rc = TA_CDLINVERTEDHAMMER_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLINVERTEDHAMMER_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19419,6 +20895,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19426,6 +20909,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLKICKING(
             startIdx, endIdx,
             g_inBuf0,
@@ -19433,6 +20917,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLKICKING_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLKICKING_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLKICKING_Close( _h );
+        }
+        else {
+            TA_CDLKICKING_Stream *_h = NULL;
+            rc = TA_CDLKICKING_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLKICKING_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19485,6 +20982,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19492,6 +20996,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLKICKINGBYLENGTH(
             startIdx, endIdx,
             g_inBuf0,
@@ -19499,6 +21004,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLKICKINGBYLENGTH_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLKICKINGBYLENGTH_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLKICKINGBYLENGTH_Close( _h );
+        }
+        else {
+            TA_CDLKICKINGBYLENGTH_Stream *_h = NULL;
+            rc = TA_CDLKICKINGBYLENGTH_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLKICKINGBYLENGTH_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19551,6 +21069,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19558,6 +21083,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLLADDERBOTTOM(
             startIdx, endIdx,
             g_inBuf0,
@@ -19565,6 +21091,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLLADDERBOTTOM_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLLADDERBOTTOM_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLLADDERBOTTOM_Close( _h );
+        }
+        else {
+            TA_CDLLADDERBOTTOM_Stream *_h = NULL;
+            rc = TA_CDLLADDERBOTTOM_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLLADDERBOTTOM_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19617,6 +21156,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19624,6 +21170,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLLONGLEGGEDDOJI(
             startIdx, endIdx,
             g_inBuf0,
@@ -19631,6 +21178,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLLONGLEGGEDDOJI_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLLONGLEGGEDDOJI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLLONGLEGGEDDOJI_Close( _h );
+        }
+        else {
+            TA_CDLLONGLEGGEDDOJI_Stream *_h = NULL;
+            rc = TA_CDLLONGLEGGEDDOJI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLLONGLEGGEDDOJI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19683,6 +21243,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19690,6 +21257,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLLONGLINE(
             startIdx, endIdx,
             g_inBuf0,
@@ -19697,6 +21265,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLLONGLINE_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLLONGLINE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLLONGLINE_Close( _h );
+        }
+        else {
+            TA_CDLLONGLINE_Stream *_h = NULL;
+            rc = TA_CDLLONGLINE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLLONGLINE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19749,6 +21330,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19756,6 +21344,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLMARUBOZU(
             startIdx, endIdx,
             g_inBuf0,
@@ -19763,6 +21352,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLMARUBOZU_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLMARUBOZU_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLMARUBOZU_Close( _h );
+        }
+        else {
+            TA_CDLMARUBOZU_Stream *_h = NULL;
+            rc = TA_CDLMARUBOZU_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLMARUBOZU_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19815,6 +21417,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19822,6 +21431,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLMATCHINGLOW(
             startIdx, endIdx,
             g_inBuf0,
@@ -19829,6 +21439,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLMATCHINGLOW_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLMATCHINGLOW_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLMATCHINGLOW_Close( _h );
+        }
+        else {
+            TA_CDLMATCHINGLOW_Stream *_h = NULL;
+            rc = TA_CDLMATCHINGLOW_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLMATCHINGLOW_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19882,6 +21505,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19889,6 +21519,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLMATHOLD(
             startIdx, endIdx,
             g_inBuf0,
@@ -19897,6 +21528,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf3,
             optInPenetration,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLMATHOLD_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLMATHOLD_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &_openOut0 );
+            if( _h ) TA_CDLMATHOLD_Close( _h );
+        }
+        else {
+            TA_CDLMATHOLD_Stream *_h = NULL;
+            rc = TA_CDLMATHOLD_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLMATHOLD_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -19951,6 +21595,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -19958,6 +21609,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLMORNINGDOJISTAR(
             startIdx, endIdx,
             g_inBuf0,
@@ -19966,6 +21618,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf3,
             optInPenetration,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLMORNINGDOJISTAR_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLMORNINGDOJISTAR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &_openOut0 );
+            if( _h ) TA_CDLMORNINGDOJISTAR_Close( _h );
+        }
+        else {
+            TA_CDLMORNINGDOJISTAR_Stream *_h = NULL;
+            rc = TA_CDLMORNINGDOJISTAR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLMORNINGDOJISTAR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20020,6 +21685,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20027,6 +21699,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLMORNINGSTAR(
             startIdx, endIdx,
             g_inBuf0,
@@ -20035,6 +21708,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf3,
             optInPenetration,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLMORNINGSTAR_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLMORNINGSTAR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &_openOut0 );
+            if( _h ) TA_CDLMORNINGSTAR_Close( _h );
+        }
+        else {
+            TA_CDLMORNINGSTAR_Stream *_h = NULL;
+            rc = TA_CDLMORNINGSTAR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInPenetration, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLMORNINGSTAR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20088,6 +21774,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20095,6 +21788,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLONNECK(
             startIdx, endIdx,
             g_inBuf0,
@@ -20102,6 +21796,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLONNECK_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLONNECK_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLONNECK_Close( _h );
+        }
+        else {
+            TA_CDLONNECK_Stream *_h = NULL;
+            rc = TA_CDLONNECK_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLONNECK_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20154,6 +21861,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20161,6 +21875,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLPIERCING(
             startIdx, endIdx,
             g_inBuf0,
@@ -20168,6 +21883,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLPIERCING_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLPIERCING_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLPIERCING_Close( _h );
+        }
+        else {
+            TA_CDLPIERCING_Stream *_h = NULL;
+            rc = TA_CDLPIERCING_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLPIERCING_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20220,6 +21948,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20227,6 +21962,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLRICKSHAWMAN(
             startIdx, endIdx,
             g_inBuf0,
@@ -20234,6 +21970,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLRICKSHAWMAN_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLRICKSHAWMAN_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLRICKSHAWMAN_Close( _h );
+        }
+        else {
+            TA_CDLRICKSHAWMAN_Stream *_h = NULL;
+            rc = TA_CDLRICKSHAWMAN_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLRICKSHAWMAN_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20286,6 +22035,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20293,6 +22049,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLRISEFALL3METHODS(
             startIdx, endIdx,
             g_inBuf0,
@@ -20300,6 +22057,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLRISEFALL3METHODS_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLRISEFALL3METHODS_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLRISEFALL3METHODS_Close( _h );
+        }
+        else {
+            TA_CDLRISEFALL3METHODS_Stream *_h = NULL;
+            rc = TA_CDLRISEFALL3METHODS_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLRISEFALL3METHODS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20352,6 +22122,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20359,6 +22136,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLSEPARATINGLINES(
             startIdx, endIdx,
             g_inBuf0,
@@ -20366,6 +22144,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLSEPARATINGLINES_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLSEPARATINGLINES_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLSEPARATINGLINES_Close( _h );
+        }
+        else {
+            TA_CDLSEPARATINGLINES_Stream *_h = NULL;
+            rc = TA_CDLSEPARATINGLINES_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLSEPARATINGLINES_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20418,6 +22209,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20425,6 +22223,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLSHOOTINGSTAR(
             startIdx, endIdx,
             g_inBuf0,
@@ -20432,6 +22231,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLSHOOTINGSTAR_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLSHOOTINGSTAR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLSHOOTINGSTAR_Close( _h );
+        }
+        else {
+            TA_CDLSHOOTINGSTAR_Stream *_h = NULL;
+            rc = TA_CDLSHOOTINGSTAR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLSHOOTINGSTAR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20484,6 +22296,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20491,6 +22310,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLSHORTLINE(
             startIdx, endIdx,
             g_inBuf0,
@@ -20498,6 +22318,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLSHORTLINE_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLSHORTLINE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLSHORTLINE_Close( _h );
+        }
+        else {
+            TA_CDLSHORTLINE_Stream *_h = NULL;
+            rc = TA_CDLSHORTLINE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLSHORTLINE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20550,6 +22383,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20557,6 +22397,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLSPINNINGTOP(
             startIdx, endIdx,
             g_inBuf0,
@@ -20564,6 +22405,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLSPINNINGTOP_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLSPINNINGTOP_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLSPINNINGTOP_Close( _h );
+        }
+        else {
+            TA_CDLSPINNINGTOP_Stream *_h = NULL;
+            rc = TA_CDLSPINNINGTOP_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLSPINNINGTOP_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20616,6 +22470,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20623,6 +22484,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLSTALLEDPATTERN(
             startIdx, endIdx,
             g_inBuf0,
@@ -20630,6 +22492,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLSTALLEDPATTERN_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLSTALLEDPATTERN_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLSTALLEDPATTERN_Close( _h );
+        }
+        else {
+            TA_CDLSTALLEDPATTERN_Stream *_h = NULL;
+            rc = TA_CDLSTALLEDPATTERN_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLSTALLEDPATTERN_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20682,6 +22557,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20689,6 +22571,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLSTICKSANDWICH(
             startIdx, endIdx,
             g_inBuf0,
@@ -20696,6 +22579,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLSTICKSANDWICH_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLSTICKSANDWICH_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLSTICKSANDWICH_Close( _h );
+        }
+        else {
+            TA_CDLSTICKSANDWICH_Stream *_h = NULL;
+            rc = TA_CDLSTICKSANDWICH_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLSTICKSANDWICH_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20748,6 +22644,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20755,6 +22658,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLTAKURI(
             startIdx, endIdx,
             g_inBuf0,
@@ -20762,6 +22666,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLTAKURI_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLTAKURI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLTAKURI_Close( _h );
+        }
+        else {
+            TA_CDLTAKURI_Stream *_h = NULL;
+            rc = TA_CDLTAKURI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLTAKURI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20814,6 +22731,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20821,6 +22745,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLTASUKIGAP(
             startIdx, endIdx,
             g_inBuf0,
@@ -20828,6 +22753,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLTASUKIGAP_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLTASUKIGAP_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLTASUKIGAP_Close( _h );
+        }
+        else {
+            TA_CDLTASUKIGAP_Stream *_h = NULL;
+            rc = TA_CDLTASUKIGAP_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLTASUKIGAP_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20880,6 +22818,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20887,6 +22832,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLTHRUSTING(
             startIdx, endIdx,
             g_inBuf0,
@@ -20894,6 +22840,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLTHRUSTING_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLTHRUSTING_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLTHRUSTING_Close( _h );
+        }
+        else {
+            TA_CDLTHRUSTING_Stream *_h = NULL;
+            rc = TA_CDLTHRUSTING_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLTHRUSTING_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -20946,6 +22905,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -20953,6 +22919,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLTRISTAR(
             startIdx, endIdx,
             g_inBuf0,
@@ -20960,6 +22927,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLTRISTAR_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLTRISTAR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLTRISTAR_Close( _h );
+        }
+        else {
+            TA_CDLTRISTAR_Stream *_h = NULL;
+            rc = TA_CDLTRISTAR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLTRISTAR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21012,6 +22992,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -21019,6 +23006,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLUNIQUE3RIVER(
             startIdx, endIdx,
             g_inBuf0,
@@ -21026,6 +23014,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLUNIQUE3RIVER_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLUNIQUE3RIVER_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLUNIQUE3RIVER_Close( _h );
+        }
+        else {
+            TA_CDLUNIQUE3RIVER_Stream *_h = NULL;
+            rc = TA_CDLUNIQUE3RIVER_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLUNIQUE3RIVER_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21078,6 +23079,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -21085,6 +23093,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLUPSIDEGAP2CROWS(
             startIdx, endIdx,
             g_inBuf0,
@@ -21092,6 +23101,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLUPSIDEGAP2CROWS_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLUPSIDEGAP2CROWS_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLUPSIDEGAP2CROWS_Close( _h );
+        }
+        else {
+            TA_CDLUPSIDEGAP2CROWS_Stream *_h = NULL;
+            rc = TA_CDLUPSIDEGAP2CROWS_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLUPSIDEGAP2CROWS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21144,6 +23166,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -21151,6 +23180,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CDLXSIDEGAP3METHODS(
             startIdx, endIdx,
             g_inBuf0,
@@ -21158,6 +23188,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             g_inBuf3,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CDLXSIDEGAP3METHODS_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_CDLXSIDEGAP3METHODS_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CDLXSIDEGAP3METHODS_Close( _h );
+        }
+        else {
+            TA_CDLXSIDEGAP3METHODS_Stream *_h = NULL;
+            rc = TA_CDLXSIDEGAP3METHODS_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_CDLXSIDEGAP3METHODS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21207,6 +23250,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21214,10 +23264,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CEIL(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CEIL_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_CEIL_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_CEIL_Close( _h );
+        }
+        else {
+            TA_CEIL_Stream *_h = NULL;
+            rc = TA_CEIL_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_CEIL_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21265,6 +23329,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -21272,6 +23343,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CMF(
             startIdx, endIdx,
             g_inBuf0,
@@ -21280,6 +23352,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf3,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CMF_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_CMF_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_CMF_Close( _h );
+        }
+        else {
+            TA_CMF_Stream *_h = NULL;
+            rc = TA_CMF_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_CMF_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21332,6 +23417,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21339,11 +23431,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CMO(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CMO_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_CMO_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_CMO_Close( _h );
+        }
+        else {
+            TA_CMO_Stream *_h = NULL;
+            rc = TA_CMO_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_CMO_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21389,6 +23495,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21396,11 +23509,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CMOU(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CMOU_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_CMOU_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_CMOU_Close( _h );
+        }
+        else {
+            TA_CMOU_Stream *_h = NULL;
+            rc = TA_CMOU_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_CMOU_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21447,6 +23574,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 0);
@@ -21454,12 +23588,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_CORREL(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_CORREL_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_CORREL_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_CORREL_Close( _h );
+        }
+        else {
+            TA_CORREL_Stream *_h = NULL;
+            rc = TA_CORREL_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_CORREL_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21506,6 +23654,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21513,10 +23668,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_COS(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_COS_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_COS_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_COS_Close( _h );
+        }
+        else {
+            TA_COS_Stream *_h = NULL;
+            rc = TA_COS_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_COS_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21560,6 +23729,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21567,10 +23743,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_COSH(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_COSH_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_COSH_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_COSH_Close( _h );
+        }
+        else {
+            TA_COSH_Stream *_h = NULL;
+            rc = TA_COSH_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_COSH_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21615,6 +23805,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21622,11 +23819,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_DEMA(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_DEMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_DEMA_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_DEMA_Close( _h );
+        }
+        else {
+            TA_DEMA_Stream *_h = NULL;
+            rc = TA_DEMA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_DEMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21672,6 +23883,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 0);
@@ -21679,11 +23897,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_DIV(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_DIV_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_DIV_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &_openOut0 );
+            if( _h ) TA_DIV_Close( _h );
+        }
+        else {
+            TA_DIV_Stream *_h = NULL;
+            rc = TA_DIV_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_DIV_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21733,6 +23965,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -21740,6 +23979,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_DX(
             startIdx, endIdx,
             g_inBuf0,
@@ -21747,6 +23987,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_DX_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_DX_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_DX_Close( _h );
+        }
+        else {
+            TA_DX_Stream *_h = NULL;
+            rc = TA_DX_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_DX_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21783,6 +24036,88 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         }
         pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
+    else if ( methodLen == 6 && strncmp(method, "TA_EFI", 6) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(2, 1);
+        } else {
+            json_find_double_array(json, "inClose", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inVolume", g_inBuf1, MAX_ARRAY_SIZE);
+        }
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(2, 1);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_EFI(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            optInTimePeriod,
+            &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_EFI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_EFI_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_EFI_Close( _h );
+        }
+        else {
+            TA_EFI_Stream *_h = NULL;
+            rc = TA_EFI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_EFI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            rc = TA_S_EFI(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                optInTimePeriod,
+                &outBegIdx, &outNBElement, g_outBuf0);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
+    }
     else if ( methodLen == 6 && strncmp(method, "TA_EMA", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
         int endIdx = json_find_int(json, "endIdx");
@@ -21797,6 +24132,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21804,11 +24146,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_EMA(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_EMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_EMA_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_EMA_Close( _h );
+        }
+        else {
+            TA_EMA_Stream *_h = NULL;
+            rc = TA_EMA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_EMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21853,6 +24209,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21860,10 +24223,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_EXP(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_EXP_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_EXP_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_EXP_Close( _h );
+        }
+        else {
+            TA_EXP_Stream *_h = NULL;
+            rc = TA_EXP_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_EXP_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21907,6 +24284,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21914,10 +24298,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_FLOOR(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_FLOOR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_FLOOR_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_FLOOR_Close( _h );
+        }
+        else {
+            TA_FLOOR_Stream *_h = NULL;
+            rc = TA_FLOOR_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_FLOOR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -21962,6 +24360,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -21969,11 +24374,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_HMA(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_HMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_HMA_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_HMA_Close( _h );
+        }
+        else {
+            TA_HMA_Stream *_h = NULL;
+            rc = TA_HMA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_HMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22019,6 +24438,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22026,10 +24452,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_HT_DCPERIOD(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_HT_DCPERIOD_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_HT_DCPERIOD_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_HT_DCPERIOD_Close( _h );
+        }
+        else {
+            TA_HT_DCPERIOD_Stream *_h = NULL;
+            rc = TA_HT_DCPERIOD_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_HT_DCPERIOD_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22074,6 +24514,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22081,10 +24528,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_HT_DCPHASE(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_HT_DCPHASE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_HT_DCPHASE_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_HT_DCPHASE_Close( _h );
+        }
+        else {
+            TA_HT_DCPHASE_Stream *_h = NULL;
+            rc = TA_HT_DCPHASE_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_HT_DCPHASE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22129,6 +24590,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22136,10 +24604,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_HT_PHASOR(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_HT_PHASOR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            rc = TA_HT_PHASOR_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0, &_openOut1 );
+            if( _h ) TA_HT_PHASOR_Close( _h );
+        }
+        else {
+            TA_HT_PHASOR_Stream *_h = NULL;
+            rc = TA_HT_PHASOR_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1 );
+            if( _h ) TA_HT_PHASOR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22187,6 +24670,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22194,10 +24684,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_HT_SINE(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_HT_SINE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            rc = TA_HT_SINE_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0, &_openOut1 );
+            if( _h ) TA_HT_SINE_Close( _h );
+        }
+        else {
+            TA_HT_SINE_Stream *_h = NULL;
+            rc = TA_HT_SINE_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1 );
+            if( _h ) TA_HT_SINE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22245,6 +24750,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22252,10 +24764,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_HT_TRENDLINE(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_HT_TRENDLINE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_HT_TRENDLINE_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_HT_TRENDLINE_Close( _h );
+        }
+        else {
+            TA_HT_TRENDLINE_Stream *_h = NULL;
+            rc = TA_HT_TRENDLINE_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_HT_TRENDLINE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22300,6 +24826,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22307,10 +24840,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_HT_TRENDMODE(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_HT_TRENDMODE_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_HT_TRENDMODE_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_HT_TRENDMODE_Close( _h );
+        }
+        else {
+            TA_HT_TRENDMODE_Stream *_h = NULL;
+            rc = TA_HT_TRENDMODE_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_HT_TRENDMODE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22356,6 +24903,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -22363,12 +24917,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_IMI(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_IMI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_IMI_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_IMI_Close( _h );
+        }
+        else {
+            TA_IMI_Stream *_h = NULL;
+            rc = TA_IMI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_IMI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22417,6 +24985,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22424,11 +24999,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_KAMA(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_KAMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_KAMA_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_KAMA_Close( _h );
+        }
+        else {
+            TA_KAMA_Stream *_h = NULL;
+            rc = TA_KAMA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_KAMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22474,6 +25063,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22481,11 +25077,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_LINEARREG(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_LINEARREG_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_LINEARREG_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_LINEARREG_Close( _h );
+        }
+        else {
+            TA_LINEARREG_Stream *_h = NULL;
+            rc = TA_LINEARREG_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_LINEARREG_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22531,6 +25141,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22538,11 +25155,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_LINEARREG_ANGLE(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_LINEARREG_ANGLE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_LINEARREG_ANGLE_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_LINEARREG_ANGLE_Close( _h );
+        }
+        else {
+            TA_LINEARREG_ANGLE_Stream *_h = NULL;
+            rc = TA_LINEARREG_ANGLE_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_LINEARREG_ANGLE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22588,6 +25219,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22595,11 +25233,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_LINEARREG_INTERCEPT(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_LINEARREG_INTERCEPT_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_LINEARREG_INTERCEPT_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_LINEARREG_INTERCEPT_Close( _h );
+        }
+        else {
+            TA_LINEARREG_INTERCEPT_Stream *_h = NULL;
+            rc = TA_LINEARREG_INTERCEPT_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_LINEARREG_INTERCEPT_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22645,6 +25297,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22652,11 +25311,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_LINEARREG_SLOPE(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_LINEARREG_SLOPE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_LINEARREG_SLOPE_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_LINEARREG_SLOPE_Close( _h );
+        }
+        else {
+            TA_LINEARREG_SLOPE_Stream *_h = NULL;
+            rc = TA_LINEARREG_SLOPE_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_LINEARREG_SLOPE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22701,6 +25374,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22708,10 +25388,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_LN(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_LN_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_LN_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_LN_Close( _h );
+        }
+        else {
+            TA_LN_Stream *_h = NULL;
+            rc = TA_LN_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_LN_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22755,6 +25449,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22762,10 +25463,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_LOG10(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_LOG10_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_LOG10_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_LOG10_Close( _h );
+        }
+        else {
+            TA_LOG10_Stream *_h = NULL;
+            rc = TA_LOG10_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_LOG10_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22811,6 +25526,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22818,12 +25540,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MA(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             optInMAType,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MA_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInMAType, &_openOut0 );
+            if( _h ) TA_MA_Close( _h );
+        }
+        else {
+            TA_MA_Stream *_h = NULL;
+            rc = TA_MA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInMAType, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22872,6 +25608,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22879,6 +25622,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MACD(
             startIdx, endIdx,
             g_inBuf0,
@@ -22886,6 +25630,21 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInSlowPeriod,
             optInSignalPeriod,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MACD_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            double _openOut2 = 0;
+            rc = TA_MACD_Open( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &_openOut0, &_openOut1, &_openOut2 );
+            if( _h ) TA_MACD_Close( _h );
+        }
+        else {
+            TA_MACD_Stream *_h = NULL;
+            rc = TA_MACD_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2 );
+            if( _h ) TA_MACD_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -22944,6 +25703,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -22951,6 +25717,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MACDEXT(
             startIdx, endIdx,
             g_inBuf0,
@@ -22961,6 +25728,21 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInSignalPeriod,
             optInSignalMAType,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MACDEXT_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            double _openOut2 = 0;
+            rc = TA_MACDEXT_Open( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &_openOut0, &_openOut1, &_openOut2 );
+            if( _h ) TA_MACDEXT_Close( _h );
+        }
+        else {
+            TA_MACDEXT_Stream *_h = NULL;
+            rc = TA_MACDEXT_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2 );
+            if( _h ) TA_MACDEXT_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23017,6 +25799,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23024,11 +25813,27 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MACDFIX(
             startIdx, endIdx,
             g_inBuf0,
             optInSignalPeriod,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MACDFIX_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            double _openOut2 = 0;
+            rc = TA_MACDFIX_Open( &_h, g_inBuf0, endIdx + 1, optInSignalPeriod, &_openOut0, &_openOut1, &_openOut2 );
+            if( _h ) TA_MACDFIX_Close( _h );
+        }
+        else {
+            TA_MACDFIX_Stream *_h = NULL;
+            rc = TA_MACDFIX_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInSignalPeriod, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2 );
+            if( _h ) TA_MACDFIX_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23082,6 +25887,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23089,12 +25901,27 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MAMA(
             startIdx, endIdx,
             g_inBuf0,
             optInFastLimit,
             optInSlowLimit,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MAMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            rc = TA_MAMA_Open( &_h, g_inBuf0, endIdx + 1, optInFastLimit, optInSlowLimit, &_openOut0, &_openOut1 );
+            if( _h ) TA_MAMA_Close( _h );
+        }
+        else {
+            TA_MAMA_Stream *_h = NULL;
+            rc = TA_MAMA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInFastLimit, optInSlowLimit, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1 );
+            if( _h ) TA_MAMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23131,6 +25958,89 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         }
         pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
+    else if ( methodLen == 11 && strncmp(method, "TA_MARKETFI", 11) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(3, 1);
+        } else {
+            json_find_double_array(json, "inHigh", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inLow", g_inBuf1, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inVolume", g_inBuf2, MAX_ARRAY_SIZE);
+        }
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(3, 1);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_MARKETFI(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            g_inBuf2,
+            &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MARKETFI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MARKETFI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &_openOut0 );
+            if( _h ) TA_MARKETFI_Close( _h );
+        }
+        else {
+            TA_MARKETFI_Stream *_h = NULL;
+            rc = TA_MARKETFI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MARKETFI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf2[_fi] = (float)g_inBuf2[_fi];
+            rc = TA_S_MARKETFI(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                g_sinBuf2,
+                &outBegIdx, &outNBElement, g_outBuf0);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
+    }
     else if ( methodLen == 7 && strncmp(method, "TA_MAVP", 7) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
         int endIdx = json_find_int(json, "endIdx");
@@ -23147,6 +26057,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 0);
@@ -23154,6 +26071,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MAVP(
             startIdx, endIdx,
             g_inBuf0,
@@ -23162,6 +26080,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInMaxPeriod,
             optInMAType,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MAVP_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MAVP_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInMinPeriod, optInMaxPeriod, optInMAType, &_openOut0 );
+            if( _h ) TA_MAVP_Close( _h );
+        }
+        else {
+            TA_MAVP_Stream *_h = NULL;
+            rc = TA_MAVP_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInMinPeriod, optInMaxPeriod, optInMAType, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MAVP_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23211,6 +26142,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23218,11 +26156,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MAX(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MAX_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MAX_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MAX_Close( _h );
+        }
+        else {
+            TA_MAX_Stream *_h = NULL;
+            rc = TA_MAX_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MAX_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23268,6 +26220,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23275,11 +26234,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MAXINDEX(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MAXINDEX_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_MAXINDEX_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MAXINDEX_Close( _h );
+        }
+        else {
+            TA_MAXINDEX_Stream *_h = NULL;
+            rc = TA_MAXINDEX_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_MAXINDEX_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23325,6 +26298,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -23332,11 +26312,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MEDPRICE(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MEDPRICE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MEDPRICE_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &_openOut0 );
+            if( _h ) TA_MEDPRICE_Close( _h );
+        }
+        else {
+            TA_MEDPRICE_Stream *_h = NULL;
+            rc = TA_MEDPRICE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MEDPRICE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23386,6 +26380,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(4, 1);
@@ -23393,6 +26394,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MFI(
             startIdx, endIdx,
             g_inBuf0,
@@ -23401,6 +26403,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf3,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MFI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MFI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MFI_Close( _h );
+        }
+        else {
+            TA_MFI_Stream *_h = NULL;
+            rc = TA_MFI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, g_inBuf3, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MFI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23452,6 +26467,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23459,11 +26481,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MIDPOINT(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MIDPOINT_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MIDPOINT_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MIDPOINT_Close( _h );
+        }
+        else {
+            TA_MIDPOINT_Stream *_h = NULL;
+            rc = TA_MIDPOINT_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MIDPOINT_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23510,6 +26546,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -23517,12 +26560,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MIDPRICE(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MIDPRICE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MIDPRICE_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MIDPRICE_Close( _h );
+        }
+        else {
+            TA_MIDPRICE_Stream *_h = NULL;
+            rc = TA_MIDPRICE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MIDPRICE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23570,6 +26627,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23577,11 +26641,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MIN(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MIN_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MIN_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MIN_Close( _h );
+        }
+        else {
+            TA_MIN_Stream *_h = NULL;
+            rc = TA_MIN_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MIN_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23627,6 +26705,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23634,11 +26719,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MININDEX(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outIntBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MININDEX_Stream *_h = NULL;
+            int _openOut0 = 0;
+            rc = TA_MININDEX_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MININDEX_Close( _h );
+        }
+        else {
+            TA_MININDEX_Stream *_h = NULL;
+            rc = TA_MININDEX_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outIntBuf0 );
+            if( _h ) TA_MININDEX_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23684,6 +26783,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23691,11 +26797,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MINMAX(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MINMAX_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            rc = TA_MINMAX_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0, &_openOut1 );
+            if( _h ) TA_MINMAX_Close( _h );
+        }
+        else {
+            TA_MINMAX_Stream *_h = NULL;
+            rc = TA_MINMAX_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1 );
+            if( _h ) TA_MINMAX_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23744,6 +26865,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23751,11 +26879,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MINMAXINDEX(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outIntBuf0, g_outIntBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MINMAXINDEX_Stream *_h = NULL;
+            int _openOut0 = 0;
+            int _openOut1 = 0;
+            rc = TA_MINMAXINDEX_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0, &_openOut1 );
+            if( _h ) TA_MINMAXINDEX_Close( _h );
+        }
+        else {
+            TA_MINMAXINDEX_Stream *_h = NULL;
+            rc = TA_MINMAXINDEX_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outIntBuf0, g_outIntBuf1 );
+            if( _h ) TA_MINMAXINDEX_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23807,6 +26950,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -23814,6 +26964,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MINUS_DI(
             startIdx, endIdx,
             g_inBuf0,
@@ -23821,6 +26972,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MINUS_DI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MINUS_DI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MINUS_DI_Close( _h );
+        }
+        else {
+            TA_MINUS_DI_Stream *_h = NULL;
+            rc = TA_MINUS_DI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MINUS_DI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23872,6 +27036,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -23879,12 +27050,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MINUS_DM(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MINUS_DM_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MINUS_DM_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MINUS_DM_Close( _h );
+        }
+        else {
+            TA_MINUS_DM_Stream *_h = NULL;
+            rc = TA_MINUS_DM_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MINUS_DM_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23932,6 +27117,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -23939,11 +27131,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MOM(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MOM_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MOM_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_MOM_Close( _h );
+        }
+        else {
+            TA_MOM_Stream *_h = NULL;
+            rc = TA_MOM_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MOM_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -23989,6 +27195,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 0);
@@ -23996,11 +27209,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_MULT(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_MULT_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_MULT_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &_openOut0 );
+            if( _h ) TA_MULT_Close( _h );
+        }
+        else {
+            TA_MULT_Stream *_h = NULL;
+            rc = TA_MULT_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_MULT_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24050,6 +27277,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -24057,6 +27291,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_NATR(
             startIdx, endIdx,
             g_inBuf0,
@@ -24064,6 +27299,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_NATR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_NATR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_NATR_Close( _h );
+        }
+        else {
+            TA_NATR_Stream *_h = NULL;
+            rc = TA_NATR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_NATR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24113,6 +27361,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -24120,11 +27375,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_NVI(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_NVI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_NVI_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &_openOut0 );
+            if( _h ) TA_NVI_Close( _h );
+        }
+        else {
+            TA_NVI_Stream *_h = NULL;
+            rc = TA_NVI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_NVI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24171,6 +27440,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -24178,11 +27454,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_OBV(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_OBV_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_OBV_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &_openOut0 );
+            if( _h ) TA_OBV_Close( _h );
+        }
+        else {
+            TA_OBV_Stream *_h = NULL;
+            rc = TA_OBV_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_OBV_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24232,6 +27522,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -24239,6 +27536,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_PLUS_DI(
             startIdx, endIdx,
             g_inBuf0,
@@ -24246,6 +27544,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_PLUS_DI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_PLUS_DI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_PLUS_DI_Close( _h );
+        }
+        else {
+            TA_PLUS_DI_Stream *_h = NULL;
+            rc = TA_PLUS_DI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_PLUS_DI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24297,6 +27608,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -24304,12 +27622,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_PLUS_DM(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_PLUS_DM_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_PLUS_DM_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_PLUS_DM_Close( _h );
+        }
+        else {
+            TA_PLUS_DM_Stream *_h = NULL;
+            rc = TA_PLUS_DM_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_PLUS_DM_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24359,6 +27691,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -24366,6 +27705,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_PPO(
             startIdx, endIdx,
             g_inBuf0,
@@ -24373,6 +27713,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInSlowPeriod,
             optInMAType,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_PPO_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_PPO_Open( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInMAType, &_openOut0 );
+            if( _h ) TA_PPO_Close( _h );
+        }
+        else {
+            TA_PPO_Stream *_h = NULL;
+            rc = TA_PPO_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInMAType, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_PPO_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24420,6 +27773,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -24427,11 +27787,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_PVI(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_PVI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_PVI_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &_openOut0 );
+            if( _h ) TA_PVI_Close( _h );
+        }
+        else {
+            TA_PVI_Stream *_h = NULL;
+            rc = TA_PVI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_PVI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24480,6 +27854,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 1);
@@ -24487,6 +27868,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_PVO(
             startIdx, endIdx,
             g_inBuf0,
@@ -24494,6 +27876,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInSlowPeriod,
             optInMAType,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_PVO_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_PVO_Open( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInMAType, &_openOut0 );
+            if( _h ) TA_PVO_Close( _h );
+        }
+        else {
+            TA_PVO_Stream *_h = NULL;
+            rc = TA_PVO_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInMAType, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_PVO_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24528,6 +27923,88 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         }
         pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
+    else if ( methodLen == 9 && strncmp(method, "TA_QSTICK", 9) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(2, 1);
+        } else {
+            json_find_double_array(json, "inOpen", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inClose", g_inBuf1, MAX_ARRAY_SIZE);
+        }
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(2, 1);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_QSTICK(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            optInTimePeriod,
+            &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_QSTICK_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_QSTICK_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_QSTICK_Close( _h );
+        }
+        else {
+            TA_QSTICK_Stream *_h = NULL;
+            rc = TA_QSTICK_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_QSTICK_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            rc = TA_S_QSTICK(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                optInTimePeriod,
+                &outBegIdx, &outNBElement, g_outBuf0);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
+    }
     else if ( methodLen == 6 && strncmp(method, "TA_ROC", 6) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
         int endIdx = json_find_int(json, "endIdx");
@@ -24541,6 +28018,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -24548,11 +28032,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ROC(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ROC_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ROC_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_ROC_Close( _h );
+        }
+        else {
+            TA_ROC_Stream *_h = NULL;
+            rc = TA_ROC_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ROC_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24598,6 +28096,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -24605,11 +28110,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ROCP(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ROCP_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ROCP_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_ROCP_Close( _h );
+        }
+        else {
+            TA_ROCP_Stream *_h = NULL;
+            rc = TA_ROCP_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ROCP_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24655,6 +28174,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -24662,11 +28188,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ROCR(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ROCR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ROCR_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_ROCR_Close( _h );
+        }
+        else {
+            TA_ROCR_Stream *_h = NULL;
+            rc = TA_ROCR_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ROCR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24712,6 +28252,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -24719,11 +28266,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ROCR100(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ROCR100_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ROCR100_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_ROCR100_Close( _h );
+        }
+        else {
+            TA_ROCR100_Stream *_h = NULL;
+            rc = TA_ROCR100_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ROCR100_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24770,6 +28331,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -24777,11 +28345,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_RSI(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_RSI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_RSI_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_RSI_Close( _h );
+        }
+        else {
+            TA_RSI_Stream *_h = NULL;
+            rc = TA_RSI_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_RSI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24829,6 +28411,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -24836,6 +28425,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_SAR(
             startIdx, endIdx,
             g_inBuf0,
@@ -24843,6 +28433,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInAcceleration,
             optInMaximum,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SAR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SAR_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInAcceleration, optInMaximum, &_openOut0 );
+            if( _h ) TA_SAR_Close( _h );
+        }
+        else {
+            TA_SAR_Stream *_h = NULL;
+            rc = TA_SAR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInAcceleration, optInMaximum, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SAR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24899,6 +28502,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -24906,6 +28516,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_SAREXT(
             startIdx, endIdx,
             g_inBuf0,
@@ -24919,6 +28530,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInAccelerationShort,
             optInAccelerationMaxShort,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SAREXT_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SAREXT_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &_openOut0 );
+            if( _h ) TA_SAREXT_Close( _h );
+        }
+        else {
+            TA_SAREXT_Stream *_h = NULL;
+            rc = TA_SAREXT_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SAREXT_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -24972,6 +28596,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -24979,10 +28610,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_SIN(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SIN_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SIN_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_SIN_Close( _h );
+        }
+        else {
+            TA_SIN_Stream *_h = NULL;
+            rc = TA_SIN_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SIN_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25026,6 +28671,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25033,10 +28685,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_SINH(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SINH_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SINH_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_SINH_Close( _h );
+        }
+        else {
+            TA_SINH_Stream *_h = NULL;
+            rc = TA_SINH_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SINH_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25081,6 +28747,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25088,11 +28761,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_SMA(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SMA_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_SMA_Close( _h );
+        }
+        else {
+            TA_SMA_Stream *_h = NULL;
+            rc = TA_SMA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25137,6 +28824,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25144,10 +28838,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_SQRT(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SQRT_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SQRT_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_SQRT_Close( _h );
+        }
+        else {
+            TA_SQRT_Stream *_h = NULL;
+            rc = TA_SQRT_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SQRT_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25193,6 +28901,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25200,12 +28915,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_STDDEV(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             optInNbDev,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_STDDEV_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_STDDEV_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInNbDev, &_openOut0 );
+            if( _h ) TA_STDDEV_Close( _h );
+        }
+        else {
+            TA_STDDEV_Stream *_h = NULL;
+            rc = TA_STDDEV_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInNbDev, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_STDDEV_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25258,6 +28987,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -25265,6 +29001,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_STOCH(
             startIdx, endIdx,
             g_inBuf0,
@@ -25276,6 +29013,20 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInSlowD_Period,
             optInSlowD_MAType,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_STOCH_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            rc = TA_STOCH_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &_openOut0, &_openOut1 );
+            if( _h ) TA_STOCH_Close( _h );
+        }
+        else {
+            TA_STOCH_Stream *_h = NULL;
+            rc = TA_STOCH_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1 );
+            if( _h ) TA_STOCH_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25336,6 +29087,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -25343,6 +29101,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_STOCHF(
             startIdx, endIdx,
             g_inBuf0,
@@ -25352,6 +29111,20 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInFastD_Period,
             optInFastD_MAType,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_STOCHF_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            rc = TA_STOCHF_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &_openOut0, &_openOut1 );
+            if( _h ) TA_STOCHF_Close( _h );
+        }
+        else {
+            TA_STOCHF_Stream *_h = NULL;
+            rc = TA_STOCHF_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1 );
+            if( _h ) TA_STOCHF_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25409,6 +29182,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25416,6 +29196,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_STOCHRSI(
             startIdx, endIdx,
             g_inBuf0,
@@ -25424,6 +29205,20 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInFastD_Period,
             optInFastD_MAType,
             &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_STOCHRSI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            rc = TA_STOCHRSI_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &_openOut0, &_openOut1 );
+            if( _h ) TA_STOCHRSI_Close( _h );
+        }
+        else {
+            TA_STOCHRSI_Stream *_h = NULL;
+            rc = TA_STOCHRSI_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1 );
+            if( _h ) TA_STOCHRSI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25475,6 +29270,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 0);
@@ -25482,11 +29284,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_SUB(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SUB_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SUB_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &_openOut0 );
+            if( _h ) TA_SUB_Close( _h );
+        }
+        else {
+            TA_SUB_Stream *_h = NULL;
+            rc = TA_SUB_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SUB_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25533,6 +29349,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25540,11 +29363,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_SUM(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SUM_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SUM_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_SUM_Close( _h );
+        }
+        else {
+            TA_SUM_Stream *_h = NULL;
+            rc = TA_SUM_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SUM_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25592,6 +29429,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25599,12 +29443,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_T3(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             optInVFactor,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_T3_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_T3_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInVFactor, &_openOut0 );
+            if( _h ) TA_T3_Close( _h );
+        }
+        else {
+            TA_T3_Stream *_h = NULL;
+            rc = TA_T3_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInVFactor, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_T3_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25650,6 +29508,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25657,10 +29522,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_TAN(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_TAN_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_TAN_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_TAN_Close( _h );
+        }
+        else {
+            TA_TAN_Stream *_h = NULL;
+            rc = TA_TAN_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_TAN_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25704,6 +29583,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25711,10 +29597,24 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_TANH(
             startIdx, endIdx,
             g_inBuf0,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_TANH_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_TANH_Open( &_h, g_inBuf0, endIdx + 1, &_openOut0 );
+            if( _h ) TA_TANH_Close( _h );
+        }
+        else {
+            TA_TANH_Stream *_h = NULL;
+            rc = TA_TANH_OpenAndFill( &_h, g_inBuf0, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_TANH_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25759,6 +29659,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25766,11 +29673,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_TEMA(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_TEMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_TEMA_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_TEMA_Close( _h );
+        }
+        else {
+            TA_TEMA_Stream *_h = NULL;
+            rc = TA_TEMA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_TEMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25817,6 +29738,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -25824,12 +29752,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_TRANGE(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             g_inBuf2,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_TRANGE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_TRANGE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &_openOut0 );
+            if( _h ) TA_TRANGE_Close( _h );
+        }
+        else {
+            TA_TRANGE_Stream *_h = NULL;
+            rc = TA_TRANGE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_TRANGE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25878,6 +29820,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25885,11 +29834,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_TRIMA(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_TRIMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_TRIMA_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_TRIMA_Close( _h );
+        }
+        else {
+            TA_TRIMA_Stream *_h = NULL;
+            rc = TA_TRIMA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_TRIMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25935,6 +29898,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25942,11 +29912,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_TRIX(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_TRIX_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_TRIX_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_TRIX_Close( _h );
+        }
+        else {
+            TA_TRIX_Stream *_h = NULL;
+            rc = TA_TRIX_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_TRIX_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -25992,6 +29976,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -25999,11 +29990,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_TSF(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_TSF_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_TSF_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_TSF_Close( _h );
+        }
+        else {
+            TA_TSF_Stream *_h = NULL;
+            rc = TA_TSF_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_TSF_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -26050,6 +30055,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -26057,12 +30069,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_TYPPRICE(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             g_inBuf2,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_TYPPRICE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_TYPPRICE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &_openOut0 );
+            if( _h ) TA_TYPPRICE_Close( _h );
+        }
+        else {
+            TA_TYPPRICE_Stream *_h = NULL;
+            rc = TA_TYPPRICE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_TYPPRICE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -26115,6 +30141,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -26122,6 +30155,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_ULTOSC(
             startIdx, endIdx,
             g_inBuf0,
@@ -26131,6 +30165,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             optInTimePeriod2,
             optInTimePeriod3,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ULTOSC_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_ULTOSC_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &_openOut0 );
+            if( _h ) TA_ULTOSC_Close( _h );
+        }
+        else {
+            TA_ULTOSC_Stream *_h = NULL;
+            rc = TA_ULTOSC_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_ULTOSC_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -26183,6 +30230,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -26190,12 +30244,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_VAR(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             optInNbDev,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_VAR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_VAR_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInNbDev, &_openOut0 );
+            if( _h ) TA_VAR_Close( _h );
+        }
+        else {
+            TA_VAR_Stream *_h = NULL;
+            rc = TA_VAR_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInNbDev, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_VAR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -26243,6 +30311,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(2, 1);
@@ -26250,12 +30325,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_VWMA(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_VWMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_VWMA_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_VWMA_Close( _h );
+        }
+        else {
+            TA_VWMA_Stream *_h = NULL;
+            rc = TA_VWMA_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_VWMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -26290,6 +30379,89 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         }
         pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
+    else if ( methodLen == 6 && strncmp(method, "TA_WAD", 6) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(3, 1);
+        } else {
+            json_find_double_array(json, "inHigh", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inLow", g_inBuf1, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inClose", g_inBuf2, MAX_ARRAY_SIZE);
+        }
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(3, 1);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_WAD(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            g_inBuf2,
+            &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_WAD_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_WAD_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &_openOut0 );
+            if( _h ) TA_WAD_Close( _h );
+        }
+        else {
+            TA_WAD_Stream *_h = NULL;
+            rc = TA_WAD_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_WAD_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf2[_fi] = (float)g_inBuf2[_fi];
+            rc = TA_S_WAD(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                g_sinBuf2,
+                &outBegIdx, &outNBElement, g_outBuf0);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
+    }
     else if ( methodLen == 11 && strncmp(method, "TA_WCLPRICE", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
         int endIdx = json_find_int(json, "endIdx");
@@ -26304,6 +30476,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -26311,12 +30490,26 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_WCLPRICE(
             startIdx, endIdx,
             g_inBuf0,
             g_inBuf1,
             g_inBuf2,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_WCLPRICE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_WCLPRICE_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &_openOut0 );
+            if( _h ) TA_WCLPRICE_Close( _h );
+        }
+        else {
+            TA_WCLPRICE_Stream *_h = NULL;
+            rc = TA_WCLPRICE_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_WCLPRICE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -26367,6 +30560,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(3, 1);
@@ -26374,6 +30574,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_WILLR(
             startIdx, endIdx,
             g_inBuf0,
@@ -26381,6 +30582,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             g_inBuf2,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_WILLR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_WILLR_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_WILLR_Close( _h );
+        }
+        else {
+            TA_WILLR_Stream *_h = NULL;
+            rc = TA_WILLR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_WILLR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -26430,6 +30644,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int outBegIdx = 0, outNBElement = 0;
         int bench_iters = json_find_int(json, "iters");
         if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
         TA_RetCode rc = 0;
         if( use_preloaded ) {
             preload_to_working(1, 0);
@@ -26437,11 +30658,25 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         long _t0 = 0;
         for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
         if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
         rc = TA_WMA(
             startIdx, endIdx,
             g_inBuf0,
             optInTimePeriod,
             &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_WMA_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_WMA_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &_openOut0 );
+            if( _h ) TA_WMA_Close( _h );
+        }
+        else {
+            TA_WMA_Stream *_h = NULL;
+            rc = TA_WMA_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_WMA_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
         }
         long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
 #ifndef TA_REF_SERVE
@@ -26955,6 +31190,12 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
+    else if ( methodLen == 15 && strncmp(method, "TA_EFI_Lookback", 15) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        int lookback = TA_EFI_Lookback(optInTimePeriod);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
     else if ( methodLen == 15 && strncmp(method, "TA_EMA_Lookback", 15) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         int lookback = TA_EMA_Lookback(optInTimePeriod);
@@ -27089,6 +31330,11 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         double optInFastLimit = json_find_double(json, "optInFastLimit");
         double optInSlowLimit = json_find_double(json, "optInSlowLimit");
         int lookback = TA_MAMA_Lookback(optInFastLimit, optInSlowLimit);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
+    else if ( methodLen == 20 && strncmp(method, "TA_MARKETFI_Lookback", 20) == 0 ) {
+        int lookback = TA_MARKETFI_Lookback();
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
@@ -27228,6 +31474,12 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
         TA_MAType optInMAType = (TA_MAType)json_find_int(json, "optInMAType");
         int lookback = TA_PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
+    else if ( methodLen == 18 && strncmp(method, "TA_QSTICK_Lookback", 18) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        int lookback = TA_QSTICK_Lookback(optInTimePeriod);
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
@@ -27419,6 +31671,11 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
+    else if ( methodLen == 15 && strncmp(method, "TA_WAD_Lookback", 15) == 0 ) {
+        int lookback = TA_WAD_Lookback();
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
     else if ( methodLen == 20 && strncmp(method, "TA_WCLPRICE_Lookback", 20) == 0 ) {
         int lookback = TA_WCLPRICE_Lookback();
         snprintf(resp, resp_size,
@@ -27528,6 +31785,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"TA_DEMA\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_DIV\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_DX\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_EFI\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_EMA\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_EXP\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_FLOOR\"");
@@ -27551,6 +31809,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"TA_MACDEXT\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_MACDFIX\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_MAMA\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_MARKETFI\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_MAVP\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_MAX\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_MAXINDEX\"");
@@ -27574,6 +31833,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"TA_PPO\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_PVI\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_PVO\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_QSTICK\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ROC\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ROCP\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ROCR\"");
@@ -27603,6 +31863,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ULTOSC\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_VAR\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_VWMA\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_WAD\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_WCLPRICE\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_WILLR\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_WMA\"");
@@ -27611,8 +31872,19 @@ static void handle_request(const char *json, char *resp, int resp_size) {
     else if ( methodLen == 19 && strncmp(method, "set_unstable_period", 19) == 0 ) {
         int id = json_find_int(json, "id");
         int period = json_find_int(json, "period");
-        TA_SetUnstablePeriod((TA_FuncUnstId)id, (unsigned int)period);
-        snprintf(resp, resp_size, "{\"status\":\"ok\"}");
+        TA_RetCode unstRc;
+        if( period < 0 ) {
+           /* The C parameter is unsigned, so a negative would wrap to a huge
+            * value rather than be rejected. Caught on the wire instead.
+            */
+           snprintf(resp, resp_size, "{\"error\":\"Invalid unstable period value\"}");
+        } else {
+           unstRc = TA_SetUnstablePeriod((TA_FuncUnstId)id, (unsigned int)period);
+           if( unstRc == TA_SUCCESS )
+              snprintf(resp, resp_size, "{\"status\":\"ok\"}");
+           else
+              snprintf(resp, resp_size, "{\"error\":\"Invalid unstable period id or value\"}");
+        }
     }
     else if ( methodLen == 17 && strncmp(method, "set_compatibility", 17) == 0 ) {
         int mode = json_find_int(json, "mode");

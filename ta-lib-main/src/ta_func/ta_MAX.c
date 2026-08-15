@@ -61,7 +61,7 @@
 
 TA_LIB_API int TA_MAX_Lookback( int optInTimePeriod )
 {
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return -1;
@@ -76,6 +76,10 @@ TA_LIB_API TA_RetCode TA_MAX( int    startIdx,
                               int          *outNBElement,
                               double        outReal[] )
 {
+   double local_sufHighest[30];
+   double *sufHighest = &local_sufHighest[0];
+   double local_preHighest[30];
+   double *preHighest = &local_preHighest[0];
    double highest;
    double tmp;
    int outIdx;
@@ -83,7 +87,9 @@ TA_LIB_API TA_RetCode TA_MAX( int    startIdx,
    int trailingIdx;
    int today;
    int i;
-   int highestIdx;
+   int blockStart;
+   int nAvail;
+   int m;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
       return TA_OUT_OF_RANGE_START_INDEX;
@@ -92,7 +98,7 @@ TA_LIB_API TA_RetCode TA_MAX( int    startIdx,
 
    if( !inReal )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -121,39 +127,125 @@ TA_LIB_API TA_RetCode TA_MAX( int    startIdx,
    /* Proceed with the calculation for the requested range.
     * Note that this algorithm allows the input and
     * output to be the same buffer.
+    *
+    * Van Herk / Gil-Werman block scan, block-batched form. The p outputs
+    * belonging to one block boundary are produced together: one backward
+    * pass builds the older block's suffix extrema, one forward pass builds
+    * the newer block's prefix extrema, and a third pass combines them.
+    * All the loops are straight-line with no data-dependent branching,
+    * which is what lets a compiler vectorize them, and the work per bar is
+    * a fixed number of comparisons regardless of period. Every scratch
+    * array holds COPIES, so input and output may alias.
+    *
+    * Producing a whole block at a time is also why this cannot be turned
+    * into a per-bar automaton, so the streaming tier runs max_ALT1
+    * below. See issue #147.
     */
    outIdx = 0;
    today = startIdx;
    trailingIdx = startIdx - nbInitialElementNeeded;
-   highestIdx = 0 - 1;
-   highest = 0.0;
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( (int)optInTimePeriod > (int)(sizeof(local_sufHighest)/sizeof(double)) )
+   {
+      sufHighest = TA_Malloc( sizeof(double)*optInTimePeriod );
+      if( !sufHighest )
+      {
+         return TA_ALLOC_ERR;
+      }
+   }
+   else
+   {
+      sufHighest = &local_sufHighest[0];
+   }
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( (int)optInTimePeriod > (int)(sizeof(local_preHighest)/sizeof(double)) )
+   {
+      preHighest = TA_Malloc( sizeof(double)*optInTimePeriod );
+      if( !preHighest )
+      {
+         if( sufHighest != &local_sufHighest[0] ) TA_Free( sufHighest );
+         return TA_ALLOC_ERR;
+      }
+   }
+   else
+   {
+      preHighest = &local_preHighest[0];
+   }
+   blockStart = trailingIdx;
    while( today <= endIdx )
    {
-      tmp = inReal[today];
-      if( highestIdx < trailingIdx )
+      /* Suffix extrema of the block [blockStart, blockStart+p-1], which
+       * is fully available here: today == blockStart+p-1 <= endIdx.
+       * Scanning backward while keeping the incumbent on a tie
+       * leaves the later element holding a tie, which is what lets this
+       * compile to a single max instruction.
+       */
+      i = blockStart + optInTimePeriod - 1;
+      highest = inReal[i];
+      sufHighest[optInTimePeriod - 1] = highest;
+      TA_UNROLL(4)
+      while( i > blockStart )
       {
-         highestIdx = trailingIdx;
-         highest = inReal[highestIdx];
-         i = highestIdx;
-         TA_UNROLL(4)
-         while( ++i <= today )
+         i -= 1;
+         tmp = inReal[i];
+         if( tmp > highest )
          {
-            tmp = inReal[i];
-            if( tmp > highest )
-            {
-               highestIdx = i;
-               highest = tmp;
-            }
+            highest = tmp;
          }
-      } else if( tmp >= highest )
-      {
-         highestIdx = today;
-         highest = tmp;
+         sufHighest[i - blockStart] = highest;
       }
+      highest = sufHighest[0];
       outReal[outIdx++] = highest;
       trailingIdx += 1;
       today += 1;
+      if( today > endIdx )
+      {
+         blockStart = blockStart + optInTimePeriod;
+      } else 
+      {
+         /* Prefix extrema of the next block, clamped to what remains.
+          * Forward, keeping the incumbent on a tie: earliest wins again.
+          */
+         nAvail = endIdx - (blockStart + optInTimePeriod) + 1;
+         if( nAvail > optInTimePeriod - 1 )
+         {
+            nAvail = optInTimePeriod - 1;
+         }
+         highest = inReal[blockStart + optInTimePeriod];
+         preHighest[0] = highest;
+         i = 1;
+         TA_UNROLL(4)
+         while( i < nAvail )
+         {
+            tmp = inReal[blockStart + optInTimePeriod + i];
+            if( tmp > highest )
+            {
+               highest = tmp;
+            }
+            preHighest[i] = highest;
+            i += 1;
+         }
+         /* Combine. The suffix half is the older one, so preferring it
+          * on a tie keeps the earliest-wins rule.
+          */
+         m = 1;
+         while( m <= nAvail )
+         {
+            highest = sufHighest[m];
+            if( preHighest[m - 1] > highest )
+            {
+               highest = preHighest[m - 1];
+            }
+            outReal[outIdx++] = highest;
+            m += 1;
+         }
+         trailingIdx = trailingIdx + nAvail;
+         today = today + nAvail;
+         blockStart = blockStart + optInTimePeriod;
+      }
    }
+   if( sufHighest != &local_sufHighest[0] ) { TA_Free( sufHighest ); sufHighest = &local_sufHighest[0]; }
+   if( preHighest != &local_preHighest[0] ) { TA_Free( preHighest ); preHighest = &local_preHighest[0]; }
    /* Keep the outBegIdx relative to the
     * caller input before returning.
     */
@@ -170,6 +262,10 @@ TA_RetCode TA_S_MAX( int    startIdx,
                      int          *outNBElement,
                      double        outReal[] )
 {
+   double local_sufHighest[30];
+   double *sufHighest = &local_sufHighest[0];
+   double local_preHighest[30];
+   double *preHighest = &local_preHighest[0];
    double highest;
    double tmp;
    int outIdx;
@@ -177,7 +273,9 @@ TA_RetCode TA_S_MAX( int    startIdx,
    int trailingIdx;
    int today;
    int i;
-   int highestIdx;
+   int blockStart;
+   int nAvail;
+   int m;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
       return TA_OUT_OF_RANGE_START_INDEX;
@@ -186,7 +284,7 @@ TA_RetCode TA_S_MAX( int    startIdx,
 
    if( !inReal )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
@@ -207,41 +305,104 @@ TA_RetCode TA_S_MAX( int    startIdx,
    outIdx = 0;
    today = startIdx;
    trailingIdx = startIdx - nbInitialElementNeeded;
-   highestIdx = 0 - 1;
-   highest = 0.0;
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( (int)optInTimePeriod > (int)(sizeof(local_sufHighest)/sizeof(double)) )
+   {
+      sufHighest = TA_Malloc( sizeof(double)*optInTimePeriod );
+      if( !sufHighest )
+      {
+         return TA_ALLOC_ERR;
+      }
+   }
+   else
+   {
+      sufHighest = &local_sufHighest[0];
+   }
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( (int)optInTimePeriod > (int)(sizeof(local_preHighest)/sizeof(double)) )
+   {
+      preHighest = TA_Malloc( sizeof(double)*optInTimePeriod );
+      if( !preHighest )
+      {
+         if( sufHighest != &local_sufHighest[0] ) TA_Free( sufHighest );
+         return TA_ALLOC_ERR;
+      }
+   }
+   else
+   {
+      preHighest = &local_preHighest[0];
+   }
+   blockStart = trailingIdx;
    while( today <= endIdx )
    {
-      tmp = (double)inReal[today];
-      if( highestIdx < trailingIdx )
+      i = blockStart + optInTimePeriod - 1;
+      highest = (double)inReal[i];
+      sufHighest[optInTimePeriod - 1] = highest;
+      TA_UNROLL(4)
+      while( i > blockStart )
       {
-         highestIdx = trailingIdx;
-         highest = (double)inReal[highestIdx];
-         i = highestIdx;
-         TA_UNROLL(4)
-         while( ++i <= today )
+         i -= 1;
+         tmp = (double)inReal[i];
+         if( tmp > highest )
          {
-            tmp = (double)inReal[i];
-            if( tmp > highest )
-            {
-               highestIdx = i;
-               highest = tmp;
-            }
+            highest = tmp;
          }
-      } else if( tmp >= highest )
-      {
-         highestIdx = today;
-         highest = tmp;
+         sufHighest[i - blockStart] = highest;
       }
+      highest = sufHighest[0];
       outReal[outIdx++] = highest;
       trailingIdx += 1;
       today += 1;
+      if( today > endIdx )
+      {
+         blockStart = blockStart + optInTimePeriod;
+      } else 
+      {
+         nAvail = endIdx - (blockStart + optInTimePeriod) + 1;
+         if( nAvail > optInTimePeriod - 1 )
+         {
+            nAvail = optInTimePeriod - 1;
+         }
+         highest = (double)inReal[blockStart + optInTimePeriod];
+         preHighest[0] = highest;
+         i = 1;
+         TA_UNROLL(4)
+         while( i < nAvail )
+         {
+            tmp = (double)inReal[blockStart + optInTimePeriod + i];
+            if( tmp > highest )
+            {
+               highest = tmp;
+            }
+            preHighest[i] = highest;
+            i += 1;
+         }
+         m = 1;
+         while( m <= nAvail )
+         {
+            highest = sufHighest[m];
+            if( preHighest[m - 1] > highest )
+            {
+               highest = preHighest[m - 1];
+            }
+            outReal[outIdx++] = highest;
+            m += 1;
+         }
+         trailingIdx = trailingIdx + nAvail;
+         today = today + nAvail;
+         blockStart = blockStart + optInTimePeriod;
+      }
    }
+   if( sufHighest != &local_sufHighest[0] ) { TA_Free( sufHighest ); sufHighest = &local_sufHighest[0]; }
+   if( preHighest != &local_preHighest[0] ) { TA_Free( preHighest ); preHighest = &local_preHighest[0]; }
    *outBegIdx= startIdx;
    *outNBElement= outIdx;
    return TA_SUCCESS;
 }
 
 /**** Streaming API *****/
+
+/* Using max_ALT1 for TA_ALT={STREAM,ALL_LANGUAGES} */
 
 struct TA_MAX_Stream {
    int optInTimePeriod;
@@ -251,6 +412,8 @@ struct TA_MAX_Stream {
    int highestIdx;
    int today;
    int xCap;
+   int xPhys;
+   int xMask;
    double *x_inReal;
    double *xMirror_inReal;
 };
@@ -271,23 +434,23 @@ static void TA_MAX_StepInternal( struct TA_MAX_Stream *sp, double inReal, double
 
    if( sp->today >= 1073741824 )
    {
-      int rebaseShift = ( sp->trailingIdx / sp->xCap ) * sp->xCap;
+      int rebaseShift = sp->trailingIdx & ~sp->xMask;
       sp->today -= rebaseShift;
       sp->trailingIdx -= rebaseShift;
       sp->highestIdx -= rebaseShift;
       sp->i -= rebaseShift;
    }
-   sp->x_inReal[sp->today % sp->xCap] = inReal;
-   tmp = sp->x_inReal[sp->today % sp->xCap];
+   sp->x_inReal[sp->today & sp->xMask] = inReal;
+   tmp = sp->x_inReal[sp->today & sp->xMask];
    if( sp->highestIdx < sp->trailingIdx )
    {
       sp->highestIdx = sp->trailingIdx;
-      sp->highest = sp->x_inReal[sp->highestIdx % sp->xCap];
+      sp->highest = sp->x_inReal[sp->highestIdx & sp->xMask];
       sp->i = sp->highestIdx;
       TA_UNROLL(4)
       while( ++sp->i <= sp->today )
       {
-         tmp = sp->x_inReal[sp->i % sp->xCap];
+         tmp = sp->x_inReal[sp->i & sp->xMask];
          if( tmp > sp->highest )
          {
             sp->highestIdx = sp->i;
@@ -304,155 +467,24 @@ static void TA_MAX_StepInternal( struct TA_MAX_Stream *sp, double inReal, double
    sp->today += 1;
 }
 
-/* Private function, not in public API. */
-TA_RetCode TA_MAX_OpenInternal( struct TA_MAX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+static TA_RetCode TA_MAX_OpenCore( struct TA_MAX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_MAX_Stream *sp;
    int endIdx;
    int dummyBegIdx;
    int dummyNBElement;
-   double lastValue_outReal;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (int)optInTimePeriod == (int)0x80000000 )
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   lastValue_outReal = 0.0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
-
-   {
-      double highest = 0.0;
-      double tmp;
-      int outIdx;
-      int nbInitialElementNeeded;
-      int trailingIdx = 0;
-      int today = 0;
-      int i = 0;
-      int highestIdx = 0;
-      /* Identify the minimum number of price bar needed
-       * to identify at least one output over the specified
-       * period.
-       */
-      nbInitialElementNeeded = optInTimePeriod - 1;
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < nbInitialElementNeeded )
-      {
-         startIdx = nbInitialElementNeeded;
-      }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx )
-      {
-         dummyBegIdx = 0;
-         dummyNBElement = 0;
-         return TA_BAD_PARAM;
-      }
-      /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the input and
-       * output to be the same buffer.
-       */
-      outIdx = 0;
-      today = startIdx;
-      trailingIdx = startIdx - nbInitialElementNeeded;
-      highestIdx = 0 - 1;
-      highest = 0.0;
-      while( today <= endIdx )
-      {
-         tmp = inReal[today];
-         if( highestIdx < trailingIdx )
-         {
-            highestIdx = trailingIdx;
-            highest = inReal[highestIdx];
-            i = highestIdx;
-            TA_UNROLL(4)
-            while( ++i <= today )
-            {
-               tmp = inReal[i];
-               if( tmp > highest )
-               {
-                  highestIdx = i;
-                  highest = tmp;
-               }
-            }
-         } else if( tmp >= highest )
-         {
-            highestIdx = today;
-            highest = tmp;
-         }
-         lastValue_outReal = highest;
-         trailingIdx += 1;
-         today += 1;
-      }
-      /* Keep the outBegIdx relative to the
-       * caller input before returning.
-       */
-      dummyBegIdx = startIdx;
-      dummyNBElement = outIdx;
-
-      /* Capture the live batch state into the handle. */
-      sp = (struct TA_MAX_Stream *)TA_Malloc( sizeof(*sp) );
-      if( !sp ) { return TA_ALLOC_ERR; }
-      memset( sp, 0, sizeof(*sp) );
-      sp->optInTimePeriod = optInTimePeriod;
-      sp->highest = highest;
-      sp->trailingIdx = trailingIdx;
-      sp->i = i;
-      sp->highestIdx = highestIdx;
-      sp->today = today;
-      sp->xCap = (int)(today - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MAX_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
-      sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->x_inReal ) { TA_MAX_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
-      if( !sp->xMirror_inReal ) { TA_MAX_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      { int fillJ;
-        for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
-        {
-           sp->x_inReal[fillJ % sp->xCap] = inReal[fillJ];
-        }
-      }
-      *outReal = lastValue_outReal;
-      *stream = sp;
-      return TA_SUCCESS;
-   }
-}
-
-TA_LIB_API TA_RetCode TA_MAX_Open( TA_MAX_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal )
-{
-   return TA_MAX_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
-}
-
-TA_LIB_API TA_RetCode TA_MAX_OpenAndFill( TA_MAX_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
-{
-   struct TA_MAX_Stream *sp;
-   int endIdx;
-   int startIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( !inReal || !outReal || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == (int)0x80000000 )
-      optInTimePeriod = 30;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
-      return TA_BAD_PARAM;
-
-   endIdx = historyLen - 1;
-   startIdx = 0;
    dummyBegIdx = 0;
    dummyNBElement = 0;
    (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
@@ -488,6 +520,16 @@ TA_LIB_API TA_RetCode TA_MAX_OpenAndFill( TA_MAX_Stream **stream, const double i
       /* Proceed with the calculation for the requested range.
        * Note that this algorithm allows the input and
        * output to be the same buffer.
+       *
+       * The highest value of the window is cached with its index; the window is
+       * rescanned only when the cached extremum drops out of it. That is O(1)
+       * per bar while the extremum sits away from the trailing edge, but it is
+       * not amortized O(1): an extremum on the oldest in-window bar drops out
+       * on the very next bar, so the rescan repeats and the cost stays
+       * O(period) per bar for as long as that persists.
+       *
+       * Slower than the block scan the batch tier runs; it is here because one
+       * bar at a time is exactly what the streaming tier needs. See issue #147.
        */
       outIdx = 0;
       today = startIdx;
@@ -517,7 +559,7 @@ TA_LIB_API TA_RetCode TA_MAX_OpenAndFill( TA_MAX_Stream **stream, const double i
             highestIdx = today;
             highest = tmp;
          }
-         outReal[outIdx++] = highest;
+         outReal[outIdx++ * outStride] = highest;
          trailingIdx += 1;
          today += 1;
       }
@@ -539,19 +581,57 @@ TA_LIB_API TA_RetCode TA_MAX_OpenAndFill( TA_MAX_Stream **stream, const double i
       sp->today = today;
       sp->xCap = (int)(today - trailingIdx) + 1;
       if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MAX_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
-      sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->xPhys = 1;
+      while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
+      sp->xMask = sp->xPhys - 1;
+      sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inReal ) { TA_MAX_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xCap );
+      sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->xMirror_inReal ) { TA_MAX_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
-           sp->x_inReal[fillJ % sp->xCap] = inReal[fillJ];
+           sp->x_inReal[fillJ & sp->xMask] = inReal[fillJ];
         }
       }
       *stream = sp;
       return TA_SUCCESS;
    }
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_MAX_OpenInternal( struct TA_MAX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_MAX_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+TA_LIB_API TA_RetCode TA_MAX_Open( TA_MAX_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal )
+{
+   return TA_MAX_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
+}
+
+TA_LIB_API TA_RetCode TA_MAX_OpenAndFill( TA_MAX_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
+   return TA_MAX_OpenCore( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+}
+
+/* Private function, not in public API. */
+TA_RetCode TA_MAX_OpenAndFillInternal( struct TA_MAX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_MAX_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_MAX_Update( TA_MAX_Stream *stream, double inReal, double *outReal )
@@ -568,7 +648,7 @@ TA_LIB_API TA_RetCode TA_MAX_Peek( const TA_MAX_Stream *stream, double inReal, d
    if( !stream || !outReal ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.x_inReal = stream->xMirror_inReal;
-   memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xCap );
+   memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xPhys );
    TA_MAX_StepInternal( &scratch, inReal, outReal );
    return TA_SUCCESS;
 }

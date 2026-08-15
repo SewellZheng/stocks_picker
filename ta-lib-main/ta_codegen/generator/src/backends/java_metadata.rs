@@ -383,6 +383,18 @@ fn func_flags_class() -> String {
                 0x2000_0000,
                 "Output depends on where the caller started, so it never converges across ranges.",
             ),
+            (
+                "NAN_INF_OUTPUT",
+                0x4000_0000,
+                "Some inputs have no finite result, so a successful call can return NaN or \
+                 +/-Infinity.",
+            ),
+            (
+                "PERIOD1_IDENTITY",
+                0x0000_0001,
+                "A period of 1 performs no smoothing: the lookback is 0 and the output is a \
+                 bit-exact copy of the input.",
+            ),
         ],
     )
 }

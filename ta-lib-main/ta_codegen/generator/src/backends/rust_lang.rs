@@ -92,6 +92,13 @@ pub struct RustRenderCtx {
     /// Variable names declared as `VarType::Integer` or `VarType::Index` (usize in Rust).
     /// Used by type inference in expression rendering.
     pub index_vars: std::collections::HashSet<String>,
+    /// Locals that hold an enum value rather than an integer, mapped to
+    /// `(type, initialiser)` — MACDEXT's `int tempMAType`, which the C declares
+    /// as an int but only ever assigns from an MAType parameter. Derived by
+    /// [`enum_local_types`] from the same analysis Java and C# use, so no
+    /// variable is named here. Such a local is deliberately kept OUT of
+    /// `index_vars`: it must not take the integer casts.
+    pub enum_vars: std::collections::HashMap<String, String>,
     /// Variable names declared as `VarType::Real` (T in Rust generic mode).
     pub real_vars: std::collections::HashSet<String>,
     /// Variable names declared as `VarType::RealPointer` or `VarType::IntPointer` (Vec<T> / Vec<i32>).
@@ -118,7 +125,7 @@ pub struct RustRenderCtx {
     /// of the batch tier's bare `return RetCode::X;`.
     pub result_error_returns: bool,
     /// Fully-qualified MAType constant (`TA_MAType_SMA`) → its Rust rendering
-    /// (the integer value, e.g. `"0"`), derived from `enums.yaml` by
+    /// (`matype::SMA`, the generated crate-internal value), derived by
     /// [`build_matype_map`]. Populated for batch/lookback bodies — the only
     /// place `optInMAType == TA_MAType_*` comparisons render; stream bodies
     /// dispatch MA-type structurally (case labels / sub-opens) and leave this
@@ -133,11 +140,73 @@ pub struct RustRenderCtx {
     pub circbuf_hybrid_static: std::collections::HashMap<String, i64>,
 }
 
-/// Build the `TA_MAType_*` → value-string map the [`ExprEmitter::var`] hook uses
-/// to render `optInMAType == TA_MAType_SMA` comparisons in the batch functions.
-/// Derived from the `MAType` enum in `enums.yaml` (the value is the enum ordinal
-/// the i32 param carries) — so a new `TA_MAType_X` row needs no generator edit.
-#[allow(clippy::implicit_hasher)]
+/// Locals that carry an enum value, mapped to their Rust type.
+///
+/// C declares MACDEXT's swap temporary as `int tempMAType;` and only ever
+/// assigns an MAType parameter to it, so once the parameter is typed the local
+/// must be too. Java and C# already derive this with `collect_matype_vars`;
+/// this is the same call, so the three backends agree by construction rather
+/// than by three copies of a name.
+///
+/// Needs no enums table — the type is the one the parameter declares — which is
+/// what lets the streaming tier populate it as cheaply as the batch tier.
+pub(crate) fn enum_local_types(func: &FuncDef) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    // Both bodies: the guarded and private variants render from different
+    // statement lists, and a local is the same type in each.
+    let body: Vec<Statement> = func
+        .body
+        .iter()
+        .cloned()
+        .chain(func.private_body.iter().cloned())
+        .collect();
+    for opt in &func.optional_inputs {
+        let ParamType::Enum(enum_name) = &opt.param_type else {
+            continue;
+        };
+        // The parameter itself belongs here too: it is no longer an `i32`, so
+        // the cast inference must stop treating every `optIn*` name as one.
+        out.insert(opt.name.clone(), enum_name.clone());
+        let params: std::collections::HashSet<String> =
+            std::iter::once(opt.name.clone()).collect();
+        for v in super::java::collect_matype_vars(&body, &params) {
+            out.insert(v, enum_name.clone());
+        }
+    }
+    out
+}
+
+/// Drop enum-typed locals from an integer set.
+///
+/// `collect_var_types` files them under `index_vars` because C declares them
+/// `int`; left there, every assignment to one takes an `as usize` and every read
+/// an `as i32`. They are neither.
+pub(crate) fn prune_enum_locals(
+    index_vars: &mut std::collections::HashSet<String>,
+    enum_vars: &std::collections::HashMap<String, String>,
+) {
+    for name in enum_vars.keys() {
+        index_vars.remove(name);
+    }
+}
+
+/// The Rust type of an optional parameter.
+///
+/// An `enum:` parameter is spelled as its enum, exactly as the YAML declares it
+/// and as C, Java and C# have always emitted it — the backend used to fold it in
+/// with `Integer` and hand callers a bare `i32`.
+pub(crate) fn opt_param_type(t: &ParamType) -> String {
+    match t {
+        ParamType::Real => "f64".to_string(),
+        ParamType::Enum(name) => name.clone(),
+        ParamType::Integer | ParamType::Price(_) => "i32".to_string(),
+    }
+}
+
+/// Build the `TA_MAType_*` → qualified-member map the [`ExprEmitter::var`] hook
+/// uses to render `optInMAType == TA_MAType_SMA` comparisons in the batch
+/// functions. Derived from the `MAType` enum in `enums.yaml`, so a new
+/// `TA_MAType_X` row needs no generator edit.
 pub(crate) fn build_matype_map(
     enums: &HashMap<String, EnumDef>,
 ) -> std::collections::HashMap<String, String> {
@@ -146,7 +215,7 @@ pub(crate) fn build_matype_map(
         .map(|e| {
             e.variants
                 .iter()
-                .map(|v| (v.c_name.clone(), v.value.to_string()))
+                .map(|v| (v.c_name.clone(), format!("{}::{}", e.name, v.name)))
                 .collect()
         })
         .unwrap_or_default()
@@ -182,6 +251,7 @@ impl RustRenderCtx {
             sentinel_vars: std::collections::HashSet::new(),
             result_error_returns: false,
             matype_map: std::collections::HashMap::new(),
+            enum_vars: std::collections::HashMap::new(),
             circbuf_hybrid_static: std::collections::HashMap::new(),
         }
     }
@@ -305,6 +375,9 @@ pub fn generate(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
+    // Resolve `PRAGMA TA_ALT` for this language (ir::FuncDef::resolved_for).
+    let resolved = func.resolved_for(crate::ir::Lang::Rust);
+    let func: &FuncDef = &resolved;
     let mut out = String::new();
     out.push_str(&gen_header());
     // File-level comments carried from the input .c (e.g. contributors/history).
@@ -313,6 +386,10 @@ pub fn generate(
         out.push('\n');
     }
     out.push_str(&gen_imports());
+    // Name the alternate that won the batch cell, if one did.
+    if let Some(m) = func.alt_marker(crate::ir::Tier::Batch, crate::ir::Lang::Rust) {
+        out.push_str(&format!("/* {m} */\n\n"));
+    }
     out.push_str(&gen_impl_block(func, enums, registry, helpers));
     // Streaming API section (only for YAML-declared streamable functions).
     if func.streaming {
@@ -360,8 +437,9 @@ fn gen_header() -> String {
     out.push_str(" *  This file is automatically generated by the utility ta_codegen.\n");
     out.push_str(" *  Any modifications will be lost on next execution of ta_codegen.\n");
     out.push_str(" *\n");
-    out.push_str(" *  Modifications should instead be done with the \"C\" source file\n");
-    out.push_str(" *  in ta-lib\\src\\ta_func\n");
+    out.push_str(" *  Modifications should instead be done in the function's canonical\n");
+    out.push_str(" *  definition under ta_codegen/input/<name>/ — src/ta_func holds the\n");
+    out.push_str(" *  generated C, not the source of truth.\n");
     out.push_str(" */\n\n");
     out
 }
@@ -533,6 +611,8 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         .map(|o| o.name.clone())
         .collect();
 
+    let enum_vars = enum_local_types(func);
+    prune_enum_locals(&mut index_vars, &enum_vars);
     let ctx = RustRenderCtx {
         bounds_asserts: true,
         index_vars,
@@ -545,6 +625,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         sentinel_vars,
         result_error_returns: false,
         matype_map: build_matype_map(enums),
+        enum_vars,
         circbuf_hybrid_static: collect_circbuf_static(&func.body),
     };
 
@@ -586,7 +667,7 @@ fn gen_lookback(
             out.push_str(&format!("        return ({param} - {offset}) as usize;\n"));
         }
         Some(LookbackExpr::Code(stmts)) => {
-            out.push_str(&render_lookback_code(stmts, enums, registry, helpers));
+            out.push_str(&render_lookback_code(stmts, func, enums, registry, helpers));
         }
         None => {
             out.push_str("        return 0;\n");
@@ -597,10 +678,7 @@ fn gen_lookback(
         // Build parameter list
         let mut params = Vec::new();
         for opt in &func.optional_inputs {
-            let rust_type = match opt.param_type {
-                ParamType::Real => "f64",
-                ParamType::Integer | ParamType::Enum(_) | ParamType::Price(_) => "i32",
-            };
+            let rust_type = opt_param_type(&opt.param_type);
             params.push(format!("mut {}: {}", opt.name, rust_type));
         }
 
@@ -613,7 +691,7 @@ fn gen_lookback(
 
         // Param validation
         for opt in &func.optional_inputs {
-            out.push_str(&gen_opt_param_validation(opt, "        ", true));
+            out.push_str(&gen_opt_param_validation(opt, "        ", true, enums));
         }
 
         // Return lookback expression
@@ -670,7 +748,7 @@ fn gen_guarded_func(
 
     // Param validation
     for opt in &func.optional_inputs {
-        out.push_str(&gen_opt_param_validation(opt, "        ", false));
+        out.push_str(&gen_opt_param_validation(opt, "        ", false, enums));
     }
 
     // Output-distinctness (issue #108): aliasing two different output buffers has
@@ -719,6 +797,8 @@ fn gen_guarded_func(
             .filter(|o| o.param_type == ParamType::Integer)
             .map(|o| o.name.clone())
             .collect();
+        let enum_vars = enum_local_types(func);
+        prune_enum_locals(&mut g_index_vars, &enum_vars);
         let g_ctx = RustRenderCtx {
             // The guarded preamble is emitted once by gen_guarded_func above, not
             // from the statement renderer — keep this false so it cannot double.
@@ -733,6 +813,7 @@ fn gen_guarded_func(
             sentinel_vars: g_sentinel_vars,
             result_error_returns: false,
             matype_map: build_matype_map(enums),
+            enum_vars,
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
         };
         let g_for_loop_vars = collect_for_loop_vars(&func.body);
@@ -815,6 +896,8 @@ fn gen_guarded_func(
             .filter(|o| o.param_type == ParamType::Integer)
             .map(|o| o.name.clone())
             .collect();
+        let enum_vars = enum_local_types(func);
+        prune_enum_locals(&mut g_index_vars, &enum_vars);
         let g_ctx = RustRenderCtx {
             // The guarded preamble is emitted once by gen_guarded_func above, not
             // from the statement renderer — keep this false so it cannot double.
@@ -829,6 +912,7 @@ fn gen_guarded_func(
             sentinel_vars: g_sentinel_vars,
             result_error_returns: false,
             matype_map: build_matype_map(enums),
+            enum_vars,
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
         };
 
@@ -870,6 +954,16 @@ fn gen_guarded_func(
                 let total_assigns = count_assignments(name, &func.body);
                 let needs_mut = total_assigns > 0;
                 let is_sentinel = g_ctx.sentinel_vars.contains(name);
+                // An enum-typed local short-circuits: its C `int` declaration
+                // describes the storage, not the value (see `enum_local_types`).
+                if let Some(ty) = g_ctx.enum_vars.get(name) {
+                    // Deferred initialisation: there is no neutral member to
+                    // invent, and every such local is assigned before it is
+                    // read -- if a body ever breaks that, rustc says so.
+                    let m = if needs_mut { "mut " } else { "" };
+                    out.push_str(&format!("        let {m}{name}: {ty};\n"));
+                    continue;
+                }
                 let rust_type = match var_type {
                     VarType::Real => "f64",
                     VarType::Integer | VarType::Index => {
@@ -1290,10 +1384,7 @@ fn gen_generic_params(func: &FuncDef) -> String {
         out.push_str(&format!("        {}: {},\n", input.name, param_type));
     }
     for opt in &func.optional_inputs {
-        let rust_type = match opt.param_type {
-            ParamType::Real => "f64",
-            ParamType::Integer | ParamType::Enum(_) | ParamType::Price(_) => "i32",
-        };
+        let rust_type = opt_param_type(&opt.param_type);
         out.push_str(&format!("        mut {}: {},\n", opt.name, rust_type));
     }
     out
@@ -1313,30 +1404,59 @@ fn gen_generic_output_params(func: &FuncDef) -> String {
 }
 
 /// Generate optional parameter validation code.
-fn gen_opt_param_validation(opt: &OptInput, pad: &str, is_lookback: bool) -> String {
+fn gen_opt_param_validation(opt: &OptInput, pad: &str, is_lookback: bool, enums: &HashMap<String, EnumDef>) -> String {
     let err_return = if is_lookback {
         "return usize::MAX;"
     } else {
         "return RetCode::BadParam;"
     };
-    gen_opt_param_validation_with(opt, pad, err_return)
+    gen_opt_param_validation_with(opt, pad, err_return, enums)
 }
 
 /// Core of the optional-parameter default-substitution + range check, with the
 /// failure statement supplied by the caller (batch returns a bare `RetCode`,
 /// the stream tier returns `Err(RetCode::BadParam)`).
 ///
-/// `enum:` params share the `Integer` arm, exactly as they do in `backends::c`:
-/// the Rust surface types them `i32`, so `i32::MIN` is a value a caller can pass
-/// and the substitution is the only thing that maps it to the documented default
-/// (issue #162). They declare no `range:` (see `doc_meta::RangeMeta`), so in
-/// practice only the substitution half is emitted for them.
-pub(crate) fn gen_opt_param_validation_with(opt: &OptInput, pad: &str, err_return: &str) -> String {
+/// An `enum:` param gets its own arm: the parameter is typed as its enum, so the
+/// `i32::MIN` sentinel is unrepresentable there and only the `DEFAULT` member
+/// (#182) is left to substitute — the shape Java has always had (#162).
+#[allow(clippy::float_cmp)] // an enum default is an exact integer, not a measurement
+pub(crate) fn gen_opt_param_validation_with(
+    opt: &OptInput,
+    pad: &str,
+    err_return: &str,
+    enums: &HashMap<String, EnumDef>,
+) -> String {
     let mut out = String::new();
     let name = &opt.name;
 
     match &opt.param_type {
-        ParamType::Integer | ParamType::Enum(_) => {
+        // A typed enum parameter cannot hold the `i32::MIN` sentinel at all --
+        // the same reason Java has never checked for it (issue #162) -- so the
+        // `DEFAULT` member is the only spelling left to substitute.
+        ParamType::Enum(enum_name) => {
+            if let (Some(default), Some(def_variant)) = (
+                opt.default,
+                super::common::enum_default_variant(enums, enum_name),
+            ) {
+                #[allow(clippy::cast_possible_truncation)]
+                let resolved = enums.get(enum_name).and_then(|e| {
+                    e.variants
+                        .iter()
+                        .find(|v| f64::from(v.value) == default)
+                        .map(|v| v.name.clone())
+                });
+                if let Some(resolved) = resolved {
+                    out.push_str(&format!(
+                        "{pad}if {name} == {enum_name}::{} {{\n",
+                        def_variant.name
+                    ));
+                    out.push_str(&format!("{pad}    {name} = {enum_name}::{resolved};\n"));
+                    out.push_str(&format!("{pad}}}\n"));
+                }
+            }
+        }
+        ParamType::Integer => {
             if let Some(default) = opt.default {
                 out.push_str(&format!("{pad}if (({name}) as i32) == (i32::MIN) {{\n"));
                 #[allow(clippy::cast_possible_truncation)]
@@ -2564,6 +2684,12 @@ impl StatementEmitter for RustStmt<'_, '_> {
                                         rhs_str
                                     }
                                 }
+                                // Enum target: the RHS is the same enum, so it
+                                // renders bare -- a cast would not even compile.
+                                // Coincides with the fallthrough today; distinct
+                                // concepts, so it stays explicit.
+                                #[allow(clippy::match_same_arms)]
+                                ScalarTy::Enum => rhs_str,
                                 ScalarTy::Usize if expr_is_i32_typed_ctx(right, self.ctx) => {
                                     // usize target, i32-typed RHS (incl. sentinel
                                     // locals, runtime-non-negative here): as usize
@@ -2680,7 +2806,8 @@ impl StatementEmitter for RustStmt<'_, '_> {
             || matches!(new_value, Expr::Var(ref v) if is_i32_opt_in_param(v) || v.ends_with("_avgPeriod") || v.ends_with("_rangeType"))
             || matches!(&new_value, Expr::ArrayAccess(ref name, _) if is_int_array_or_vec(name, self.ctx));
         let needs_usize_cast = if let Expr::Var(tname) = target {
-            !int_target
+            !self.ctx.enum_vars.contains_key(tname)
+                && !int_target
                 && !self.output_names.iter().any(|n| n == tname)
                 && !is_i32_opt_in_param(tname)
                 && !tname.ends_with("_avgPeriod")
@@ -2694,7 +2821,8 @@ impl StatementEmitter for RustStmt<'_, '_> {
         // Check if target is an i32 optIn param and value is usize
         // (e.g., optInFastPeriod = tempInteger where tempInteger is usize)
         let needs_optin_i32_cast = if let Expr::Var(tname) = target {
-            is_i32_opt_in_param(tname)
+            !self.ctx.enum_vars.contains_key(tname)
+                && is_i32_opt_in_param(tname)
                 && !expr_is_i32_typed(&new_value)
                 && !matches!(new_value, Expr::IntLiteral(_))
                 && (expr_is_known_usize_ctx(&new_value, self.ctx)
@@ -2936,6 +3064,17 @@ impl StatementEmitter for RustStmt<'_, '_> {
     fn return_stmt(&self, value: &Option<Expr>, indent: usize) -> String {
         let pad = " ".repeat(indent);
         match value {
+            Some(expr) if self.ctx.is_lookback && is_negative_one(expr) => {
+                // The lookback bad-param contract: -1 in C, Java and C#; Rust's
+                // lookback returns `usize`, whose sentinel is usize::MAX.
+                // The parser desugars the unary minus to `0 - 1`, and in a usize
+                // return position that is a deny-by-default `arithmetic_overflow`
+                // ERROR in every profile -- the crate compiles at all only
+                // because lib.rs allows that lint crate-wide, and under the allow
+                // it wraps in release and panics in debug. Translate the contract
+                // here rather than leave it as arithmetic riding on the allow.
+                format!("{pad}return usize::MAX;\n")
+            }
             Some(expr) => {
                 let rendered = render_return_expr(expr, self.ctx, self.opt_real_params, self.registry, self.helpers);
                 // In lookback functions, return value must be usize. Cast any i32/mixed expression.
@@ -3165,9 +3304,12 @@ pub fn render_statement(
     .walk_stmt(stmt, indent)
 }
 
+/// A `case TA_MAType_SMA:` label. Rendered as the qualified member now that the
+/// switch subject is the enum itself; it used to be the bare value, which is all
+/// an `i32` subject could match against.
 fn render_switch_label(label: &str, enums: &HashMap<String, EnumDef>) -> String {
-    if let Some((_enum_name, variant)) = lookup_variant(label, enums) {
-        format!("{}", variant.value)
+    if let Some((enum_name, variant)) = lookup_variant(label, enums) {
+        format!("{enum_name}::{}", variant.name)
     } else {
         label.to_string()
     }
@@ -3721,8 +3863,14 @@ fn render_binop(
         let arith_right_is_i32_arr = expr_is_int_array_typed(right, ctx);
         let left_is_i32_eff = left_is_i32 || arith_left_is_i32_arr;
         let right_is_i32_eff = right_is_i32 || arith_right_is_i32_arr;
-        let left_is_usize = !left_is_i32_eff && !left_is_float && !left_is_int_lit;
-        let right_is_usize = !right_is_i32_eff && !right_is_float && !right_is_int_lit;
+        let left_is_usize = !left_is_i32_eff
+            && !left_is_float
+            && !left_is_int_lit
+            && !expr_is_enum_typed(left, ctx);
+        let right_is_usize = !right_is_i32_eff
+            && !right_is_float
+            && !right_is_int_lit
+            && !expr_is_enum_typed(right, ctx);
         if left_is_i32_eff && right_is_usize && !left_is_sentinel {
             left_str = wrap_cast(&left_str, "usize");
         }
@@ -3754,8 +3902,10 @@ fn render_binop(
         if cmp_right_sentinel && !cmp_left_sentinel && !expr_is_i32_typed(left) && !expr_is_float_typed_ctx(left, Some(ctx)) && !matches!(left, Expr::IntLiteral(_)) {
             left_str = wrap_cast(&left_str, "i32");
         }
-        let left_is_i32 = expr_is_i32_typed(left) || cmp_left_sentinel;
-        let right_is_i32 = expr_is_i32_typed(right) || cmp_right_sentinel;
+        let left_is_i32 =
+            !expr_is_enum_typed(left, ctx) && (expr_is_i32_typed(left) || cmp_left_sentinel);
+        let right_is_i32 =
+            !expr_is_enum_typed(right, ctx) && (expr_is_i32_typed(right) || cmp_right_sentinel);
         // i32-typed expressions are NOT float even if heuristics say otherwise
         let left_is_float = expr_is_float_typed_ctx(left, Some(ctx)) && !left_is_i32;
         let right_is_float = expr_is_float_typed_ctx(right, Some(ctx)) && !right_is_i32;
@@ -3864,8 +4014,8 @@ pub(crate) fn render_expr(
     RustExpr { ctx, opt_real_params, registry, helpers }.walk(expr)
 }
 
-/// Render one of the boolean near-zero builtins (IS_ZERO / IS_ZERO_SCALED /
-/// IS_ZERO_OR_NEG) in Rust from already-rendered argument strings. Single source
+/// Render one of the boolean value builtins (the near-zero trio IS_ZERO /
+/// IS_ZERO_SCALED / IS_ZERO_OR_NEG, plus the exact IS_FINITE) in Rust from already-rendered argument strings. Single source
 /// of the Rust form for these predicates — used by both the indicator render path
 /// and the `eval_predicate` server handler (see the C backend for the rationale).
 pub(crate) fn rust_predicate_expr(which: SpecialBuiltin, args: &[String]) -> String {
@@ -3883,6 +4033,9 @@ pub(crate) fn rust_predicate_expr(which: SpecialBuiltin, args: &[String]) -> Str
         SpecialBuiltin::IsZeroOrNeg => args
             .first()
             .map_or_else(|| "false".to_string(), |x| format!("({x}) < 1e-14")),
+        SpecialBuiltin::IsFinite => args
+            .first()
+            .map_or_else(|| "false".to_string(), |x| format!("({x}).is_finite()")),
         _ => "false".to_string(),
     }
 }
@@ -3906,8 +4059,25 @@ fn expr_is_integer(expr: &Expr) -> bool {
 /// whether an `IntLiteral` should be wrapped with `T::ta_from_i32()` and to gate
 /// the FMA detector; conservative (strong evidence the expression produces T).
 fn expr_is_float_typed_ctx(expr: &Expr, ctx: Option<&RustRenderCtx>) -> bool {
+    // An enum-typed local is neither integer nor float. It leaves `index_vars`
+    // (see `prune_enum_locals`), so without this the name heuristics claim it
+    // for `f64` and every assignment renders `as f64`.
+    if let (Expr::Var(name), Some(c)) = (expr, ctx) {
+        if c.enum_vars.contains_key(name) {
+            return false;
+        }
+    }
     let view = ctx.map(RustRenderCtx::fma_view);
     fma::expr_is_float_typed(expr, view.as_ref())
+}
+
+/// A value of an enum type: an `enum:` parameter, a local derived from one, or
+/// one of the enum's own constants. Neither integer nor float, so it takes no
+/// cast in either direction — and comparing two of them needs none.
+fn expr_is_enum_typed(expr: &Expr, ctx: &RustRenderCtx) -> bool {
+    matches!(expr, Expr::Var(name)
+        if ctx.enum_vars.contains_key(strip_state_prefix(name))
+            || ctx.matype_map.contains_key(name))
 }
 
 /// Check if an expression is likely i32-typed (integer optIn params, unstable_period access, etc.)
@@ -3956,6 +4126,9 @@ fn expr_is_i32_typed(expr: &Expr) -> bool {
 
 /// Context-aware version of `expr_is_i32_typed` that also recognizes sentinel variables.
 fn expr_is_i32_typed_ctx(expr: &Expr, ctx: &RustRenderCtx) -> bool {
+    if expr_is_enum_typed(expr, ctx) {
+        return false;
+    }
     if expr_is_i32_typed(expr) {
         return true;
     }
@@ -4152,6 +4325,7 @@ fn render_index_expr(
 /// Render a complex lookback body (`LookbackExpr::Code`) into Rust code.
 fn render_lookback_code(
     stmts: &[Statement],
+    func: &FuncDef,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
     helpers: &HelperRegistry,
@@ -4168,6 +4342,8 @@ fn render_lookback_code(
     // as another.
     let mut lookback_ctx = RustRenderCtx::for_lookback(stmts);
     lookback_ctx.matype_map = build_matype_map(enums);
+    lookback_ctx.enum_vars = enum_local_types(func);
+    prune_enum_locals(&mut lookback_ctx.index_vars, &lookback_ctx.enum_vars);
 
     for stmt in stmts {
         if let Statement::VarDecl { var_type, name, .. } = stmt {
@@ -4315,8 +4491,9 @@ fn render_func_call(
             SpecialBuiltin::Compatibility => "self.compatibility".to_string(),
             pred @ (SpecialBuiltin::IsZero
                    | SpecialBuiltin::IsZeroScaled
-                   | SpecialBuiltin::IsZeroOrNeg) => {
-                // IS_ZERO / IS_ZERO_SCALED / IS_ZERO_OR_NEG -> the Rust epsilon form.
+                   | SpecialBuiltin::IsZeroOrNeg
+                   | SpecialBuiltin::IsFinite) => {
+                // The near-zero trio -> the Rust epsilon form; IS_FINITE -> is_finite().
                 // rust_predicate_expr is the single source of that form (also used by
                 // the eval_predicate server handler).
                 let rendered: Vec<String> = args
@@ -4646,7 +4823,7 @@ fn wrap_cross_indicator_call(call: String, aliased_vars: &[String]) -> String {
 /// - First two args (idx 0,1 = startIdx, endIdx) cast i32 to usize
 /// - Scalar T vars in output position get `std::slice::from_mut()` wrapping
 /// - Literal values and optIn Real params are rendered as f64 (not T-wrapped)
-fn render_cross_indicator_arg(
+pub(crate) fn render_cross_indicator_arg(
     arg: &Expr,
     position: usize,
     is_output_position: bool,
@@ -5560,6 +5737,9 @@ enum ScalarTy {
     F64,
     Usize,
     I32,
+    /// An `enum:` parameter or a local derived from one. Assignments between
+    /// two of these need no cast in either direction.
+    Enum,
 }
 
 /// Classify a scalar assignment target POSITIVELY — issue #158.
@@ -5577,7 +5757,11 @@ fn scalar_target_ty(
     opt_real_params: &[String],
     helpers: &HelperRegistry,
 ) -> ScalarTy {
-    // 1. Declared type.
+    // 1. Declared type. Enum first: such a local is filed under the `int` its
+    //    C declaration spells, so a later set would otherwise claim it.
+    if ctx.enum_vars.contains_key(strip_state_prefix(name)) {
+        return ScalarTy::Enum;
+    }
     if ctx.real_vars.contains(name) {
         return ScalarTy::F64;
     }
@@ -5702,7 +5886,6 @@ fn is_likely_index_var(name: &str) -> bool {
         || name == "isLong" || name == "isShort"
         || name == "currentBar"
         || name == "tempInteger" || name == "tempInt"
-        || name == "tempMAType"
         || name == "retValue"
         || name == "trend" || name == "daysInTrend"
         || name == "patternResult" || name == "patternIdx"
@@ -5719,6 +5902,7 @@ fn is_ta_function(name: &str) -> bool {
             "UNSTABLE_PERIOD"
                 | "IS_ZERO"
                 | "IS_ZERO_OR_NEG"
+                | "IS_FINITE"
                 | "ARRAY_COPY"
                 | "PER_TO_K"
                 | "COMPATIBILITY"

@@ -59,6 +59,21 @@ public enum MAType
     T3 = 8,
     /// <summary>The <c>TA_MAType_HMA</c> moving average.</summary>
     HMA = 9,
-    /// <summary>The <c>TA_MAType_DISABLED</c> moving average.</summary>
+    /// <summary>Not a moving average: the input is copied through unchanged.</summary>
     DISABLED = 10,
+    /// <summary>Not a moving average: selects the documented default of whichever parameter it is passed to.</summary>
+    DEFAULT = 11,
+}
+
+/// <summary>Companion constants for <see cref="MAType"/>.</summary>
+public static class MATypes
+{
+    /// <summary>Lowest value <see cref="MAType"/> defines. Not a member:
+    /// the inclusive lower bound of the domain a parameter of that type
+    /// accepts.</summary>
+    public const int Min = 0;
+
+    /// <summary>Highest value <see cref="MAType"/> defines. Grows when a
+    /// member is appended.</summary>
+    public const int Max = 11;
 }

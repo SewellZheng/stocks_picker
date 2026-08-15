@@ -112,9 +112,12 @@
  * point comparison. TA_REAL_EQ is not even transitive. The "ep" parameter
  * must be carefully choosen to work in the domain of the tested values.
  * Do a search on Google for a more generalize algo.
+ *
+ * Bounds are inclusive: below half a ULP of "v", v-ep and v+ep round back to
+ * v, and strict bounds would then reject bit-identical operands.
  */
 #define TA_EPSILON (0.00000000000001)
-#define TA_REAL_EQ(x,v,ep)   (((v-ep)<x)&&(x<(v+ep)))
+#define TA_REAL_EQ(x,v,ep)   (((v-ep)<=x)&&(x<=(v+ep)))
 #define TA_IS_ZERO(v)        (((-TA_EPSILON)<v)&&(v<TA_EPSILON))
 #define TA_IS_ZERO_OR_NEG(v) (v<TA_EPSILON)
 
@@ -124,6 +127,12 @@
  * misses the tie once the operands grow past ~1.0. Keep the multiply-compare
  * form: `fabs(v) - E*scale <= 0` would contract to an FMA and diverge per-backend. */
 #define TA_IS_ZERO_SCALED(v,scale) (fabs(v) <= (TA_EPSILON*(scale)))
+
+/* True when v is a usable number: neither NaN nor +/-Inf. Unlike the macros
+ * above this is exact, not an epsilon band. Used by the running-product indices
+ * (NVI, PVI), which have no upper bound and would otherwise hand the caller an
+ * Inf that poisons every later arithmetic. */
+#define TA_IS_FINITE(v) (isfinite(v))
 
 /* The following macros are being used to do
  * the Hilbert Transform logic as documented

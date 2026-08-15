@@ -90,7 +90,8 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Moving-average type for the middle band (default 0 = SMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED; <c>int.MinValue</c> selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT; <c>MAType.DEFAULT</c> (or
+   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int BBANDS_Lookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
    {
@@ -109,8 +110,10 @@ public partial class Core
       } else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX ) {
          return -1;
       }
-      if( (int)optInMAType == int.MinValue ) {
+      if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
+      } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
+         return -1;
       }
       int maLookback = 0;
       int stddevLookback = 0;
@@ -175,8 +178,10 @@ public partial class Core
       } else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX ) {
          return RetCode.BadParam;
       }
-      if( (int)optInMAType == int.MinValue ) {
+      if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
+      } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
+         return RetCode.BadParam;
       }
       if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
          return RetCode.BadParam ;
@@ -425,8 +430,10 @@ public partial class Core
       } else if( optInNbDevDn < TA_REAL_MIN || optInNbDevDn > TA_REAL_MAX ) {
          return RetCode.BadParam;
       }
-      if( (int)optInMAType == int.MinValue ) {
+      if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
+      } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
+         return RetCode.BadParam;
       }
       if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
          return RetCode.BadParam ;
@@ -594,9 +601,10 @@ public partial class Core
    /// \text{lower}_t &amp;= \text{middle}_t - k_{\text{dn}}\,\sigma_t
    /// \end{aligned}
    /// $$
-   /// where $X$ is the input series, $n$ the period, $\text{matype}$ the moving-average type,
-   /// and $k_{\text{up}}$, $k_{\text{dn}}$ the upper and lower deviation multipliers.
    /// </code>
+   /// where $X$ is the input series, $n$ the period, $\text{matype}$ the
+   /// moving-average type, and $k_{\text{up}}$, $k_{\text{dn}}$ the upper and
+   /// lower deviation multipliers.
    /// <list type="bullet">
    /// <item><description>The defaults reproduce Bollinger's original definition: a 20-period SMA middle band with $k_{\text{up}} = k_{\text{dn}} = 2$. Any other $\text{matype}$ is a TA-Lib generalisation.</description></item>
    /// <item><description>$\text{matype}$ sets where the envelope is centred; $n$ and $k$ set how wide it is. The two are independent — $\sigma$ depends only on the price window, so changing the middle band re-centres the bands without resizing them.</description></item>
@@ -620,7 +628,8 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Moving-average type for the middle band (default 0 = SMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED; <c>int.MinValue</c> selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT; <c>MAType.DEFAULT</c> (or
+   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
    /// <param name="outRealUpperBand">Middle band plus nbDevUp standard deviations. Must hold at least <c>endIdx
    /// - startIdx + 1</c> values.</param>
    /// <param name="outRealMiddleBand">The moving average. Must hold at least <c>endIdx - startIdx + 1</c>
@@ -668,9 +677,10 @@ public partial class Core
    /// \text{lower}_t &amp;= \text{middle}_t - k_{\text{dn}}\,\sigma_t
    /// \end{aligned}
    /// $$
-   /// where $X$ is the input series, $n$ the period, $\text{matype}$ the moving-average type,
-   /// and $k_{\text{up}}$, $k_{\text{dn}}$ the upper and lower deviation multipliers.
    /// </code>
+   /// where $X$ is the input series, $n$ the period, $\text{matype}$ the
+   /// moving-average type, and $k_{\text{up}}$, $k_{\text{dn}}$ the upper and
+   /// lower deviation multipliers.
    /// <list type="bullet">
    /// <item><description>The defaults reproduce Bollinger's original definition: a 20-period SMA middle band with $k_{\text{up}} = k_{\text{dn}} = 2$. Any other $\text{matype}$ is a TA-Lib generalisation.</description></item>
    /// <item><description>$\text{matype}$ sets where the envelope is centred; $n$ and $k$ set how wide it is. The two are independent — $\sigma$ depends only on the price window, so changing the middle band re-centres the bands without resizing them.</description></item>
@@ -700,7 +710,8 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Moving-average type for the middle band (default 0 = SMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED; <c>int.MinValue</c> selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT; <c>MAType.DEFAULT</c> (or
+   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
    /// <param name="outRealUpperBand">Middle band plus nbDevUp standard deviations. Must hold at least <c>endIdx
    /// - startIdx + 1</c> values.</param>
    /// <param name="outRealMiddleBand">The moving average. Must hold at least <c>endIdx - startIdx + 1</c>

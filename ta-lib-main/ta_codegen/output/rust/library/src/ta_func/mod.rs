@@ -5,6 +5,76 @@
 mod types;
 pub use types::*;
 
+/// Moving-average type selected by an `optInMAType` parameter.
+///
+/// The values are pinned ABI, shared with C's `TA_MAType` and the Java and
+/// C# `MAType`; the list is append-only. Convert a raw value in with
+/// [`TryFrom<i32>`](MAType::try_from), and out with `as i32`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+#[allow(non_camel_case_types)]
+pub enum MAType {
+    /// The `TA_MAType_SMA` moving average.
+    SMA = 0,
+    /// The `TA_MAType_EMA` moving average.
+    EMA = 1,
+    /// The `TA_MAType_WMA` moving average.
+    WMA = 2,
+    /// The `TA_MAType_DEMA` moving average.
+    DEMA = 3,
+    /// The `TA_MAType_TEMA` moving average.
+    TEMA = 4,
+    /// The `TA_MAType_TRIMA` moving average.
+    TRIMA = 5,
+    /// The `TA_MAType_KAMA` moving average.
+    KAMA = 6,
+    /// The `TA_MAType_MAMA` moving average.
+    MAMA = 7,
+    /// The `TA_MAType_T3` moving average.
+    T3 = 8,
+    /// The `TA_MAType_HMA` moving average.
+    HMA = 9,
+    /// Not a moving average: the input is copied through unchanged.
+    DISABLED = 10,
+    /// Not a moving average: selects the documented default of whichever parameter it is passed to.
+    DEFAULT = 11,
+}
+
+impl TryFrom<i32> for MAType {
+    type Error = RetCode;
+
+    /// Convert a raw parameter value, as the abstract layer and the JSON-RPC
+    /// server hold it.
+    ///
+    /// `i32::MIN` — C's `TA_INTEGER_DEFAULT` — resolves to the `DEFAULT`
+    /// member, so a value arriving through the abstract layer still selects
+    /// that parameter's documented default exactly as it does in C. Every
+    /// other out-of-domain value is `BadParam`, which is what keeps the
+    /// rejection in this crate rather than in a caller that wraps it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the value names no member.
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::SMA,
+            1 => Self::EMA,
+            2 => Self::WMA,
+            3 => Self::DEMA,
+            4 => Self::TEMA,
+            5 => Self::TRIMA,
+            6 => Self::KAMA,
+            7 => Self::MAMA,
+            8 => Self::T3,
+            9 => Self::HMA,
+            10 => Self::DISABLED,
+            11 => Self::DEFAULT,
+            i32::MIN => Self::DEFAULT,
+            _ => return Err(RetCode::BadParam),
+        })
+    }
+}
+
 // Hand-written test-only modules (not generated; see templates/rust/).
 #[cfg(test)]
 mod scratch_election;
@@ -100,6 +170,7 @@ mod cosh;
 mod dema;
 mod div;
 mod dx;
+mod efi;
 mod ema;
 mod exp;
 mod floor;
@@ -123,6 +194,7 @@ mod macd;
 mod macdext;
 mod macdfix;
 mod mama;
+mod marketfi;
 mod mavp;
 mod max;
 mod maxindex;
@@ -146,6 +218,7 @@ mod plus_dm;
 mod ppo;
 mod pvi;
 mod pvo;
+mod qstick;
 mod roc;
 mod rocp;
 mod rocr;
@@ -175,6 +248,7 @@ mod typprice;
 mod ultosc;
 mod var;
 mod vwma;
+mod wad;
 mod wclprice;
 mod willr;
 mod wma;
@@ -270,6 +344,7 @@ pub use cosh::COSH_Stream;
 pub use dema::DEMA_Stream;
 pub use div::DIV_Stream;
 pub use dx::DX_Stream;
+pub use efi::EFI_Stream;
 pub use ema::EMA_Stream;
 pub use exp::EXP_Stream;
 pub use floor::FLOOR_Stream;
@@ -293,6 +368,7 @@ pub use macd::MACD_Stream;
 pub use macdext::MACDEXT_Stream;
 pub use macdfix::MACDFIX_Stream;
 pub use mama::MAMA_Stream;
+pub use marketfi::MARKETFI_Stream;
 pub use mavp::MAVP_Stream;
 pub use max::MAX_Stream;
 pub use maxindex::MAXINDEX_Stream;
@@ -316,6 +392,7 @@ pub use plus_dm::PLUS_DM_Stream;
 pub use ppo::PPO_Stream;
 pub use pvi::PVI_Stream;
 pub use pvo::PVO_Stream;
+pub use qstick::QSTICK_Stream;
 pub use roc::ROC_Stream;
 pub use rocp::ROCP_Stream;
 pub use rocr::ROCR_Stream;
@@ -345,6 +422,7 @@ pub use typprice::TYPPRICE_Stream;
 pub use ultosc::ULTOSC_Stream;
 pub use var::VAR_Stream;
 pub use vwma::VWMA_Stream;
+pub use wad::WAD_Stream;
 pub use wclprice::WCLPRICE_Stream;
 pub use willr::WILLR_Stream;
 pub use wma::WMA_Stream;

@@ -50,10 +50,10 @@ namespace TALib;
 /// query it with the matching <c>*Lookback</c> method. Integer parameters
 /// accept <c>int.MinValue</c>, and real parameters <c>-4e37</c>, to select
 /// their documented default.
-/// <para>Per-instance settings (unstable periods, candlestick thresholds)
-/// currently take their documented defaults; a configuration builder arrives
-/// with a later milestone. A <c>Core</c> whose settings are never mutated is
-/// safe to share read-only across threads.</para>
+/// <para>Per-instance settings — unstable periods and candlestick thresholds —
+/// take their documented defaults unless chosen up front with
+/// <see cref="Builder"/>. A <c>Core</c> whose settings are never mutated is safe
+/// to share read-only across threads.</para>
 /// </remarks>
 public partial class Core
 {
@@ -87,9 +87,12 @@ public partial class Core
     /* Sized by the id count, so the ALL wildcard gets no slot (#144). */
     internal readonly int[] unstablePeriod = new int[FuncUnstIds.Count];
 
-    /* candleSettings[] in CandleSettingType order. Defaults from
-     * TA_RestoreCandleDefaultSettings in ta_global.c. */
-    internal readonly CandleSetting[] candleSettings =
+    /* The 11 defaults, in CandleSettingType order, from
+     * TA_RestoreCandleDefaultSettings in ta_global.c. ONE source of truth: both a
+     * fresh Core and CoreBuilder.RestoreCandleDefault read this array, so the
+     * literals cannot drift between the two the way two copies would. Safe to
+     * share rather than clone because CandleSetting is immutable. */
+    internal static readonly CandleSetting[] DefaultCandleSettings =
     {
         new CandleSetting(RangeType.RealBody, 10, 1.0),   // BodyLong
         new CandleSetting(RangeType.RealBody, 10, 3.0),   // BodyVeryLong
@@ -104,10 +107,74 @@ public partial class Core
         new CandleSetting(RangeType.HighLow,  5,  0.05),  // Equal
     };
 
+    /* candleSettings[] in CandleSettingType order. */
+    internal readonly CandleSetting[] candleSettings = (CandleSetting[])DefaultCandleSettings.Clone();
+
     /// <summary>Create a Core with every setting at its documented
     /// default.</summary>
     public Core()
     {
+    }
+
+    /* Built through CoreBuilder.Build(). Takes a snapshot rather than the
+     * builder's own array, so later builder calls cannot reach in here. */
+    internal Core(CoreBuilder builder)
+    {
+        unstablePeriod = builder.SnapshotUnstablePeriod();
+        candleSettings = builder.SnapshotCandleSettings();
+    }
+
+    /// <summary>Start building a <c>Core</c> with non-default settings.</summary>
+    /// <returns>A builder seeded with TA-Lib's defaults.</returns>
+    public static CoreBuilder Builder()
+    {
+        return new CoreBuilder();
+    }
+
+    /// <summary>Seed a builder from this <c>Core</c>'s settings, for
+    /// clone-and-modify.</summary>
+    /// <returns>A builder carrying this instance's current settings.</returns>
+    public CoreBuilder ToBuilder()
+    {
+        return new CoreBuilder(unstablePeriod, candleSettings);
+    }
+
+    /// <summary>Reads one candlestick threshold.</summary>
+    /// <param name="settingType">The setting to query.</param>
+    /// <returns>Its range type, averaging period and factor.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="settingType"/>
+    /// is <see cref="CandleSettingType.AllCandleSettings"/>, which is a wildcard
+    /// naming no single setting, or is not a setting at all.</exception>
+    public CandleSetting CandleSettings(CandleSettingType settingType)
+    {
+        int slot = (int)settingType;
+        if (slot < 0 || slot >= DefaultCandleSettings.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settingType), settingType,
+                "not a single candlestick setting");
+        }
+        return candleSettings[slot];
+    }
+
+    /// <summary>Reads the unstable period configured for one function.</summary>
+    /// <param name="id">The function to query.</param>
+    /// <returns>Its extra warm-up bars.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="id"/> is
+    /// <see cref="FuncUnstId.ALL"/>, which is the set-all wildcard and names no
+    /// single function, or is not a function id at all.</exception>
+    /// <remarks>C's <c>TA_GetUnstablePeriod</c> answers <c>0</c> for the same
+    /// input and cannot report an error; <c>0</c> is itself a legal period, so
+    /// that answer is indistinguishable from a genuine reading. Java throws here
+    /// too.</remarks>
+    public int UnstablePeriod(FuncUnstId id)
+    {
+        int slot = (int)id;
+        if (slot < 0 || slot >= FuncUnstIds.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(id), id,
+                "not a function with a single unstable period");
+        }
+        return unstablePeriod[slot];
     }
 
     /* The RetCode -> exception mapping the generated guarded wrappers throw

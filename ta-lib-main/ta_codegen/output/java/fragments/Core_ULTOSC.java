@@ -647,7 +647,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class ULTOSC_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod1;
       int optInTimePeriod2;
       int optInTimePeriod3;
@@ -704,6 +704,41 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( ULTOSC_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod1 = other.optInTimePeriod1;
+         this.optInTimePeriod2 = other.optInTimePeriod2;
+         this.optInTimePeriod3 = other.optInTimePeriod3;
+         this.a1Total = other.a1Total;
+         this.a2Total = other.a2Total;
+         this.a3Total = other.a3Total;
+         this.b1Total = other.b1Total;
+         this.b2Total = other.b2Total;
+         this.b3Total = other.b3Total;
+         this.output = other.output;
+         this.trailingPos1 = other.trailingPos1;
+         this.trailingPos2 = other.trailingPos2;
+         this.term_Idx = other.term_Idx;
+         this.maxIdx_term = other.maxIdx_term;
+         this.lag1_inClose = other.lag1_inClose;
+         this.cbSize_term = other.cbSize_term;
+         if( this.cb_term_closeMinusTrueLow != null && this.cb_term_closeMinusTrueLow.length == other.cb_term_closeMinusTrueLow.length ) {
+            System.arraycopy( other.cb_term_closeMinusTrueLow, 0, this.cb_term_closeMinusTrueLow, 0, other.cb_term_closeMinusTrueLow.length );
+         } else {
+            this.cb_term_closeMinusTrueLow = other.cb_term_closeMinusTrueLow.clone();
+         }
+         if( this.cb_term_trueRange != null && this.cb_term_trueRange.length == other.cb_term_trueRange.length ) {
+            System.arraycopy( other.cb_term_trueRange, 0, this.cb_term_trueRange, 0, other.cb_term_trueRange.length );
+         } else {
+            this.cb_term_trueRange = other.cb_term_trueRange.clone();
+         }
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
+      private static final ThreadLocal<ULTOSC_Stream> PEEK_SCRATCH = new ThreadLocal<>();
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -716,12 +751,20 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a scratch handle held per thread and
+       * reused, so the copy allocates nothing after the first peek of this
+       * indicator on this thread. That scratch is retained for the life of
+       * the thread.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
-         ULTOSC_Stream scratch = new ULTOSC_Stream(this);
+         ULTOSC_Stream scratch = PEEK_SCRATCH.get();
+         if( scratch == null ) {
+            scratch = new ULTOSC_Stream(this);
+            PEEK_SCRATCH.set(scratch);
+         } else {
+            scratch.copyFrom(this);
+         }
          core.ULTOSC_StreamStep(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
       }
@@ -817,7 +860,7 @@
       /* Increment indexes */
       sp.lag1_inClose = inClose;
    }
-   private RetCode ULTOSC_OpenBody( ULTOSC_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3 )
+   private RetCode ULTOSC_OpenCore( ULTOSC_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double a1Total = 0;
       double a2Total = 0;
@@ -849,9 +892,6 @@
       double[] term_trueRange;
       int term_Idx = 0;
       int maxIdx_term = (32)-1;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
@@ -1041,7 +1081,7 @@
           * to have the input array to be also the output
           * array.
           */
-         lastValue_outReal = 100.0 * (output / 7.0);
+         outReal[outIdx * outStride] = 100.0 * (output / 7.0);
          /* Increment indexes */
          outIdx += 1;
          today += 1;
@@ -1072,267 +1112,42 @@
       sp.cbSize_term = capCb_term;
       sp.cb_term_closeMinusTrueLow = term_closeMinusTrueLow;
       sp.cb_term_trueRange = term_trueRange;
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode ULTOSC_OpenBody( ULTOSC_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3 )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return ULTOSC_OpenCore( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode ULTOSC_OpenAndFillBody( ULTOSC_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      double a1Total = 0;
-      double a2Total = 0;
-      double a3Total = 0;
-      double b1Total = 0;
-      double b2Total = 0;
-      double b3Total = 0;
-      double trueLow = 0;
-      double trueRange = 0;
-      double closeMinusTrueLow = 0;
-      double tempDouble = 0;
-      double output = 0;
-      double tempHT = 0;
-      double tempLT = 0;
-      double tempCY = 0;
-      int lookbackTotal = 0;
-      int longestPeriod = 0;
-      int longestIndex = 0;
-      int i = 0;
-      int j = 0;
-      int today = 0;
-      int outIdx = 0;
-      int trailingPos1 = 0;
-      int trailingPos2 = 0;
-      int[] usedFlag = new int[3];
-      int[] periods = new int[3];
-      int[] sortedPeriods = new int[3];
-      double[] term_closeMinusTrueLow;
-      double[] term_trueRange;
-      int term_Idx = 0;
-      int maxIdx_term = (32)-1;
-      int historyLen = inHigh.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod1 == Integer.MIN_VALUE ) {
-         optInTimePeriod1 = 7;
-      } else if( optInTimePeriod1 < 1 || optInTimePeriod1 > 100000 ) {
-         return RetCode.BadParam;
-      }
-      if( optInTimePeriod2 == Integer.MIN_VALUE ) {
-         optInTimePeriod2 = 14;
-      } else if( optInTimePeriod2 < 1 || optInTimePeriod2 > 100000 ) {
-         return RetCode.BadParam;
-      }
-      if( optInTimePeriod3 == Integer.MIN_VALUE ) {
-         optInTimePeriod3 = 28;
-      } else if( optInTimePeriod3 < 1 || optInTimePeriod3 > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      /* The two per-bar terms the three moving sums are built from. Both are a
-       * pure function of the bar, so each bar is evaluated once on entry and read
-       * back when it leaves each of the three windows.
-       */
-      /* One entry per bar of the longest window. Stays on the stack for every
-       * period up to 32, which covers the 7/14/28 default.
-       */
-      /* Id, Type, Static Size */
-      outBegIdx.value = 0;
-      outNBElement.value = 0;
-      /* Ensure that the time periods are ordered from shortest to longest.
-       * Sort.
-       */
-      periods[0] = optInTimePeriod1;
-      periods[1] = optInTimePeriod2;
-      periods[2] = optInTimePeriod3;
-      usedFlag[0] = 0;
-      usedFlag[1] = 0;
-      usedFlag[2] = 0;
-      for( i = 0; i < 3; i += 1 ) {
-         longestPeriod = 0;
-         longestIndex = 0;
-         for( j = 0; j < 3; j += 1 ) {
-            if( usedFlag[j] == 0 && periods[j] > longestPeriod ) {
-               longestPeriod = periods[j];
-               longestIndex = j;
-            }
-         }
-         usedFlag[longestIndex] = 1;
-         sortedPeriods[i] = longestPeriod;
+      return ULTOSC_OpenCore( sp, inHigh, inLow, inClose, 0, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode ULTOSC_OpenAndFillInternalBody( ULTOSC_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return ULTOSC_OpenCore(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* ULTOSC_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   ULTOSC_Stream ULTOSC_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      ULTOSC_Stream sp = new ULTOSC_Stream(this);
+      RetCode retCode = ULTOSC_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      optInTimePeriod1 = sortedPeriods[2];
-      optInTimePeriod2 = sortedPeriods[1];
-      optInTimePeriod3 = sortedPeriods[0];
-      /* Adjust startIdx for lookback period. */
-      lookbackTotal = ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("ULTOSC openAndFill: history shorter than lookback + 1");
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("ULTOSC openAndFill: internal error");
       }
-      if( optInTimePeriod3 < 1 ) return RetCode.InternalError;
-      term_closeMinusTrueLow = new double[optInTimePeriod3];
-      term_trueRange = new double[optInTimePeriod3];
-      maxIdx_term = (optInTimePeriod3)-1;
-      term_Idx = 0;
-      /* Prime running totals used in moving averages.
-       *
-       * One pass over the longest warm-up window replaces three overlapping
-       * passes. A bar inside the shorter windows is added to those totals as it
-       * is reached, so every total still accumulates exactly the same bars in
-       * exactly the same ascending order as three separate loops did.
-       */
-      a1Total = 0;
-      b1Total = 0;
-      a2Total = 0;
-      b2Total = 0;
-      a3Total = 0;
-      b3Total = 0;
-      for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
-         tempLT = inLow[i];
-         tempHT = inHigh[i];
-         tempCY = inClose[i - 1];
-         trueLow = Math.min(tempLT, tempCY);
-         closeMinusTrueLow = inClose[i] - trueLow;
-         trueRange = tempHT - tempLT;
-         tempDouble = Math.abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
-         tempDouble = Math.abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
-         term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
-         term_trueRange[term_Idx] = trueRange;
-         term_Idx++;
-         if( term_Idx > maxIdx_term ) { term_Idx = 0; }
-         if( i >= startIdx - optInTimePeriod1 + 1 ) {
-            a1Total += closeMinusTrueLow;
-            b1Total += trueRange;
-         }
-         if( i >= startIdx - optInTimePeriod2 + 1 ) {
-            a2Total += closeMinusTrueLow;
-            b2Total += trueRange;
-         }
-         a3Total += closeMinusTrueLow;
-         b3Total += trueRange;
-      }
-      /* Calculate oscillator */
-      today = startIdx;
-      outIdx = 0;
-      /* The warm-up wrote optInTimePeriod3-1 bars, so term_Idx is the slot for
-       * `today` and, once advanced past it, the slot of the bar leaving the
-       * longest window. The two shorter windows trail it by a fixed offset.
-       */
-      trailingPos1 = term_Idx + optInTimePeriod3 - optInTimePeriod1 + 1;
-      if( trailingPos1 >= optInTimePeriod3 ) {
-         trailingPos1 -= optInTimePeriod3;
-      }
-      trailingPos2 = term_Idx + optInTimePeriod3 - optInTimePeriod2 + 1;
-      if( trailingPos2 >= optInTimePeriod3 ) {
-         trailingPos2 -= optInTimePeriod3;
-      }
-      while( today <= endIdx ) {
-         /* Add on today's terms */
-         tempLT = inLow[today];
-         tempHT = inHigh[today];
-         tempCY = inClose[today - 1];
-         trueLow = Math.min(tempLT, tempCY);
-         closeMinusTrueLow = inClose[today] - trueLow;
-         trueRange = tempHT - tempLT;
-         tempDouble = Math.abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
-         tempDouble = Math.abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
-         term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
-         term_trueRange[term_Idx] = trueRange;
-         a1Total += closeMinusTrueLow;
-         a2Total += closeMinusTrueLow;
-         a3Total += closeMinusTrueLow;
-         b1Total += trueRange;
-         b2Total += trueRange;
-         b3Total += trueRange;
-         /* Calculate the oscillator value for today */
-         output = 0.0;
-         if( !((-0.00000000000001 < b1Total) && (b1Total < 0.00000000000001)) ) {
-            output += 4.0 * (a1Total / b1Total);
-         }
-         if( !((-0.00000000000001 < b2Total) && (b2Total < 0.00000000000001)) ) {
-            output += 2.0 * (a2Total / b2Total);
-         }
-         if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
-            output += a3Total / b3Total;
-         }
-         /* Remove the trailing terms to prepare for next day. Each was evaluated
-          * once, when its bar entered the ring.
-          */
-         a1Total -= term_closeMinusTrueLow[trailingPos1];
-         b1Total -= term_trueRange[trailingPos1];
-         trailingPos1 += 1;
-         if( trailingPos1 >= optInTimePeriod3 ) {
-            trailingPos1 = 0;
-         }
-         a2Total -= term_closeMinusTrueLow[trailingPos2];
-         b2Total -= term_trueRange[trailingPos2];
-         trailingPos2 += 1;
-         if( trailingPos2 >= optInTimePeriod3 ) {
-            trailingPos2 = 0;
-         }
-         term_Idx++;
-         if( term_Idx > maxIdx_term ) { term_Idx = 0; }
-         a3Total -= term_closeMinusTrueLow[term_Idx];
-         b3Total -= term_trueRange[term_Idx];
-         /* Last operation is to write the output. Must
-          * be done after the trailing index have all been
-          * taken care of because the caller is allowed
-          * to have the input array to be also the output
-          * array.
-          */
-         outReal[outIdx] = 100.0 * (output / 7.0);
-         /* Increment indexes */
-         outIdx += 1;
-         today += 1;
-      }
-      /* All done. Indicate the output limits and return. */
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Capture the live batch state into the handle. */
-      int capCb_term = maxIdx_term + 1;
-      if( capCb_term > historyLen + 1 ) {
-         return RetCode.InternalError;
-      }
-      sp.optInTimePeriod1 = optInTimePeriod1;
-      sp.optInTimePeriod2 = optInTimePeriod2;
-      sp.optInTimePeriod3 = optInTimePeriod3;
-      sp.a1Total = a1Total;
-      sp.a2Total = a2Total;
-      sp.a3Total = a3Total;
-      sp.b1Total = b1Total;
-      sp.b2Total = b2Total;
-      sp.b3Total = b3Total;
-      sp.output = output;
-      sp.trailingPos1 = trailingPos1;
-      sp.trailingPos2 = trailingPos2;
-      sp.term_Idx = term_Idx;
-      sp.maxIdx_term = maxIdx_term;
-      sp.lag1_inClose = inClose[historyLen - 1];
-      sp.cbSize_term = capCb_term;
-      sp.cb_term_closeMinusTrueLow = term_closeMinusTrueLow;
-      sp.cb_term_trueRange = term_trueRange;
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("ULTOSC openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind ULTOSC_Open (composition seam). */
    ULTOSC_Stream ULTOSC_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3 )

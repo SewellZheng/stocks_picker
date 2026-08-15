@@ -83,6 +83,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         new(8, "T3"),
         new(9, "HMA"),
         new(10, "DISABLED"),
+        new(11, "DEFAULT"),
     ];
 
     /// <summary>The process-wide catalogue.</summary>
@@ -200,6 +201,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
             MakeDema(),
             MakeDiv(),
             MakeDx(),
+            MakeEfi(),
             MakeEma(),
             MakeExp(),
             MakeFloor(),
@@ -223,6 +225,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
             MakeMacdext(),
             MakeMacdfix(),
             MakeMama(),
+            MakeMarketfi(),
             MakeMavp(),
             MakeMax(),
             MakeMaxindex(),
@@ -246,6 +249,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
             MakePpo(),
             MakePvi(),
             MakePvo(),
+            MakeQstick(),
             MakeRoc(),
             MakeRocp(),
             MakeRocr(),
@@ -275,6 +279,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
             MakeUltosc(),
             MakeVar(),
             MakeVwma(),
+            MakeWad(),
             MakeWclprice(),
             MakeWillr(),
             MakeWma(),
@@ -349,7 +354,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "ACOS",
         group: FunctionGroup.MathTransform,
         hint: "Vector Trigonometric ACos",
-        flags: FunctionFlags.Stream,
+        flags: FunctionFlags.Stream | FunctionFlags.NanInfOutput,
         unstableId: null,
         inputs:
         [
@@ -579,7 +584,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "ASIN",
         group: FunctionGroup.MathTransform,
         hint: "Vector Trigonometric ASin",
-        flags: FunctionFlags.Stream,
+        flags: FunctionFlags.Stream | FunctionFlags.NanInfOutput,
         unstableId: null,
         inputs:
         [
@@ -2405,7 +2410,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "DEMA",
         group: FunctionGroup.OverlapStudies,
         hint: "Double Exponential Moving Average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.Period1Identity,
         unstableId: null,
         inputs:
         [
@@ -2431,7 +2436,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "DIV",
         group: FunctionGroup.MathOperators,
         hint: "Vector Arithmetic Div",
-        flags: FunctionFlags.Stream,
+        flags: FunctionFlags.Stream | FunctionFlags.NanInfOutput,
         unstableId: null,
         inputs:
         [
@@ -2477,11 +2482,37 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
             return new CallOutcome(rc, b, n);
         });
 
+    private static FunctionInfo MakeEfi() => new(
+        name: "EFI",
+        group: FunctionGroup.VolumeIndicators,
+        hint: "Elder's Force Index",
+        flags: FunctionFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceCV", PriceComponents.Close | PriceComponents.Volume, [PriceComponents.Close, PriceComponents.Volume]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 13, 1, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.EFI_Lookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.EFI(
+                startIdx, endIdx, c.Price(0, PriceComponents.Close), c.Price(0, PriceComponents.Volume), c.IntOpt(0), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        });
+
     private static FunctionInfo MakeEma() => new(
         name: "EMA",
         group: FunctionGroup.OverlapStudies,
         hint: "Exponential Moving Average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.UnstablePeriod,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.UnstablePeriod | FunctionFlags.Period1Identity,
         unstableId: FuncUnstId.EMA,
         inputs:
         [
@@ -2553,7 +2584,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "HMA",
         group: FunctionGroup.OverlapStudies,
         hint: "Hull Moving Average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.Period1Identity,
         unstableId: null,
         inputs:
         [
@@ -2745,7 +2776,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "KAMA",
         group: FunctionGroup.OverlapStudies,
         hint: "Kaufman Adaptive Moving Average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.UnstablePeriod,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.UnstablePeriod | FunctionFlags.Period1Identity,
         unstableId: FuncUnstId.KAMA,
         inputs:
         [
@@ -2875,7 +2906,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "LN",
         group: FunctionGroup.MathTransform,
         hint: "Vector Log Natural",
-        flags: FunctionFlags.Stream,
+        flags: FunctionFlags.Stream | FunctionFlags.NanInfOutput,
         unstableId: null,
         inputs:
         [
@@ -2898,7 +2929,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "LOG10",
         group: FunctionGroup.MathTransform,
         hint: "Vector Log10",
-        flags: FunctionFlags.Stream,
+        flags: FunctionFlags.Stream | FunctionFlags.NanInfOutput,
         unstableId: null,
         inputs:
         [
@@ -2921,7 +2952,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "MA",
         group: FunctionGroup.OverlapStudies,
         hint: "Moving average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.Period1Identity,
         unstableId: null,
         inputs:
         [
@@ -3060,6 +3091,29 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         {
             RetCode rc = core.MAMA(
                 startIdx, endIdx, c.Series(0), c.RealOpt(0), c.RealOpt(1), out int b, out int n, c.RealOut(0), c.RealOut(1));
+            return new CallOutcome(rc, b, n);
+        });
+
+    private static FunctionInfo MakeMarketfi() => new(
+        name: "MARKETFI",
+        group: FunctionGroup.VolumeIndicators,
+        hint: "Market Facilitation Index",
+        flags: FunctionFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLV", PriceComponents.High | PriceComponents.Low | PriceComponents.Volume, [PriceComponents.High, PriceComponents.Low, PriceComponents.Volume]),
+        ],
+        optInputs: [],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.MARKETFI_Lookback(),
+        invoke: static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.MARKETFI(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Volume), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         });
 
@@ -3657,6 +3711,32 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
             return new CallOutcome(rc, b, n);
         });
 
+    private static FunctionInfo MakeQstick() => new(
+        name: "QSTICK",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Qstick",
+        flags: FunctionFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceOC", PriceComponents.Open | PriceComponents.Close, [PriceComponents.Open, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 4, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.QSTICK_Lookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.QSTICK(
+                startIdx, endIdx, c.Price(0, PriceComponents.Open), c.Price(0, PriceComponents.Close), c.IntOpt(0), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        });
+
     private static FunctionInfo MakeRoc() => new(
         name: "ROC",
         group: FunctionGroup.MomentumIndicators,
@@ -3897,7 +3977,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "SMA",
         group: FunctionGroup.OverlapStudies,
         hint: "Simple Moving Average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.Period1Identity,
         unstableId: null,
         inputs:
         [
@@ -3923,7 +4003,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "SQRT",
         group: FunctionGroup.MathTransform,
         hint: "Vector Square Root",
-        flags: FunctionFlags.Stream,
+        flags: FunctionFlags.Stream | FunctionFlags.NanInfOutput,
         unstableId: null,
         inputs:
         [
@@ -4113,7 +4193,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "T3",
         group: FunctionGroup.OverlapStudies,
         hint: "Triple Exponential Moving Average (T3)",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.UnstablePeriod,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.UnstablePeriod | FunctionFlags.Period1Identity,
         unstableId: FuncUnstId.T3,
         inputs:
         [
@@ -4186,7 +4266,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "TEMA",
         group: FunctionGroup.OverlapStudies,
         hint: "Triple Exponential Moving Average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.Period1Identity,
         unstableId: null,
         inputs:
         [
@@ -4235,7 +4315,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "TRIMA",
         group: FunctionGroup.OverlapStudies,
         hint: "Triangular Moving Average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.Period1Identity,
         unstableId: null,
         inputs:
         [
@@ -4391,7 +4471,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "VWMA",
         group: FunctionGroup.OverlapStudies,
         hint: "Volume Weighted Moving Average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.NanInfOutput | FunctionFlags.Period1Identity,
         unstableId: null,
         inputs:
         [
@@ -4411,6 +4491,29 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         {
             RetCode rc = core.VWMA(
                 startIdx, endIdx, c.Series(0), c.Price(1, PriceComponents.Volume), c.IntOpt(0), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        });
+
+    private static FunctionInfo MakeWad() => new(
+        name: "WAD",
+        group: FunctionGroup.VolumeIndicators,
+        hint: "Williams' Accumulation/Distribution (no volume)",
+        flags: FunctionFlags.Stream | FunctionFlags.PathDependent,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs: [],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.WAD_Lookback(),
+        invoke: static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.WAD(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         });
 
@@ -4467,7 +4570,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         name: "WMA",
         group: FunctionGroup.OverlapStudies,
         hint: "Weighted Moving Average",
-        flags: FunctionFlags.Overlap | FunctionFlags.Stream,
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.Period1Identity,
         unstableId: null,
         inputs:
         [

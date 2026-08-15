@@ -191,6 +191,42 @@ public class CoreApiTest {
         check(outT[rT.count() - 1] == 100, "tuned core: a huge BodyDoji factor calls it a doji");
     }
 
+    /**
+     * The property the {@code avgPeriod} bounds exist to preserve (#185), stated
+     * over the two tiers rather than over the setter: for every setting the
+     * builder accepts, the lookback is a real index count and the call's reported
+     * range agrees with it. An out-of-range {@code avgPeriod} broke exactly this
+     * — a value near {@code Integer.MAX_VALUE} wrapped the
+     * {@code Math.max(...) + N} lookbacks negative.
+     */
+    static void acceptedCandleSettingsKeepTheLookbackAndTheCallInStep() {
+        int n = 40;
+        double[] open = new double[n], high = new double[n], low = new double[n], close = new double[n];
+        for (int i = 0; i < n; i++) {
+            open[i] = 100.0; close[i] = 104.0; high[i] = 105.0; low[i] = 99.0;
+        }
+
+        for (int avgPeriod : new int[] { 0, 1, 5, n - 1, n, 100, Core.MAX_INDEX }) {
+            Core core = Core.builder()
+                .candleSetting(CandleSettingType.BodyDoji, RangeType.HighLow, avgPeriod, 0.1)
+                .build();
+            int lookback = core.CDLDOJI_Lookback();
+            check(lookback >= 0 && lookback <= Core.MAX_INDEX,
+                  "avgPeriod " + avgPeriod + ": lookback " + lookback + " is a real index count");
+
+            int[] out = new int[n];
+            OutRange r = core.CDLDOJI(0, n - 1, open, high, low, close, out);
+            if (lookback > n - 1) {
+                check(r.isEmpty(),
+                      "avgPeriod " + avgPeriod + ": a lookback past the series produces nothing");
+            } else {
+                check(r.begIdx() == lookback && r.count() == n - lookback,
+                      "avgPeriod " + avgPeriod + ": begIdx " + r.begIdx() + " / count "
+                      + r.count() + " agree with lookback " + lookback);
+            }
+        }
+    }
+
     static void restoreCandleDefaultUndoesAnOverride() {
         CoreBuilder b = Core.builder()
             .candleSetting(CandleSettingType.BodyDoji, RangeType.RealBody, 3, 42.0);
@@ -303,6 +339,20 @@ public class CoreApiTest {
             () -> Core.builder().unstablePeriod(null, 1), "null FuncUnstId -> NPE");
         checkThrows(IllegalArgumentException.class,
             () -> Core.builder().unstablePeriod(FuncUnstId.RSI, -1), "negative period -> IAE");
+        // The period is added to a lookback that is then used as an index, so an
+        // unbounded one overflows that lookback negative and the function indexes
+        // past its input. C rejects anything above TA_MAX_INDEX
+        // (src/ta_func/ta_utility.c) and Java must agree, on the single-id path
+        // and on the set-all wildcard alike.
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.builder().unstablePeriod(FuncUnstId.RSI, Core.MAX_INDEX + 1),
+            "period above MAX_INDEX -> IAE");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.builder().unstablePeriod(FuncUnstId.RSI, Integer.MAX_VALUE),
+            "Integer.MAX_VALUE period -> IAE");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.builder().unstablePeriod(FuncUnstId.ALL, Core.MAX_INDEX + 1),
+            "wildcard period above MAX_INDEX -> IAE");
         checkThrows(NullPointerException.class,
             () -> Core.builder().candleSetting(null, RangeType.HighLow, 1, 1.0),
             "null CandleSettingType -> NPE");
@@ -316,6 +366,24 @@ public class CoreApiTest {
         checkThrows(IllegalArgumentException.class,
             () -> Core.builder().candleSetting(CandleSettingType.BodyDoji, RangeType.HighLow, -1, 1.0),
             "negative avgPeriod -> IAE");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.builder().candleSetting(
+                CandleSettingType.BodyDoji, RangeType.HighLow, Core.MAX_INDEX + 1, 1.0),
+            "avgPeriod above MAX_INDEX -> IAE");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.builder().candleSetting(
+                CandleSettingType.BodyDoji, RangeType.HighLow, Integer.MAX_VALUE, 1.0),
+            "avgPeriod at Integer.MAX_VALUE -> IAE");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.builder().candleSetting(
+                CandleSettingType.BodyDoji, RangeType.HighLow, 10, Double.NaN),
+            "NaN factor -> IAE");
+        // A negative factor is legal: it scales a threshold nothing can fall
+        // below, so the pattern simply never matches — a plausible thing to ask
+        // for, unlike NaN.
+        check(Core.builder().candleSetting(
+                  CandleSettingType.BodyDoji, RangeType.HighLow, 10, -1.0) != null,
+              "a negative factor is accepted");
         // Core.unstablePeriod(id) reads; CoreBuilder.unstablePeriod(id, period)
         // writes. Same name, different class and arity — the immutable Core has
         // no writer for a `get` prefix to disambiguate against.
@@ -379,12 +447,50 @@ public class CoreApiTest {
         check(problems.isEmpty(), "8 threads sharing one Core agree bitwise " + problems);
     }
 
+    /**
+     * The accepting side of the period bound, and the rule that makes the bound
+     * worth having: a rejected call must leave the builder exactly as it was.
+     * Asserting only that bad input throws would pass just as well against an
+     * implementation that threw <em>after</em> writing.
+     */
+    static void unstablePeriodBoundIsABoundNotAnOffByOne() {
+        // MAX_INDEX itself is legal — C accepts it and rejects MAX_INDEX + 1.
+        final Core ceiling = Core.builder().unstablePeriod(FuncUnstId.RSI, Core.MAX_INDEX).build();
+        check(ceiling.unstablePeriod(FuncUnstId.RSI) == Core.MAX_INDEX,
+            "the MAX_INDEX ceiling is accepted, not rejected");
+
+        // A rejected call writes nothing: set a good value, have the next call be
+        // refused, and the good value must survive untouched.
+        final CoreBuilder b = Core.builder().unstablePeriod(FuncUnstId.EMA, 7);
+        checkThrows(IllegalArgumentException.class,
+            () -> b.unstablePeriod(FuncUnstId.EMA, Core.MAX_INDEX + 1),
+            "the rejected overwrite still throws");
+        check(b.build().unstablePeriod(FuncUnstId.EMA) == 7,
+            "a rejected unstablePeriod leaves the previous value in place");
+
+        // The wildcard path writes 24 slots, so a rejection there must not have
+        // filled any of them before noticing.
+        final CoreBuilder w = Core.builder().unstablePeriod(FuncUnstId.ALL, 3);
+        checkThrows(IllegalArgumentException.class,
+            () -> w.unstablePeriod(FuncUnstId.ALL, Integer.MAX_VALUE),
+            "the rejected wildcard still throws");
+        final Core after = w.build();
+        boolean allIntact = true;
+        for (FuncUnstId id : FuncUnstId.values()) {
+            if (id != FuncUnstId.ALL && after.unstablePeriod(id) != 3) {
+                allIntact = false;
+            }
+        }
+        check(allIntact, "a rejected wildcard leaves all 24 slots at their previous value");
+    }
+
     public static void main(String[] args) throws Exception {
         defaultsAreDefaults();
         builderSetsOnePeriod();
         builderAllIsSetAll();
         unstablePeriodReachesTheIndicator();
         candleSettingReachesTheIndicator();
+        acceptedCandleSettingsKeepTheLookbackAndTheCallInStep();
         restoreCandleDefaultUndoesAnOverride();
         builtCoreIsIsolatedFromTheBuilder();
         toBuilderRoundTripsAndDoesNotAlias();
@@ -393,6 +499,7 @@ public class CoreApiTest {
         configClassesAreFinal();
         compatibilityIsGone();
         misuseThrows();
+        unstablePeriodBoundIsABoundNotAnOffByOne();
         sharedAcrossThreads();
 
         if (failures == 0) {

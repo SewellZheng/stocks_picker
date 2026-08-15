@@ -34,7 +34,8 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInFastD_MAType Moving-average type used to smooth Fast-D
     *        (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA,
-    *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED).
+    *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT;
+    *        {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int STOCHF_Lookback( int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
@@ -48,6 +49,9 @@
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return -1;
+      }
+      if( optInFastD_MAType == MAType.DEFAULT ) {
+         optInFastD_MAType = MAType.SMA;
       }
       int retValue;
       /* Account for the initial data needed for Fast-K. */
@@ -101,6 +105,9 @@
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInFastD_MAType == MAType.DEFAULT ) {
+         optInFastD_MAType = MAType.SMA;
       }
       if( outFastK == outFastD ) {
          return RetCode.BadParam ;
@@ -326,6 +333,9 @@
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return RetCode.BadParam;
       }
+      if( optInFastD_MAType == MAType.DEFAULT ) {
+         optInFastD_MAType = MAType.SMA;
+      }
       if( outFastK == outFastD ) {
          return RetCode.BadParam ;
       }
@@ -451,7 +461,8 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInFastD_MAType Moving-average type used to smooth Fast-D
     *        (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA,
-    *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED).
+    *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param outFastK Raw %K stochastic line. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @param outFastD MA-smoothed %K (signal line) Must hold at least
@@ -522,7 +533,8 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInFastD_MAType Moving-average type used to smooth Fast-D
     *        (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA,
-    *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED).
+    *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param outFastK Raw %K stochastic line. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @param outFastD MA-smoothed %K (signal line) Must hold at least
@@ -575,7 +587,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class STOCHF_Stream {
-      final Core core;
+      Core core;
       int optInFastK_Period;
       int optInFastD_Period;
       MAType optInFastD_MAType;
@@ -587,7 +599,7 @@
       int trailingIdx;
       int i;
       int today;
-      int xCap;
+      int xMask;
       double[] x_inHigh;
       double[] x_inLow;
       double[] x_inClose;
@@ -621,7 +633,7 @@
          this.trailingIdx = other.trailingIdx;
          this.i = other.i;
          this.today = other.today;
-         this.xCap = other.xCap;
+         this.xMask = other.xMask;
          this.x_inHigh = other.x_inHigh.clone();
          this.x_inLow = other.x_inLow.clone();
          this.x_inClose = other.x_inClose.clone();
@@ -631,6 +643,49 @@
          this.sub0 = new MA_Stream(other.sub0);
          this.fillRange = other.fillRange;
       }
+
+      void copyFrom( STOCHF_Stream other ) {
+         this.core = other.core;
+         this.optInFastK_Period = other.optInFastK_Period;
+         this.optInFastD_Period = other.optInFastD_Period;
+         this.optInFastD_MAType = other.optInFastD_MAType;
+         this.lowest = other.lowest;
+         this.highest = other.highest;
+         this.diff = other.diff;
+         this.lowestIdx = other.lowestIdx;
+         this.highestIdx = other.highestIdx;
+         this.trailingIdx = other.trailingIdx;
+         this.i = other.i;
+         this.today = other.today;
+         this.xMask = other.xMask;
+         if( this.x_inHigh != null && this.x_inHigh.length == other.x_inHigh.length ) {
+            System.arraycopy( other.x_inHigh, 0, this.x_inHigh, 0, other.x_inHigh.length );
+         } else {
+            this.x_inHigh = other.x_inHigh.clone();
+         }
+         if( this.x_inLow != null && this.x_inLow.length == other.x_inLow.length ) {
+            System.arraycopy( other.x_inLow, 0, this.x_inLow, 0, other.x_inLow.length );
+         } else {
+            this.x_inLow = other.x_inLow.clone();
+         }
+         if( this.x_inClose != null && this.x_inClose.length == other.x_inClose.length ) {
+            System.arraycopy( other.x_inClose, 0, this.x_inClose, 0, other.x_inClose.length );
+         } else {
+            this.x_inClose = other.x_inClose.clone();
+         }
+         this.cur_outFastK = other.cur_outFastK;
+         this.cur_outFastD = other.cur_outFastD;
+         this.cachedValue = other.cachedValue;
+         if( this.sub0 == null ) {
+            this.sub0 = new MA_Stream(other.sub0);
+         } else {
+            this.sub0.copyFrom(other.sub0);
+         }
+         this.fillRange = other.fillRange;
+      }
+
+      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
+      private static final ThreadLocal<STOCHF_Stream> PEEK_SCRATCH = new ThreadLocal<>();
 
       /**
        * One output set, in batch output order. Immutable.
@@ -658,12 +713,20 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a scratch handle held per thread and
+       * reused, so the copy allocates nothing after the first peek of this
+       * indicator on this thread. That scratch is retained for the life of
+       * the thread.
        */
       public Value peek( double inHigh, double inLow, double inClose ) {
-         STOCHF_Stream scratch = new STOCHF_Stream(this);
+         STOCHF_Stream scratch = PEEK_SCRATCH.get();
+         if( scratch == null ) {
+            scratch = new STOCHF_Stream(this);
+            PEEK_SCRATCH.set(scratch);
+         } else {
+            scratch.copyFrom(this);
+         }
          core.STOCHF_StreamStep(scratch, inHigh, inLow, inClose);
          return new Value(scratch.cur_outFastK, scratch.cur_outFastD);
       }
@@ -691,24 +754,24 @@
       double cur_tempBuffer = 0.0;
       double cur_outFastD = 0.0;
       if( sp.today >= 1073741824 ) {
-         int rebaseShift = (sp.trailingIdx / sp.xCap) * sp.xCap;
+         int rebaseShift = sp.trailingIdx & ~sp.xMask;
          sp.today -= rebaseShift;
          sp.trailingIdx -= rebaseShift;
          sp.highestIdx -= rebaseShift;
          sp.i -= rebaseShift;
          sp.lowestIdx -= rebaseShift;
       }
-      sp.x_inHigh[sp.today % sp.xCap] = inHigh;
-      sp.x_inLow[sp.today % sp.xCap] = inLow;
-      sp.x_inClose[sp.today % sp.xCap] = inClose;
+      sp.x_inHigh[sp.today & sp.xMask] = inHigh;
+      sp.x_inLow[sp.today & sp.xMask] = inLow;
+      sp.x_inClose[sp.today & sp.xMask] = inClose;
       /* Set the lowest low */
-      tmp = sp.x_inLow[sp.today % sp.xCap];
+      tmp = sp.x_inLow[sp.today & sp.xMask];
       if( sp.lowestIdx < sp.trailingIdx ) {
          sp.lowestIdx = sp.trailingIdx;
-         sp.lowest = sp.x_inLow[sp.lowestIdx % sp.xCap];
+         sp.lowest = sp.x_inLow[sp.lowestIdx & sp.xMask];
          sp.i = sp.lowestIdx;
          while( ++sp.i <= sp.today ) {
-            tmp = sp.x_inLow[sp.i % sp.xCap];
+            tmp = sp.x_inLow[sp.i & sp.xMask];
             if( tmp < sp.lowest ) {
                sp.lowestIdx = sp.i;
                sp.lowest = tmp;
@@ -721,13 +784,13 @@
          sp.diff = (sp.highest - sp.lowest) / 100.0;
       }
       /* Set the highest high */
-      tmp = sp.x_inHigh[sp.today % sp.xCap];
+      tmp = sp.x_inHigh[sp.today & sp.xMask];
       if( sp.highestIdx < sp.trailingIdx ) {
          sp.highestIdx = sp.trailingIdx;
-         sp.highest = sp.x_inHigh[sp.highestIdx % sp.xCap];
+         sp.highest = sp.x_inHigh[sp.highestIdx & sp.xMask];
          sp.i = sp.highestIdx;
          while( ++sp.i <= sp.today ) {
-            tmp = sp.x_inHigh[sp.i % sp.xCap];
+            tmp = sp.x_inHigh[sp.i & sp.xMask];
             if( tmp > sp.highest ) {
                sp.highestIdx = sp.i;
                sp.highest = tmp;
@@ -744,7 +807,7 @@
        * would divide into [0,100] noise (issue #107 / STOCHRSI).
        */
       if( !((-0.00000000000001 < sp.diff) && (sp.diff < 0.00000000000001)) ) {
-         cur_tempBuffer = (sp.x_inClose[sp.today % sp.xCap] - sp.lowest) / sp.diff;
+         cur_tempBuffer = (sp.x_inClose[sp.today & sp.xMask] - sp.lowest) / sp.diff;
       } else {
          cur_tempBuffer = 0.0;
       }
@@ -755,7 +818,7 @@
       sp.cur_outFastK = cur_tempBuffer;
       sp.cur_outFastD = cur_outFastD;
    }
-   private RetCode STOCHF_OpenBody( STOCHF_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
+   private RetCode STOCHF_OpenCore( STOCHF_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, MInteger outBegIdx, MInteger outNBElement, double outFastK[], double outFastD[], int outStride )
    {
       RetCode retCode;
       double lowest = 0;
@@ -773,8 +836,6 @@
       int today = 0;
       int i = 0;
       int bufferIsAllocated = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
@@ -792,6 +853,9 @@
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( optInFastD_MAType == MAType.DEFAULT ) {
+         optInFastD_MAType = MAType.SMA;
       }
       if( historyLen < STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType) + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -943,8 +1007,8 @@
        */
       /* Sub-stream 0: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      MA_Stream sub0 = MA_OpenInternal(java.util.Arrays.copyOfRange(tempBuffer, 0, (outIdx - 1) + 1), 0, optInFastD_Period, optInFastD_MAType);
-      retCode = MA_Internal(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, sc_outFastD);
+      MA_Stream sub0 = MA_OpenAndFillInternal(java.util.Arrays.copyOfRange(tempBuffer, 0, (outIdx - 1) + 1), 0, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, sc_outFastD);
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
          if( (bufferIsAllocated) != 0 ) {
          }
@@ -984,13 +1048,17 @@
       if( capX < 1 || capX > historyLen ) {
          return RetCode.InternalError;
       }
-      double[] capX_inHigh = new double[capX];
-      double[] capX_inLow = new double[capX];
-      double[] capX_inClose = new double[capX];
+      int physX = 1;
+      while( physX < capX ) {
+         physX <<= 1;
+      }
+      double[] capX_inHigh = new double[physX];
+      double[] capX_inLow = new double[physX];
+      double[] capX_inClose = new double[physX];
       for( int fillJ = historyLen - capX; fillJ < historyLen; fillJ++ ) {
-         capX_inHigh[fillJ % capX] = inHigh[fillJ];
-         capX_inLow[fillJ % capX] = inLow[fillJ];
-         capX_inClose[fillJ % capX] = inClose[fillJ];
+         capX_inHigh[fillJ & (physX - 1)] = inHigh[fillJ];
+         capX_inLow[fillJ & (physX - 1)] = inLow[fillJ];
+         capX_inClose[fillJ & (physX - 1)] = inClose[fillJ];
       }
       sp.optInFastK_Period = optInFastK_Period;
       sp.optInFastD_Period = optInFastD_Period;
@@ -1003,7 +1071,7 @@
       sp.trailingIdx = trailingIdx;
       sp.i = i;
       sp.today = today;
-      sp.xCap = capX;
+      sp.xMask = physX - 1;
       sp.x_inHigh = capX_inHigh;
       sp.x_inLow = capX_inLow;
       sp.x_inClose = capX_inClose;
@@ -1011,269 +1079,44 @@
       sp.cur_outFastK = sc_outFastK[outNBElement.value - 1];
       sp.cur_outFastD = sc_outFastD[outNBElement.value - 1];
       sp.cachedValue = new STOCHF_Stream.Value(sp.cur_outFastK, sp.cur_outFastD);
+      if( outStride == 1 ) System.arraycopy(sc_outFastK, 0, outFastK, 0, outNBElement.value);
+      if( outStride == 1 ) System.arraycopy(sc_outFastD, 0, outFastD, 0, outNBElement.value);
       return RetCode.Success;
+   }
+   private RetCode STOCHF_OpenBody( STOCHF_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outFastK = new double[1];
+      double[] sink_outFastD = new double[1];
+      return STOCHF_OpenCore( sp, inHigh, inLow, inClose, startIdx, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, sink_outFastK, sink_outFastD, 0 );
    }
    private RetCode STOCHF_OpenAndFillBody( STOCHF_Stream sp, double inHigh[], double inLow[], double inClose[], int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, MInteger outBegIdx, MInteger outNBElement, double outFastK[], double outFastD[] )
    {
-      RetCode retCode;
-      double lowest = 0;
-      double highest = 0;
-      double tmp = 0;
-      double diff = 0;
-      double[] tempBuffer;
-      int outIdx = 0;
-      int lowestIdx = 0;
-      int highestIdx = 0;
-      int lookbackTotal = 0;
-      int lookbackK = 0;
-      int lookbackFastD = 0;
-      int trailingIdx = 0;
-      int today = 0;
-      int i = 0;
-      int bufferIsAllocated = 0;
-      int historyLen = inHigh.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInFastK_Period == Integer.MIN_VALUE ) {
-         optInFastK_Period = 5;
-      } else if( optInFastK_Period < 1 || optInFastK_Period > 100000 ) {
-         return RetCode.BadParam;
-      }
-      if( optInFastD_Period == Integer.MIN_VALUE ) {
-         optInFastD_Period = 3;
-      } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outFastK == (Object)inHigh || (Object)outFastK == (Object)inLow || (Object)outFastK == (Object)inClose || (Object)outFastD == (Object)inHigh || (Object)outFastD == (Object)inLow || (Object)outFastD == (Object)inClose || (Object)outFastK == (Object)outFastD ) {
          return RetCode.BadParam;
       }
-      if( historyLen < STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType) + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+      return STOCHF_OpenCore( sp, inHigh, inLow, inClose, 0, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD, 1 );
+   }
+   private RetCode STOCHF_OpenAndFillInternalBody( STOCHF_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, MInteger outBegIdx, MInteger outNBElement, double outFastK[], double outFastD[] )
+   {
+      return STOCHF_OpenCore(sp, inHigh, inLow, inClose, startIdx, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD, 1);
+   }
+   /* STOCHF_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   STOCHF_Stream STOCHF_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, MInteger outBegIdx, MInteger outNBElement, double outFastK[], double outFastD[] )
+   {
+      STOCHF_Stream sp = new STOCHF_Stream(this);
+      RetCode retCode = STOCHF_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      double[] sc_outFastK = new double[historyLen];
-      double[] sc_outFastD = new double[historyLen];
-      /* With stochastic, there is a total of 4 different lines that
-       * are defined: FASTK, FASTD, SLOWK and SLOWD.
-       *
-       * The D is the signal line usually drawn over its
-       * corresponding K function.
-       *
-       *                    (Today's Close - LowestLow)
-       *  FASTK(Kperiod) =  --------------------------- * 100
-       *                     (HighestHigh - LowestLow)
-       *
-       *  FASTD(FastDperiod, MA type) = MA Smoothed FASTK over FastDperiod
-       *
-       *  SLOWK(SlowKperiod, MA type) = MA Smoothed FASTK over SlowKperiod
-       *
-       *  SLOWD(SlowDperiod, MA Type) = MA Smoothed SLOWK over SlowDperiod
-       *
-       * The HighestHigh and LowestLow are the extreme values among the
-       * last 'Kperiod'.
-       *
-       * SLOWK and FASTD are equivalent when using the same period.
-       *
-       * The following shows how these four lines are made available in TA-LIB:
-       *
-       *  TA_STOCH  : Returns the SLOWK and SLOWD
-       *  TA_STOCHF : Returns the FASTK and FASTD
-       *
-       * The TA_STOCH function correspond to the more widely implemented version
-       * found in many software/charting package. The TA_STOCHF is more rarely
-       * used because its higher volatility cause often whipsaws.
-       */
-      /* Identify the lookback needed. */
-      lookbackK = optInFastK_Period - 1;
-      lookbackFastD = MA_Lookback(optInFastD_Period, optInFastD_MAType);
-      lookbackTotal = lookbackK + lookbackFastD;
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < lookbackTotal ) {
-         startIdx = lookbackTotal;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("STOCHF openAndFill: history shorter than lookback + 1");
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         /* Succeed... but no data in the output. */
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("STOCHF openAndFill: internal error");
       }
-      /* Do the K calculation:
-       *
-       *    Kt = 100 x ((Ct-Lt)/(Ht-Lt))
-       *
-       * Kt is today stochastic
-       * Ct is today closing price.
-       * Lt is the lowest price of the last K Period (including today)
-       * Ht is the highest price of the last K Period (including today)
-       */
-      /* Proceed with the calculation for the requested range.
-       * Note that this algorithm allows the input and
-       * output to be the same buffer.
-       */
-      outIdx = 0;
-      /* Calculate just enough K for ending up with the caller
-       * requested range. (The range of k must consider all
-       * the lookback involve with the smoothing).
-       */
-      trailingIdx = startIdx - lookbackTotal;
-      today = trailingIdx + lookbackK;
-      highestIdx = 0 - 1;
-      lowestIdx = highestIdx;
-      lowest = 0.0;
-      highest = lowest;
-      diff = highest;
-      /* Allocate a temporary buffer large enough to
-       * store the K.
-       *
-       * When outFastK aliases a price input the caller buffer doubles as the
-       * scratch, saving one allocation: the K writes trail the min/max window
-       * reads, and the final memmove is overlap-safe. outFastD must NOT be
-       * elected: the %D ma() below would then run in place over the raw K
-       * that the memmove into outFastK still needs (issue #130).
-       */
-      bufferIsAllocated = 0;
-      if( sc_outFastK == inHigh || sc_outFastK == inLow || sc_outFastK == inClose ) {
-         tempBuffer = sc_outFastK;
-      } else {
-         bufferIsAllocated = 1;
-         tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
-      }
-      /* Do the K calculation */
-      while( today <= endIdx ) {
-         /* Set the lowest low */
-         tmp = inLow[today];
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
-            lowest = inLow[lowestIdx];
-            i = lowestIdx;
-            while( ++i <= today ) {
-               tmp = inLow[i];
-               if( tmp < lowest ) {
-                  lowestIdx = i;
-                  lowest = tmp;
-               }
-            }
-            diff = (highest - lowest) / 100.0;
-         } else if( tmp <= lowest ) {
-            lowestIdx = today;
-            lowest = tmp;
-            diff = (highest - lowest) / 100.0;
-         }
-         /* Set the highest high */
-         tmp = inHigh[today];
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
-            highest = inHigh[highestIdx];
-            i = highestIdx;
-            while( ++i <= today ) {
-               tmp = inHigh[i];
-               if( tmp > highest ) {
-                  highestIdx = i;
-                  highest = tmp;
-               }
-            }
-            diff = (highest - lowest) / 100.0;
-         } else if( tmp >= highest ) {
-            highestIdx = today;
-            highest = tmp;
-            diff = (highest - lowest) / 100.0;
-         }
-         /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-          * a machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI).
-          */
-         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
-            tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
-         } else {
-            tempBuffer[outIdx++] = 0.0;
-         }
-         trailingIdx += 1;
-         today += 1;
-      }
-      /* Fast-K calculation completed. This K calculation is returned
-       * to the caller. It is smoothed to become Fast-D.
-       */
-      /* Sub-stream 0: ma over `tempBuffer`, warmed from bar 0 up to the
-       * sub-call's own startIdx (the seeding point). */
-      MA_Stream sub0 = MA_OpenInternal(java.util.Arrays.copyOfRange(tempBuffer, 0, (outIdx - 1) + 1), 0, optInFastD_Period, optInFastD_MAType);
-      retCode = MA_Internal(0, outIdx - 1, tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, sc_outFastD);
-      if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-         if( (bufferIsAllocated) != 0 ) {
-         }
-         /* Something wrong happen? No further data? */
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
-      /* Copy tempBuffer into the caller buffer.
-       * (Calculation could not be done directly in the
-       *  caller buffer because more input data then the
-       *  requested range was needed for doing %D).
-       */
-      /* memmove, not memcpy: tempBuffer aliases outFastK when the caller buffer is
-       * reused as scratch, so source and destination overlap (issue #94).
-       */
-      System.arraycopy(tempBuffer, lookbackFastD, sc_outFastK, 0, (int)outNBElement.value * 1);
-      /* Don't need K anymore, free it if it was allocated here. */
-      if( (bufferIsAllocated) != 0 ) {
-      }
-      if( retCode != RetCode.Success ) {
-         /* Something wrong happen while processing %D? */
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
-      /* Note: Keep the outBegIdx relative to the
-       *       caller input before returning.
-       */
-      outBegIdx.value = startIdx;
-      /* Capture the live producer state + sub handles. */
-      if( outNBElement.value < 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      /* Capture the live batch state into the handle. */
-      int capX = today - trailingIdx + 1;
-      if( capX < 1 || capX > historyLen ) {
-         return RetCode.InternalError;
-      }
-      double[] capX_inHigh = new double[capX];
-      double[] capX_inLow = new double[capX];
-      double[] capX_inClose = new double[capX];
-      for( int fillJ = historyLen - capX; fillJ < historyLen; fillJ++ ) {
-         capX_inHigh[fillJ % capX] = inHigh[fillJ];
-         capX_inLow[fillJ % capX] = inLow[fillJ];
-         capX_inClose[fillJ % capX] = inClose[fillJ];
-      }
-      sp.optInFastK_Period = optInFastK_Period;
-      sp.optInFastD_Period = optInFastD_Period;
-      sp.optInFastD_MAType = optInFastD_MAType;
-      sp.lowest = lowest;
-      sp.highest = highest;
-      sp.diff = diff;
-      sp.lowestIdx = lowestIdx;
-      sp.highestIdx = highestIdx;
-      sp.trailingIdx = trailingIdx;
-      sp.i = i;
-      sp.today = today;
-      sp.xCap = capX;
-      sp.x_inHigh = capX_inHigh;
-      sp.x_inLow = capX_inLow;
-      sp.x_inClose = capX_inClose;
-      sp.sub0 = sub0;
-      sp.cur_outFastK = sc_outFastK[outNBElement.value - 1];
-      sp.cur_outFastD = sc_outFastD[outNBElement.value - 1];
-      sp.cachedValue = new STOCHF_Stream.Value(sp.cur_outFastK, sp.cur_outFastD);
-      System.arraycopy(sc_outFastK, 0, outFastK, 0, outNBElement.value);
-      System.arraycopy(sc_outFastD, 0, outFastD, 0, outNBElement.value);
-      return RetCode.Success;
+      throw new IllegalArgumentException("STOCHF openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind STOCHF_Open (composition seam). */
    STOCHF_Stream STOCHF_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )

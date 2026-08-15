@@ -130,6 +130,7 @@ extern const TA_FuncDef TA_DEF_COSH;
 extern const TA_FuncDef TA_DEF_DEMA;
 extern const TA_FuncDef TA_DEF_DIV;
 extern const TA_FuncDef TA_DEF_DX;
+extern const TA_FuncDef TA_DEF_EFI;
 extern const TA_FuncDef TA_DEF_EMA;
 extern const TA_FuncDef TA_DEF_EXP;
 extern const TA_FuncDef TA_DEF_FLOOR;
@@ -153,6 +154,7 @@ extern const TA_FuncDef TA_DEF_MACD;
 extern const TA_FuncDef TA_DEF_MACDEXT;
 extern const TA_FuncDef TA_DEF_MACDFIX;
 extern const TA_FuncDef TA_DEF_MAMA;
+extern const TA_FuncDef TA_DEF_MARKETFI;
 extern const TA_FuncDef TA_DEF_MAVP;
 extern const TA_FuncDef TA_DEF_MAX;
 extern const TA_FuncDef TA_DEF_MAXINDEX;
@@ -176,6 +178,7 @@ extern const TA_FuncDef TA_DEF_PLUS_DM;
 extern const TA_FuncDef TA_DEF_PPO;
 extern const TA_FuncDef TA_DEF_PVI;
 extern const TA_FuncDef TA_DEF_PVO;
+extern const TA_FuncDef TA_DEF_QSTICK;
 extern const TA_FuncDef TA_DEF_ROC;
 extern const TA_FuncDef TA_DEF_ROCP;
 extern const TA_FuncDef TA_DEF_ROCR;
@@ -205,6 +208,7 @@ extern const TA_FuncDef TA_DEF_TYPPRICE;
 extern const TA_FuncDef TA_DEF_ULTOSC;
 extern const TA_FuncDef TA_DEF_VAR;
 extern const TA_FuncDef TA_DEF_VWMA;
+extern const TA_FuncDef TA_DEF_WAD;
 extern const TA_FuncDef TA_DEF_WCLPRICE;
 extern const TA_FuncDef TA_DEF_WILLR;
 extern const TA_FuncDef TA_DEF_WMA;
@@ -296,6 +300,7 @@ const TA_FuncDef *TA_PerGroupFunc_4[] = {
 &TA_DEF_PLUS_DI,
 &TA_DEF_PLUS_DM,
 &TA_DEF_PPO,
+&TA_DEF_QSTICK,
 &TA_DEF_ROC,
 &TA_DEF_ROCP,
 &TA_DEF_ROCR,
@@ -323,10 +328,13 @@ const TA_FuncDef *TA_PerGroupFunc_6[] = {
 &TA_DEF_AD,
 &TA_DEF_ADOSC,
 &TA_DEF_CMF,
+&TA_DEF_EFI,
+&TA_DEF_MARKETFI,
 &TA_DEF_NVI,
 &TA_DEF_OBV,
 &TA_DEF_PVI,
 &TA_DEF_PVO,
+&TA_DEF_WAD,
 NULL };
 #define SIZE_GROUP_6 ((sizeof(TA_PerGroupFunc_6)/sizeof(const TA_FuncDef *))-1)
 

@@ -181,7 +181,7 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class ADD_Stream {
-      final Core core;
+      Core core;
       double cur_outReal;
       OutRange fillRange = OutRange.EMPTY;
 
@@ -202,6 +202,12 @@
          this.fillRange = other.fillRange;
       }
 
+      void copyFrom( ADD_Stream other ) {
+         this.core = other.core;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
       /**
        * Commit one closed bar; always produces the new current value.
        * Never throws after a successful open; never allocates handle state.
@@ -214,9 +220,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal0, double inReal1 ) {
          ADD_Stream scratch = new ADD_Stream(this);
@@ -245,13 +251,10 @@
    {
       sp.cur_outReal = inReal0 + inReal1;
    }
-   private RetCode ADD_OpenBody( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx )
+   private RetCode ADD_OpenCore( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double lastValue_outReal = 0.0;
       int historyLen = inReal0.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 || inReal1.length != inReal0.length ) {
@@ -261,38 +264,47 @@
          return RetCode.OutOfRangeEndIndex;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
-         lastValue_outReal = inReal0[i] + inReal1[i];
+         outReal[outIdx * outStride] = inReal0[i] + inReal1[i];
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
-      sp.cur_outReal = lastValue_outReal;
+      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode ADD_OpenBody( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      return ADD_OpenCore( sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
    private RetCode ADD_OpenAndFillBody( ADD_Stream sp, double inReal0[], double inReal1[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      int outIdx = 0;
-      int i = 0;
-      int historyLen = inReal0.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 || inReal1.length != inReal0.length ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
       if( (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 ) {
          return RetCode.BadParam;
       }
-      for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
-         outReal[outIdx] = inReal0[i] + inReal1[i];
+      return ADD_OpenCore( sp, inReal0, inReal1, 0, outBegIdx, outNBElement, outReal, 1 );
+   }
+   private RetCode ADD_OpenAndFillInternalBody( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      return ADD_OpenCore(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1);
+   }
+   /* ADD_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   ADD_Stream ADD_OpenAndFillInternal( double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   {
+      ADD_Stream sp = new ADD_Stream(this);
+      RetCode retCode = ADD_OpenAndFillInternalBody(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      outNBElement.value = outIdx;
-      outBegIdx.value = startIdx;
-      /* Capture the live batch state into the handle. */
-      sp.cur_outReal = outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("ADD openAndFill: history shorter than lookback + 1");
+      }
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("ADD openAndFill: internal error");
+      }
+      throw new IllegalArgumentException("ADD openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind ADD_Open (composition seam). */
    ADD_Stream ADD_OpenInternal( double inReal0[], double inReal1[], int startIdx )

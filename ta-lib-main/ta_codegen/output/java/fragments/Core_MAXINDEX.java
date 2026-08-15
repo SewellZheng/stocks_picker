@@ -306,14 +306,14 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MAXINDEX_Stream {
-      final Core core;
+      Core core;
       int optInTimePeriod;
       double highest;
       int trailingIdx;
       int i;
       int highestIdx;
       int today;
-      int xCap;
+      int xMask;
       double[] x_inReal;
       int cur_outInteger;
       OutRange fillRange = OutRange.EMPTY;
@@ -337,8 +337,26 @@
          this.i = other.i;
          this.highestIdx = other.highestIdx;
          this.today = other.today;
-         this.xCap = other.xCap;
+         this.xMask = other.xMask;
          this.x_inReal = other.x_inReal.clone();
+         this.cur_outInteger = other.cur_outInteger;
+         this.fillRange = other.fillRange;
+      }
+
+      void copyFrom( MAXINDEX_Stream other ) {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.highest = other.highest;
+         this.trailingIdx = other.trailingIdx;
+         this.i = other.i;
+         this.highestIdx = other.highestIdx;
+         this.today = other.today;
+         this.xMask = other.xMask;
+         if( this.x_inReal != null && this.x_inReal.length == other.x_inReal.length ) {
+            System.arraycopy( other.x_inReal, 0, this.x_inReal, 0, other.x_inReal.length );
+         } else {
+            this.x_inReal = other.x_inReal.clone();
+         }
          this.cur_outInteger = other.cur_outInteger;
          this.fillRange = other.fillRange;
       }
@@ -355,9 +373,9 @@
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a throwaway copy). Deep-copies the handle state
-       * on every call: O(period) for windowed indicators — for hot loops,
-       * prefer {@code update} on a {@code copy()}.
+       * generated code, run on a copy). Never writes this handle, so peeks may
+       * run concurrently with each other. It runs on a throwaway copy, which for this
+       * handle's shape is cheaper than reusing one.
        */
       public int peek( double inReal ) {
          MAXINDEX_Stream scratch = new MAXINDEX_Stream(this);
@@ -386,20 +404,20 @@
    {
       double tmp = 0.0;
       if( sp.today >= 1073741824 ) {
-         int rebaseShift = (sp.trailingIdx / sp.xCap) * sp.xCap;
+         int rebaseShift = sp.trailingIdx & ~sp.xMask;
          sp.today -= rebaseShift;
          sp.trailingIdx -= rebaseShift;
          sp.highestIdx -= rebaseShift;
          sp.i -= rebaseShift;
       }
-      sp.x_inReal[sp.today % sp.xCap] = inReal;
-      tmp = sp.x_inReal[sp.today % sp.xCap];
+      sp.x_inReal[sp.today & sp.xMask] = inReal;
+      tmp = sp.x_inReal[sp.today & sp.xMask];
       if( sp.highestIdx < sp.trailingIdx ) {
          sp.highestIdx = sp.trailingIdx;
-         sp.highest = sp.x_inReal[sp.highestIdx % sp.xCap];
+         sp.highest = sp.x_inReal[sp.highestIdx & sp.xMask];
          sp.i = sp.highestIdx;
          while( ++sp.i <= sp.today ) {
-            tmp = sp.x_inReal[sp.i % sp.xCap];
+            tmp = sp.x_inReal[sp.i & sp.xMask];
             if( tmp > sp.highest ) {
                sp.highestIdx = sp.i;
                sp.highest = tmp;
@@ -413,7 +431,7 @@
       sp.trailingIdx += 1;
       sp.today += 1;
    }
-   private RetCode MAXINDEX_OpenBody( MAXINDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode MAXINDEX_OpenCore( MAXINDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
       double highest = 0;
       double tmp = 0;
@@ -423,9 +441,6 @@
       int today = 0;
       int i = 0;
       int highestIdx = 0;
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      int lastValue_outInteger = 0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -482,7 +497,7 @@
             highestIdx = today;
             highest = tmp;
          }
-         lastValue_outInteger = highestIdx;
+         outInteger[outIdx++ * outStride] = highestIdx;
          trailingIdx += 1;
          today += 1;
       }
@@ -496,9 +511,13 @@
       if( capX < 1 || capX > historyLen ) {
          return RetCode.InternalError;
       }
-      double[] capX_inReal = new double[capX];
+      int physX = 1;
+      while( physX < capX ) {
+         physX <<= 1;
+      }
+      double[] capX_inReal = new double[physX];
       for( int fillJ = historyLen - capX; fillJ < historyLen; fillJ++ ) {
-         capX_inReal[fillJ % capX] = inReal[fillJ];
+         capX_inReal[fillJ & (physX - 1)] = inReal[fillJ];
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.highest = highest;
@@ -506,109 +525,44 @@
       sp.i = i;
       sp.highestIdx = highestIdx;
       sp.today = today;
-      sp.xCap = capX;
+      sp.xMask = physX - 1;
       sp.x_inReal = capX_inReal;
-      sp.cur_outInteger = lastValue_outInteger;
+      sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
+   }
+   private RetCode MAXINDEX_OpenBody( MAXINDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   {
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      int[] sink_outInteger = new int[1];
+      return MAXINDEX_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outInteger, 0 );
    }
    private RetCode MAXINDEX_OpenAndFillBody( MAXINDEX_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
-      double highest = 0;
-      double tmp = 0;
-      int outIdx = 0;
-      int nbInitialElementNeeded = 0;
-      int trailingIdx = 0;
-      int today = 0;
-      int i = 0;
-      int highestIdx = 0;
-      int historyLen = inReal.length;
-      int endIdx = historyLen - 1;
-      int startIdx = 0;
-      if( historyLen < 1 ) {
-         return RetCode.BadParam;
-      }
-      if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
-      }
-      if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 30;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
-      }
       if( (Object)outInteger == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      /* Identify the minimum number of price bar needed
-       * to identify at least one output over the specified
-       * period.
-       */
-      nbInitialElementNeeded = optInTimePeriod - 1;
-      /* Move up the start index if there is not
-       * enough initial data.
-       */
-      if( startIdx < nbInitialElementNeeded ) {
-         startIdx = nbInitialElementNeeded;
+      return MAXINDEX_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1 );
+   }
+   private RetCode MAXINDEX_OpenAndFillInternalBody( MAXINDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   {
+      return MAXINDEX_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1);
+   }
+   /* MAXINDEX_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   MAXINDEX_Stream MAXINDEX_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   {
+      MAXINDEX_Stream sp = new MAXINDEX_Stream(this);
+      RetCode retCode = MAXINDEX_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      if( retCode == RetCode.Success ) {
+         return sp;
       }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+      if( retCode == RetCode.OutOfRangeEndIndex ) {
+         throw new InsufficientHistoryException("MAXINDEX openAndFill: history shorter than lookback + 1");
       }
-      /* Proceed with the calculation for the requested range.
-       * (The integer output can never share the real input's buffer —
-       * different element type; issue #130.)
-       */
-      outIdx = 0;
-      today = startIdx;
-      trailingIdx = startIdx - nbInitialElementNeeded;
-      highestIdx = 0 - 1;
-      highest = 0.0;
-      while( today <= endIdx ) {
-         tmp = inReal[today];
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
-            highest = inReal[highestIdx];
-            i = highestIdx;
-            while( ++i <= today ) {
-               tmp = inReal[i];
-               if( tmp > highest ) {
-                  highestIdx = i;
-                  highest = tmp;
-               }
-            }
-         } else if( tmp >= highest ) {
-            highestIdx = today;
-            highest = tmp;
-         }
-         outInteger[outIdx++] = highestIdx;
-         trailingIdx += 1;
-         today += 1;
+      if( retCode == RetCode.InternalError ) {
+         throw new IllegalStateException("MAXINDEX openAndFill: internal error");
       }
-      /* Keep the outBegIdx relative to the
-       * caller input before returning.
-       */
-      outBegIdx.value = startIdx;
-      outNBElement.value = outIdx;
-      /* Capture the live batch state into the handle. */
-      int capX = today - trailingIdx + 1;
-      if( capX < 1 || capX > historyLen ) {
-         return RetCode.InternalError;
-      }
-      double[] capX_inReal = new double[capX];
-      for( int fillJ = historyLen - capX; fillJ < historyLen; fillJ++ ) {
-         capX_inReal[fillJ % capX] = inReal[fillJ];
-      }
-      sp.optInTimePeriod = optInTimePeriod;
-      sp.highest = highest;
-      sp.trailingIdx = trailingIdx;
-      sp.i = i;
-      sp.highestIdx = highestIdx;
-      sp.today = today;
-      sp.xCap = capX;
-      sp.x_inReal = capX_inReal;
-      sp.cur_outInteger = outInteger[outNBElement.value - 1];
-      return RetCode.Success;
+      throw new IllegalArgumentException("MAXINDEX openAndFill: " + retCode);
    }
    /* Internal startIdx-anchored open behind MAXINDEX_Open (composition seam). */
    MAXINDEX_Stream MAXINDEX_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )

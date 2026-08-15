@@ -110,9 +110,12 @@ int codegen_lang_needs_transcendental_tol(const char *lang)
 }
 
 /* Which languages can be ASKED whether TA_INTEGER_DEFAULT on an enum:MAType
- * parameter selects the declared default. C, Rust and C# type that parameter as
- * an integer (a C# enum is an int with names), so the sentinel reaches their
- * validation and the substitution is what maps it back (#162). Java's MAType is
+ * parameter selects the declared default. C and C# type that parameter as an
+ * integer (a C# enum is an int with names), so the sentinel reaches their
+ * validation and the substitution is what maps it back (#162). Rust types it as
+ * a real enum yet stays answerable: its library-side TryFrom maps i32::MIN to
+ * MAType::DEFAULT, which the per-slot prologue then substitutes -- do NOT "fix"
+ * that asymmetry by adding rust below, it would delete a working leg. Java's MAType is
  * a real enum and Core takes MAType: the value is unrepresentable rather than
  * mishandled, its server would die constructing one
  * (MAType.values()[Integer.MIN_VALUE] throws), and substituting server-side
@@ -125,6 +128,23 @@ static int codegen_lang_can_pass_enum_sentinel(const char *lang)
 {
     if( !lang ) return 1;
     return strcmp(lang, "java") != 0;
+}
+
+/* The choice list's DEFAULT member (#182), or -1 when the enum declares none.
+ * This is the spelling a typed enum CAN carry, so it reaches the substitution in
+ * the one backend TA_INTEGER_DEFAULT cannot. Keyed on the name rather than a
+ * literal 11: the value is enums.yaml's to choose. */
+static int codegen_enum_default_member(const TA_OptInputParameterInfo *optInfo)
+{
+    const TA_IntegerList *l;
+    unsigned int e;
+    if( !optInfo || optInfo->type != TA_OptInput_IntegerList ) return -1;
+    l = (const TA_IntegerList *)optInfo->dataSet;
+    if( !l ) return -1;
+    for( e = 0; e < l->nbElement; e++ )
+        if( l->data[e].string && strcmp(l->data[e].string, "DEFAULT") == 0 )
+            return l->data[e].value;
+    return -1;
 }
 
 /* ---- Default-sentinel float leg counters (issue #170) ----
@@ -147,6 +167,20 @@ static long g_floatSentinelEligible[NUM_LANGUAGES];
  * tests. */
 static long g_floatSentinelWithOutput[NUM_LANGUAGES];
 static long g_floatSentinelEnumWithheld = 0;
+
+/* Functions that reached a real value comparison, per language. The closing
+ * banner used to read "All N language(s) passed codegen verification" off
+ * `langsTested` alone — a count of servers that STARTED, not of anything
+ * compared. A run filtered to post-cutover functions skips every one of them
+ * for want of a frozen ta_ref_serve baseline and still printed that line over a
+ * "0 passed, 0 failed" table, which is the most confident-sounding output in
+ * the tool attached to the least evidence. The skip itself is legitimate (those
+ * functions are covered by server_verify, --xlang-hash and their hard-coded
+ * tests), so this is not a failure on a filtered run — it is a banner that must
+ * stop claiming a pass it did not earn. Unfiltered it IS a failure: 171 shipped
+ * functions cannot all legitimately skip, so zero there means the sweep went
+ * dark. Mirrors the sentinel floor below. */
+static long g_codegenCompared[NUM_LANGUAGES];
 
 /* One line per language per kind of skipped leg, so the coverage a language
  * cannot take is stated in the log instead of quietly vanishing. */
@@ -375,6 +409,8 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     /* APO/PPO default to EMA (#120) -> EMA-converging, like MACDEXT. */
     {"APO",          TA_FUNC_UNST_EMA},
     {"PPO",          TA_FUNC_UNST_EMA},
+    /* EFI smooths its force series with the same EMA. */
+    {"EFI",          TA_FUNC_UNST_EMA},
     /* ADXR/STOCHRSI own knobs were inert and retired (#129); they converge
      * via their internal ADX/RSI, like the EMA-derived set above. */
     {"ADXR",         TA_FUNC_UNST_ADX},
@@ -1742,7 +1778,8 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
  * VARIANT gate and the COMPOSITE hand tests (TA_MAType_HMA dispatch parity).
  * When a frozen oracle is re-frozen on a tag that includes #139, raise (or
  * retire) this max accordingly. */
-#define FROZEN_ORACLE_MATYPE_MAX 8   /* == TA_MAType_T3; HMA(9) added by #139 */
+#define FROZEN_ORACLE_MATYPE_MAX 8   /* == TA_MAType_T3; 9+ postdate the frozen
+                                        oracles (HMA #139, DISABLED #93, DEFAULT #182) */
 static long long g_frozenEnumSkips = 0;
 
 static int frozen_excludes_enum_value(const TA_OptInputParameterInfo *oi, int value)
@@ -2050,7 +2087,9 @@ static int float_leg_set_sentinels(CodegenRangeTestParam *p)
     for( i = 0; i < p->funcInfo->nbOptInput; i++ )
     {
         const TA_OptInputParameterInfo *optInfo;
+        int enumDefaultMember;
         TA_GetOptInputParameterInfo(p->funcInfo->handle, i, &optInfo);
+        enumDefaultMember = codegen_enum_default_member(optInfo);
 
         switch( optInfo->type )
         {
@@ -2062,6 +2101,15 @@ static int float_leg_set_sentinels(CodegenRangeTestParam *p)
             if( codegen_lang_can_pass_enum_sentinel(p->langName) )
             {
                 p->optOverride[i] = (double)TA_INTEGER_DEFAULT;
+                nbSent++;
+            }
+            else if( enumDefaultMember >= 0 )
+            {
+                /* Java cannot hold TA_INTEGER_DEFAULT here, but the enum's own
+                 * DEFAULT member carries the identical contract (#182) and IS
+                 * representable — and Java's float overload is the one surface
+                 * whose substitution no other gate reaches. */
+                p->optOverride[i] = (double)enumDefaultMember;
                 nbSent++;
             }
             else
@@ -2097,9 +2145,9 @@ static int float_leg_set_sentinels(CodegenRangeTestParam *p)
  * That vector is the one that exposed the TA_S_EMA defect fixed in 2e9767397:
  * the float body derived EMA's k factor from the raw sentinel because the
  * initialiser ran before the prologue substituted it, while the double tier
- * delegated to TA_EMA_Private after validation and was right. The same defect
- * was live in Java's float emaInternal and C#'s float Ema, where no gate could
- * see it — reaching only resolved defaults, this leg could not have caught it.
+ * was right. The same defect was live in Java's float emaInternal and C#'s
+ * float Ema, where no gate could see it — reaching only resolved defaults,
+ * this leg could not have caught it.
  *
  * Not asserted here: float(sentinel) == float(default). A body that mishandles
  * the sentinel diverges from its own double tier (the pair check above) or is
@@ -2260,8 +2308,8 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         const TA_OptInputParameterInfo *optInfo;
         TA_GetOptInputParameterInfo(funcInfo->handle, i, &optInfo);
 
-        /* Sized past the widest single-param list (MAType: 11 values today, 10
-         * non-default after #93's DISABLED) so the cap below never silently drops
+        /* Sized past the widest single-param list (MAType: 12 values today, 11
+         * non-default after #93's DISABLED and #182's DEFAULT) so the cap below never silently drops
          * a value even if FROZEN_ORACLE_MATYPE_MAX is retired after a re-freeze
          * (which would let all non-default MATypes through). */
         double cand[16];
@@ -2425,10 +2473,11 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
  * function cannot reach the cap. Overflow is a hard failure, never a skip. */
 #define STREAM_MAX_OPT 16
 /* Sized for the widest stream-vector enumeration: MACDEXT carries 3 MAType
- * params, so its count is 6*M+1 in the MAType-list length M (base 4 + 3 params *
- * (2 base-vector crosses * (M-1) non-default arms + 1 out-of-list)). M=11 today
- * (#93 added TA_MAType_DISABLED) => 67; 128 keeps runway for ~10 more MATypes
- * before MACDEXT reaches it again. Overflow is a hard failure, never a skip. */
+ * params, so its count is 8*M-1 in the MAType-list length M (base 4 + 3 params *
+ * (2 base-vector crosses * (M-1) non-default arms + 1 out-of-list) + the 2 *
+ * (M-1) multi-enum diagonal, #181). M=12 today (#93 added DISABLED, #182
+ * DEFAULT) => 95; 128 keeps runway for 4 more MATypes before MACDEXT reaches
+ * it again. Overflow is a hard failure, never a skip. */
 #define STREAM_MAX_VEC 128
 #define STREAM_N       240
 
@@ -2483,7 +2532,7 @@ static int stream_build_vectors(const TA_FuncInfo *fi,
                                 int *overflow)
 {
     unsigned int i, e;
-    int hasMin = 0, hasMinPlus1 = 0, nvec, v;
+    int hasMin = 0, hasMinPlus1 = 0, nvec, v, baseVecs = 0;
     for( v = 0; v < STREAM_MAX_VEC; v++ ) vecIsMin[v] = 0;
     for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
     {
@@ -2529,16 +2578,14 @@ static int stream_build_vectors(const TA_FuncInfo *fi,
 
     /* One ABOVE-default "large window" vector (default+41, clamped to the
      * range). It exercises the general/large-period regime — a big ring/window
-     * so wraparound is hit over the fixed STREAM_N history — and for a
-     * fast-path-skip function (MIDPRICE) a period ABOVE its perf threshold,
-     * where the batch runs the very else-arm the stream models. The +41 (odd)
+     * so wraparound is hit over the fixed STREAM_N history. The +41 (odd)
      * offset also FLIPS PARITY vs the default, so a parity-branched dual-mode
      * function (TRIMA odd/even) gets a non-degenerate ODD large period (its
      * default 30 is even; min=1 is odd but degenerate), locking the odd arm's
      * Open/Update/Peek continuation into CI. Without this vector,
      * stream_build_vectors hands every function only default/min small periods,
-     * so a fast-path-skip stream is otherwise verified only in its
-     * threshold-and-below regime. Deduped vs the default; not a min/enum vector. */
+     * and no leg would reach a ring large enough to wrap. Deduped vs the
+     * default; not a min/enum vector. */
     {
         int any = 0;
         if( nvec < STREAM_MAX_VEC )
@@ -2571,7 +2618,7 @@ static int stream_build_vectors(const TA_FuncInfo *fi,
      * (the caller fails the run loudly: silent truncation would quietly
      * stop testing arms). */
     {
-        int baseVecs = nvec;
+        baseVecs = nvec;
         *overflow = 0;
         for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
         {
@@ -2604,6 +2651,83 @@ static int stream_build_vectors(const TA_FuncInfo *fi,
                     for( j = 0; j < fi->nbOptInput && j < STREAM_MAX_OPT; j++ )
                         vec[nvec][j] = vec[0][j];
                     vec[nvec][i] = (double)(maxList + 91); /* out of list */
+                    vecIsEnum[nvec] = 1;
+                    nvec++;
+                }
+            }
+        }
+    }
+
+    /* Multi-enum DIAGONAL: every enum param moved to the SAME non-default list
+     * value at once. The sweep above overwrites exactly ONE enum slot per
+     * vector, so a function carrying more than one — MACDEXT (3 MATypes) and
+     * STOCH (2) — never sees them non-default TOGETHER, and a specialization
+     * guarded on "all of them are X" is unreachable by construction. That is
+     * the hole issue #181 fell through: MACDEXT's batch body delegates an
+     * all-EMA call to TA_MACD's single lockstep pass, the streaming tier
+     * composes the generic three-MA path instead, and no stream leg ever
+     * selected all-EMA to hold the two to each other. The full cross is M^N
+     * (1331 vectors for MACDEXT at M=12) and is what makes this deliberately
+     * uncovered; the diagonal is M-1 and reaches every "all slots equal" guard.
+     *
+     * Crossed with the same base vectors as the sweep above, which puts the
+     * periods on BOTH sides of a guard that also tests them: MACDEXT's fast
+     * path needs every period >= 2, which the defaults vector satisfies and the
+     * boundary vector (signal period 1) does not — so the diagonal covers the
+     * specialization and its fallback rather than only one of them. */
+    {
+        int nEnum = 0, firstEnum = -1;
+        for( i = 0; i < fi->nbOptInput && i < STREAM_MAX_OPT; i++ )
+        {
+            const TA_OptInputParameterInfo *oi;
+            TA_GetOptInputParameterInfo(fi->handle, i, &oi);
+            if( oi->type == TA_OptInput_IntegerList && oi->dataSet )
+            {
+                if( firstEnum < 0 ) firstEnum = (int)i;
+                nEnum++;
+            }
+        }
+        if( nEnum >= 2 )
+        {
+            const TA_OptInputParameterInfo *oi0;
+            const TA_IntegerList *l0;
+            int b;
+            TA_GetOptInputParameterInfo(fi->handle, (unsigned int)firstEnum, &oi0);
+            l0 = (const TA_IntegerList *)oi0->dataSet;
+            for( b = 0; b < baseVecs && b < 2; b++ )
+            {
+                for( e = 0; e < l0->nbElement; e++ )
+                {
+                    /* Take the value only when EVERY enum slot lists it (the
+                     * diagonal has to be a legal vector, not a reject probe —
+                     * out-of-list rejection is the sweep's job above), and only
+                     * when at least one slot actually moves off its default
+                     * (an all-defaults diagonal is the base vector again). */
+                    int value = l0->data[e].value, shared = 1, moves = 0;
+                    unsigned int j;
+                    for( j = 0; j < fi->nbOptInput && j < STREAM_MAX_OPT; j++ )
+                    {
+                        const TA_OptInputParameterInfo *oj;
+                        const TA_IntegerList *lj;
+                        unsigned int k;
+                        int found = 0;
+                        TA_GetOptInputParameterInfo(fi->handle, j, &oj);
+                        if( oj->type != TA_OptInput_IntegerList || !oj->dataSet ) continue;
+                        lj = (const TA_IntegerList *)oj->dataSet;
+                        for( k = 0; k < lj->nbElement; k++ )
+                            if( lj->data[k].value == value ) found = 1;
+                        if( !found ) { shared = 0; break; }
+                        if( value != (int)oj->defaultValue ) moves = 1;
+                    }
+                    if( !shared || !moves ) continue;
+                    if( nvec >= STREAM_MAX_VEC ) { (*overflow)++; continue; }
+                    for( j = 0; j < fi->nbOptInput && j < STREAM_MAX_OPT; j++ )
+                    {
+                        const TA_OptInputParameterInfo *oj;
+                        TA_GetOptInputParameterInfo(fi->handle, j, &oj);
+                        vec[nvec][j] = ( oj->type == TA_OptInput_IntegerList && oj->dataSet )
+                                     ? (double)value : vec[b][j];
+                    }
                     vecIsEnum[nvec] = 1;
                     nvec++;
                 }
@@ -2744,7 +2868,23 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
             }
             else if( variant >= 3 )
             {
-                if( v != 0 ) continue; /* extra shapes: defaults vector only */
+                /* Extra shapes: defaults vector, plus the below-default
+                 * boundary vectors (range.min and min+1).
+                 *
+                 * The v-rotation `(v + variant) % 7` only ever hands a
+                 * non-default vector shape v itself, so before this the
+                 * boundary periods were verified on MONO_UP/MONO_DOWN alone
+                 * and every shape from CONSTANT up was verified at exactly one
+                 * period — the default. That made the cross-tier signed-zero
+                 * arm (#147) INERT for the family it was written for:
+                 * FUZZ_WITH_ZEROS reached MIN/MAX/MINMAX only at period 30,
+                 * where a window with no negative bar (and hence a +/-0
+                 * extremum) does not occur in 240 bars, and reached MIDPOINT at
+                 * 14, where a tie at ONE extremum cannot change the bits of
+                 * (highest+lowest)/2. At range.min/min+1 the same shape carries
+                 * 5-21 windows per function whose emitted bits are a tie-break
+                 * choice. Costs <= 2 extra vectors x 6 shapes per function. */
+                if( v != 0 && !vecIsMin[v] ) continue;
             }
             shape = (variant >= 3) ? variant : (v + variant) % 7;
             stream_build_request(ctx->requestBuf, funcInfo, vec[v],
@@ -3157,6 +3297,149 @@ static ErrorNumber test_unstable_wildcard(CodegenPipe *cp, const CodegenLanguage
     #undef UW_SLOW
 }
 
+/* The unstable period's VALUE domain, held identical on every server (#186).
+ *
+ * The wildcard probe above proves a legal period reaches every function; this
+ * proves an illegal one reaches none of them. Until #186 the four backends
+ * disagreed outright — C bounded the value, Java bounded only the low end, Rust
+ * bounded nothing and took a signed parameter, C# had no setter at all — and no
+ * cross-language run could see it, because every period the harness had ever
+ * sent was legal.
+ *
+ * Three things are asserted, in the order that makes each one non-vacuous:
+ *   1. TA_MAX_INDEX itself is ACCEPTED. Without this the whole check passes
+ *      against a server that rejects everything, and a guard tightened by one
+ *      ships unnoticed.
+ *   2. TA_MAX_INDEX + 1 and 2^31-1 are REJECTED, on the single-id path and on
+ *      the set-all wildcard alike.
+ *   3. A rejected call WROTE NOTHING. This is the half an "it errored" check
+ *      cannot see, and the half C's own test pins (test_internals.c). ADOSC is
+ *      the probe for the same reason the wildcard test uses it: it carries no
+ *      `unstablePeriod` request field, so the call cannot re-set what it reads,
+ *      yet its lookback is TA_EMA_Lookback and so moves with EMA's period. */
+static ErrorNumber test_unstable_bounds(CodegenPipe *cp, const CodegenLanguage *lang,
+                                        char *reqBuf, char *respBuf)
+{
+    #define UB_NBBAR 60
+    #define UB_FAST  3
+    #define UB_SLOW  10
+    TA_Real h[UB_NBBAR], l[UB_NBBAR], c[UB_NBBAR], v[UB_NBBAR];
+    /* Values every backend must refuse. TA_MAX_INDEX+1 is the first one past the
+     * ceiling; 2^31-1 is the value that overflowed the lookback negative. */
+    const long long rejects[2] = { (long long)TA_MAX_INDEX + 1, 2147483647LL };
+    const int ids[2] = { (int)TA_FUNC_UNST_EMA, (int)TA_FUNC_UNST_ALL };
+    const int marker = 4;   /* the good value a rejected call must not disturb */
+    int expected, i, k, r;
+
+    for( i = 0; i < UB_NBBAR; i++ )
+    {
+        double base = 100.0 + (double)((i * 7) % 13);
+        h[i] = base + 2.0;
+        l[i] = base - 2.0;
+        c[i] = base + 0.5;
+        v[i] = 1000.0 + (double)((i * 3) % 17) * 10.0;
+    }
+
+    /* (1) The ceiling is a bound, not an off-by-one: TA_MAX_INDEX is legal. */
+    for( k = 0; k < 2; k++ )
+    {
+        codegen_appendf(reqBuf, JSON_BUF_SIZE, 0,
+                "{\"method\":\"set_unstable_period\",\"params\":{\"id\":%d,\"period\":%d}}",
+                ids[k], (int)TA_MAX_INDEX);
+        if( codegen_pipe_call(cp, reqBuf, respBuf, JSON_BUF_SIZE) != TA_TEST_PASS
+            || json_is_error(respBuf) )
+        {
+            printf("  UNSTABLE BOUND [%s]: id %d rejected the TA_MAX_INDEX ceiling (%d), "
+                   "which C accepts: %s\n", lang->display, ids[k], (int)TA_MAX_INDEX, respBuf);
+            return TA_UNSTABLE_BOUND_CEILING;
+        }
+    }
+
+    /* Park a known-good value so step (3) has something to observe. */
+    codegen_appendf(reqBuf, JSON_BUF_SIZE, 0,
+            "{\"method\":\"set_unstable_period\",\"params\":{\"id\":%d,\"period\":%d}}",
+            (int)TA_FUNC_UNST_ALL, marker);
+    if( codegen_pipe_call(cp, reqBuf, respBuf, JSON_BUF_SIZE) != TA_TEST_PASS
+        || json_is_error(respBuf) )
+    {
+        printf("  UNSTABLE BOUND [%s]: could not park the marker period: %s\n",
+               lang->display, respBuf);
+        return TA_UNSTABLE_BOUND_CEILING;
+    }
+
+    TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, (unsigned int)marker);
+    expected = TA_ADOSC_Lookback(UB_FAST, UB_SLOW);
+    TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, 0);
+
+    /* (2) and (3): each out-of-range value is refused, and leaves the marker. */
+    for( r = 0; r < 2; r++ )
+    {
+        for( k = 0; k < 2; k++ )
+        {
+            codegen_appendf(reqBuf, JSON_BUF_SIZE, 0,
+                    "{\"method\":\"set_unstable_period\",\"params\":{\"id\":%d,\"period\":%lld}}",
+                    ids[k], rejects[r]);
+            if( codegen_pipe_call(cp, reqBuf, respBuf, JSON_BUF_SIZE) != TA_TEST_PASS )
+            {
+                printf("  UNSTABLE BOUND [%s]: transport failed for id %d period %lld\n",
+                       lang->display, ids[k], rejects[r]);
+                return TA_UNSTABLE_BOUND_NOT_REJECTED;
+            }
+            if( !json_is_error(respBuf) )
+            {
+                printf("  UNSTABLE BOUND [%s]: id %d ACCEPTED period %lld, which C rejects "
+                       "with TA_BAD_PARAM: %s\n",
+                       lang->display, ids[k], rejects[r], respBuf);
+                return TA_UNSTABLE_BOUND_NOT_REJECTED;
+            }
+
+            /* The rejected call must not have written. */
+            int pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, 0,
+                    "{\"method\":\"TA_ADOSC\",\"params\":{\"startIdx\":0,\"endIdx\":%d,"
+                    "\"optInFastPeriod\":%d,\"optInSlowPeriod\":%d,\"inHigh\":",
+                    UB_NBBAR - 1, UB_FAST, UB_SLOW);
+            pos = json_write_double_array(reqBuf, JSON_BUF_SIZE, pos, h, UB_NBBAR, 0);
+            pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, ",\"inLow\":");
+            pos = json_write_double_array(reqBuf, JSON_BUF_SIZE, pos, l, UB_NBBAR, 0);
+            pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, ",\"inClose\":");
+            pos = json_write_double_array(reqBuf, JSON_BUF_SIZE, pos, c, UB_NBBAR, 0);
+            pos = codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, ",\"inVolume\":");
+            pos = json_write_double_array(reqBuf, JSON_BUF_SIZE, pos, v, UB_NBBAR, 0);
+            codegen_appendf(reqBuf, JSON_BUF_SIZE, pos, "}}");
+
+            if( codegen_pipe_call(cp, reqBuf, respBuf, JSON_BUF_SIZE) != TA_TEST_PASS
+                || json_is_error(respBuf) )
+            {
+                printf("  UNSTABLE BOUND [%s]: TA_ADOSC call failed after a rejected "
+                       "period: %s\n", lang->display, respBuf);
+                return TA_UNSTABLE_BOUND_WROTE_ANYWAY;
+            }
+            if( json_get_int(respBuf, "outBegIdx") != expected )
+            {
+                printf("  UNSTABLE BOUND [%s]: id %d period %lld was refused but still "
+                       "changed the stored state — ADOSC outBegIdx = %d, expected %d "
+                       "(the marker %d)\n",
+                       lang->display, ids[k], rejects[r],
+                       json_get_int(respBuf, "outBegIdx"), expected, marker);
+                return TA_UNSTABLE_BOUND_WROTE_ANYWAY;
+            }
+        }
+    }
+
+    /* Leave the server as we found it. */
+    codegen_appendf(reqBuf, JSON_BUF_SIZE, 0,
+            "{\"method\":\"set_unstable_period\",\"params\":{\"id\":%d,\"period\":0}}",
+            (int)TA_FUNC_UNST_ALL);
+    codegen_pipe_call(cp, reqBuf, respBuf, JSON_BUF_SIZE);
+
+    printf("  Unstable-period bounds: %d accepted, %lld and %lld refused with no write\n",
+           (int)TA_MAX_INDEX, rejects[0], rejects[1]);
+    return TA_TEST_PASS;
+    #undef UB_NBBAR
+    #undef UB_FAST
+    #undef UB_SLOW
+}
+
 /* Fuzz-port self-check for stream-capable servers (capability-gated): a
  * server that PORTS fuzz_gen (Java FuzzData, Rust fuzz.rs) must reproduce the
  * driver's inputs byte-identically, or every stream leg silently exercises
@@ -3324,6 +3607,19 @@ static ErrorNumber test_codegen_for_language(
         }
     }
 
+    /* The value domain that wildcard leaves untested: TA_MAX_INDEX accepted,
+     * anything above it refused with no write, on every server (#186). Also
+     * leaves the server back at all-zeros. */
+    if( ctx.error == TA_TEST_PASS )
+    {
+        ErrorNumber boundErr = test_unstable_bounds(&cp, lang, requestBuf, responseBuf);
+        if( boundErr != TA_TEST_PASS )
+        {
+            ctx.error = boundErr;
+            ctx.failed++;
+        }
+    }
+
     /* Ref differential sweep: broaden the ta_ref_serve comparison beyond the
      * default and large-period points (see sweep_one_function). */
     if( ctx.error == TA_TEST_PASS && refCp )
@@ -3371,7 +3667,7 @@ static ErrorNumber test_codegen_for_language(
                ctx.error == TA_TEST_PASS ? ", all match ta_ref_serve" : "");
         if( g_frozenEnumSkips > 0 )
             printf("  post-freeze enums: %lld MAType value(s) > %d excluded vs ta_ref_serve "
-                   "(#139; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
+                   "(#139, #93, #182; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
                    g_frozenEnumSkips, FROZEN_ORACLE_MATYPE_MAX);
     }
 
@@ -3445,6 +3741,9 @@ static ErrorNumber test_codegen_for_language(
 
     printf("\n  %s: %d passed, %d failed, %d skipped\n",
            lang->display, ctx.passed, ctx.failed, ctx.skipped);
+
+    if( langIndex >= 0 && (unsigned int)langIndex < NUM_LANGUAGES )
+        g_codegenCompared[langIndex] = ctx.passed;
 
     /* Name the skips — an unnamed "6 skipped" reads as noise. The set is the
      * same for every language, so print it once (issue #137). All four variants
@@ -3795,8 +4094,8 @@ static const char *const argv_064[] = {"./ta_064_serve", NULL};
 #define FUZZ_MAXN     256   /* bars per config (<= MAX_NB_TEST_ELEMENT) */
 #define FUZZ_MAX_OPT  16
 #define FUZZ_MAX_CAND 24    /* candidate values per single param. Only the MAType
-                             * list can approach it: 11 values today (#93 added
-                             * DISABLED) => 10 non-default. Overflow here is
+                             * list can approach it: 12 values today (#93 added
+                             * DISABLED, #182 DEFAULT) => 11 non-default. Overflow here is
                              * counted into *overflow so it fails the run LOUDLY —
                              * without this the MAType sweep would truncate
                              * silently (it never reaches the FUZZ_MAX_VEC guard). */
@@ -3804,8 +4103,8 @@ static const char *const argv_064[] = {"./ta_064_serve", NULL};
                              * 3 period ranges (<= 6 candidates + 2 reject + 1
                              * sentinel each) + 3 MAType lists (M-1 values + 1
                              * sentinel each, #162) + the defaults vector <= 3*M+28
-                             * in the MAType-list length M. M=11 today => 61 worst
-                             * case, 60 actually built (one of optInSignalPeriod's
+                             * in the MAType-list length M. M=12 today => 64 worst
+                             * case, 63 actually built (one of optInSignalPeriod's
                              * boundary candidates lands on its own default and is
                              * dropped). 80 gives runway to M=17, and still matches
                              * STREAM_MAX_VEC.
@@ -4078,7 +4377,7 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
                 /* A MAType list longer than cand[] would otherwise truncate
                  * SILENTLY here (this loop never reaches the FUZZ_MAX_VEC guard
                  * below), quietly dropping arms from the sweep. Count it so the
-                 * run fails loudly instead. #93 took the list to 11 (10
+                 * run fails loudly instead. #93 and #182 took the list to 12 (11
                  * non-default); FUZZ_MAX_CAND keeps headroom above that. */
                 if( nc >= FUZZ_MAX_CAND ) { (*overflow)++; continue; }
                 cand[nc++] = (double)l->data[e2].value;
@@ -4751,7 +5050,7 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
                ctx.stochRsiSkipped);
     if( g_frozenEnumSkips > 0 )
         printf("post-freeze enums: %lld MAType value(s) > %d excluded vs v0.6.4 "
-               "(#139; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
+               "(#139, #93, #182; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
                g_frozenEnumSkips, FROZEN_ORACLE_MATYPE_MAX);
     if( ctx.varianceSkipped > 0 )
         printf("variance-skipped: %lld VAR/STDDEV/BBANDS case(s) ill-conditioned for 0.6.4 (kappa > %.0e, issue #118); every better-conditioned case was compared\n",
@@ -6608,6 +6907,41 @@ ErrorNumber test_codegen(const TA_History *history,
                    "function appeared to have no optional parameter, so the leg "
                    "asserted nothing anywhere\n");
             return TA_CODEGEN_OUTPUT_MISMATCH;
+        }
+
+        /* What the banner is allowed to claim. See g_codegenCompared. */
+        {
+            long comparedTotal = 0;
+            unsigned int li;
+
+            for( li = 0; li < NUM_LANGUAGES; li++ )
+                comparedTotal += g_codegenCompared[li];
+
+            if( comparedTotal == 0 )
+            {
+                printf("\n=============================================\n");
+                if( functionFilter == NULL )
+                {
+                    printf("CODEGEN FAILED: the sweep value-compared NOTHING in an "
+                           "unfiltered run — %d language server(s) started and every "
+                           "shipped function was skipped, so this run asserted no "
+                           "output value anywhere\n", langsTested);
+                    printf("=============================================\n");
+                    return TA_CODEGEN_OUTPUT_MISMATCH;
+                }
+                printf("NO VALUE COMPARISON: %d language server(s) started and ran "
+                       "the structural legs, but --function=%s selected no function "
+                       "this sweep can value-compare — every match was skipped (see "
+                       "the skip lines above).\n", langsTested, functionFilter);
+                printf("  This is NOT a pass. Post-cutover functions have no frozen "
+                       "ta_ref_serve baseline here; their cross-language values are "
+                       "gated by:  ta_regtest --xlang-hash --function=%s\n",
+                       functionFilter);
+                printf("=============================================\n");
+                write_timing_report("ta_regtest_timing.jsonl");
+                write_markdown_report("ta_regtest_report.md", languageFilter);
+                return TA_TEST_PASS;
+            }
         }
 
         printf("\n=============================================\n");
